@@ -1,4 +1,4 @@
-import { hostedConsoleOrigin } from "./hosted-console.ts"
+import { hostedConsoleOrigin } from "./hosted-console-origin.ts"
 import { encodeRouteSegment } from "./route-segment.ts"
 
 /** Public origins resolved from `vitehub({ publicUrl })` at build time. */

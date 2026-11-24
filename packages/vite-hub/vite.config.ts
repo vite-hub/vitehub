@@ -642,6 +642,8 @@ export default defineConfig({
           delete exports["./console/runtime/server/auth"];
           delete exports["./console/runtime/server/tickets"];
           delete exports["./console/runtime/server/site-entry"];
+          delete exports["./console/runtime/server/entry"];
+          delete exports["./console/runtime/server/entry-site-access"];
           delete exports["./console/runtime/server/env"];
           delete exports["./console/runtime/server/logs.get"];
           delete exports["./console/runtime/server/mcp-client-operations"];

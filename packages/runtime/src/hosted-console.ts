@@ -1,7 +1,7 @@
 import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
+import { hostedConsoleOrigin } from "./hosted-console-origin.ts"
 
-/** The origin of the hosted Console. */
-export const hostedConsoleOrigin = "https://console.vitehub.dev"
+export { hostedConsoleOrigin }
 
 const loopbackHosts = new Set(["localhost", "127.0.0.1", "[::1]"])
 const pathBase = "https://console.invalid"

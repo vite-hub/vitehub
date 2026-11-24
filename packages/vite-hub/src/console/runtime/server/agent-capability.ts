@@ -1,6 +1,6 @@
 import { installOperationRegistryLoader } from "@vite-hub/internal/operation-registry"
 
-import { agentConsole as consoleCapability, type ConsoleRuntime } from "../../server.ts"
+import { agentConsole as consoleCapability, type ConsoleRuntime } from "./agent-console.ts"
 import { loadConsoleRuntime } from "./runtime.ts"
 
 import type { RuntimeHostContext } from "@vite-hub/runtime"
