@@ -34,6 +34,7 @@ export default defineConfig({
       "src/durability.ts",
       "src/env.ts",
       "src/hints.ts",
+      "src/feature-inputs.ts",
       "src/features.ts",
       "src/forge.ts",
       "src/http-request.ts",

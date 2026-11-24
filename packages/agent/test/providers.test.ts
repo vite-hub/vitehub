@@ -965,7 +965,7 @@ describe("agent Vite plugin", () => {
     }
   })
 
-  it.each(["workflow/registry-runtime.mjs", "nitro/workflow/dev-registry.mjs"])("installs portable Capability loaders in generated Agent Workflow registry %s", async (registryPath) => {
+  it.each(["workflow/registry-runtime.mjs", "nitro/workflow/dev-registry.mjs", "nitro/workflow/build-registry.mjs"])("installs portable Capability loaders in generated Agent Workflow registry %s", async (registryPath) => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-workflow-capabilities-"))
     try {
@@ -1035,7 +1035,7 @@ describe("agent Vite plugin", () => {
     }
   })
 
-  it.each(["workflow/registry-runtime.mjs", "nitro/workflow/dev-registry.mjs"])("installs durable host state in generated Agent Workflow registry %s", async (registryPath) => {
+  it.each(["workflow/registry-runtime.mjs", "nitro/workflow/dev-registry.mjs", "nitro/workflow/build-registry.mjs"])("installs durable host state in generated Agent Workflow registry %s", async (registryPath) => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-workflow-state-"))
     try {

@@ -13,12 +13,12 @@ The package requires Node.js 24.15 or newer.
 
 ## Choose the package
 
-| Project                              | Install                      | Import from                                                               |
-| ------------------------------------ | ---------------------------- | ------------------------------------------------------------------------- |
-| A ViteHub application                | `pnpm add vite-hub`          | `vite-hub/browser`                                                        |
-| A direct Vite integration or library | `pnpm add @vite-hub/browser` | `@vite-hub/browser` and `@vite-hub/browser/vite`                          |
+| Project                              | Install                                | Import from                                      |
+| ------------------------------------ | -------------------------------------- | ------------------------------------------------ |
+| A ViteHub application                | `pnpm add vite-hub @vite-hub/browser`  | `vite-hub/browser`                               |
+| A direct Vite integration or library | `pnpm add @vite-hub/browser`           | `@vite-hub/browser` and `@vite-hub/browser/vite` |
 
-Use `vite-hub` for normal application code. It includes this package and keeps the Browser integration with the rest of the ViteHub deployment.
+Use `vite-hub` with `@vite-hub/browser` for normal application code. `vite-hub` declares `@vite-hub/browser` as an optional peer dependency and keeps the Browser integration with the rest of the ViteHub deployment.
 
 Install `@vite-hub/browser` directly when you compose Vite integrations yourself or need explicit providers and controllers. Choose one import family for application code so its package dependency stays clear.
 

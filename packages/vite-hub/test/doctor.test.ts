@@ -1,3 +1,4 @@
+import { relative } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 import { runProjectFixture, runRuleFixture } from "vite-doctor/testkit"
 import { createRule } from "vite-doctor/extension"
@@ -230,6 +231,41 @@ describe("vitehub/destructure-result-tuples", () => {
     expect(await nuxtAutoImportCodes(destructureResultTuples, {
       "server/api/settings.get.ts": "export default async () => {\n  const settings = await kv.get(\"settings\")\n  return settings\n}\n",
     })).toEqual(["VHUB0003"])
+  })
+
+  it.each([
+    ["default", "", ".nuxt", {}],
+    ["template literal", "typesDir: `.types`,", ".types", {}],
+    ["empty typesDir", 'typesDir: "", buildDir: ".build",', ".build", {}],
+    ["production prepare", '$production: { typesDir: ".types" },', ".types", {}],
+    ["referenced output", "typesDir: '.other',", ".types", {
+      "tsconfig.json": '{ "references": [{ "path": "./.types/tsconfig.server.json" }] }',
+      ".other/types/server-imports.mjs": "export { kv } from 'vite-hub/kv';\n",
+    }],
+  ])("uses Nuxt's resolved server imports: %s", async (_, options, directory, extraFiles) => {
+    const result = await runProjectFixture({
+      framework: "nuxt",
+      dependencies: { "vite-hub": "*" },
+      extensions: [vitehubDoctorExtension],
+      run: { rules: destructureResultTuples.meta.id },
+      files: {
+        ...extraFiles,
+        "nuxt.config.ts": `export default defineNuxtConfig({ ${options} experimental: { nitroAutoImports: true } })`,
+        [`${directory}/types/server-imports.mjs`]: "export { kv } from '../../server/utils/kv';\nexport { kv as hubKV } from 'vite-hub/kv';\nexport * as storage from 'vite-hub/kv';\n",
+        "server/utils/kv.ts": "export const kv = { async set() { return 'app-kv' } }\n",
+        "server/api/local.get.ts": "export default async () => ({ value: await kv.set() })\n",
+        "server/api/explicit.post.ts": 'import { kv } from "vite-hub/kv"\nexport default async () => { await kv.set("key", "value") }\n',
+        "server/api/alias.post.ts": 'export default async () => { await hubKV.set("key", "value") }\n',
+        "server/api/namespace.post.ts": 'export default async () => { await storage.kv.set("key", "value") }\n',
+      },
+    })
+    const files = result.diagnostics.filter(diagnostic => diagnostic.code === "VHUB0003")
+      .map(diagnostic => relative(result.root, diagnostic.file).replaceAll("\\", "/")).sort()
+    expect(files).toEqual([
+      "server/api/alias.post.ts",
+      "server/api/explicit.post.ts",
+      "server/api/namespace.post.ts",
+    ])
   })
 
   it.each([

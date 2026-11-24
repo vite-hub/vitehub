@@ -8,6 +8,7 @@ import { previewVersion, writePreviewManifests } from "../.github/scripts/previe
 
 const repoRoot = resolve(import.meta.dirname, "..")
 const sha = "0123abc".padEnd(40, "0")
+const publishedVersion = "0.4.1"
 const workspaces: string[] = []
 
 async function workspace(manifests: Record<string, object>) {
@@ -35,12 +36,12 @@ describe("preview package manifests", () => {
       internal: { name: "@vite-hub/internal", private: true, version: "0.0.0" },
     })
 
-    expect(await writePreviewManifests(root, sha)).toBe("0.0.0-preview-0123abc")
+    expect(await writePreviewManifests(root, sha, publishedVersion)).toBe("0.0.0-preview-0123abc")
     expect((await manifest(root, "agent")).version).toBe("0.0.0-preview-0123abc")
     expect((await manifest(root, "internal")).version).toBe("0.0.0")
   })
 
-  it("lets ViteHub peers accept the preview and keep their npm range", async () => {
+  it("uses the published version for workspace peers and keeps explicit ranges", async () => {
     const root = await workspace({
       agent: { name: "@vite-hub/agent", version: "0.1.0" },
       env: {
@@ -52,12 +53,13 @@ describe("preview package manifests", () => {
       schedule: {
         dependencies: { "@vite-hub/runtime": "workspace:*" },
         name: "@vite-hub/schedule",
-        peerDependencies: { "@vite-hub/agent": "workspace:^", "@vite-hub/kv": "workspace:*" },
+        peerDependencies: { "@vite-hub/agent": "workspace:^", "@vite-hub/env": "*", "@vite-hub/kv": "workspace:*" },
+        peerDependenciesMeta: { "@vite-hub/env": { optional: true } },
         version: "0.1.0",
       },
     })
 
-    await writePreviewManifests(root, sha)
+    await writePreviewManifests(root, sha, publishedVersion)
 
     expect((await manifest(root, "env")).peerDependencies).toEqual({
       "@vite-hub/agent": "^0.1.0 || 0.0.0-preview-0123abc",
@@ -65,9 +67,11 @@ describe("preview package manifests", () => {
     })
     const schedule = await manifest(root, "schedule")
     expect(schedule.peerDependencies).toEqual({
-      "@vite-hub/agent": "^0.1.0 || 0.0.0-preview-0123abc",
-      "@vite-hub/kv": "0.2.0 || 0.0.0-preview-0123abc",
+      "@vite-hub/agent": "^0.4.1 || 0.0.0-preview-0123abc",
+      "@vite-hub/env": "0.4.1 || 0.0.0-preview-0123abc",
+      "@vite-hub/kv": "0.4.1 || 0.0.0-preview-0123abc",
     })
+    expect(schedule.peerDependenciesMeta).toEqual({ "@vite-hub/env": { optional: true } })
     expect(schedule.dependencies).toEqual({ "@vite-hub/runtime": "workspace:*" })
   })
 
@@ -83,10 +87,12 @@ describe("preview package manifests", () => {
   it("runs between the fresh build and the preview publish", async () => {
     const workflow = await readFile(resolve(repoRoot, ".github/workflows/ci.yml"), "utf8")
     const build = workflow.indexOf("- run: vp run --no-cache --filter \"./packages/*\" build")
-    const prepare = workflow.indexOf("- run: node .github/scripts/preview-packages.mjs \"$PREVIEW_SHA\"")
+    const registryVersion = workflow.indexOf('published_version="$(npm view vite-hub@latest version --registry=https://registry.npmjs.org)"')
+    const prepare = workflow.indexOf('node .github/scripts/preview-packages.mjs "$PREVIEW_SHA" "$published_version"')
     const publish = workflow.indexOf("pkg-pr-new publish")
     expect(build).toBeGreaterThan(-1)
-    expect(prepare).toBeGreaterThan(build)
+    expect(registryVersion).toBeGreaterThan(build)
+    expect(prepare).toBeGreaterThan(registryVersion)
     expect(publish).toBeGreaterThan(prepare)
   })
 })

@@ -5,6 +5,7 @@ import { createTwoFilesPatch } from "diff"
 
 import { codemods } from "./registry.ts"
 import { codemodError, codemodsErrorDiagnostics } from "./error-diagnostics.ts"
+import { nodeVersionNote } from "./shared/node-version.ts"
 
 import type { Codemod, CodemodResult, FileEdit } from "./types.ts"
 
@@ -72,7 +73,9 @@ export async function runCodemod(name: string, options: RunCodemodOptions = {}):
   }
   const cwd = resolve(options.cwd ?? process.cwd())
   const dryRun = options.dryRun ?? false
-  const result = await codemod.run({ cwd })
+  const planned = await codemod.run({ cwd })
+  const nodeNote = nodeVersionNote()
+  const result = nodeNote ? { ...planned, notes: [...planned.notes, nodeNote] } : planned
   // Check on a dry run too, so it fails where the real run would.
   for (const edit of result.edits) await checkEditPath(cwd, edit.path)
   if (!dryRun) {

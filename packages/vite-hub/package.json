@@ -1,6 +1,6 @@
 {
   "name": "vite-hub",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "The cohesive ViteHub framework distribution for Vite applications and agents.",
   "keywords": [
     "agent",
@@ -476,6 +476,11 @@
       "types": "./dist/email/test.d.ts",
       "import": "./dist/email/test.js",
       "default": "./dist/email/test.js"
+    },
+    "./email/vue": {
+      "types": "./dist/email/vue.d.ts",
+      "import": "./dist/email/vue.js",
+      "default": "./dist/email/vue.js"
     },
     "./env": {
       "types": "./dist/env.d.ts",

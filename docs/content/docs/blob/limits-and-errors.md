@@ -8,7 +8,7 @@ icon: i-lucide-circle-alert
 
 ## Handle Blob errors
 
-Each Blob method returns `[error, value]`. On success, `error` is `undefined`. When `error` is set, `error.code` is `BLOB_CONFLICT`, `BLOB_NOT_FOUND`, `BLOB_OPERATION_FAILED`, or `BLOB_PATHNAME_TOO_LONG`. `error.why` tells what went wrong and names the operation and the store, `error.fix` tells what to do, `error.docs` links to the code on this page, and `error.cause` keeps the provider error. Invalid arguments and configuration errors throw instead. See [Server API](/docs/blob/server-api) for each method.
+Each Blob method returns `[error, value]`. On success, `error` is `undefined`. When `error` is set, `error.code` is `BLOB_CONFLICT`, `BLOB_INVALID_CURSOR`, `BLOB_NOT_FOUND`, `BLOB_OPERATION_FAILED`, or `BLOB_PATHNAME_TOO_LONG`. `error.why` explains what went wrong, `error.fix` tells what to do, `error.docs` links to the code in [Blob diagnostics](/docs/blob/diagnostics), and `error.cause` keeps the underlying error when one exists. Invalid arguments and configuration errors throw instead. See [Server API](/docs/blob/server-api) for each method.
 
 ```ts [server/api/notes.post.ts]
 import { defineEventHandler } from 'h3'
@@ -71,4 +71,4 @@ The provider failed. Read `error.cause` for the provider error.
 
 ### BLOB_PATHNAME_TOO_LONG
 
-The pathname is too long for the store. Cloudflare R2 accepts keys of at most 1,024 bytes in UTF-8, after `prefix` and `addRandomSuffix`. A non-ASCII character takes two to four bytes. `error.cause.message` has the size. Use a shorter pathname.
+The pathname is too long for the store. Cloudflare R2 accepts keys of at most 1,024 bytes in UTF-8, after `prefix` and `addRandomSuffix`. A non-ASCII character takes two to four bytes. `error.why` has the size. Use a shorter pathname.

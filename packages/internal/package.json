@@ -93,6 +93,11 @@
       "import": "./dist/forge.js",
       "default": "./dist/forge.js"
     },
+    "./feature-inputs": {
+      "types": "./dist/feature-inputs.d.ts",
+      "import": "./dist/feature-inputs.js",
+      "default": "./dist/feature-inputs.js"
+    },
     "./features": {
       "types": "./dist/features.d.ts",
       "import": "./dist/features.js",
