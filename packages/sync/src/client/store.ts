@@ -129,7 +129,7 @@ function isUnchanged(meta: SyncMeta | undefined, change: SyncStorageChange): boo
 }
 
 function lostError(): SyncError {
-  return new SyncError("SYNC_CLEARED", "The browser storage of Sync was deleted before the server confirmed this write.")
+  return new SyncError("SYNC_CLEARED", "The old stored Sync copy was lost before the server confirmed this write, such as after the local IndexedDB database was deleted or closed.")
 }
 
 /** Thrown inside a round that `forget()` ended, so it writes nothing more. */
