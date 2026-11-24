@@ -120,8 +120,13 @@ export async function viteHubPageToolAllows(request: Request, id: string): Promi
   }
 }
 
-/** The grants that the registered page tools declare, in registration order. */
-export function viteHubPageGrants(): ViteHubPageGrant[] {
+/** The grants of the request's current tools, or the process grant catalog when called without a request. */
+export function viteHubPageGrants(request?: Request): ViteHubPageGrant[] {
+  if (request) {
+    const app = state().apps.get(request)
+    if (!app) return []
+    return [...state().tools.get(app)?.values() ?? []].flatMap(tool => tool.grants ?? [])
+  }
   return [...state().grants?.values() ?? []]
 }
 

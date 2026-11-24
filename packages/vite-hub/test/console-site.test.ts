@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { registerViteHubPageTool, respondViteHubPageSession } from "@vite-hub/internal/runtime/page-tools"
+import { defineComments } from "@vite-hub/comments"
+import { createCommentsHandler, defineCommentsPlugin } from "@vite-hub/comments/runtime"
+import { installViteHubPageTools, registerViteHubPageTool, respondViteHubPageSession } from "@vite-hub/internal/runtime/page-tools"
 import { readViteHubPageSession } from "@vite-hub/internal/runtime/page-tools-shared"
 import { siteStateHash, signSiteToken } from "@vite-hub/internal/site-token"
 
@@ -139,15 +141,34 @@ describe("GET /_vitehub/site?token=", () => {
 describe("the site cookie", () => {
   it("names the person of the token, a member with the console role and a guest without it", async () => {
     const member = await signIn()
-    expect(await readConsoleSiteVisitor(new Request(`${origin}/docs`, { headers: { cookie: member } }))).toEqual({ id: "console-ada", name: "Ada", email: "ada@example.com", roles: ["console", "comments-read", "comments-write"], kind: "member" })
+    expect(await readConsoleSiteVisitor(new Request(`${origin}/docs`, { headers: { cookie: member } }))).toEqual({ id: "console-ada", name: "Ada", email: "ada@example.com", roles: ["console", "comments-write"], kind: "member" })
     const guest = await signIn({ sub: "guest-1", name: "Ana", email: undefined, roles: ["comments-write"] })
     expect(await readConsoleSiteVisitor(new Request(`${origin}/docs`, { headers: { cookie: guest } }))).toMatchObject({ id: "guest-1", roles: ["comments-write"], kind: "guest" })
   })
 
-  it("gives a member the roles of a page tool that the app added after the Console signed the token", async () => {
+  it("gives a member only new grants from the request app's current tools", async () => {
     const member = await signIn({ roles: ["console"] })
-    registerViteHubPageTool({}, { id: "review", label: "Review", icon: "i-lucide-eye", script: "/review.js", grants: [{ id: "review-write", label: "Review" }], allowed: async () => true })
-    expect((await readConsoleSiteVisitor(new Request(`${origin}/docs`, { headers: { cookie: member } })))?.roles).toEqual(["console", "comments-read", "comments-write", "review-write"])
+    const app = { async fetch(request: Request) { return Response.json((await readConsoleSiteVisitor(request))?.roles) } }
+    installViteHubPageTools(app)
+    const tool = { id: "review", label: "Review", icon: "i-lucide-eye", script: "/review.js", allowed: async () => true }
+    registerViteHubPageTool(app, { ...tool, grants: [{ id: "review-read", label: "Read reviews" }] })
+    registerViteHubPageTool(app, { ...tool, grants: [{ id: "review-write", label: "Write reviews" }] })
+    const request = new Request(`${origin}/docs`, { headers: { cookie: member } })
+    expect(await (await app.fetch(request)).json()).toEqual(["console", "review-write"])
+  })
+
+  it("keeps signed Comments API permissions when only the overlay is disabled", async () => {
+    const cookie = await signIn({ roles: ["console", "comments-read", "comments-write", "comments-resolve", "comments-delete"] })
+    const comments = defineComments()
+    for (const overlay of ["/comments.js", false] as const) {
+      Reflect.deleteProperty(globalThis, Symbol.for("vitehub.page-tools"))
+      const app = createCommentsHandler({ comments, realtime: false })
+      defineCommentsPlugin({ comments, overlay, database: () => undefined })(app)
+      installConsolePageTool(app, { script: "/console.js", site: readConsoleSiteVisitor })
+      const response = await app.fetch(new Request(`${origin}/_vitehub/comments/session`, { headers: { cookie } }))
+      expect(response.status).toBe(200)
+      expect(await response.json()).toMatchObject({ data: { can: { read: true, comment: true, resolve: true, delete: true } } })
+    }
   })
 
   it("keeps the signed roles of a member and a guest when console.authorize may limit the grants", async () => {

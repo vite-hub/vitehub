@@ -71,13 +71,13 @@ async function readVisitor(request: Request, base: string): Promise<ViteHubSiteV
   if (!result.ok) return undefined
   const { sub, name, email, image, roles } = result.claims
   const member = roles.includes("console")
-  return { id: sub, name, ...(email ? { email } : {}), ...(image ? { image } : {}), roles: member ? memberRoles(roles) : roles, kind: member ? "member" : "guest" }
+  return { id: sub, name, ...(email ? { email } : {}), ...(image ? { image } : {}), roles: member ? memberRoles(request, roles) : roles, kind: member ? "member" : "guest" }
 }
 
-function memberRoles(signed: string[]): string[] {
+function memberRoles(request: Request, signed: string[]): string[] {
   const policy = installedConsoleAccessPolicy()
   if (!policy || ("authorize" in policy && policy.authorize)) return signed
-  return ["console", ...viteHubPageGrants().map(grant => grant.id).filter(role => role !== "console")]
+  return [...new Set([...signed, ...viteHubPageGrants(request).map(grant => grant.id)])]
 }
 
 /**
