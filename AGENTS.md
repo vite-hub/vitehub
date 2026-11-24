@@ -11,7 +11,7 @@ Before you design, change, review, or document anything in this repository, read
 - Write short, plain English. Use ASD-STE100 language.
 - Keep the scope focused. Prefer the smallest change that makes the public contract better.
 - Use the existing Vite, Nuxt, Vue, TypeScript, and pnpm stack.
-- Build for Nuxt 5 and Nitro 3 only. Add no code, tests, or docs for Nuxt 4 or Nitro 2 (`nitropack`).
+- Build for Nitro 3 only: Nuxt 5, or Nuxt 4.7 and newer with the `nitro` package. Add no code, tests, or docs for Nitro 2 (`nitropack`) or for Nuxt before 4.7.
 - Prefer inferred types. Do not use `any`.
 - Put shared behavior in the package that owns it. Keep product workflows in consumers.
 - Preserve other people's changes. Inspect collisions before editing.

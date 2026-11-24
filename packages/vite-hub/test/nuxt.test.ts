@@ -334,14 +334,51 @@ function nitroHandlerRoutes(config: Record<string, unknown>): Array<string | und
 }
 
 describe("ViteHub Nuxt integration", () => {
-  it.each(["4.6.4", "3.17.0"])("stops on Nuxt %s with a diagnostic that names Nuxt 5", async (version) => {
+  it.each([
+    ["4.6.4", 2],
+    ["3.17.0", undefined],
+  ] as const)("stops on Nuxt %s with a diagnostic that names Nuxt 4.7 and Nuxt 5", async (version, nitroMajor) => {
     const application = createNuxt(false)
     Object.assign(application.nuxt, { _version: version })
+    Object.assign(application.nuxt.options, { _nitroMajor: nitroMajor })
     await expect(viteHubNuxtModule({ host: "node" }, application.nuxt)).rejects.toMatchObject({
       code: "VITE_HUB_B0023",
-      message: expect.stringContaining(`needs Nuxt 5, which runs Nitro 3 and H3 2. This app runs Nuxt ${version}.`),
+      message: expect.stringContaining(`needs Nitro 3, which runs on Nuxt 4.7 with the nitro package, or on Nuxt 5. This app runs Nuxt ${version}.`),
     })
     expect(mocks.vitehub).not.toHaveBeenCalled()
+  })
+
+  it("explains both ways to switch Nuxt 4.7 from Nitro 2 to Nitro 3", async () => {
+    const application = createNuxt(false)
+    Object.assign(application.nuxt, { _version: "4.7.0" })
+    Object.assign(application.nuxt.options, { _nitroMajor: 2 })
+    await expect(viteHubNuxtModule({ host: "node" }, application.nuxt)).rejects.toMatchObject({
+      code: "VITE_HUB_B0023",
+      message: expect.stringContaining("This app runs Nuxt 4.7.0 with Nitro 2. If the nitro package is missing, run pnpm add nitro. If it is already listed, remove any configuration that forces Nitro 2."),
+    })
+    expect(mocks.vitehub).not.toHaveBeenCalled()
+  })
+
+  it.each(["vite", "@nuxt/vite-server"])("rejects the %s server builder even when Nuxt selects Nitro 3", async (builder) => {
+    const application = createNuxt(false)
+    Object.assign(application.nuxt, { _version: "4.7.0" })
+    Object.assign(application.nuxt.options, { _nitroMajor: 3, server: { builder } })
+    await expect(viteHubNuxtModule({ host: "node" }, application.nuxt)).rejects.toMatchObject({
+      code: "VITE_HUB_B0023",
+      message: expect.stringContaining("Remove server.builder to use Nuxt's default Nitro builder."),
+    })
+    expect(mocks.vitehub).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["4.7.0", 3],
+    ["5.0.0-2611222336-0ed8910", 3],
+  ] as const)("sets up on Nuxt %s when Nuxt builds the server with Nitro %s", async (version, nitroMajor) => {
+    const application = createNuxt(false)
+    Object.assign(application.nuxt, { _version: version })
+    Object.assign(application.nuxt.options, { _nitroMajor: nitroMajor })
+    await viteHubNuxtModule({ host: "node" }, application.nuxt)
+    expect(mocks.vitehub).toHaveBeenCalled()
   })
 
   it.each([

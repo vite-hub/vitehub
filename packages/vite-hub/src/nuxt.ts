@@ -168,6 +168,7 @@ type NuxtLike = {
   options: {
     _installedModules?: Array<{ meta: { name?: string } }>
     _layers?: NuxtServerDirOptions["_layers"]
+    _nitroMajor?: number
     /** True for `nuxt prepare`, which loads Nuxt with `dev: false` and writes types without a build. */
     _prepare?: boolean
     alias?: Record<string, string>
@@ -196,6 +197,7 @@ type NuxtLike = {
     }>
     rootDir?: string
     router?: { options?: { sensitive?: boolean, strict?: boolean } }
+    server?: { builder?: unknown }
     serverDir?: string
     srcDir?: string
     vite?: UserConfig & { vue?: Record<string, unknown> }
@@ -974,15 +976,22 @@ async function installViteHubUIRuntime(nuxt: NuxtLike): Promise<void> {
   })
 }
 
-/**
- * Stop before any setup on Nuxt 4 or older. They run Nitro 2 and H3 1, which ViteHub does not support, and a build
- * there would fail later with errors that do not name the cause.
- */
-function assertSupportedNuxt(version: string | undefined): void {
-  const major = version === undefined ? Number.NaN : Number.parseInt(version, 10)
-  if (!(major < 5)) return
+function assertSupportedNuxt(nuxt: NuxtLike): void {
+  const builder = nuxt.options.server?.builder
+  if (builder === "vite" || builder === "@nuxt/vite-server") {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0023({
+      message: "[vitehub] vite-hub/nuxt needs Nitro 3, but Nuxt's Vite-only server builder does not run Nitro. Remove server.builder to use Nuxt's default Nitro builder.",
+    })
+  }
+  const version = nuxt._version
+  const [major = Number.NaN, minor = Number.NaN] = (version ?? "").split(".").map(part => Number.parseInt(part, 10))
+  const nitroMajor = nuxt.options._nitroMajor
+  if (nitroMajor === undefined ? !(major < 5) : nitroMajor === 3) return
+  const nitroOptIn = nitroMajor === 2 && major === 4 && minor >= 7
   throw viteHubErrorDiagnostics.VITE_HUB_B0023({
-    message: `[vitehub] vite-hub/nuxt needs Nuxt 5, which runs Nitro 3 and H3 2. This app runs Nuxt ${version}. Until Nuxt 5 is stable, install the nightly release: pnpm add nuxt@npm:nuxt-nightly@5x`,
+    message: nitroOptIn
+      ? `[vitehub] vite-hub/nuxt needs Nitro 3. This app runs Nuxt ${version} with Nitro 2. If the nitro package is missing, run pnpm add nitro. If it is already listed, remove any configuration that forces Nitro 2.`
+      : `[vitehub] vite-hub/nuxt needs Nitro 3, which runs on Nuxt 4.7 with the nitro package, or on Nuxt 5. This app runs Nuxt ${version}. Upgrade Nuxt and add Nitro 3: pnpm add nuxt@^4.7.0 nitro`,
   })
 }
 
@@ -1019,7 +1028,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   if (!nuxtInstance) return
   // SAFETY: Nuxt supplies this module callback with its instance; NuxtLike describes only the members this integration uses.
   const nuxt = nuxtInstance as NuxtLike
-  assertSupportedNuxt(nuxt._version)
+  assertSupportedNuxt(nuxt)
   // Nuxt does not run the Vite Doctor plugin, so `vite-doctor/nuxt` receives the extension through its hook.
   if (nuxt.hook) {
     Reflect.apply(nuxt.hook, nuxt, ["doctor:extendExtensions", (entries: string[]) => {
