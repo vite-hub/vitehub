@@ -666,11 +666,11 @@ export default {
 
       await writeFile(join(appDir, "vite.config.ts"), config(""), "utf8")
       await writeFile(join(appDir, "server/comments.ts"), "export const comments = {}\n", "utf8")
-      await expect(run("pnpm", ["exec", "vite", "build"], appDir)).rejects.toThrow("pnpm add @vite-hub/comments @vite-hub/database drizzle-orm")
+      await expect(run("pnpm", ["exec", "vite", "build"], appDir)).rejects.toThrow('pnpm add @vite-hub/comments @vite-hub/database "drizzle-orm@1.0.0-rc.5 || ^1.0.0"')
       await rm(join(appDir, "server/comments.ts"))
       await writeFile(join(appDir, "server/content.cts"), 'export { default } from "./definition"\n', "utf8")
       await writeFile(join(appDir, "server/definition.ts"), 'import { cms } from "vite-hub/cms"\nexport default { extends: cms }\n', "utf8")
-      await expect(run("pnpm", ["exec", "vite", "build"], appDir)).rejects.toThrow("pnpm add @vite-hub/content @vite-hub/cms @vite-hub/database drizzle-orm @vite-hub/workspace")
+      await expect(run("pnpm", ["exec", "vite", "build"], appDir)).rejects.toThrow('pnpm add @vite-hub/content @vite-hub/cms @vite-hub/database "drizzle-orm@1.0.0-rc.5 || ^1.0.0" @vite-hub/workspace')
     }
     finally {
       await rm(root, { recursive: true, force: true })
