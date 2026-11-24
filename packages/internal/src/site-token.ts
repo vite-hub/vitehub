@@ -219,7 +219,7 @@ function readClaims(value: unknown): SiteTokenClaims | undefined {
   const text = (field: unknown, maximum = 512): field is string => typeof field === "string" && field.length > 0 && field.length <= maximum
   const optional = (field: unknown) => field === undefined || text(field, 2_048)
   const time = (field: unknown): field is number => typeof field === "number" && Number.isSafeInteger(field)
-  if (!text(aud) || !text(sub) || !text(name) || !text(path, 2_048) || !text(state) || !text(kind) || !time(iat) || !time(exp)) return undefined
+  if (!text(aud, maximumTokenLength) || !text(sub) || !text(name) || !text(path, 2_048) || !text(state) || !text(kind) || !time(iat) || !time(exp)) return undefined
   if (!optional(email) || !optional(image) || !Array.isArray(roles) || !roles.every(role => text(role, 64))) return undefined
   return {
     aud,

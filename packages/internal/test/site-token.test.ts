@@ -124,6 +124,12 @@ describe("Site access tokens", () => {
     expect(await verifySiteToken({ token: control.token, keys: control.keys, origin, state: control.state, now })).toMatchObject({ ok: false, code: "SITE_TOKEN_PATH" })
   })
 
+  it("verifies a token for an app URL with a long base path", async () => {
+    const app = `${origin}/${"a".repeat(600)}`
+    const { keys, state, token } = await visit({ aud: app })
+    expect(await verifySiteToken({ token, keys, origin: app, state, now })).toMatchObject({ ok: true, destination: `${app}/docs` })
+  })
+
   it("refuses to sign a token that the app would refuse for its length", async () => {
     await expect(visit({ path: `/${"\u8a9e".repeat(2_047)}` })).rejects.toThrow(/8192/)
   })
