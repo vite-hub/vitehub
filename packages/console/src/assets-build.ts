@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url"
 
 import { z } from "zod"
 
+import { consoleErrorDiagnostics } from "./error-diagnostics.ts"
+
 import type { ConsoleAssets } from "./assets.ts"
 
 /** The page tools pill parts in the `vite-hub` package, by the name that the Console serves them under. */
@@ -26,7 +28,7 @@ export function readConsoleAssets(): ConsoleAssets {
   const root = viteHubPackageRoot()
   const read = (path: string) => {
     const file = join(root, path)
-    if (!existsSync(file)) throw new Error(`The Console needs ${file}. Build vite-hub first: vp run -t vite-hub#build.`)
+    if (!existsSync(file)) throw consoleErrorDiagnostics.CONSOLE_VITE_HUB_BUILD_MISSING({ file })
     return readFileSync(file, "utf8")
   }
   const skillsRoot = join(root, consoleSkillsFolder)

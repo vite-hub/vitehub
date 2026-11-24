@@ -3,6 +3,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport, StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import { McpError, ResultSchema } from "@modelcontextprotocol/sdk/types.js"
 
+import { consoleErrorDiagnostics } from "./error-diagnostics.ts"
 import { allowPrivateVariable, isPrivateHost } from "./project-url.ts"
 
 import type { OAuthClientProvider, OAuthDiscoveryState } from "@modelcontextprotocol/sdk/client/auth.js"
@@ -10,27 +11,22 @@ import type { OAuthClientMetadata } from "@modelcontextprotocol/sdk/shared/auth.
 import type { ConsoleMcpRecords, PendingAuthorization, StoredConnection } from "./mcp-client-records.ts"
 import type { ConsoleMcpCandidate, ConsoleMcpConnection, ConsoleMcpConnectResult, ConsoleMcpIdentity, ConsoleMcpListKind, ConsoleMcpOutcome, ConsoleMcpOverview, ConsoleMcpPage, ConsoleMcpServerInfo } from "./mcp-client-types.ts"
 
-type ConsoleMcpErrorCode =
-  | "CONSOLE_CONFLICT"
-  | "CONSOLE_MCP_AUTHORIZATION_FAILED"
-  | "CONSOLE_MCP_LIST_INCOMPLETE"
-  | "CONSOLE_MCP_SIGNED_OUT"
-  | "CONSOLE_MCP_UNREACHABLE"
-  | "CONSOLE_NOT_FOUND"
-  | "CONSOLE_REQUEST_INVALID"
+const consoleMcpErrorCodes = ["CONSOLE_CONFLICT", "CONSOLE_MCP_AUTHORIZATION_FAILED", "CONSOLE_MCP_LIST_TOO_LONG", "CONSOLE_MCP_SIGNED_OUT", "CONSOLE_MCP_UNREACHABLE", "CONSOLE_NOT_FOUND", "CONSOLE_REQUEST_INVALID"] as const
 
-/** A failure of an MCP client operation, with the HTTP status and the code that the Console page reads. */
-export class ConsoleMcpError extends Error {
-  readonly status: number
-  readonly code: ConsoleMcpErrorCode
-  challenge?: ReturnType<typeof extractWWWAuthenticateParams>
+type ConsoleMcpErrorCode = typeof consoleMcpErrorCodes[number]
+type ConsoleMcpChallenge = ReturnType<typeof extractWWWAuthenticateParams>
 
-  constructor(status: number, code: ConsoleMcpErrorCode, message: string) {
-    super(message)
-    this.name = "ConsoleMcpError"
-    this.status = status
-    this.code = code
-  }
+/** A failure of an MCP client operation. Its `data.status` is the HTTP status, and its code is the one that the Console page reads. */
+export type ConsoleMcpError = ReturnType<typeof consoleErrorDiagnostics[ConsoleMcpErrorCode]> & { challenge?: ConsoleMcpChallenge }
+
+/** Build the diagnostic of a failed MCP client operation. */
+export function consoleMcpError(status: number, code: Exclude<ConsoleMcpErrorCode, "CONSOLE_MCP_LIST_TOO_LONG">, message: string): ConsoleMcpError {
+  return consoleErrorDiagnostics[code]({ message, status })
+}
+
+/** Whether `error` is the failure of an MCP client operation. */
+export function isConsoleMcpError(error: unknown): error is ConsoleMcpError {
+  return consoleErrorDiagnostics.is(error) && consoleMcpErrorCodes.some(code => code === error.code)
 }
 
 /** Who calls, on which project, and where the records live. The Console route builds it for each request. */
@@ -83,15 +79,15 @@ function consoleMcpServerUrl(value: string, policy: UrlPolicy): URL {
     url = new URL(value.trim(), policy.appOrigin)
   }
   catch {
-    throw new ConsoleMcpError(400, "CONSOLE_REQUEST_INVALID", "Enter the URL of an MCP endpoint, such as https://example.com/mcp, or a path on the app, such as /mcp.")
+    throw consoleMcpError(400, "CONSOLE_REQUEST_INVALID", "Enter the URL of an MCP endpoint, such as https://example.com/mcp, or a path on the app, such as /mcp.")
   }
-  if (url.username || url.password || url.hash) throw new ConsoleMcpError(400, "CONSOLE_REQUEST_INVALID", "The MCP URL cannot contain credentials or a fragment.")
+  if (url.username || url.password || url.hash) throw consoleMcpError(400, "CONSOLE_REQUEST_INVALID", "The MCP URL cannot contain credentials or a fragment.")
   const local = isPrivateHost(url.hostname)
   if (local && !policy.allowPrivate) {
-    throw new ConsoleMcpError(400, "CONSOLE_REQUEST_INVALID", `${url.hostname} is a private address, and this Console reaches only public servers. Use a public HTTPS URL, such as a tunnel, or set ${allowPrivateVariable}=true on a Console that runs next to the server.`)
+    throw consoleMcpError(400, "CONSOLE_REQUEST_INVALID", `${url.hostname} is a private address, and this Console reaches only public servers. Use a public HTTPS URL, such as a tunnel, or set ${allowPrivateVariable}=true on a Console that runs next to the server.`)
   }
   if (url.protocol !== "https:" && !(url.protocol === "http:" && local)) {
-    throw new ConsoleMcpError(400, "CONSOLE_REQUEST_INVALID", "Use an HTTPS URL. Plain HTTP works only for private hosts on a Console that allows them.")
+    throw consoleMcpError(400, "CONSOLE_REQUEST_INVALID", "Use an HTTPS URL. Plain HTTP works only for private hosts on a Console that allows them.")
   }
   return url
 }
@@ -114,11 +110,11 @@ function withTimeout(timeoutMs: number, policy: UrlPolicy): typeof fetch {
       const location = response.headers.get("location")
       if (!redirectStatuses.has(response.status) || location === null || request.redirect === "manual") return response
       await response.body?.cancel()
-      if (request.redirect === "error") throw new ConsoleMcpError(502, "CONSOLE_MCP_UNREACHABLE", "The server returned a redirect.")
-      if (redirects >= 20) throw new ConsoleMcpError(502, "CONSOLE_MCP_UNREACHABLE", "Too many redirects from the MCP or OAuth server.")
+      if (request.redirect === "error") throw consoleMcpError(502, "CONSOLE_MCP_UNREACHABLE", "The server returned a redirect.")
+      if (redirects >= 20) throw consoleMcpError(502, "CONSOLE_MCP_UNREACHABLE", "Too many redirects from the MCP or OAuth server.")
       const target = consoleMcpServerUrl(new URL(location, request.url).href, policy)
       if (target.origin !== new URL(request.url).origin && hasCredentials(request)) {
-        throw new ConsoleMcpError(502, "CONSOLE_MCP_UNREACHABLE", `The server redirected a request with credentials to another origin, ${target.origin}. Use the final URL.`)
+        throw consoleMcpError(502, "CONSOLE_MCP_UNREACHABLE", `The server redirected a request with credentials to another origin, ${target.origin}. Use the final URL.`)
       }
       const headers = new Headers(request.headers)
       if (((response.status === 301 || response.status === 302) && request.method === "POST") || (response.status === 303 && request.method !== "GET" && request.method !== "HEAD")) {
@@ -218,7 +214,7 @@ function oauthProvider(scope: ConsoleMcpScope, connection: StoredConnection, onA
     clientInformation: async () => oauth.client ??= await scope.records.client(clientKey(connection, oauth)),
     codeVerifier: () => {
       const verifier = oauth.pending?.verifier
-      if (!verifier) throw new ConsoleMcpError(409, "CONSOLE_MCP_AUTHORIZATION_FAILED", "This sign-in has no PKCE verifier. Start it again.")
+      if (!verifier) throw consoleMcpError(409, "CONSOLE_MCP_AUTHORIZATION_FAILED", "This sign-in has no PKCE verifier. Start it again.")
       return verifier
     },
     discoveryState: () => {
@@ -283,7 +279,7 @@ function serverInfo(client: Client, protocolVersion: string | undefined): Consol
 }
 
 function isSignedOut(error: unknown): error is ConsoleMcpError {
-  return error instanceof ConsoleMcpError && error.code === "CONSOLE_MCP_SIGNED_OUT"
+  return isConsoleMcpError(error) && error.code === "CONSOLE_MCP_SIGNED_OUT"
 }
 
 interface ClientOptions { timeoutMs?: number }
@@ -299,7 +295,7 @@ function releaseRuntime(id: string, runtime: ConnectionRuntime): void {
 }
 
 function assertOpen(runtime: ConnectionRuntime | undefined): void {
-  if (runtime?.closing) throw new ConsoleMcpError(404, "CONSOLE_NOT_FOUND", "This MCP connection was disconnected.")
+  if (runtime?.closing) throw consoleMcpError(404, "CONSOLE_NOT_FOUND", "This MCP connection was disconnected.")
 }
 
 function serialize<T>(id: string, slot: "clientOperation" | "operation", run: (runtime: ConnectionRuntime) => Promise<T>): Promise<T> {
@@ -330,7 +326,7 @@ function withClient<T>(scope: ConsoleMcpScope, connection: StoredConnection, run
 
 async function runClient<T>(scope: ConsoleMcpScope, connection: StoredConnection, run: (client: Client) => Promise<T>, options: ClientOptions = {}): Promise<T> {
   let authorizing = false
-  let challenge: ConsoleMcpError["challenge"]
+  let challenge: ConsoleMcpChallenge | undefined
   const fetchWithTimeout = withTimeout(options.timeoutMs ?? requestTimeoutMs, scope)
   const headers = connection.bearer ? { authorization: `Bearer ${connection.bearer}` } : {}
   const transport = new StreamableHTTPClientTransport(new URL(connection.url), {
@@ -358,17 +354,17 @@ async function runClient<T>(scope: ConsoleMcpScope, connection: StoredConnection
       if (connection.oauth?.pending) delete connection.oauth.pending
       connection.status = "signed-out"
       connection.error = { bearer: "The server rejected this token.", none: "The server asks for credentials.", oauth: "The server rejected the grant. Sign in again." }[connection.auth]
-      throw Object.assign(new ConsoleMcpError(409, "CONSOLE_MCP_SIGNED_OUT", connection.error), { challenge })
+      throw Object.assign(consoleMcpError(409, "CONSOLE_MCP_SIGNED_OUT", connection.error), { challenge })
     }
-    if (error instanceof McpError || error instanceof ConsoleMcpError) throw error
+    if (error instanceof McpError || isConsoleMcpError(error)) throw error
     connection.status = "failed"
     if (authorizing) {
       if (connection.oauth?.pending && !connection.oauth.pending.url) delete connection.oauth.pending
       connection.error = `OAuth sign-in could not start: ${failureMessage(error)}`
-      throw new ConsoleMcpError(502, "CONSOLE_MCP_AUTHORIZATION_FAILED", connection.error)
+      throw consoleMcpError(502, "CONSOLE_MCP_AUTHORIZATION_FAILED", connection.error)
     }
     connection.error = failureMessage(error)
-    throw new ConsoleMcpError(502, "CONSOLE_MCP_UNREACHABLE", connection.error)
+    throw consoleMcpError(502, "CONSOLE_MCP_UNREACHABLE", connection.error)
   }
   finally {
     await transport.terminateSession().catch(() => {})
@@ -435,7 +431,7 @@ async function owned(scope: ConsoleMcpScope): Promise<StoredConnection[]> {
 
 async function connectionOf(scope: ConsoleMcpScope, id: string): Promise<StoredConnection> {
   const connection = await scope.records.connection(scope.userId, scope.projectId, id)
-  if (!connection) throw new ConsoleMcpError(404, "CONSOLE_NOT_FOUND", "This MCP connection does not exist. It was disconnected.")
+  if (!connection) throw consoleMcpError(404, "CONSOLE_NOT_FOUND", "This MCP connection does not exist. It was disconnected.")
   assertOpen(connectionRuntimes.get(connection.id))
   if (prune(connection)) await save(scope, connection)
   return connection
@@ -456,7 +452,7 @@ async function withConnection<T>(scope: ConsoleMcpScope, id: string, change: (co
       await save(scope, connection)
       throw error
     }
-    if (!await save(scope, connection) && connection.oauth?.pending?.state !== state) throw new ConsoleMcpError(409, "CONSOLE_CONFLICT", "Another request changed this MCP connection at the same time, so the sign-in was not saved. Try again.")
+    if (!await save(scope, connection) && connection.oauth?.pending?.state !== state) throw consoleMcpError(409, "CONSOLE_CONFLICT", "Another request changed this MCP connection at the same time, so the sign-in was not saved. Try again.")
     return value
   })
 }
@@ -496,11 +492,11 @@ function signInScope(discovery: OAuthDiscoveryState, requested: string | undefin
   return scope ? `${scope} offline_access` : "offline_access"
 }
 
-function startAuthorization(scope: ConsoleMcpScope, connection: StoredConnection, prompt: "login" | undefined, challenge?: ConsoleMcpError["challenge"]): Promise<string> {
+function startAuthorization(scope: ConsoleMcpScope, connection: StoredConnection, prompt: "login" | undefined, challenge?: ConsoleMcpChallenge): Promise<string> {
   return withClientOperation(connection, () => authorize(scope, connection, prompt, challenge))
 }
 
-async function authorize(scope: ConsoleMcpScope, connection: StoredConnection, prompt: "login" | undefined, challenge?: ConsoleMcpError["challenge"]): Promise<string> {
+async function authorize(scope: ConsoleMcpScope, connection: StoredConnection, prompt: "login" | undefined, challenge?: ConsoleMcpChallenge): Promise<string> {
   const oauth = connection.oauth!
   oauth.pending = { expiresAt: Date.now() + pendingLifetimeMs, state: newState(connection), ...(prompt ? { prompt } : {}) }
   oauth.tokens = undefined
@@ -517,13 +513,13 @@ async function authorize(scope: ConsoleMcpScope, connection: StoredConnection, p
       delete connection.error
       return oauth.pending.url
     }
-    throw new ConsoleMcpError(502, "CONSOLE_MCP_AUTHORIZATION_FAILED", "The authorization server did not start a sign-in.")
+    throw consoleMcpError(502, "CONSOLE_MCP_AUTHORIZATION_FAILED", "The authorization server did not start a sign-in.")
   }
   catch (error) {
     delete oauth.pending
     connection.status = "failed"
     connection.error = `OAuth sign-in could not start: ${failureMessage(error)}`
-    throw new ConsoleMcpError(502, "CONSOLE_MCP_AUTHORIZATION_FAILED", connection.error)
+    throw consoleMcpError(502, "CONSOLE_MCP_AUTHORIZATION_FAILED", connection.error)
   }
 }
 
@@ -534,7 +530,7 @@ async function authorize(scope: ConsoleMcpScope, connection: StoredConnection, p
 export async function connectConsoleMcp(scope: ConsoleMcpScope, input: { label?: string | undefined, prompt?: "login" | undefined, server: string, token?: string | undefined }): Promise<ConsoleMcpConnectResult> {
   const url = consoleMcpServerUrl(input.server, scope)
   const token = text(input.token)
-  if ((await owned(scope)).length >= maximumConnections) throw new ConsoleMcpError(409, "CONSOLE_CONFLICT", `The Console keeps ${maximumConnections} MCP connections per person and project. Disconnect one first.`)
+  if ((await owned(scope)).length >= maximumConnections) throw consoleMcpError(409, "CONSOLE_CONFLICT", `The Console keeps ${maximumConnections} MCP connections per person and project. Disconnect one first.`)
   const connection: StoredConnection = {
     auth: token ? "bearer" : "none",
     ...(token ? { bearer: token } : {}),
@@ -577,11 +573,11 @@ interface CompleteInput {
 /** Finish the sign-in that the authorization server sent the browser back from. */
 export async function completeConsoleMcp(scope: ConsoleMcpScope, input: CompleteInput): Promise<ConsoleMcpConnection> {
   const connection = (await owned(scope)).find(candidate => candidate.oauth?.pending?.state === input.state)
-  if (!connection?.oauth?.pending || completingAuthorizations.has(input.state)) throw new ConsoleMcpError(404, "CONSOLE_MCP_AUTHORIZATION_FAILED", "This sign-in is not known. It expired, finished already, was started by someone else, or on another project. Start it again.")
+  if (!connection?.oauth?.pending || completingAuthorizations.has(input.state)) throw consoleMcpError(404, "CONSOLE_MCP_AUTHORIZATION_FAILED", "This sign-in is not known. It expired, finished already, was started by someone else, or on another project. Start it again.")
   completingAuthorizations.add(input.state)
   try {
     return await withConnection(scope, connection.id, async (current) => {
-      if (current.oauth?.pending?.state !== input.state) throw new ConsoleMcpError(404, "CONSOLE_MCP_AUTHORIZATION_FAILED", "This sign-in is not known. Start it again.")
+      if (current.oauth?.pending?.state !== input.state) throw consoleMcpError(404, "CONSOLE_MCP_AUTHORIZATION_FAILED", "This sign-in is not known. Start it again.")
       return finishSignIn(scope, current, input)
     })
   }
@@ -597,7 +593,7 @@ async function finishSignIn(scope: ConsoleMcpScope, connection: StoredConnection
     delete oauth.pending
     connection.status = oauth.tokens ? "signed-out" : "failed"
     connection.error = input.error === "access_denied" ? "The sign-in was denied." : `The authorization server returned ${text(input.error) ?? "no code"}${input.errorDescription ? `: ${input.errorDescription.slice(0, 200)}` : "."}`
-    throw new ConsoleMcpError(400, "CONSOLE_MCP_AUTHORIZATION_FAILED", connection.error)
+    throw consoleMcpError(400, "CONSOLE_MCP_AUTHORIZATION_FAILED", connection.error)
   }
   const metadata: Record<string, unknown> = { ...oauth.discovery?.authorizationServerMetadata }
   const missingIssuer = metadata.authorization_response_iss_parameter_supported === true && !input.iss
@@ -605,19 +601,19 @@ async function finishSignIn(scope: ConsoleMcpScope, connection: StoredConnection
     delete oauth.pending
     connection.status = "failed"
     connection.error = missingIssuer ? "The authorization server did not return its issuer." : "The sign-in came back from another authorization server."
-    throw new ConsoleMcpError(400, "CONSOLE_MCP_AUTHORIZATION_FAILED", connection.error)
+    throw consoleMcpError(400, "CONSOLE_MCP_AUTHORIZATION_FAILED", connection.error)
   }
   const code = input.code
   return withClientOperation(connection, async () => {
     try {
       const result = await auth(oauthProvider(scope, connection), { authorizationCode: code, fetchFn: withTimeout(requestTimeoutMs, scope), serverUrl: connection.url })
-      if (result !== "AUTHORIZED") throw new ConsoleMcpError(502, "CONSOLE_MCP_AUTHORIZATION_FAILED", "The authorization server did not issue a token.")
+      if (result !== "AUTHORIZED") throw consoleMcpError(502, "CONSOLE_MCP_AUTHORIZATION_FAILED", "The authorization server did not issue a token.")
     }
     catch (error) {
       delete oauth.pending
       connection.status = "failed"
       connection.error = `The token exchange failed: ${failureMessage(error)}`
-      throw new ConsoleMcpError(502, "CONSOLE_MCP_AUTHORIZATION_FAILED", connection.error)
+      throw consoleMcpError(502, "CONSOLE_MCP_AUTHORIZATION_FAILED", connection.error)
     }
     if (pending === oauth.pending) delete oauth.pending
     const identity = await readIdentity(scope, connection)
@@ -691,7 +687,7 @@ const listMethods: Readonly<Record<ConsoleMcpListKind, { field: string, method: 
 
 /**
  * All tools, resources, resource templates, or prompts. One MCP session reads every page, because a cursor can belong
- * to its session. A list of more than 20 pages fails with `CONSOLE_MCP_LIST_INCOMPLETE`.
+ * to its session. A list of more than 20 pages fails with `CONSOLE_MCP_LIST_TOO_LONG`.
  */
 export async function listConsoleMcpItems(scope: ConsoleMcpScope, input: { id: string, kind: ConsoleMcpListKind }): Promise<ConsoleMcpPage & { connection: ConsoleMcpConnection }> {
   return withConnection(scope, input.id, async (connection) => {
@@ -709,7 +705,7 @@ export async function listConsoleMcpItems(scope: ConsoleMcpScope, input: { id: s
         }
         return { cursor, items }
       })
-      if (cursor) throw new ConsoleMcpError(502, "CONSOLE_MCP_LIST_INCOMPLETE", `The MCP server sent more than ${maximumPages} pages of ${input.kind}. The Console shows no part of a list that it cannot read fully.`)
+      if (cursor) throw consoleErrorDiagnostics.CONSOLE_MCP_LIST_TOO_LONG({ kind: input.kind })
       return { connection: describe(connection), items }
     }
     catch (error) {
