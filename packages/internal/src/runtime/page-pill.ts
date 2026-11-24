@@ -221,6 +221,11 @@ export interface ViteHubPagePillOptions {
     label: string
     /** `keyboard`: the button was pressed with a key, so the focus should move to what replaces it. */
     press: (keyboard: boolean) => void
+    /**
+     * Makes the button open a menu instead of pressing: it gets the button and returns the nodes, such as the menu and
+     * its style, that go next to it in the pill's shadow root.
+     */
+    menu?: (button: HTMLButtonElement) => Node[]
   }
   /** Runs when the pill docks somewhere or changes size, so windows and cards can open from it. */
   onPlace?: (place: ViteHubPagePillPlace) => void
@@ -400,7 +405,7 @@ export function mountViteHubPagePill(options: ViteHubPagePillOptions): HTMLEleme
     button.title = exit.label
     button.append(viteHubPageSvgIcon("0 0 24 24", "M18 6 6 18M6 6l12 12", { width: "15", height: "15", fill: "none", stroke: "currentColor", "stroke-width": "2", "stroke-linecap": "round" }))
     // A click from Enter or Space has no pointer press, so its `detail` is 0.
-    button.addEventListener("click", event => exit.press(event.detail === 0))
+    if (!exit.menu) button.addEventListener("click", event => exit.press(event.detail === 0))
   }
   toolbar.append(mark, ...button ? [button] : [])
   // Tabs stand on the bar's inner side, outside its clip, like a tab on top of a chat box. Each one is a child of the
@@ -410,7 +415,7 @@ export function mountViteHubPagePill(options: ViteHubPagePillOptions): HTMLEleme
   const tabs = document.createElement("slot")
   tabs.name = "tab"
   tabs.className = "tabs"
-  shadow.append(style, tabs, toolbar)
+  shadow.append(style, tabs, toolbar, ...button && exit?.menu ? exit.menu(button) : [])
   for (const name of options.slots) {
     const slot = document.createElement("slot")
     slot.name = name

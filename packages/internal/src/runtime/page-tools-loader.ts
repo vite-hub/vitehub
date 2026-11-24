@@ -1,6 +1,6 @@
 import { appearEffect, createSpring, installMotion, pressEffect, springs, writeMotionStyle } from "@vite-hub/ui/motion/core"
 
-import { mountViteHubPageAccount } from "./page-account.ts"
+import { mountViteHubPageAccount, viteHubPageExitMenu } from "./page-account.ts"
 import { invariant } from "../invariant.ts"
 import { closeViteHubPagePill, dragViteHubPageDock, mountViteHubPagePill, storedViteHubPageDock, viteHubPageHexagonSize, viteHubPagePillStyles, viteHubPageSvgIcon, viteHubPillMotion } from "./page-pill.ts"
 import { createViteHubPageWindow, dockViteHubPageWindows } from "./page-tools-window.ts"
@@ -431,6 +431,7 @@ async function startViteHubPageTools(options: LoadViteHubPageToolsOptions, turne
       }, keyboard, folded && !matchMedia("(prefers-reduced-motion: reduce)").matches ? folded : undefined)
     })
   }
+  const account = session.account
   const pill = mountViteHubPagePill({
     name: controls.name,
     label: controls.label,
@@ -439,7 +440,11 @@ async function startViteHubPageTools(options: LoadViteHubPageToolsOptions, turne
     slots: [...session.tools.map(tool => tool.id), ...session.account ? [accountSlot] : []],
     storage: { collapsed: controls.collapsed, dock: controls.dock },
     ...(controls.initialDock ? { initial: { dock: controls.initialDock } } : {}),
-    exit: { label: `Turn off ${controls.label}`, press: exit },
+    exit: {
+      label: `Turn off ${controls.label}`,
+      press: exit,
+      ...(account && !account.guest ? { menu: (button: HTMLButtonElement) => viteHubPageExitMenu({ account, button, turnOff: { label: `Turn off ${controls.label}`, press: exit }, signal: pillController.signal }) } : {}),
+    },
     onPlace: dockViteHubPageWindows,
     ...(controls === defaultPill ? { markOnly: { active: pageAsksForMark, watch: watchPageAsk, opened: turnedOn } } : {}),
     signal: pillController.signal,
