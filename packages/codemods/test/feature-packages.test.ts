@@ -47,7 +47,7 @@ it.each([
   ["nuxthub-starter", "nuxthub"],
   ["nuxthub-chat", "nuxthub"],
   ["nuxthub-atinotes", "nuxthub"],
-])("%s: the %s codemod adds the packages of each feature that its output turns on", async (fixture, codemod) => {
+])("%s: the %s codemod adds the ViteHub packages of each feature that its output turns on", async (fixture, codemod) => {
   const cwd = join(scratch, fixture)
   await rm(cwd, { recursive: true, force: true })
   await cp(join(fixtures, fixture, "input"), cwd, { recursive: true })
@@ -56,5 +56,5 @@ it.each([
   const listed = { ...manifest.dependencies, ...manifest.devDependencies }
   const enabled = await enabledFeatures(cwd)
   expect(enabled.length).toBeGreaterThan(0)
-  expect(enabled.flatMap(([id, packages]) => packages.filter(name => !(name in listed)).map(name => `${id}: ${name}`))).toEqual([])
+  expect(enabled.flatMap(([id, packages]) => packages.filter(name => name.startsWith("@vite-hub/") && !(name in listed)).map(name => `${id}: ${name}`))).toEqual([])
 })

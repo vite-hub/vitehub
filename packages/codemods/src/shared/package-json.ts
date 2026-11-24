@@ -2,8 +2,7 @@ import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
-import { features, installSpecifier } from "@vite-hub/internal/features"
-import { invariant } from "@vite-hub/internal/invariant"
+import { features } from "@vite-hub/internal/features"
 import { subset, validRange } from "semver"
 
 import { codemodError } from "../error-diagnostics.ts"
@@ -55,23 +54,16 @@ export interface PackageJsonChange {
    */
   within?: Readonly<Record<string, string>>
   /**
-   * Features that the migrated app turns on. `vite-hub` resolves the packages of each one from the app, and the build
-   * stops while one is missing, so each package is added: a `@vite-hub/*` package like `add`, and another package at
-   * the range of `within` or of `vitehub add`.
+   * Features that the migrated app turns on. `vite-hub` resolves the owner package of each one, such as
+   * `@vite-hub/email`, from the app, and the build stops while one is missing, so each `@vite-hub/*` package of these
+   * features is added like `add`.
    */
   features?: readonly FeatureId[]
 }
 
-function withFeaturePackages(change: PackageJsonChange): { add: string[], within: Record<string, string> } {
-  const packages = [...new Set((change.features ?? []).flatMap(id => features[id].packages))]
-  const own = packages.filter(name => name.startsWith("@vite-hub/"))
-  const within = { ...change.within }
-  for (const name of packages.filter(name => !own.includes(name))) {
-    const range = within[name] ?? installSpecifier(name).slice(name.length + 1)
-    invariant(range, `every codemod that turns on a feature passes a range for its package ${name}`)
-    within[name] = range
-  }
-  return { add: [...new Set([...change.add, ...own])], within }
+function withFeaturePackages(change: PackageJsonChange): string[] {
+  const owners = (change.features ?? []).flatMap(id => features[id].packages).filter(name => name.startsWith("@vite-hub/"))
+  return [...new Set([...change.add, ...owners])]
 }
 
 /** True when `range` allows a version that `supported` does not. A prerelease in `range` counts. */
@@ -86,7 +78,7 @@ function outside(range: string, supported: string): boolean {
 export async function editPackageJson(cwd: string, version: string, change: PackageJsonChange): Promise<PackageJsonResult> {
   const path = join(cwd, "package.json")
   const command = detectInstallCommand(cwd)
-  const { add, within } = withFeaturePackages(change)
+  const add = withFeaturePackages(change)
   const installs = new Intl.ListFormat("en", { type: "conjunction" }).format(add)
   if (!existsSync(path)) return { installCommand: command, installs }
   const before = await readFile(path, "utf8")
@@ -115,7 +107,7 @@ export async function editPackageJson(cwd: string, version: string, change: Pack
     return isDependencyMap(map) && name in map
   })
   for (const name of add) if (!installed(name)) dependencies[name] = range
-  for (const [name, supported] of Object.entries(within)) {
+  for (const [name, supported] of Object.entries(change.within ?? {})) {
     if (!installed(name)) {
       dependencies[name] = supported
       continue

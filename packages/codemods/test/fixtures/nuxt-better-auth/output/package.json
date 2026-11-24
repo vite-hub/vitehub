@@ -6,7 +6,6 @@
     "@nuxthub/core": "^0.10.5",
     "@vite-hub/auth": "^<version>",
     "better-auth": "^1.7.15",
-    "drizzle-orm": "1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0",
     "nuxt": "^5.0.0",
     "vite-hub": "^<version>"
   }
