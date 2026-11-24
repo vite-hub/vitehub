@@ -52,6 +52,10 @@ const authSchemaPluginImports: Readonly<Record<string, Readonly<Record<string, A
   "@better-auth/stripe": { stripe: "stripe" },
 }
 
+function pluginFactoriesOf(source: string): Readonly<Record<string, AuthSchemaPlugin>> | undefined {
+  return authSchemaPluginImports[source.startsWith("better-auth/plugins/") ? "better-auth/plugins" : source]
+}
+
 // Vite's default `resolve.extensions`, in its order.
 const viteExtensions = [".mjs", ".js", ".mts", ".ts", ".jsx", ".tsx", ".json"]
 const typeScriptSources: Readonly<Record<string, readonly string[]>> = { ".js": [".ts", ".tsx"], ".jsx": [".tsx"], ".mjs": [".mts"], ".cjs": [".cts"] }
@@ -85,11 +89,13 @@ interface ModuleBindings {
   /** Value imports from local modules, by local name. `*` is a namespace import. */
   imports: Map<string, { file: string, imported: string }>
   /** Local names and re-exports, by export name. */
-  exports: Map<string, { local: string } | { file: string, imported: string }>
+  exports: Map<string, { local: string } | { file: string, imported: string } | { plugin: AuthSchemaPlugin }>
   /** The local modules of `export * from`. */
   exportAll: string[]
+  exportAllFactories: Array<Readonly<Record<string, AuthSchemaPlugin>>>
   /** The plugin factories that the module imports, by local name. */
   pluginFactories: Map<string, AuthSchemaPlugin>
+  pluginNamespaces: Map<string, Readonly<Record<string, AuthSchemaPlugin>>>
 }
 
 function addBoundNames(pattern: Node, names: string[]): void {
@@ -104,7 +110,7 @@ function addBoundNames(pattern: Node, names: string[]): void {
 }
 
 function readModuleBindings(module: ScannedModule): ModuleBindings {
-  const bindings: ModuleBindings = { declarations: new Map(), imports: new Map(), exports: new Map(), exportAll: [], pluginFactories: new Map() }
+  const bindings: ModuleBindings = { declarations: new Map(), imports: new Map(), exports: new Map(), exportAll: [], exportAllFactories: [], pluginFactories: new Map(), pluginNamespaces: new Map() }
   const localFile = (specifier: string) => specifier.startsWith("./") || specifier.startsWith("../") ? resolveLocalModule(module.file, specifier) : undefined
   const declare = (name: string, node: Node) => bindings.declarations.set(name, [...bindings.declarations.get(name) ?? [], node])
   const readDeclaration = (declaration: Node, exported: boolean) => {
@@ -125,11 +131,12 @@ function readModuleBindings(module: ScannedModule): ModuleBindings {
     if (statement.type === "ImportDeclaration") {
       if (statement.importKind === "type") continue
       const source = statement.source.value
-      const factories = authSchemaPluginImports[source.startsWith("better-auth/plugins/") ? "better-auth/plugins" : source]
+      const factories = pluginFactoriesOf(source)
       const file = localFile(source)
       for (const specifier of statement.specifiers) {
         if (specifier.type === "ImportSpecifier" && specifier.importKind === "type") continue
         const imported = specifier.type === "ImportSpecifier" ? nameOf(specifier.imported) : specifier.type === "ImportDefaultSpecifier" ? "default" : "*"
+        if (factories && imported === "*") bindings.pluginNamespaces.set(specifier.local.name, factories)
         if (factories && Object.hasOwn(factories, imported)) bindings.pluginFactories.set(specifier.local.name, factories[imported]!)
         if (file) bindings.imports.set(specifier.local.name, { file, imported })
       }
@@ -138,17 +145,22 @@ function readModuleBindings(module: ScannedModule): ModuleBindings {
       if (statement.exportKind === "type") continue
       if (statement.declaration) readDeclaration(statement.declaration, true)
       const file = statement.source ? localFile(statement.source.value) : undefined
+      const factories = statement.source ? pluginFactoriesOf(statement.source.value) : undefined
       for (const specifier of statement.specifiers) {
         if (specifier.exportKind === "type") continue
         const local = nameOf(specifier.local)
         if (statement.source) {
           if (file) bindings.exports.set(nameOf(specifier.exported), { file, imported: local })
+          else if (factories && Object.hasOwn(factories, local)) bindings.exports.set(nameOf(specifier.exported), { plugin: factories[local]! })
         }
         else bindings.exports.set(nameOf(specifier.exported), { local })
       }
     }
     else if (statement.type === "ExportAllDeclaration") {
-      const file = statement.exportKind === "type" ? undefined : localFile(statement.source.value)
+      if (statement.exportKind === "type") continue
+      const factories = statement.exported ? undefined : pluginFactoriesOf(statement.source.value)
+      if (factories) bindings.exportAllFactories.push(factories)
+      const file = localFile(statement.source.value)
       if (!file) continue
       if (statement.exported) bindings.exports.set(nameOf(statement.exported), { file, imported: "*" })
       else bindings.exportAll.push(file)
@@ -169,14 +181,28 @@ function readModuleBindings(module: ScannedModule): ModuleBindings {
  * local modules it imports. The whole module counts for the Definition. In an imported module, only the exports that
  * the importer uses count, with the declarations and imports that they use.
  */
-function readModuleNeeds(module: ScannedModule, needs: ModuleNeeds): { plugins: AuthSchemaPlugin[], imports: Array<[string, ModuleNeeds]> } {
+function readModuleNeeds(module: ScannedModule, needs: ModuleNeeds, exportedFactory: (file: string, name: string) => AuthSchemaPlugin | undefined): { plugins: AuthSchemaPlugin[], imports: Array<[string, ModuleNeeds]> } {
   const bindings = readModuleBindings(module)
   const plugins = new Set<AuthSchemaPlugin>()
   const imports: Array<[string, ModuleNeeds]> = []
   const need = (file: string, imported: string) => imports.push([file, imported === "*" ? "all" : new Set([imported])])
+  const calledFactory = (callee: Node): AuthSchemaPlugin | undefined => {
+    if (callee.type === "Identifier") {
+      const imported = bindings.imports.get(callee.name)
+      return bindings.pluginFactories.get(callee.name) ?? (imported && imported.imported !== "*" ? exportedFactory(imported.file, imported.imported) : undefined)
+    }
+    if (callee.type !== "MemberExpression" || callee.object.type !== "Identifier") return undefined
+    const property = callee.computed ? staticString(callee.property as Expression) : callee.property.type === "Identifier" ? callee.property.name : undefined
+    if (property === undefined) return undefined
+    const factories = bindings.pluginNamespaces.get(callee.object.name)
+    if (factories) return Object.hasOwn(factories, property) ? factories[property] : undefined
+    const imported = bindings.imports.get(callee.object.name)
+    return imported?.imported === "*" ? exportedFactory(imported.file, property) : undefined
+  }
   const collectCalls = (node: Node, references?: Set<string>) => walk(node, (child) => {
     if (child.type === "ImportDeclaration") return false
-    if (child.type === "CallExpression" && child.callee.type === "Identifier" && bindings.pluginFactories.has(child.callee.name)) plugins.add(bindings.pluginFactories.get(child.callee.name)!)
+    const plugin = child.type === "CallExpression" ? calledFactory(child.callee as Node) : undefined
+    if (plugin) plugins.add(plugin)
     if (child.type === "Identifier") references?.add(child.name)
   })
   if (needs === "all") {
@@ -191,7 +217,7 @@ function readModuleNeeds(module: ScannedModule, needs: ModuleNeeds): { plugins: 
     const target = bindings.exports.get(name)
     if (!target) for (const file of bindings.exportAll) need(file, name)
     else if ("file" in target) need(target.file, target.imported)
-    else locals.push(target.local)
+    else if ("local" in target) locals.push(target.local)
   }
   const reached = new Set<string>()
   for (let local = locals.pop(); local !== undefined; local = locals.pop()) {
@@ -213,6 +239,33 @@ function readModuleNeeds(module: ScannedModule, needs: ModuleNeeds): { plugins: 
 function readDefinitionSchemaPlugins(definition: ScannedModule): AuthSchemaPlugin[] {
   const plugins = new Set<AuthSchemaPlugin>()
   const modules = new Map<string, ScannedModule>([[definition.file, definition]])
+  const moduleOf = (file: string): ScannedModule => {
+    let module = modules.get(file)
+    if (!module) modules.set(file, module = scanModule(readFileSync(file, "utf8"), file))
+    return module
+  }
+  const bindingsByFile = new Map<string, ModuleBindings>()
+  const exportedFactory = (file: string, name: string, seen = new Set<string>()): AuthSchemaPlugin | undefined => {
+    const key = `${file}\0${name}`
+    if (seen.has(key)) return undefined
+    seen.add(key)
+    let bindings = bindingsByFile.get(file)
+    if (!bindings) bindingsByFile.set(file, bindings = readModuleBindings(moduleOf(file)))
+    const target = bindings.exports.get(name)
+    if (target && "plugin" in target) return target.plugin
+    if (target && "file" in target) return exportedFactory(target.file, target.imported, seen)
+    if (target) {
+      const imported = bindings.imports.get(target.local)
+      return bindings.pluginFactories.get(target.local) ?? (imported && imported.imported !== "*" ? exportedFactory(imported.file, imported.imported, seen) : undefined)
+    }
+    const factories = bindings.exportAllFactories.find(item => Object.hasOwn(item, name))
+    if (factories) return factories[name]
+    for (const exported of bindings.exportAll) {
+      const plugin = exportedFactory(exported, name, seen)
+      if (plugin) return plugin
+    }
+    return undefined
+  }
   const done = new Map<string, ModuleNeeds>()
   const queue: Array<[string, ModuleNeeds]> = [[definition.file, "all"]]
   for (let item = queue.shift(); item; item = queue.shift()) {
@@ -222,9 +275,7 @@ function readDefinitionSchemaPlugins(definition: ScannedModule): AuthSchemaPlugi
     const fresh: ModuleNeeds = needs === "all" ? "all" : new Set([...needs].filter(name => !previous?.has(name)))
     if (fresh !== "all" && !fresh.size) continue
     done.set(file, fresh === "all" ? "all" : new Set([...previous ?? [], ...fresh]))
-    let module = modules.get(file)
-    if (!module) modules.set(file, module = scanModule(readFileSync(file, "utf8"), file))
-    const result = readModuleNeeds(module, fresh)
+    const result = readModuleNeeds(moduleOf(file), fresh, exportedFactory)
     for (const plugin of result.plugins) plugins.add(plugin)
     queue.push(...result.imports)
   }

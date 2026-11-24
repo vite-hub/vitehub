@@ -739,6 +739,36 @@ describe("resolveAuthViteConfig", () => {
     expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toEqual({ database: "default", schema: { plugins: ["stripe", "twoFactor"] } })
   })
 
+  it("reads the plugins that the Definition calls through a namespace import or a local module that re-exports them", async () => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import * as plugins from 'better-auth/plugins'",
+      "import { defineAuth } from 'vite-hub/auth'",
+      "import { authDatabase } from 'vite-hub/auth/database'",
+      "export default defineAuth({ database: authDatabase(), plugins: [plugins.admin(), plugins['twoFactor']()] })",
+    ])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toEqual({ database: "default", schema: { plugins: ["admin", "twoFactor"] } })
+
+    await writeAuthSource(rootDir, "server/plugins.ts", [
+      "export { admin } from 'better-auth/plugins'",
+      "export * from './more-plugins'",
+    ])
+    await writeAuthSource(rootDir, "server/more-plugins.ts", ["export * from 'better-auth/plugins'"])
+    await writeAuthSource(rootDir, "server/keys.ts", [
+      "import { apiKey } from '@better-auth/api-key'",
+      "export { apiKey as keys }",
+    ])
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from 'vite-hub/auth'",
+      "import { authDatabase } from 'vite-hub/auth/database'",
+      "import { admin } from './plugins'",
+      "import * as local from './plugins'",
+      "import { keys } from './keys'",
+      "export default defineAuth({ database: authDatabase(), plugins: [admin(), local.username(), keys()] })",
+    ])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toEqual({ database: "default", schema: { plugins: ["admin", "apiKey", "username"] } })
+  })
+
   it("reads only the exports that the Definition uses, from the files that Vite resolves", async () => {
     const rootDir = await createTempProject()
     await writeAuthSource(rootDir, "server/plugins/index.mjs", [
