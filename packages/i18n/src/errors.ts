@@ -9,8 +9,8 @@ export const i18nErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Set `i18n.locales` to a list of BCP 47 tags with the source language first, for example `{ i18n: { locales: [\"en\", \"es\"] } }`.",
     },
     I18N_UNSUPPORTED_HOST: {
-      why: "i18n needs Nitro 3, which runs each request in an async context. Nuxt 4 builds the server with Nitro 2.",
-      fix: "Upgrade to Nuxt 5, or use `vitehub()` with Nitro 3 in a Vite app.",
+      why: "i18n needs Nitro 3, which runs each request in an async context. This app builds the server with Nitro 2.",
+      fix: "Use Nuxt 4.7 or newer with the `nitro` package (`pnpm add nuxt@^4.7.0 nitro`), Nuxt 5, or `vitehub()` with Nitro 3 in a Vite app.",
     },
     I18N_UNKNOWN_WORKSPACE: {
       why: ({ workspace, workspaces }: { workspace: string, workspaces: readonly string[] | undefined }) => workspaces === undefined

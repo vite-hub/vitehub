@@ -348,7 +348,7 @@ ${name === "default" ? "" : `  name: ${JSON.stringify(name)},\n`}  schema: {
   }),
   i18n: feature({
     docs: "/docs/i18n",
-    hosts: everywhere("nitro", "Nitro 3", "Requires Nitro 3 with request async context, or Nuxt 5. Nuxt 4 and Nitro 2 are unsupported."),
+    hosts: everywhere("nitro", "Nitro 3", "Requires Nitro 3 with request async context: Nuxt 4.7 or newer with the nitro package, Nuxt 5, or Vite with Nitro 3. Nitro 2 and Nuxt before 4.7 are unsupported."),
     id: "i18n",
     packages: ["@vite-hub/i18n"],
     requiredOptions: [{ option: "i18n.locales", detail: "Pass a nonempty JSON array of locale names or set locales in your I18n config." }],
