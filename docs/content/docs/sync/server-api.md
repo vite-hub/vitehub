@@ -275,7 +275,7 @@ Five triggers on the table write the change log: `vitehub_sync_<table>_insert`, 
 
 - Sync adds the triggers at its first request on each server. It adds them again when they are missing or old, such as after a migration that rebuilt the table. When they were missing, writes can have gone without a change, so each browser gets every row again.
 - A new value in a scope column moves the row. The scope columns are the columns of `subsets` and each column that a `where` result returned. Sync adds a column of `where` before it sends rows of a scope that uses it.
-- The triggers read only the key, the scope columns, and the columns of unique indexes, so a migration can drop any other column. See [Limits](/docs/sync/limits-and-errors#not-in-sync-yet) to drop one of those columns.
+- The triggers read only the key, the scope columns, and the columns of unique indexes. For other columns, Sync triggers do not block a drop, but SQLite schema dependencies can. See [Limits](/docs/sync/limits-and-errors#not-in-sync-yet) for the migration steps.
 - A live stream shows a write of server code at its next check of the change log, within a second.
 
 ## Inspect

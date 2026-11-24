@@ -161,7 +161,7 @@ const todos = useSync('todos', {
 - `local` has `get`, `insert`, `update`, and `delete`, over the rows with the writes that wait, and `sync(name)` for the stores of another name (see below).
 - The function runs again each time the rows change, until the server answers. Keep it pure: no requests, no random values, no clock.
 - An `insert()` without a key gets a key from the id of the call, so it keeps that key each time the function runs. To make the server use the same key, make the id in the browser and pass it in `args`: `todos.actions.add({ id: crypto.randomUUID(), title })`.
-- When the server refuses the action, the optimistic change goes away, and the call throws a `SyncError` with the code `SYNC_ACTION_REFUSED`. Its message is the message passed to `refuse()` (or of an error with a status below 500). Other errors give "The action failed." The action goes to `failures`, and `retry()` calls it again.
+- When the server rejects the action, the optimistic change goes away, the call rejects with a `SyncError`, and the action goes to `failures`. Use `retry()` to call it again. If the action called `refuse(message)`, the error code is `SYNC_ACTION_REFUSED` and the error carries that message. See [Server action rules](/docs/sync/server-api#actions) for thrown errors and rejected writes.
 - An error in the optimistic function shows in the console. The action still goes to the server.
 - The call resolves with the result also when another tab of the app sends the action. That tab keeps the result in IndexedDB until the calling tab reads it, or for 10 minutes.
 
