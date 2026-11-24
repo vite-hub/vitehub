@@ -750,6 +750,28 @@ describe("document collections", { timeout: 30_000 }, () => {
     expect(() => documents({ path: "posts/*.md", fields, components: { note: { props: { title: { type: "string", store: "media" } as never } } } })).toThrow("store needs type 'image' or 'file'")
   })
 
+  it("reads a ** inside a file or folder name as *, like the Workspace glob and the overlap check", async () => {
+    const workspace = await historyWorkspace()
+    const content = defineContent({
+      workspace,
+      collections: {
+        top: documents({ path: "posts/**.md", fields }),
+        drafts: documents({ path: "posts/drafts/*.md", fields }),
+        archive: documents({ path: "archive/a**/*.md", fields }),
+      },
+      logger: false,
+    })
+    cleanup.push(() => content.dispose())
+    await content.collection("top").save("hello", hello)
+    await content.collection("drafts").save("idea", hello)
+    await content.collection("archive").save("a2026/old", hello)
+    await useWorkspace(workspace, { mode: "write" }).fs.writeFile("archive/a.md", "---\ntitle: Root\ndate: 2026-10-14\n---\n")
+    expect((await content.collection("top").list({ ref: "draft" })).items.map(item => item.id)).toEqual(["hello"])
+    expect((await content.collection("drafts").list({ ref: "draft" })).items.map(item => item.id)).toEqual(["idea"])
+    expect((await content.collection("archive").list({ ref: "draft" })).items.map(item => item.id)).toEqual(["a2026/old"])
+    await expect(content.collection("top").get("drafts/idea", { ref: "draft" })).rejects.toMatchObject({ code: "CONTENT_DOCUMENT_OUTSIDE_COLLECTION" })
+  })
+
   it("declares the Comark components that bodies may use", async () => {
     const workspace = await historyWorkspace()
     const content = defineContent({
