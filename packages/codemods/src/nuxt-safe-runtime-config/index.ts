@@ -17,7 +17,7 @@ import { rewriteCallSites } from "./call-sites.ts"
 import { editNuxtConfig } from "./config-edit.ts"
 import { planFromEnvFile, readEnvFileKeys } from "./env-file.ts"
 import { pathLabel } from "./fields.ts"
-import { assertNotNitro2, editNitroConfig, findNitroModuleEntry, isNitroApp, nitroModuleName, planNitroHost, readNitroConfig, writeViteConfig } from "./nitro-config.ts"
+import { assertNotNitro2, editNitroConfig, findNitroModuleEntry, isNitroApp, nitroModuleName, planNitroHost, readNitroConfig, readVitePreset, writeViteConfig } from "./nitro-config.ts"
 import { loadSchemaModule, moduleName, readRuntimeConfig, readStaticOptions } from "./nuxt-config.ts"
 import { planFromJsonSchema, schemaIssues, schemaToJsonSchema } from "./schema.ts"
 import { planSchemaModule, renderSchemaModule } from "./schema-module.ts"
@@ -433,9 +433,9 @@ async function migrateNitro(cwd: string): Promise<CodemodResult> {
 
   const { fields, unmigrated, planned, notes, schemaFile, lines, sourceLabel, schemaModule, generated } = await planSchema({ cwd, config, options, optionNodes: [safeProperty?.value], framework: "nitro" })
   const migrated = new Set(fields.map(field => pathLabel(field)))
-  const hostPlan = planNitroHost(config)
+  const hostPlan = planNitroHost(config, await readVitePreset(cwd))
   const edited = editNitroConfig({ config, moduleEntry, migrated, preset: hostPlan.preset })
-  const vite = await writeViteConfig({ cwd, nitroConfig: config, env: { kind: "fields", fields }, host: hostPlan.host, schemaModule })
+  const vite = await writeViteConfig({ cwd, nitroConfig: config, env: { kind: "fields", fields }, host: hostPlan.host, schemaModule, removePreset: hostPlan.removeVitePreset })
   const viteFile = vite.edit.path
   const outOfScope = await findNitroOutOfScopeConfigs(cwd, config)
   const calls = await rewriteCallSites({ cwd, fields, unmigrated, excludedDirectories: outOfScope.directories, framework: "nitro" })
