@@ -71,8 +71,9 @@ ViteHub supports Nuxt 5 through the `vite-hub/nuxt` module. Until Nuxt 5 is
 stable, install it as `nuxt@npm:nuxt-nightly@5x`. The module takes the same
 options as `vitehub()`, also from the `vitehub` key in
 `nuxt.config.ts`. It scans the server folder of the app and of each Nuxt
-layer. On Nuxt 5, server code uses `kv`, `blob`, `db`, `schema`, and the
-helpers of every other enabled feature without an import, as in NuxtHub. See
+layer. On Nuxt 5, server code imports `kv`, `blob`, `db`, `schema`, and the
+helpers of every other enabled feature from `vite-hub/*`. With Nuxt's
+`experimental.nitroAutoImports`, they are auto-imported, as in NuxtHub. See
 [Nuxt server auto-imports](/docs/frameworks-hosts/nuxt-server-auto-imports).
 [Nuxt](/docs/frameworks-hosts/nuxt) lists every difference from the Vite
 integration.

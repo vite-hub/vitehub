@@ -135,6 +135,7 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
       "@takumi-rs/core",
     ],
   },
+  email: { ignoreDependencies: ["@vitejs/plugin-vue"] },
   env: { ignoreDependencies: ["nuxt"] },
   i18n: { ignoreDependencies: ["@diglot/cli"] },
   internal: {
@@ -193,7 +194,7 @@ const packageWorkspaces = Object.fromEntries(
 const config: KnipConfiguration = {
   include: ["files", "dependencies", "unlisted", "unresolved", "binaries", "catalog"],
   exclude: ["optionalPeerDependencies"],
-  ignore: ["fixtures/**", "test/fixtures/**", "test/multi-instance/app/**", "packages/*/fixtures/**", "packages/*/test/fixtures/**", "playground/chatgpt/**", "packages/docs/playground/examples/**", "packages/docs/playground/fixtures/**"],
+  ignore: ["fixtures/**", "test/fixtures/**", "test/multi-instance/app/**", "packages/*/fixtures/**", "packages/*/test/fixtures/**", "playground/chatgpt/**", "packages/docs/playground/examples/**", "packages/docs/playground/fixtures/**", "scripts/console-weight/fixture/**"],
   compilers: {
     css: (text: string) => [...text.matchAll(/(?:@import\s+|url\(\s*)["']([^"']+)["']/g)]
       .filter(match => !/^(?:[a-z][a-z\d+.-]*:|\/|#)/i.test(match[1]!))
@@ -206,6 +207,7 @@ const config: KnipConfiguration = {
     ".": {
       entry: [
         "scripts/*.mjs",
+        "scripts/bench-vercel-runtime-packages/*.mjs",
         "scripts/lint/delete-comments.mjs",
         "scripts/lint/update-comment-baseline.mjs",
         ".github/scripts/claim-npm-packages.mjs",

@@ -12,7 +12,7 @@ Many people and Agents can open one document. Content stores a session per edito
 
 ## Add the sessions table
 
-Sessions live in the Workspace history Database, so they work on every host with the Blob + Database Store: libSQL, Turso, and Cloudflare D1. Add `contentSessionsSchema` next to `workspaceHistorySchema`:
+Sessions live in the Workspace history Database, so they work on every host with the Blob + Database Store on libSQL, Turso, or Cloudflare D1. A Workspace that keeps its history in Postgres has no sessions and fails with `CONTENT_R0012`. Add `contentSessionsSchema` next to `workspaceHistorySchema`:
 
 ```ts [server/databases/content/index.ts]
 import { defineDatabase } from 'vite-hub/database'

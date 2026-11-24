@@ -24,6 +24,7 @@ export default defineConfig({
     },
     entry: [
       "src/blob-database.ts",
+      "src/blob-database/postgres.ts",
       "src/checkout.ts",
       "src/cloudflare.ts",
       "src/durability.ts",

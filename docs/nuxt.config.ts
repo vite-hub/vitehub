@@ -1,7 +1,7 @@
 import { defineNuxtConfig } from "nuxt/config";
 import { fileURLToPath } from "node:url";
-import { docsIcons } from "./app/utils/docs-sidebar-icons";
-import { capabilityReferences, expandCapabilityTools } from "./modules/vitehub-docs/capability-references";
+import { docsIcons } from "./app/utils/docs-sidebar-icons.ts";
+import { capabilityReferences, expandCapabilityTools } from "./modules/vitehub-docs/capability-references.ts";
 
 export default defineNuxtConfig({
   // The diagnostics module writes its pages before `@vite-hub/docs` reads the content folder.

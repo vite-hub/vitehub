@@ -80,7 +80,7 @@ export default defineConfig({
 | `database.previewDatabaseId` | `DatabaseConfigValue` | none | Cloudflare D1 preview database id. |
 | `database.databaseName` | `DatabaseConfigValue` | none | Cloudflare D1 database name. |
 | `database.migrationsTable` | `string` | provider default | Cloudflare D1 migrations table. |
-| `database.migrateOnStart` | `boolean` or `{ allowDataLoss?: boolean, backup?: boolean \| { keep?: number, dir?: string } }` | On for Postgres in a Node build | Applies pending migrations when a Node server build starts. Unset, only Postgres databases migrate. `true` also migrates local SQLite files. `false` turns it off. `backup` copies each SQLite file first. See [Migrate when the server starts](#migrate-when-the-server-starts). |
+| `database.migrateOnStart` | `boolean` or `{ allowDataLoss?: boolean, backup?: boolean \| { keep?: number, dir?: string } }` | On for Postgres in a Node build | Applies pending migrations when a Node server build starts. Unset, only Postgres databases migrate. `true` also migrates local SQLite files and D1 over HTTP. `false` turns it off. `backup` copies each SQLite file first. See [Migrate when the server starts](#migrate-when-the-server-starts). |
 | `database.migrateOnDeploy` | `boolean` | `false` | Applies the pending migrations of each Cloudflare D1 binding in the deploy command, before the Worker deploys. See [Migrate when you deploy](#migrate-when-you-deploy). |
 | `database.readReplication` | `boolean` | `false` | Reads from D1 read replicas. See [Read from D1 replicas](/docs/database/hosts#read-from-d1-replicas). |
 
@@ -632,7 +632,7 @@ Rules:
 - `relations` join like tables. The relations of one table merge across layers, and the app wins a relation name. A layer can relate its tables to the tables of another layer: import them, and pass them to `defineRelationsPart()`. When a layer replaces a table, it must also define the relations of that table.
 - Migrations go to the application, in `server/databases/default/migrations` or `server/databases/<name>/migrations`, also when only layers define the database.
 
-ViteHub finds duplicate table keys when `schema` is an object literal. Query the merged database with `useDatabase()` or the `db` server auto-import. A `defineDatabase()` object holds options only. It is not a Drizzle database.
+ViteHub finds duplicate table keys when `schema` is an object literal. Query the merged database with `useDatabase()` or `db` from `vite-hub/database`. A `defineDatabase()` object holds options only. It is not a Drizzle database.
 
 ## Contribute tables from a package
 
@@ -755,7 +755,7 @@ vitehub: {
 },
 ```
 
-A project cannot mix a default database with named ones, so this fits an app whose databases are all named.
+A project cannot combine `src/database.ts` with named databases, so this fits any app that does not define its Default Database in `src/database.ts`.
 
 | Field | Type | Description |
 | --- | --- | --- |

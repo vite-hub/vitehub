@@ -104,6 +104,19 @@ describe("vitehub database sql", () => {
     ].join("\n"))
   })
 
+  it("prints a table with more rows than the call stack holds arguments", async () => {
+    const project = await createProject({ default: { connection: { url: "file:app.db" } } })
+
+    await seedSqlite(join(project.rootDir, "app.db"), sqliteSeed)
+
+    const result = await project.run("sql", ["WITH RECURSIVE numbers(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM numbers WHERE n<200000) SELECT n FROM numbers"])
+
+    expect(result.exitCode).toBe(0)
+    const lines = result.stdout.split("\n")
+    expect(lines.slice(0, 4)).toEqual(["n", "------", "1", "2"])
+    expect(lines.slice(-3)).toEqual(["200000", "(200000 rows)", ""])
+  })
+
   it("reads the SQL from stdin and prints JSON with --json", async () => {
     const project = await createProject({ default: { connection: { url: "file:app.db" } } }, { readStdin: async () => "SELECT count(*) AS users FROM users;\nSELECT name FROM users WHERE id = 2;\n" })
     await seedSqlite(join(project.rootDir, "app.db"), sqliteSeed)

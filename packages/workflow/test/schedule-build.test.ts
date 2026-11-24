@@ -113,6 +113,7 @@ describe("Workflow preparation for Schedule", () => {
         const contributions = useProviderOutputCatalog(config).takeDeploymentContributions()
         expect(contributions).toHaveLength(1)
         await contributions[0]!.write({
+          addVercelRuntimePackages: () => {},
           readCloudflareState: async () => ({ wranglerConfig: {} }),
           signal: new AbortController().signal,
           write: async () => undefined,

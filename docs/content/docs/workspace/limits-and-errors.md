@@ -21,13 +21,13 @@ Retained-history methods need a Store with `history`.
 - `WORKSPACE_R0069`: the Store does not support history, or the Workspace scope is partial.
 - `WORKSPACE_R0070`: a list limit is not an integer from `1` to `100`, or a cursor comes from another ref.
 - `WORKSPACE_R0071`: a ref name is not valid.
-- `WORKSPACE_R0077`: the `database` of the Blob + Database Store is not a Drizzle database, for example a Database Definition.
+- `WORKSPACE_R0077`: the `database` of the Blob + Database Store is not a Drizzle database on SQLite, libSQL, D1, or Postgres, for example a Database Definition.
 - `WORKSPACE_CONFLICT`: `ifHead` is stale. The error has the ref and the expected and actual revision ids.
 - `WORKSPACE_NOT_FOUND`: a revision or workspace identity is gone, or a change commit deletes a missing file.
 
 Blob operations keep their `BLOB_*` error codes. If workspace deletion fails, fix the storage error and retry.
 
-The [GitHub Store](/docs/workspace/configure#github-store) uses branches as refs and commits as revisions. It has no pruning API and never deletes branches or commits.
+The [GitHub Store](/docs/workspace/configure#github-store) uses branches as refs and commits as revisions. It has no pruning API and never deletes commits; `history.deleteRef()` deletes branches other than `main`, the Store's working branch, and the repository default branch.
 
 - `WORKSPACE_R0072`: the repository or token is missing, at the first request.
 - `WORKSPACE_R0073`: the commit message or metadata is too large, or the message has a `Vitehub-Metadata:` line.

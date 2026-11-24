@@ -1450,7 +1450,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R0274: {
       ...dynamicError,
-      fix: "Run pnpm add @agntn/web in the app, or use webSearch({ mode: \"model\" }).",
+      fix: "Run pnpm add @agntn/web@^0.9.1 on Node.js 26 or newer, or use webSearch({ mode: \"model\" }).",
     },
     AGENT_R0275: {
       ...dynamicError,
