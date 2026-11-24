@@ -48,6 +48,7 @@ describe("setup feature inputs", () => {
     const result = await runSetup<SetupInitPlan>([...init("i18n,mcp", ...options), "--no-install"], root)
     expect(result.exitCode, result.stdout).toBe(0)
     expect(result.json.stack.command).toContain("'i18n.locales=[\"en\",\"es-MX\"]'")
+    expect(result.json.stack.command).toContain("--option mcp.auth=false")
     expect(result.json.stack.command).toContain("'mcp.instructions=[Read-only] Search project docs.'")
     expect(result.json.stack.command).toContain("'mcp.serverInfo.name=[\"Docs\"]'")
     const config = await readFile(join(root, "app/vite.config.ts"), "utf8")

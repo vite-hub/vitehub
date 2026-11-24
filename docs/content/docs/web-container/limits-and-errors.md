@@ -19,7 +19,7 @@ icon: i-lucide-triangle-alert
 
 ## Errors
 
-`bootWebContainer()` throws `WEB_CONTAINER_UNSUPPORTED` when the page cannot run a WebContainer, and `createNodeModulesSnapshot()` throws `WEB_CONTAINER_SNAPSHOT_LOCKFILE_MISMATCH` when the `lockfile` that you pass no longer matches the app. Each error has a `fix` and a `docs` link to its page.
+`bootWebContainer()` throws `WEB_CONTAINER_UNSUPPORTED` when the page cannot run a WebContainer, `container.run("dev")` throws `WEB_CONTAINER_DEV_RUNNING` when a dev server is already running, and `createNodeModulesSnapshot()` throws `WEB_CONTAINER_SNAPSHOT_LOCKFILE_MISMATCH` when the `lockfile` that you pass no longer matches the app. Each error has a `fix` and a `docs` link to its page in [WebContainer diagnostics](/docs/web-container/diagnostics).
 
 ### `RangeError: Offset is outside the bounds of the DataView`
 
@@ -27,4 +27,4 @@ One container failed with this error after two full ViteHub installs. Use one co
 
 ### A second `run("dev")` rejects
 
-Only one `dev` run may be active, also while it spawns. Call `kill()` on the first run and await its `exit` before you start it again.
+Only one `dev` run may be active, also while it spawns. Another call rejects with [`WEB_CONTAINER_DEV_RUNNING`](/docs/web-container/diagnostics/web_container_dev_running). Call `kill()` on the first run and await its `exit` before you start it again.

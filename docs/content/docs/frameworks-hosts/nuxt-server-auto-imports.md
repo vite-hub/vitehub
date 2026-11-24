@@ -14,16 +14,25 @@ helpers.
 ```ts [server/api/welcome.post.ts] fragment
 import { kv } from 'vite-hub/kv'
 import { sendQueue } from 'vite-hub/queue'
-import { defineEventHandler, readBody } from 'nitro/h3'
+import { createError, defineEventHandler, readBody } from 'nitro/h3'
 
 export default defineEventHandler(async (event) => {
-  const { email } = await readBody<{ email: string }>(event)
-  const [error] = await sendQueue('welcome-email', { email })
-  if (error) throw error
-  await kv.set(`welcome:${email}`, 'queued')
+  const body = await readBody<{ email?: unknown }>(event)
+  const email = typeof body?.email === 'string' ? body.email.trim() : ''
+  if (!email) throw createError({ status: 400, message: 'Email is required.' })
+  const [queueError] = await sendQueue('welcome-email', { email })
+  if (queueError) throw queueError
+  try {
+    const [kvError] = await kv.set(`welcome:${email}`, 'queued')
+    if (kvError) throw kvError
+  } catch (error) {
+    console.error('Could not save the welcome queue status.', error)
+  }
   return { queued: true }
 })
 ```
+
+The response confirms that the queue accepted the job. If saving the status in KV fails, the route logs the error and still confirms the enqueue.
 
 ## Migrate an app
 
@@ -58,10 +67,17 @@ turns them on.
 
 ```ts [server/api/welcome.post.ts] fragment
 export default defineEventHandler(async (event) => {
-  const { email } = await readBody<{ email: string }>(event)
-  const [error] = await sendQueue('welcome-email', { email })
-  if (error) throw error
-  await kv.set(`welcome:${email}`, 'queued')
+  const body = await readBody<{ email?: unknown }>(event)
+  const email = typeof body?.email === 'string' ? body.email.trim() : ''
+  if (!email) throw createError({ status: 400, message: 'Email is required.' })
+  const [queueError] = await sendQueue('welcome-email', { email })
+  if (queueError) throw queueError
+  try {
+    const [kvError] = await kv.set(`welcome:${email}`, 'queued')
+    if (kvError) throw kvError
+  } catch (error) {
+    console.error('Could not save the welcome queue status.', error)
+  }
   return { queued: true }
 })
 ```

@@ -33,6 +33,7 @@ export const shellErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Make the driver return its process handle within the Shell timeout, or raise the Shell policy timeout if longer startup is expected.",
     },
     // Named errors.
+    SHELL_PATH_NOT_FOUND: { ...dynamicError, fix: "Create the path first, or correct the path. The command found no file or directory there." },
     SHELL_SH_SYNTAX_WASM_UNAVAILABLE: {
       why: "[vitehub] sh-syntax cannot load its WebAssembly parser on this host.",
       fix: "Build the server with `vitehub()`, which bundles the sh-syntax WebAssembly parser, or run it on Node, where sh-syntax reads `main.wasm` from its own package.",
