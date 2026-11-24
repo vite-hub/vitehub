@@ -1,5 +1,6 @@
-import { readFile } from "node:fs/promises"
-import { resolve } from "node:path"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join, resolve } from "node:path"
 
 import { build } from "esbuild"
 import type { Plugin } from "vite"
@@ -8,6 +9,8 @@ import { expect, it } from "vitest"
 import { vitehub } from "../src/index.ts"
 import { consoleDocumentEditorSectionIds } from "../src/console/contributions.ts"
 import { consoleOperationFeatures, transformConsoleOperationFeatures } from "../src/console/operation-features.ts"
+import { consoleOperationModules } from "../src/console/operation-modules.ts"
+import { consoleVitePlugin } from "../src/console/vite.ts"
 
 const primitiveOperations = /\/(?:agent|auth|blob|content|database|env|logs|workspace)\/console\/operations\.[jt]s$/
 
@@ -102,4 +105,42 @@ it("keeps the media library only when the app configures a document editor secti
   if (!editor) throw new Error("Expected an installed document editor section.")
   expect(transformConsoleOperationFeatures("import.meta.viteHubConsoleDocuments", ["agents"])).toBe("false")
   expect(transformConsoleOperationFeatures("import.meta.viteHubConsoleDocuments", ["agents", editor])).toBe("true")
+  expect(transformConsoleOperationFeatures("import.meta.viteHubConsoleDocuments", ["agents"], true)).toBe("true")
+})
+
+it("reads the document editors of the written app module on Nuxt", () => {
+  const transform = consoleOperationFeatures([], () => true).transform
+  const handler = typeof transform === "function" ? transform : transform?.handler
+  // SAFETY: The operation transform reads only its source argument.
+  expect(handler?.call({} as never, "import.meta.viteHubConsoleDocuments", "operations.ts")).toMatchObject({ code: "true" })
+})
+
+it("turns on the document editor code when discovery finds server/content.ts", async () => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-console-documents-"))
+  try {
+    await writeFile(join(root, "package.json"), "{}\n")
+    await mkdir(join(root, "server"), { recursive: true })
+    await writeFile(join(root, "server/content.ts"), `import { defineContent } from "vite-hub/content"\nimport { documents } from "vite-hub/content/collections"\nexport default defineContent({ workspace: "site", collections: { posts: documents({ path: "posts/*.md", fields: {} }) } })\n`)
+    const plugin = consoleVitePlugin({ console: {}, sections: [] })
+    const configHook = plugin.config
+    const configHandler = typeof configHook === "function" ? configHook : configHook?.handler
+    const transformHook = plugin.transform
+    const transform = typeof transformHook === "function" ? transformHook : transformHook?.handler
+    if (!configHandler || !transform) throw new Error("Expected the Console config and transform hooks.")
+    await Reflect.apply(configHandler, {}, [{ root }, { command: "build", mode: "production" }])
+    const app = await readFile(join(root, ".vitehub/nitro/console/app.mjs"), "utf8")
+    expect(app).toContain("documentConsoleOperations")
+    // SAFETY: The operation transform reads only its source argument.
+    expect(await transform.call({} as never, "import.meta.viteHubConsoleDocuments", "operations.ts")).toMatchObject({ code: "true" })
+  }
+  finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
+it("registers the media library only with a document editor and Blob", () => {
+  const media = consoleOperationModules.find(entry => entry.export === "mediaConsoleOperations")
+  expect(media?.enabled({ documents: true, sections: [], site: false })).toBe(false)
+  expect(media?.enabled({ documents: false, sections: ["blob"], site: false })).toBe(false)
+  expect(media?.enabled({ documents: true, sections: ["blob"], site: false })).toBe(true)
 })

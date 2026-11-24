@@ -119,6 +119,18 @@ export interface ConsoleAppModuleOptions {
   site?: boolean
 }
 
+type ConsoleAppModuleSectionOptions = Pick<ConsoleAppModuleOptions, "access" | "catalog" | "sections" | "site">
+
+function consoleAppModuleSections({ access, catalog, sections, site = false }: ConsoleAppModuleSectionOptions): ConsoleSectionId[] {
+  return withConsoleDocumentEditorSections(site ? [...sections, "site"] : sections, catalog)
+    .filter(section => !access?.hiddenSections?.includes(section))
+}
+
+/** Whether the generated Console app module registers a document editor, which turns on `import.meta.viteHubConsoleDocuments`. */
+export function consoleAppModuleHasDocumentEditors(options: ConsoleAppModuleSectionOptions): boolean {
+  return describeConsoleDocumentEditors(consoleAppModuleSections(options), options.catalog.documents ?? {}).length > 0
+}
+
 function renderConsoleAppModule(
   {
     projectRoot,
@@ -139,8 +151,7 @@ function renderConsoleAppModule(
   const agents = catalog.agents
   const accessCode = renderConsoleAccess(access)
   const operations = catalog.operations ?? []
-  const sections = withConsoleDocumentEditorSections(site ? [...configuredSections, "site"] : configuredSections, catalog)
-    .filter(section => !access?.hiddenSections?.includes(section))
+  const sections = consoleAppModuleSections({ access, catalog, sections: configuredSections, site })
   const documentEditors = describeConsoleDocumentEditors(sections, catalog.documents ?? {})
   const runtimeCapabilities = renderConsoleRuntimeCapabilities(runtimeCapabilityImports)
   const agentSkills = agents.map(agent => requireOptionalOwner(ownerModules.agentVite, "agent").readColocatedAgentSkills(agent.handler))

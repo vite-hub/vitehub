@@ -14,7 +14,7 @@ import type { Environment, Plugin } from "vite"
 import { insertConsoleSection, type ConsoleSectionId } from "./runtime/sections.ts"
 
 import { discoverConsoleBuildCatalog } from "./build.ts"
-import { consoleRuntimeRoot, writeConsoleAppModule, type ConsoleAccessBuild, type ConsoleAppModuleOptions } from "./app-module.ts"
+import { consoleAppModuleHasDocumentEditors, consoleRuntimeRoot, writeConsoleAppModule, type ConsoleAccessBuild, type ConsoleAppModuleOptions } from "./app-module.ts"
 import { loadConsoleOperations } from "./operation-modules.ts"
 import { serializeConsoleRefresh } from "./refresh.ts"
 import { addConsoleRpcHandler } from "./nitro.ts"
@@ -359,7 +359,9 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
     transform: {
       filter: consoleOperationFeaturesFilter,
       handler(code) {
-        const transformed = transformConsoleOperationFeatures(code, options.operationSections ?? sections)
+        const catalog = projectRoot ? consoleBuildCatalogs.get(projectRoot) : undefined
+        const documents = catalog ? consoleAppModuleHasDocumentEditors({ ...consoleAppModuleOptions(), catalog }) : undefined
+        const transformed = transformConsoleOperationFeatures(code, options.operationSections ?? sections, documents)
         return transformed === undefined ? undefined : { code: transformed, map: null }
       },
     },

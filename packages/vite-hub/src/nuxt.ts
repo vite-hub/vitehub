@@ -42,7 +42,7 @@ import { importOptionalOwner, isPackageInstalled, requireOptionalOwner, startPac
 import { nuxtImageProviderDependency } from "./internal/nuxt-image.ts"
 import { hasSyncDirectory, ownerModules } from "./internal/owner-modules.ts"
 import { discoverConsoleBuildCatalog, type ConsoleBuildCatalog } from "./console/build.ts"
-import { writeConsoleAppModule, type ConsoleAccessBuild } from "./console/app-module.ts"
+import { consoleAppModuleHasDocumentEditors, writeConsoleAppModule, type ConsoleAccessBuild, type ConsoleAppModuleOptions } from "./console/app-module.ts"
 import { installConsoleProjectName, installConsoleSections } from "./console/runtime/server/sections.ts"
 import { consoleOperationFeatures } from "./console/operation-features.ts"
 import { resolveConsoleProjectName } from "./console/project.ts"
@@ -314,10 +314,10 @@ function normalizeGeneratedNitroPlugins(config: Record<string, unknown>, root: s
  * Put these plugins before Nitro's own resolvers, so they see generated and cache imports first. Each one goes first, so
  * in a build the Forge and Drizzle checks can see imports before Nitro resolves them.
  */
-function installNitroBuildPlugins(config: Record<string, unknown>, generatedRoots: string[], dev = false, sections: readonly string[] = [], build = false): void {
+function installNitroBuildPlugins(config: Record<string, unknown>, generatedRoots: string[], dev = false, sections: readonly string[] = [], build = false, documents?: () => boolean | undefined): void {
   const rollupConfig = (config.rollupConfig ??= {}) as Record<string, unknown>
   const plugins = (rollupConfig.plugins ??= []) as Array<{ name?: string }>
-  for (const plugin of [nitroCacheBypass(), nitroViteHubH3(generatedRoots), nitroOptionalPeers(config), consoleOperationFeatures(sections), ...dev ? [nitroCloudflareWorkersDev] : [], ...build ? [forgeBuildCheckPlugin(), withPrintedDiagnostics(drizzleBuildCheckPlugin())] : []]) {
+  for (const plugin of [nitroCacheBypass(), nitroViteHubH3(generatedRoots), nitroOptionalPeers(config), consoleOperationFeatures(sections, documents), ...dev ? [nitroCloudflareWorkersDev] : [], ...build ? [forgeBuildCheckPlugin(), withPrintedDiagnostics(drizzleBuildCheckPlugin())] : []]) {
     if (!plugins.some(candidate => candidate.name === plugin.name)) plugins.unshift(plugin)
   }
 }
@@ -1218,21 +1218,26 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
   const consoleSiteAccess = resolveConsoleSiteAccess(options.comments, { projectRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) })
   // Module setup and the `nitro:config` hook write the same Console app module. Only the file and the catalog differ.
-  const writeNuxtConsoleApp = (file: string, catalog: ConsoleBuildCatalog) => writeConsoleAppModule({
-    file,
-    projectRoot,
-    name: options.name,
-    sections: consoleSections,
-    catalog,
-    blobStores: consoleBlobStores,
-    invoke: consoleInvokeEnabled,
-    active: () => !consoleInvocationRootState.closed,
-    access: consoleAccess,
-    runtimeCapabilityImports,
-    development: nuxt.options.dev === true,
-    target: { host: { name: plan.host, preset: nitroPreset }, framework: { name: "nuxt", version: nuxt._version } },
-    site: consoleSiteAccess,
-  })
+  let consoleDocumentEditors: boolean | undefined
+  const writeNuxtConsoleApp = (file: string, catalog: ConsoleBuildCatalog) => {
+    const appModule: ConsoleAppModuleOptions = {
+      file,
+      projectRoot,
+      name: options.name,
+      sections: consoleSections,
+      catalog,
+      blobStores: consoleBlobStores,
+      invoke: consoleInvokeEnabled,
+      active: () => !consoleInvocationRootState.closed,
+      access: consoleAccess,
+      runtimeCapabilityImports,
+      development: nuxt.options.dev === true,
+      target: { host: { name: plan.host, preset: nitroPreset }, framework: { name: "nuxt", version: nuxt._version } },
+      site: consoleSiteAccess,
+    }
+    consoleDocumentEditors = consoleAppModuleHasDocumentEditors(appModule)
+    return writeConsoleAppModule(appModule)
+  }
   const viteConfig = nuxt.options.vite as UserConfig & {
     [VITEHUB_GENERATED_ROOT]?: string
     [VITEHUB_NITRO_CONFIG_CONTEXT]?: true
@@ -1634,7 +1639,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       serverDirs: resolveNuxtServerDirs(nuxt.options),
     })
     normalizeGeneratedNitroPlugins(config, projectRoot)
-    installNitroBuildPlugins(config, [join(projectRoot, ".vitehub"), join(nuxt.options.buildDir, "vitehub")], nuxt.options.dev === true && plan.host === "cloudflare", consoleSections, !nuxt.options.dev)
+    installNitroBuildPlugins(config, [join(projectRoot, ".vitehub"), join(nuxt.options.buildDir, "vitehub")], nuxt.options.dev === true && plan.host === "cloudflare", consoleSections, !nuxt.options.dev, () => consoleDocumentEditors)
     if (nuxt.options.dev && plan.host === "cloudflare") {
       await writeCloudflareDevShims(nuxt.options.buildDir, (config.alias ??= {}) as Record<string, string>)
     }
