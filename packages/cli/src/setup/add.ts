@@ -11,7 +11,7 @@ import { dirname, join, relative, resolve } from "pathe"
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { setupExitCodes, type SetupFailure, setupFailure, writeSetupError, writeSetupJson } from "./envelope.ts"
 import { readSetupProject } from "./project.ts"
-import { installArgs, installCommand, setsOption, setupStatus } from "./status.ts"
+import { installArgs, installCommand, missingProviderOption, setupStatus } from "./status.ts"
 
 import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cli"
 import type { ConfigEdit, JsonValue } from "@vite-hub/internal/config-edit"
@@ -306,7 +306,6 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   }
   for (const id of inputFeatures) {
     const support = featureSupport(id, host)
-    const options = args.options[id]
     const current = project.config?.ok ? project.config.site.keys[id] : undefined
     const value = valueFor(id)
     if (id === "observability" && isRecord(value) && value.papercuts) {
@@ -343,14 +342,11 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     }
     const storageSelected = id === "workflow" && host !== "netlify" && selectsProvider(id, value, host)
     if (support.level === "explicit" && !storageSelected) {
-      const key = support.option.slice(id.length + 1)
-      const defaultKVStore = id === "kv" && isRecord(value) && isRecord(value.stores) ? value.stores.default : undefined
-      const driver = isRecord(defaultKVStore) ? defaultKVStore.driver : undefined
-      const hasDefaultKVDriver = driver === "upstash" || driver === "redis" || driver === "database"
-      if (!hasDefaultKVDriver && !(options && key in options) && !setsOption(project, support.option)) {
+      const field = missingProviderOption(project, support.option, value)
+      if (field) {
         const choices = optionChoices[support.option]
-        missing.push({ field: support.option, ...(choices ? { choices: choices.values } : {}) })
-        if (choices) setPath(defaults[id] ??= {}, [key], choices.values[0])
+        missing.push({ field, ...(choices ? { choices: choices.values } : {}) })
+        if (choices) setPath(defaults[id] ??= {}, field.split(".").slice(1), choices.values[0])
         else rerunnable = false
       }
     }
@@ -469,7 +465,10 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   for (const id of implied) {
     const support = featureSupport(id, host)
     if (support.level === "unsupported") nextSteps.push(`${id} is turned on by ${args.features.join(", ")} but is not supported on ${host}: ${support.detail} Set \`${id}: false\` to turn it off.`)
-    else if (support.level === "explicit" && !setsOption(project, support.option) && !(args.options[id] && support.option.slice(id.length + 1) in args.options[id])) nextSteps.push(`${id} is turned on by ${args.features.join(", ")}. Set \`${support.option}\` on ${host}, or set \`${id}: false\`. ${support.detail}`)
+    else if (support.level === "explicit") {
+      const option = missingProviderOption(project, support.option, valueFor(id))
+      if (option) nextSteps.push(`${id} is turned on by ${args.features.join(", ")}. Set \`${option}\` on ${host}, or set \`${id}: false\`. ${support.detail}`)
+    }
   }
   for (const id of [...addedFeatures, ...implied]) {
     if (selectsProvider(id, valueFor(id))) continue

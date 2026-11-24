@@ -1,6 +1,7 @@
 import { hasDefinitionFiles } from "@vite-hub/internal/definition-catalog"
 import { hostFromNitroPreset, detectHost } from "@vite-hub/internal/deployment"
 import { featureIds, featurePackages, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
+import { isRecord } from "@vite-hub/internal/object"
 import { join } from "pathe"
 
 import type { ConfigForm, ManualReason } from "@vite-hub/internal/config-edit"
@@ -89,22 +90,28 @@ function readEnabled(project: SetupProject, id: FeatureId, withoutDefinitions: R
   return { enabled: discovered ? "on" : "off", reason: "default" }
 }
 
-/** True when the config sets `option`, such as `blob.driver`, as a literal key of the feature object. */
-export function setsOption(project: SetupProject, option: string): boolean {
-  const config = project.config
-  if (!config?.ok) return false
+export function missingProviderOption(project: SetupProject, option: string, value?: unknown): string | undefined {
   const [id, key] = option.split(".") as [string, string]
-  const value = config.site.keys[id]
-  if (value?.kind === "expression") return true
-  const options = value?.value
-  return !!options && typeof options === "object" && !Array.isArray(options) && key in options
+  const configured = project.config?.ok ? project.config.site.keys[id] : undefined
+  if (configured?.kind === "expression") return
+  const options = value ?? configured?.value
+  if (option === "kv.driver" && isRecord(options) && isRecord(options.stores)) {
+    const store = options.stores.default
+    const driver = isRecord(store) ? store.driver : undefined
+    if (driver !== "upstash" && driver !== "redis" && driver !== "database") return "kv.stores.default.driver"
+    return
+  }
+  if (!isRecord(options) || !(key in options)) return option
 }
 
 function featureFix(project: SetupProject, id: FeatureId, support: SetupFeatureStatus["support"], host: SetupStatus["host"]["name"], missing: { dev: string[], prod: string[] }, providerChosen: boolean): string | undefined {
   const install = installCommand(project.packageManager, missing.prod, missing.dev)
   if (install) return install
   if (support.level === "unsupported") return `Set \`${id}: false\`, or build for another host than ${host}.`
-  if (support.level === "explicit" && !providerChosen && !setsOption(project, support.option)) return `Set \`${support.option}\` in vitehub() to choose a provider on ${host}.`
+  if (support.level === "explicit" && !providerChosen) {
+    const option = missingProviderOption(project, support.option)
+    if (option) return `Set \`${option}\` in vitehub() to choose a provider on ${host}.`
+  }
 }
 
 /** What the project enables, on which host, and what each enabled feature still needs. Reads the config without running it. */

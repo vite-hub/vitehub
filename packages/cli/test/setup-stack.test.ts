@@ -11,6 +11,12 @@ import { createProject, runSetup, viteConfig } from "./setup-helpers.ts"
 import type { SetupError, SetupInitPlan, SetupStatus } from "../src/setup/index.ts"
 
 type StatusResult = SetupStatus & { stack: SetupInitPlan["stack"] | null }
+type InitResult = SetupInitPlan & { error?: SetupError, rerun?: string }
+
+const installedKV = {
+  "node_modules/@vite-hub/kv/package.json": "{}",
+  "node_modules/@upstash/redis/package.json": "{}",
+}
 
 function status(root: string) {
   return runSetup<StatusResult>(["status", "--offline", "--json"], root)
@@ -19,7 +25,7 @@ function status(root: string) {
 function replay(command: string | null, parent: string) {
   if (command === null) throw new Error("Expected a replay command")
   const args = execFileSync("sh", ["-c", `set -- ${command}; printf '%s\\0' "$@"`], { encoding: "utf8" }).split("\0").slice(3, -1)
-  return runSetup<SetupInitPlan & { error?: SetupError }>([...args, "--no-install", "--json"], parent)
+  return runSetup<InitResult>([...args, "--no-install", "--json"], parent)
 }
 
 function featureStates(result: StatusResult) {
@@ -55,8 +61,8 @@ describe("setup stack replay", () => {
 
   it.each([
     ["netlify", "kv: true", "kv.driver"],
-    ["netlify", "kv: { stores: { sessions: { driver: 'upstash' } } }", "kv.driver"],
-    ["netlify", "kv: { stores: { default: { driver: 'unknown' }, sessions: { driver: 'upstash' } } }", "kv.driver"],
+    ["netlify", "kv: { stores: { sessions: { driver: 'upstash' } } }", "kv.stores.default.driver"],
+    ["netlify", "kv: { stores: { default: { driver: 'unknown' }, sessions: { driver: 'upstash' } } }", "kv.stores.default.driver"],
     ["vercel", "comments: true, database: { connection: selectConnection() }", "database.connection"],
   ])("does not offer a command that init cannot plan on %s with %s", async (host, config, field) => {
     const root = await createProject({ "vite.config.ts": viteConfig(`{ host: '${host}', ${config} }`) })
@@ -70,13 +76,15 @@ describe("setup stack replay", () => {
     ["kv.driver", "{ driver: 'upstash' }", { driver: "upstash" }],
     ["kv.stores.default.driver", "{ stores: { default: { driver: 'upstash' } } }", { stores: { default: { driver: "upstash" } } }],
   ])("replays a Netlify KV provider set at %s", async (path, config, value) => {
-    const root = await createProject({ "app/vite.config.ts": viteConfig(`{ host: 'netlify', kv: ${config} }`) })
+    const root = await createProject({ ...installedKV, "app/vite.config.ts": viteConfig(`{ host: 'netlify', kv: ${config} }`) })
     const source = await status(join(root, "app"))
     expect(source.exitCode, source.stdout).toBe(0)
     expect(source.json.stack).toMatchObject({ command: expect.stringContaining(`--option ${path}=upstash`), omits: [] })
     const destination = await createProject()
     const result = await replay(source.json.stack!.command, destination)
     expect(result.exitCode, result.stdout).toBe(0)
+    expect(result.json.install.packages).toContain("@upstash/redis")
+    expect(source.json.features.find(feature => feature.id === "kv")?.fix).toBeUndefined()
     const copied = join(destination, "app")
     expect(locateViteHubConfig("vite.config.ts", await readFile(join(copied, "vite.config.ts"), "utf8"))).toMatchObject({
       ok: true,
@@ -84,6 +92,21 @@ describe("setup stack replay", () => {
     })
     expect(result.json.stack).toEqual(source.json.stack)
     expect((await status(copied)).json.stack).toEqual(source.json.stack)
+  })
+
+  it("retries a named-only Netlify KV config with a nested default", async () => {
+    const root = await createProject({ ...installedKV, "app/vite.config.ts": viteConfig("{ host: 'netlify', kv: { stores: { sessions: { driver: 'upstash' } } } }") })
+    expect((await status(join(root, "app"))).json.features.find(feature => feature.id === "kv")?.fix).toContain("`kv.stores.default.driver`")
+
+    const destination = await createProject()
+    const first = await runSetup<InitResult>(["init", "app", "--host", "netlify", "--features", "kv", "--option", "kv.stores.sessions.driver=upstash", "--no-install", "--yes", "--json"], destination)
+    expect(first.exitCode).toBe(2)
+    expect(first.json.rerun).toContain("--option kv.stores.default.driver=upstash")
+    const result = await replay(first.json.rerun ?? null, destination)
+    expect(result.exitCode, result.stdout).toBe(0)
+    const config = locateViteHubConfig("vite.config.ts", await readFile(join(destination, "app/vite.config.ts"), "utf8"))
+    const kv = config.ok && config.site.keys.kv
+    expect(kv && kv.kind === "literal" && kv.value).toEqual({ stores: { sessions: { driver: "upstash" }, default: { driver: "upstash" } } })
   })
 
   it("replays the current features and options after add and remove", async () => {
