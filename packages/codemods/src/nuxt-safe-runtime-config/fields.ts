@@ -1,6 +1,7 @@
 import { snakeCase } from "scule"
 
 import type { LiteralValue } from "../shared/nuxt-config.ts"
+import type { JsonLiteral } from "./nuxt-config.ts"
 import type { AccessStep } from "./field-schema.ts"
 
 export type EnvFieldKind = "boolean" | "enum" | "json" | "number" | "string"
@@ -22,7 +23,7 @@ export interface EnvField {
   values?: string[]
   required: boolean
   secret: boolean
-  default?: LiteralValue
+  default?: LiteralValue | Exclude<JsonLiteral, null>
   /**
    * Set when the field's `$schema` rules move to a schema module. `steps` read the field schema from the `$schema`.
    * A `string` field passes the raw value to the schema, and a `json` field passes the parsed JSON value.

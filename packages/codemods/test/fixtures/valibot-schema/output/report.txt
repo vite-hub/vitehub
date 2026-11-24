@@ -10,16 +10,15 @@ Files to change (7):
   server/api/stripe.get.ts
   server/api/tags.get.ts
 
-Manual follow-ups (9):
+Manual follow-ups (8):
   1. nuxt.config.ts:18 apiSecret had the value "", which its $schema rejects: Invalid length: Expected >=16 but received 0. The module treats this validation failure as fatal, so the codemod kept no default and Env requires NUXT_API_SECRET.
   2. nuxt.config.ts:19 runtimeConfig.databaseUrl read process.env.DATABASE_URL when Nuxt loaded the config. Env now reads NUXT_DATABASE_URL, then DATABASE_URL, when the server runs. Env treats an empty variable as unset.
-  3. nuxt.config.ts:24 runtimeConfig.tags has the value ['a']. The codemod keeps only string, number, and boolean defaults. Set NUXT_TAGS, or add default: ['a'] to the env.json() options by hand.
-  4. nuxt.config.ts:11 ViteHub needs a host, so the codemod set vitehub.host to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.
-  5. server/api/stripe.get.ts:5 useRuntimeConfig() reads maxRetries, which moved to Env and is no longer in runtimeConfig. Read it with useServerEnv() from vite-hub/env.
-  6. server/api/config.get.ts:7 useServerEnv().apiSecret is secret, a SecretEnv of the schema output. Call .unseal() where this code needs the raw value.
-  7. nuxt.config.ts:19 useServerEnv().databaseUrl is secret, a SecretEnv<string>. No rewritten file reads it. Call .unseal() where code needs the raw value.
-  8. server/api/stripe.get.ts:2 useServerEnv().stripe.secretKey is secret, a SecretEnv<string>. Call .unseal() where this code needs the raw value.
-  9. eslint.config.mjs:1 Remove the nuxt-safe-runtime-config ESLint rule. Its prefer-safe-runtime-config rule has no Env equivalent.
+  3. nuxt.config.ts:11 ViteHub needs a host, so the codemod set vitehub.host to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.
+  4. server/api/stripe.get.ts:5 useRuntimeConfig() reads maxRetries, which moved to Env and is no longer in runtimeConfig. Read it with useServerEnv() from vite-hub/env.
+  5. server/api/config.get.ts:7 useServerEnv().apiSecret is secret, a SecretEnv of the schema output. Call .unseal() where this code needs the raw value.
+  6. nuxt.config.ts:19 useServerEnv().databaseUrl is secret, a SecretEnv<string>. No rewritten file reads it. Call .unseal() where code needs the raw value.
+  7. server/api/stripe.get.ts:2 useServerEnv().stripe.secretKey is secret, a SecretEnv<string>. Call .unseal() where this code needs the raw value.
+  8. eslint.config.mjs:1 Remove the nuxt-safe-runtime-config ESLint rule. Its prefer-safe-runtime-config rule has no Env equivalent.
 
 Notes:
   - Each declaration reads its NUXT_* name with env.source(). Env reads the canonical name VITEHUB_<PATH> first, for example VITEHUB_API_SECRET before NUXT_API_SECRET.

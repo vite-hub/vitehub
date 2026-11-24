@@ -3,7 +3,8 @@ import { isAbsolute, join, posix } from "node:path"
 
 import { end, findProperty, indentAt, isReference, quoteString, start, walk } from "@vite-hub/internal/ast"
 
-import { literalValue, unwrapExpression } from "../shared/nuxt-config.ts"
+import { literalValue, staticOptionsObject, unwrapExpression } from "../shared/nuxt-config.ts"
+import { codemodError } from "../error-diagnostics.ts"
 import { flatPublicName } from "./fields.ts"
 
 import type { CodeStyle, Node } from "@vite-hub/internal/ast"
@@ -14,7 +15,7 @@ import type { EnvField } from "./fields.ts"
 
 type SchemaSource =
   | { kind: "module", specifier: string }
-  | { kind: "inline", binding: string, expression: string, imports: ImportDeclaration[], sources: string[] }
+  | { kind: "inline", binding: string, expression: string, imports: ImportDeclaration[], sources: string[], references: string[] }
 
 /** Where the codemod writes the schema module, and what the module imports. */
 export interface SchemaModuleTarget {
@@ -127,6 +128,11 @@ export function planSchemaModule(input: {
     return { target: { ...base, source: { kind: "module", specifier: relativeSpecifier(moduleDirectory, input.schemaPath) } } }
   }
 
+  for (const option of input.options) {
+    if (option && unwrapExpression(option).type === "ObjectExpression" && !staticOptionsObject(option)) {
+      throw codemodError(`The module options in ${config.fileName} have a spread, a computed key, or a repeated key, so the codemod cannot tell which $schema the module used. Write $schema once, without a spread, then run the codemod again.`)
+    }
+  }
   const property = findSchemaProperty(input.options)
   if (!property) return { reason: "The codemod cannot find the code of the inline $schema." }
   const { imports, locals, declarators } = topLevelBindings(config)
@@ -140,8 +146,10 @@ export function planSchemaModule(input: {
   }
   const used = new Set<ImportDeclaration>()
   const localNames = new Set<string>()
+  const references = new Set<string>()
   walk(expression, (node, ancestors) => {
     if (!isReference(node, ancestors.at(-1))) return
+    references.add(node.name)
     const declaration = imports.get(node.name)
     if (declaration) used.add(declaration)
     else if (locals.has(node.name)) localNames.add(node.name)
@@ -155,7 +163,7 @@ export function planSchemaModule(input: {
     source: { ...declaration.source, value: relativeSpecifier(moduleDirectory, declaration.source.value) },
   }))
   const sources = [...used].map(declaration => declaration.source.value)
-  return { target: { ...base, source: { kind: "inline", binding, expression: dedent(code, indentAt(config.code, start(expression))), imports: declarations, sources } } }
+  return { target: { ...base, source: { kind: "inline", binding, expression: dedent(code, indentAt(config.code, start(expression))), imports: declarations, sources, references: [...references] } } }
 }
 
 function identifierName(name: string): string {
@@ -194,19 +202,33 @@ function renderImport(declaration: ImportDeclaration, style: CodeStyle, semicolo
 export function renderSchemaModule(target: SchemaModuleTarget, fields: readonly EnvField[], style: CodeStyle): SchemaModule {
   const semicolon = style.semicolons ? ";" : ""
   const source = target.source
-  const binding = source.kind === "inline" ? source.binding : "runtimeConfigSchema"
-  const taken = new Set([binding, ...(source.kind === "inline" ? source.imports.flatMap(declaration => declaration.specifiers.map(specifier => specifier.local.name)) : [])])
-  const exports = new Map<EnvField, string>()
-  const lines: string[] = []
-  for (const field of fields) {
-    if (!field.schema) continue
-    const base = exportName(field)
+  const locals = new Set(source.kind === "inline" ? [...source.references, ...source.imports.flatMap(declaration => declaration.specifiers.map(specifier => specifier.local.name))] : [])
+  const fresh = (base: string, taken: Set<string>) => {
     let name = base
     for (let index = 2; taken.has(name); index++) name = `${base}${index}`
     taken.add(name)
-    exports.set(field, name)
-    lines.push(`export const ${name} = ${binding}${field.schema.steps.map(step => renderStep(step, style)).join("")}${semicolon}`)
+    return name
   }
+  const binding = fresh(source.kind === "inline" ? source.binding : "runtimeConfigSchema", locals)
+  const exportNames = new Set<string>()
+  const exports = new Map<EnvField, string>()
+  const lines: string[] = []
+  const aliases: string[] = []
+  for (const field of fields) {
+    if (!field.schema) continue
+    const name = fresh(exportName(field), exportNames)
+    const local = fresh(name, locals)
+    exports.set(field, name)
+    const value = `${binding}${field.schema.steps.map(step => renderStep(step, style)).join("")}${semicolon}`
+    if (local === name) {
+      lines.push(`export const ${name} = ${value}`)
+    }
+    else {
+      lines.push(`const ${local} = ${value}`)
+      aliases.push(`${local} as ${name}`)
+    }
+  }
+  if (aliases.length) lines.push(`export { ${aliases.join(", ")} }${semicolon}`)
   const head = source.kind === "inline"
     ? [...source.imports.map(declaration => renderImport(declaration, style, semicolon)), "", `const ${binding} = ${source.expression}${semicolon}`]
     : [`import ${binding} from ${quoteString(source.specifier, style)}${semicolon}`]

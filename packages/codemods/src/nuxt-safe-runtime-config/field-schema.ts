@@ -235,3 +235,41 @@ export async function defaultRejection(check: DefaultCheck): Promise<string | un
   if (typeof check.value === "number") return numberRejection(check.node, check.value)
   return undefined
 }
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return isRecordOrFunction(value) && typeof value.then === "function"
+}
+
+function hasAsyncPart(value: unknown, seen: Set<unknown>): boolean {
+  if (seen.has(value) || (!Array.isArray(value) && !isRecord(value))) return false
+  seen.add(value)
+  if (isRecord(value) && value.async === true && typeof value.kind === "string") return true
+  return Object.values(value).some(entry => hasAsyncPart(entry, seen))
+}
+
+function validateSync(schema: FieldSchema, input: unknown): { value: unknown } | "async" | undefined {
+  let result: unknown
+  try {
+    result = schema["~standard"].validate(input)
+  }
+  catch {
+    return undefined
+  }
+  if (isPromiseLike(result)) {
+    Promise.resolve(result).catch(() => undefined)
+    return "async"
+  }
+  return isRecord(result) && !Array.isArray(result.issues) && "value" in result ? { value: result.value } : undefined
+}
+
+/** True when the schema has a Valibot async part, or returns a Promise for one of `inputs`. Env runs schemas synchronously. */
+export function isAsyncSchema(schema: FieldSchema, inputs: readonly unknown[]): boolean {
+  if (schema["~standard"].vendor === "valibot" && hasAsyncPart(schema, new Set())) return true
+  return inputs.some(input => validateSync(schema, input) === "async")
+}
+
+/** True when the schema returns a value for missing input, such as `v.optional(schema, default)` or `.default()`. */
+export function hasSchemaDefault(schema: FieldSchema): boolean {
+  const result = validateSync(schema, undefined)
+  return typeof result === "object" && result.value !== undefined
+}

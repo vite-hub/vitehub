@@ -244,6 +244,46 @@ describe("defaults that the field schema rejects", () => {
     expect(resolved.webhookSecret instanceof SecretEnv ? resolved.webhookSecret.unseal() : resolved.webhookSecret).toBe("")
   })
 
+  it("keeps a JSON array default in env.json() and checks it with the schema", async () => {
+    const config = (origins: string) => `export default defineNuxtConfig({
+      modules: ['nuxt-safe-runtime-config'],
+      safeRuntimeConfig: { $schema: './schema', validateAtRuntime: true },
+      runtimeConfig: { allowedOrigins: ${origins} },
+    })`
+    const schema = "v.object({ allowedOrigins: v.array(v.pipe(v.string(), v.url())) })"
+    const { code } = await migrateSchemaConfig(config("['https://example.com']"), schema)
+    expect(code).toContain("allowedOrigins: env.json(env.schemaFrom('./server/env.schema.ts', 'allowedOrigins'), { default: ['https://example.com'], source: env.source('NUXT_ALLOWED_ORIGINS') })")
+    const registry = () => {
+      const created = createRuntimeEnvRegistry(migratedServerEnv(code), { path: "env.server", prefix: false, schemaModules: true })
+      bindServerEnvSchemas(created, { "./server/env.schema.ts": { allowedOrigins: v.array(v.pipe(v.string(), v.url())) } })
+      return created
+    }
+    vi.stubEnv("NUXT_ALLOWED_ORIGINS", undefined)
+    vi.stubEnv("VITEHUB_ALLOWED_ORIGINS", undefined)
+    expect(resolveServerEnv(registry()).allowedOrigins).toEqual(["https://example.com"])
+    vi.stubEnv("NUXT_ALLOWED_ORIGINS", "[\"https://a.dev\"]")
+    expect(resolveServerEnv(registry()).allowedOrigins).toEqual(["https://a.dev"])
+
+    const rejected = await migrateSchemaConfig(config("['not a url']"), schema)
+    expect(rejected.code).toContain("allowedOrigins: env.json(env.schemaFrom('./server/env.schema.ts', 'allowedOrigins'), { source: env.source('NUXT_ALLOWED_ORIGINS') })")
+    expect(rejected.report).toContain("allowedOrigins had the value [\"not a url\"], which its $schema rejects")
+  })
+
+  it.each([
+    ["a default that only its $schema owns", "{}", "v.object({ tags: v.optional(v.array(v.string()), ['a']) })", "tags gets its default from its $schema"],
+    ["a computed value", "{ tags: ['a', String(1)] }", "v.object({ tags: v.array(v.string()) })", "tags has the value ['a', String(1)] in runtimeConfig"],
+    ["an async validator", "{ token: 'abcd' }", "v.objectAsync({ token: v.pipeAsync(v.string(), v.checkAsync(async value => value.length > 3)) })", "token has an async validator"],
+  ])("keeps a field with %s in runtimeConfig", async (_label, runtimeConfig, schema, message) => {
+    const { code, report } = await migrateSchemaConfig(`export default defineNuxtConfig({
+      modules: ['nuxt-safe-runtime-config'],
+      safeRuntimeConfig: { $schema: './schema', validateAtRuntime: true },
+      runtimeConfig: ${runtimeConfig},
+    })`, schema)
+    expect(code).not.toMatch(/(tags|token): env/)
+    expect(report).toContain(message)
+    expect(report).toContain("It stays in runtimeConfig. Read it with useRuntimeConfig(), or move it to Env by hand.")
+  })
+
   async function planned(schema: unknown, key: string, value: string) {
     return planFromJsonSchema({ schema, jsonSchema: await schemaToJsonSchema(schema), issues: schemaIssues(schema), runtimeConfig: new Map([[key, { literal: value }]]) })
   }
@@ -337,5 +377,97 @@ describe("defaults that the field schema rejects", () => {
       runtimeConfig: new Map([["value", { literal: value }]]),
     })
     expect(plan.fields[0]?.default).toBe(value)
+  })
+})
+
+describe("fields that Env reads differently", () => {
+  async function plan(schema: unknown, runtimeConfig: Map<string, { literal: string | number | boolean }>, checks: { validateAtBuild: boolean, validateAtRuntime: boolean }) {
+    return planFromJsonSchema({ schema, schemaExports: true, jsonSchema: await schemaToJsonSchema(schema), issues: schemaIssues(schema), runtimeConfig, ...checks })
+  }
+
+  it("keeps a field whose validate() returns a Promise in runtimeConfig", async () => {
+    const result = await plan(z.object({ token: z.string().refine(async value => value.length > 3) }), new Map([["token", { literal: "abcd" }]]), { validateAtBuild: true, validateAtRuntime: true })
+    expect(result.fields).toEqual([])
+    expect(result.unmigrated).toEqual(["token"])
+  })
+
+  it("names the spellings that JSON decoding no longer accepts", async () => {
+    const result = await plan(v.object({ port: v.pipe(v.number(), v.minValue(1)), debug: v.pipe(v.boolean(), v.check(value => value !== undefined)) }), new Map(), { validateAtBuild: true, validateAtRuntime: true })
+    expect(result.fields.map(field => [field.configPath[0], field.kind])).toEqual([["port", "json"], ["debug", "json"]])
+    const messages = result.followUps.map(entry => entry.message)
+    expect(messages).toContainEqual(expect.stringContaining("port: Env reads NUXT_PORT as JSON before its schema runs. Set it to a JSON number, such as 3000. Spellings such as 0xBB8, +3000, or .5 now fail."))
+    expect(messages).toContainEqual(expect.stringContaining("debug: Env reads NUXT_DEBUG as JSON before its schema runs. Set it to true or false."))
+  })
+
+  it("says when a build-only $schema check now runs when the server reads the value", async () => {
+    const schema = v.object({ region: v.pipe(v.string(), v.minLength(2)) })
+    const buildOnly = await plan(schema, new Map(), { validateAtBuild: true, validateAtRuntime: false })
+    expect(buildOnly.fields[0]).toMatchObject({ configPath: ["region"], schema: { steps: expect.any(Array) } })
+    expect(buildOnly.followUps.map(entry => entry.message)).toContainEqual(expect.stringContaining("region: the module ran its $schema only during the build (validateAtRuntime: false)"))
+    const atRuntime = await plan(schema, new Map(), { validateAtBuild: true, validateAtRuntime: true })
+    expect(atRuntime.followUps.map(entry => entry.message)).not.toContainEqual(expect.stringContaining("only during the build"))
+  })
+})
+
+describe("inline $schema extraction", () => {
+  const valibot = JSON.stringify(fileURLToPath(import.meta.resolve("valibot")))
+
+  async function migrateInline(config: string) {
+    const cwd = await mkdtemp(join(tmpdir(), "vitehub-codemod-inline-"))
+    try {
+      await writeFile(join(cwd, "package.json"), JSON.stringify({ dependencies: { "nuxt-safe-runtime-config": "0.4.0" } }))
+      await writeFile(join(cwd, "nuxt.config.ts"), config)
+      const run = await runCodemod("nuxt-safe-runtime-config", { cwd, dryRun: true })
+      const after = (path: string) => run.result.edits.find(edit => edit.path === path)?.after ?? ""
+      return { code: after("nuxt.config.ts"), schemaModule: after("server/env.schema.ts") }
+    }
+    finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  }
+
+  it("gives the schema and field bindings names that the $schema code does not read", async () => {
+    const { code, schemaModule } = await migrateInline(`import * as runtimeConfigSchema from ${valibot}
+export default defineNuxtConfig({
+  modules: ['nuxt-safe-runtime-config'],
+  safeRuntimeConfig: {
+    $schema: runtimeConfigSchema.object({
+      Number: runtimeConfigSchema.pipe(runtimeConfigSchema.string(), runtimeConfigSchema.transform(Number), runtimeConfigSchema.number()),
+      runtimeConfigSchema: runtimeConfigSchema.pipe(runtimeConfigSchema.string(), runtimeConfigSchema.minLength(2)),
+    }),
+  },
+  runtimeConfig: { Number: '3', runtimeConfigSchema: 'eu' },
+})
+`)
+    expect(code).toContain('env.schemaFrom("./server/env.schema.ts", "Number")')
+    expect(code).toContain('env.schemaFrom("./server/env.schema.ts", "runtimeConfigSchema")')
+    expect(schemaModule).toContain("const runtimeConfigSchema2 = runtimeConfigSchema.object(")
+    expect(schemaModule).toContain("export { Number2 as Number, runtimeConfigSchema3 as runtimeConfigSchema }")
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-codemod-inline-module-"))
+    try {
+      await writeFile(join(directory, "env.schema.ts"), schemaModule)
+      const exported: Record<string, unknown> = await import(join(directory, "env.schema.ts"))
+      const port = exported.Number
+      const region = exported.runtimeConfigSchema
+      if (!isStandardSchema(port) || !isStandardSchema(region)) throw new Error("The module did not export the field schemas")
+      expect(port["~standard"].validate("3")).toMatchObject({ value: 3 })
+      expect(region["~standard"].validate("e")).toHaveProperty("issues")
+    }
+    finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it.each([
+    ["a spread", "const shared = { validateAtRuntime: true }\n", "{ ...shared, $schema: v.object({ region: v.pipe(v.string(), v.minLength(2)) }) }"],
+    ["a repeated key", "", "{ $schema: v.object({ region: v.string() }), $schema: v.object({ region: v.pipe(v.string(), v.minLength(2)) }) }"],
+  ])("stops when the options have %s", async (_label, prelude, options) => {
+    await expect(migrateInline(`import * as v from ${valibot}
+${prelude}export default defineNuxtConfig({
+  modules: ['nuxt-safe-runtime-config'],
+  safeRuntimeConfig: ${options},
+  runtimeConfig: { region: 'eu' },
+})
+`)).rejects.toThrow("cannot tell which $schema the module used")
   })
 })
