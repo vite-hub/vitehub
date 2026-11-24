@@ -4,7 +4,7 @@
 
 Source page: https://vitehub.dev/raw/docs/email.md
 
-Use Email for outbound transactional messages. Email keeps delivery behind a provider-neutral driver and supports Markdown templates with a text fallback.
+Use Email for outbound transactional messages. Email keeps delivery behind a provider-neutral driver and supports Markdown and Vue templates with a text fallback.
 
 Keep recipients, sender identity, and delivery authorization in application policy. Use test capture or a local driver before sending to real recipients.
 

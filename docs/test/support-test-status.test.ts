@@ -29,7 +29,7 @@ describe("support matrix test status", () => {
     for (const row of rows) {
       const [primitive, ...cells] = row.split("|").slice(1, -1).map((cell) => cell.trim());
       cells.forEach((cell, index) => {
-        if (cell === "Live tested") documented.add(`${primitive}:${hosts[index]}`);
+        if (cell === "Live tested" || cell === "Live tested (markers missing)") documented.add(`${primitive}:${hosts[index]}`);
       });
     }
 
