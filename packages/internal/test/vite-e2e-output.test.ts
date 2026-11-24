@@ -428,7 +428,7 @@ describe("unified vite e2e hosted outputs", () => {
     const config = JSON.parse(await readFile(join(rootDir, ".netlify", "v1", "config.json"), "utf8"))
 
     expect(source).toContain("viteHubAgentNetlifyFunction")
-    expect(functionFile).toContain("export const config = {")
+    expect(functionFile).toMatch(/^export const config = \{|^export \{ vitehubNetlifyFunctionConfig\d* as config \}$/m)
     expect(functionFile).toContain("\"name\": \"vitehub-agent\"")
     expect(functionFile).toContain("\"nodeBundler\": \"esbuild\"")
     expect(functionFile).toContain("\"/_vitehub/agents/:agent/chat\"")
