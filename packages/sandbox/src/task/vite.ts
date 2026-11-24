@@ -62,6 +62,7 @@ type SandboxTaskHostingProvider = keyof typeof sandboxTaskRuntimeDependencyByPro
 function mergeSandboxTaskNitroProviderAliases(
   nitro: Record<string, unknown>,
   aliases: AliasMap,
+  frameworkSpecifier: string | undefined,
 ) {
   const providerAliases = Object.fromEntries(
     sandboxTaskProviderLoaderSpecifiers.flatMap((specifier) => {
@@ -69,6 +70,9 @@ function mergeSandboxTaskNitroProviderAliases(
       return replacement ? [[specifier, replacement]] : []
     }),
   )
+  const facade = aliases[SANDBOX_PACKAGE_ID]
+  if (frameworkSpecifier && facade)
+    providerAliases[frameworkSpecifier] = facade
   if (!Object.keys(providerAliases).length)
     return
 
@@ -277,11 +281,11 @@ export function hubSandboxTask(options?: SandboxTaskOptions): SandboxTaskVitePlu
     assertLocalDevRunner()
     mergeSandboxTaskNitroNoExternals(options, selectedProvider)
     if (selectedProvider)
-      mergeSandboxTaskNitroProviderAliases(options, generatedAliases)
+      mergeSandboxTaskNitroProviderAliases(options, generatedAliases, internalOptions?.providerImportSpecifier)
     nitro.hooks.hook('build:before', () => {
       mergeSandboxTaskNitroNoExternals(options, selectedProvider)
       if (selectedProvider)
-        mergeSandboxTaskNitroProviderAliases(options, generatedAliases)
+        mergeSandboxTaskNitroProviderAliases(options, generatedAliases, internalOptions?.providerImportSpecifier)
     })
   }
 

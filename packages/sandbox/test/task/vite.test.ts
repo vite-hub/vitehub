@@ -1214,6 +1214,18 @@ describe("hubSandboxTask", () => {
     ]))
   })
 
+  it("points the framework import at the generated runtime in Nitro, which bundles without Vite in Nuxt 4.7", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandboxTask } = await import("../../src/task/vite.ts")
+    const plugin = hubSandboxTask({ driver: "vercel", providerImportAliases: {}, providerImportSpecifier: "vite-hub/sandbox/task" } as never)
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    await configHook({ root: rootDir, plugins: [{ name: "nitro:main" }], nitro: {} }, { command: "build", mode: "production" })
+
+    const aliases = createSandboxTaskNitroLifecycle(plugin)().alias as Record<string, string>
+    expect(aliases["vite-hub/sandbox/task"]).toBe(join(rootDir, ".vitehub/sandbox-task/runtime/sandbox-task.mjs"))
+    expect(aliases).not.toHaveProperty("@vite-hub/sandbox/task")
+  })
+
   it("does not contribute Nitro Sandbox externals when Sandbox is disabled", async () => {
     const rootDir = await createViteRoot()
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
