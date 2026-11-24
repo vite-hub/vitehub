@@ -2,7 +2,7 @@
 // [store, key], `meta` by store, `outbox` in insertion order, with the store in `store`, and `results` of actions by
 // mutation id. Each change is one transaction. A store is a route plus a subset, such as
 // `/_vitehub/sync/comments?{"issueId":"i1"}`.
-import { resultLifetime } from "./storage.ts"
+import { resultLifetime, storageLost } from "./storage.ts"
 
 import type { SyncKey, SyncRow } from "../protocol.ts"
 import type { SyncMeta, SyncQueuedWrite, SyncStorage, SyncStored, SyncWriteResult } from "./storage.ts"
@@ -46,7 +46,7 @@ function done(transaction: IDBTransaction): Promise<void> {
   })
 }
 
-function openDatabase(): Promise<IDBDatabase> {
+function openDatabase(onLost: () => void): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(databaseName, format)
     request.onupgradeneeded = () => {
@@ -59,8 +59,16 @@ function openDatabase(): Promise<IDBDatabase> {
     }
     request.onsuccess = () => {
       const database = request.result
-      // A newer format in another tab must not wait for this tab to close.
-      database.onversionchange = () => database.close()
+      let open = true
+      const lose = () => {
+        if (!open) return
+        open = false
+        database.close()
+        onLost()
+      }
+      // A deletion or a newer format in another tab must not wait for this tab to close.
+      database.onversionchange = lose
+      database.onclose = lose
       resolve(database)
     }
     request.onerror = () => reject(request.error ?? new Error("IndexedDB did not open."))
@@ -83,15 +91,16 @@ function readWrites(records: OutboxRecord[]): SyncQueuedWrite[] {
  */
 function createIndexedDBStorage(fallback: () => SyncStorage): SyncStorage {
   let persisted = true
+  let epoch = 0
   let opening: Promise<IDBDatabase | SyncStorage> | undefined
 
+  function lost(): void {
+    opening = undefined
+    epoch++
+  }
+
   function open(): Promise<IDBDatabase | SyncStorage> {
-    opening ??= openDatabase().then(database => {
-      database.addEventListener("versionchange", () => {
-        opening = undefined
-      })
-      return database
-    }).catch(() => {
+    opening ??= openDatabase(lost).catch(() => {
       persisted = false
       return fallback()
     })
@@ -119,6 +128,9 @@ function createIndexedDBStorage(fallback: () => SyncStorage): SyncStorage {
     get persisted() {
       return persisted
     },
+    get epoch() {
+      return epoch
+    },
     read: id => read(id, true),
     async readQueue(id) {
       const { meta, writes } = await read(id, false)
@@ -126,6 +138,7 @@ function createIndexedDBStorage(fallback: () => SyncStorage): SyncStorage {
     },
     async write(id, change) {
       const database = await open()
+      if (change.epoch !== undefined && change.epoch !== epoch) throw storageLost
       if (!(database instanceof IDBDatabase)) return database.write(id, change)
       const transaction = database.transaction(["rows", "meta", "outbox", "results"], "readwrite")
       const rows = transaction.objectStore("rows")

@@ -25,10 +25,38 @@ async function bundle(entry) {
 /** Resolves once `check` passes. */
 async function until(check, timeout = 10_000) {
   const start = Date.now()
-  while (!check()) {
+  while (!(await check())) {
     if (Date.now() - start > timeout) throw new Error("The condition did not become true in time.")
     await new Promise(resolve => setTimeout(resolve, 20))
   }
+}
+
+function deleteDatabase(page) {
+  return page.evaluate(() => new Promise((resolve, reject) => {
+    const request = indexedDB.deleteDatabase("vitehub-sync")
+    request.onsuccess = () => resolve()
+    request.onerror = () => reject(request.error)
+    request.onblocked = () => reject(new Error("Another connection blocked the deletion."))
+  }))
+}
+
+function outbox(page) {
+  return page.evaluate(() => new Promise((resolve, reject) => {
+    const request = indexedDB.open("vitehub-sync")
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => {
+      const database = request.result
+      const read = database.transaction("outbox").objectStore("outbox").getAll()
+      read.onsuccess = () => {
+        database.close()
+        resolve(read.result.map(write => ({ seq: write.seq, id: write.id })))
+      }
+      read.onerror = () => {
+        database.close()
+        reject(read.error)
+      }
+    }
+  }))
 }
 
 const client = await bundle("../../src/client.ts")
@@ -41,24 +69,43 @@ for (const [origin, secure] of [["http://localhost:4871", true], ["http://sync.t
     server.live = false
     const browser = await chromium.launch()
     t.after(() => browser.close())
-    const context = await browser.newContext()
-    await context.route(`${origin}/**`, async (route) => {
-      const request = route.request()
-      const url = new URL(request.url())
-      if (url.pathname === "/") return route.fulfill({ contentType: "text/html", body: `<script type="module">import * as sync from "/client.js"; import * as storage from "/storage.js"; window.sync = sync; window.storage = storage; window.ready = true</script>` })
-      if (url.pathname === "/client.js") return route.fulfill({ contentType: "text/javascript", body: client })
-      if (url.pathname === "/storage.js") return route.fulfill({ contentType: "text/javascript", body: storage })
-      if (server.offline) return route.abort("internetdisconnected")
-      try {
-        const response = await server.fetch(url.pathname + url.search, { method: request.method(), body: request.postData() ?? undefined })
-        return route.fulfill({ status: response.status, contentType: "application/json", body: await response.text() })
-      }
-      catch {
-        return route.abort("connectionreset")
-      }
-    })
-    async function open() {
-      const page = await context.newPage()
+    let held
+    function hold(method) {
+      let arrived
+      const reached = new Promise((resolve) => { arrived = resolve })
+      let release
+      const released = new Promise((resolve) => { release = resolve })
+      held = { method, arrived, released }
+      return { reached, release }
+    }
+    async function serve(context) {
+      await context.route(`${origin}/**`, async (route) => {
+        const request = route.request()
+        const url = new URL(request.url())
+        if (url.pathname === "/") return route.fulfill({ contentType: "text/html", body: `<script type="module">import * as sync from "/client.js"; import * as storage from "/storage.js"; window.sync = sync; window.storage = storage; window.ready = true</script>` })
+        if (url.pathname === "/client.js") return route.fulfill({ contentType: "text/javascript", body: client })
+        if (url.pathname === "/storage.js") return route.fulfill({ contentType: "text/javascript", body: storage })
+        if (server.offline) return route.abort("internetdisconnected")
+        try {
+          const response = await server.fetch(url.pathname + url.search, { method: request.method(), body: request.postData() ?? undefined })
+          const body = await response.text()
+          const wait = held?.method === request.method() && url.pathname !== syncLiveRoute ? held : undefined
+          if (wait) {
+            held = undefined
+            wait.arrived()
+            await wait.released
+          }
+          return route.fulfill({ status: response.status, contentType: "application/json", body })
+        }
+        catch {
+          return route.abort("connectionreset")
+        }
+      })
+      return context
+    }
+    const context = await serve(await browser.newContext())
+    async function open(where = context) {
+      const page = await where.newPage()
       await page.goto(`${origin}/`)
       await page.waitForFunction(() => window.ready)
       assert.equal(await page.evaluate(() => Boolean(navigator.locks) && typeof crypto.randomUUID === "function"), secure)
@@ -260,6 +307,144 @@ for (const [origin, secure] of [["http://localhost:4871", true], ["http://sync.t
       await two.evaluate(() => window.calls.destroy())
       await one.close()
       await two.close()
+    })
+
+    await t.test("a push answer from before another tab deleted the database keeps the write of the other tab", async () => {
+      const isolated = await serve(await browser.newContext())
+      try {
+        const where = { listId: "reset-push" }
+        server.write({ id: "rp", ownerId: "ada", listId: "reset-push", title: "Before" })
+        const a = await open(isolated)
+        await a.evaluate((where) => {
+          window.todos = window.sync.createSync("todos", { where, interval: false })
+          return window.todos.refresh()
+        }, where)
+        const answer = hold("POST")
+        const first = await a.evaluate(() => {
+          const write = window.todos.insert({ title: "From A" })
+          write.then(() => { window.state = "applied" }, (error) => { window.state = error.code })
+          return write.key
+        })
+        await answer.reached
+        const [sent] = await outbox(a)
+        const b = await open(isolated)
+        await deleteDatabase(b)
+        const second = await b.evaluate((where) => {
+          window.down = true
+          window.todos = window.sync.createSync("todos", { where, interval: false, fetch: (input, init) => window.down ? Promise.reject(new TypeError("Failed to fetch")) : fetch(input, init) })
+          const write = window.todos.insert({ title: "From B" })
+          write.then(() => { window.state = "applied" }, (error) => { window.state = error.code })
+          return write.key
+        }, where)
+        let queued = []
+        await until(async () => (queued = await outbox(b)).length === 1)
+        assert.equal(queued[0].seq, sent.seq)
+        answer.release()
+        await a.waitForFunction(() => window.state !== undefined)
+        await a.evaluate(() => window.todos.refresh())
+        await b.evaluate(() => {
+          window.down = false
+          return window.todos.refresh()
+        })
+        await until(() => server.rows.has(second))
+        await b.waitForFunction(() => window.state !== undefined)
+        assert.equal(await b.evaluate(() => window.state), "applied")
+        assert.ok(server.rows.has(first))
+        assert.equal(await a.evaluate(() => window.state), "SYNC_CLEARED")
+        await a.evaluate(() => window.todos.refresh())
+        const titles = await a.evaluate(() => window.todos.getState().rows.map(row => row.title))
+        assert.deepEqual(titles.sort(), ["Before", "From A", "From B"])
+      }
+      finally {
+        await isolated.close()
+      }
+    })
+
+    await t.test("a pull answer from before another tab deleted the database does not store a cursor without its rows", async () => {
+      const isolated = await serve(await browser.newContext())
+      try {
+        const where = { listId: "reset-pull" }
+        server.write({ id: "r1", ownerId: "ada", listId: "reset-pull", title: "One" })
+        server.write({ id: "r2", ownerId: "ada", listId: "reset-pull", title: "Two" })
+        const a = await open(isolated)
+        await a.evaluate((where) => {
+          window.todos = window.sync.createSync("todos", { where, interval: false })
+          return window.todos.refresh()
+        }, where)
+        server.write({ id: "r2", ownerId: "ada", listId: "reset-pull", title: "Two changed" })
+        const answer = hold("GET")
+        const pulling = a.evaluate(() => window.todos.refresh())
+        await answer.reached
+        await deleteDatabase(await open(isolated))
+        answer.release()
+        await pulling
+        await a.evaluate(() => window.todos.refresh())
+        const stored = await (await open(isolated)).evaluate(async (where) => {
+          const todos = window.sync.createSync("todos", { where, interval: false, fetch: () => Promise.reject(new TypeError("Failed to fetch")) })
+          await todos.refresh()
+          return todos.getState().rows.map(row => row.title)
+        }, where)
+        assert.deepEqual(stored, ["One", "Two changed"])
+      }
+      finally {
+        await isolated.close()
+      }
+    })
+
+    await t.test("after a newer format replaces the database, a tab keeps its rows in memory from a full snapshot", async () => {
+      const isolated = await serve(await browser.newContext())
+      try {
+        const where = { listId: "reset-format" }
+        server.write({ id: "f1", ownerId: "ada", listId: "reset-format", title: "One" })
+        server.write({ id: "f2", ownerId: "ada", listId: "reset-format", title: "Two" })
+        const a = await open(isolated)
+        await a.evaluate((where) => {
+          window.todos = window.sync.createSync("todos", { where, interval: false })
+          return window.todos.refresh()
+        }, where)
+        server.write({ id: "f2", ownerId: "ada", listId: "reset-format", title: "Two changed" })
+        const answer = hold("GET")
+        const pulling = a.evaluate(() => window.todos.refresh())
+        await answer.reached
+        const b = await open(isolated)
+        await b.evaluate(() => new Promise((resolve, reject) => {
+          const request = indexedDB.open("vitehub-sync", 1000)
+          request.onupgradeneeded = () => {
+            for (const name of Array.from(request.result.objectStoreNames)) request.result.deleteObjectStore(name)
+          }
+          request.onsuccess = () => {
+            request.result.close()
+            resolve()
+          }
+          request.onerror = () => reject(request.error)
+          request.onblocked = () => reject(new Error("Another connection blocked the upgrade."))
+        }))
+        answer.release()
+        await pulling
+        await a.evaluate(() => window.todos.refresh())
+        const reopened = await a.evaluate(async (where) => {
+          window.todos.destroy()
+          window.todos = window.sync.createSync("todos", { where, interval: false })
+          await window.todos.refresh()
+          const { rows, persisted } = window.todos.getState()
+          return { titles: rows.map(row => row.title), persisted }
+        }, where)
+        assert.deepEqual(reopened, { titles: ["One", "Two changed"], persisted: false })
+        const key = await a.evaluate(async () => (await window.todos.insert({ title: "After" })).id)
+        assert.equal(server.rows.get(key)?.title, "After")
+        const newer = await b.evaluate(() => new Promise((resolve) => {
+          const request = indexedDB.open("vitehub-sync")
+          request.onsuccess = () => {
+            const { version, objectStoreNames } = request.result
+            request.result.close()
+            resolve({ version, stores: objectStoreNames.length })
+          }
+        }))
+        assert.deepEqual(newer, { version: 1000, stores: 0 })
+      }
+      finally {
+        await isolated.close()
+      }
     })
   })
 }
