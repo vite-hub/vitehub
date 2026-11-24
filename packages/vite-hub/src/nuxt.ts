@@ -168,7 +168,6 @@ type NuxtLike = {
   options: {
     _installedModules?: Array<{ meta: { name?: string } }>
     _layers?: NuxtServerDirOptions["_layers"]
-    /** The Nitro major version that builds the server: 3 on Nuxt 5, and on Nuxt 4.7 when the app depends on `nitro`. */
     _nitroMajor?: number
     /** True for `nuxt prepare`, which loads Nuxt with `dev: false` and writes types without a build. */
     _prepare?: boolean
@@ -198,6 +197,7 @@ type NuxtLike = {
     }>
     rootDir?: string
     router?: { options?: { sensitive?: boolean, strict?: boolean } }
+    server?: { builder?: unknown }
     serverDir?: string
     srcDir?: string
     vite?: UserConfig & { vue?: Record<string, unknown> }
@@ -976,12 +976,13 @@ async function installViteHubUIRuntime(nuxt: NuxtLike): Promise<void> {
   })
 }
 
-/**
- * Stop before any setup when Nuxt builds the server with Nitro 2, which ViteHub does not support. Nuxt 5 always runs
- * Nitro 3. Nuxt 4.7 runs Nitro 3 when the app depends on `nitro`, and older Nuxt 4 releases always run Nitro 2. A build
- * on Nitro 2 would fail later with errors that do not name the cause.
- */
 function assertSupportedNuxt(nuxt: NuxtLike): void {
+  const builder = nuxt.options.server?.builder
+  if (builder === "vite" || builder === "@nuxt/vite-server") {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0023({
+      message: "[vitehub] vite-hub/nuxt needs Nitro 3, but Nuxt's Vite-only server builder does not run Nitro. Remove server.builder to use Nuxt's default Nitro builder.",
+    })
+  }
   const version = nuxt._version
   const [major = Number.NaN, minor = Number.NaN] = (version ?? "").split(".").map(part => Number.parseInt(part, 10))
   const nitroMajor = nuxt.options._nitroMajor
@@ -989,7 +990,7 @@ function assertSupportedNuxt(nuxt: NuxtLike): void {
   const nitroOptIn = nitroMajor === 2 && major === 4 && minor >= 7
   throw viteHubErrorDiagnostics.VITE_HUB_B0023({
     message: nitroOptIn
-      ? `[vitehub] vite-hub/nuxt needs Nitro 3. This app runs Nuxt ${version} with Nitro 2, because package.json does not list the nitro package. Add it: pnpm add nitro`
+      ? `[vitehub] vite-hub/nuxt needs Nitro 3. This app runs Nuxt ${version} with Nitro 2. If the nitro package is missing, run pnpm add nitro. If it is already listed, remove any configuration that forces Nitro 2.`
       : `[vitehub] vite-hub/nuxt needs Nitro 3, which runs on Nuxt 4.7 with the nitro package, or on Nuxt 5. This app runs Nuxt ${version}. Upgrade Nuxt and add Nitro 3: pnpm add nuxt@^4.7.0 nitro`,
   })
 }

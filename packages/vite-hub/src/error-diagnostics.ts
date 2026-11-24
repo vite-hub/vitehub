@@ -515,7 +515,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_B0023: {
       ...dynamicError,
-      fix: "Run the server on Nitro 3: use Nuxt 4.7 or newer and add the nitro package (pnpm add nuxt@^4.7.0 nitro), or use Nuxt 5.",
+      fix: "Follow the steps in the error message to run your Nuxt server with Nitro 3.",
     },
     VITE_HUB_B0024: {
       ...dynamicError,
