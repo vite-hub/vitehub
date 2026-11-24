@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs"
 import { cp, mkdtemp, readdir, readFile, rm } from "node:fs/promises"
-import { basename, dirname, join, relative, resolve } from "node:path"
+import { basename, join, relative, resolve } from "node:path"
 
 import { intersects, validRange } from "semver"
 
@@ -9,6 +9,7 @@ import { applyEdit, checkEditPath, editLabel } from "./runner.ts"
 import { readDependencies } from "./shared/detect.ts"
 import { findNuxtConfigName, readNuxtConfig } from "./shared/nuxt-config.ts"
 import { nodeVersionNote } from "./shared/node-version.ts"
+import { readPnpmCatalogVersion } from "./shared/pnpm-catalog.ts"
 import { codemodError, isCodemodError } from "./error-diagnostics.ts"
 
 import type { Codemod, CodemodResult, Detection, FileEdit, FollowUp } from "./types.ts"
@@ -47,36 +48,6 @@ const skippedFolders = new Set([".git", ".nuxt", ".output", ".data", ".vercel", 
 
 /** Scratch directory prefix inside the project, so packages and the lockfile resolve as they do from the project. */
 export const scratchFolder = ".vitehub-migrate"
-
-async function readPnpmCatalogVersion(cwd: string, name: string, catalog: string): Promise<string | undefined> {
-  let directory = cwd
-  while (!existsSync(join(directory, "pnpm-workspace.yaml"))) {
-    if (dirname(directory) === directory) return
-    directory = dirname(directory)
-  }
-  const code = await readFile(join(directory, "pnpm-workspace.yaml"), "utf8")
-  let section: string | undefined
-  let current: string | undefined
-  let catalogIndent: number | undefined
-  for (const line of code.split(/\r?\n/)) {
-    const entry = /^( *)(["']?)([^"'#:]+?)\2[ \t]*:(?:[ \t]+(.*))?$/.exec(line)
-    if (!entry) continue
-    const [, indent = "", , key = ""] = entry
-    const value = entry[4]?.replace(/(?:^|[ \t]+)#.*$/, "").trim().replace(/^(["'])(.*)\1$/, "$2")
-    if (!indent) {
-      section = key
-      current = section === "catalog" ? "default" : undefined
-      catalogIndent = undefined
-      continue
-    }
-    if (section === "catalogs" && (catalogIndent === undefined || indent.length <= catalogIndent)) {
-      catalogIndent = indent.length
-      current = key
-      continue
-    }
-    if (current === catalog && key === name && value) return value
-  }
-}
 
 async function projectWarnings(cwd: string): Promise<string[]> {
   const nuxt = (await readDependencies(cwd)).get("nuxt")

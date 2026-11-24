@@ -264,7 +264,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   return {
     summary: `migrated ${fields.length} Env declaration${fields.length === 1 ? "" : "s"} (${publicCount} public, ${fields.length - publicCount} server) from ${sourceLabel} to vite-hub/nuxt.`,
     edits,
-    followUps: [...configFollowUps, ...calls.followUps, ...secretFollowUps, ...eslint, ...outOfScope.followUps],
+    followUps: [...configFollowUps, ...calls.followUps, ...secretFollowUps, ...eslint, ...outOfScope.followUps, ...packageResult.followUps],
     notes,
     nextSteps: [
       `Run \`${packageResult.installCommand}\` to install vite-hub and remove ${moduleName}.`,

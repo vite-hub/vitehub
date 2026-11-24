@@ -5,8 +5,9 @@ import { join } from "node:path"
 import { subset, validRange } from "semver"
 
 import { codemodError } from "../error-diagnostics.ts"
+import { readPnpmCatalogVersion } from "./pnpm-catalog.ts"
 
-import type { FileEdit } from "../types.ts"
+import type { FileEdit, FollowUp } from "../types.ts"
 
 type Manifest = Record<string, unknown>
 type DependencyMap = Record<string, string>
@@ -24,6 +25,7 @@ function isDependencyMap(value: unknown): value is DependencyMap {
 export interface PackageJsonResult {
   edit?: FileEdit
   installCommand: string
+  followUps: FollowUp[]
 }
 
 function detectInstallCommand(cwd: string): string {
@@ -49,11 +51,22 @@ export interface PackageJsonChange {
    * that range. A range the codemod cannot read stays as it is.
    */
   within?: Readonly<Record<string, string>>
+  /**
+   * A package that the migrated code needs at `range`. A declared range that allows a version outside it stops the
+   * codemod. A declaration the codemod cannot read stays as it is, with a follow-up.
+   */
   require?: { name: string, range: string, feature: string }
 }
 
 function outside(range: string, supported: string): boolean {
   return validRange(range) !== null && !subset(range, supported, { includePrerelease: true })
+}
+
+async function resolveDeclaredRange(cwd: string, name: string, declared: string): Promise<{ range: string, catalog: boolean } | undefined> {
+  const catalog = /^catalog:(.*)$/.exec(declared)?.[1]
+  const range = catalog === undefined ? declared : await readPnpmCatalogVersion(cwd, name, catalog.trim() || "default")
+  if (range === undefined) return
+  return { range: range.startsWith(`npm:${name}@`) ? range.slice(`npm:${name}@`.length) : range, catalog: catalog !== undefined }
 }
 
 /**
@@ -66,7 +79,7 @@ export async function editPackageJson(cwd: string, version: string, change: Pack
   const required = change.require
   if (!existsSync(path)) {
     if (required) throw codemodError(`Create a package.json for this app before migrating to ${required.feature}.`)
-    return { installCommand: command }
+    return { installCommand: command, followUps: [] }
   }
   const before = await readFile(path, "utf8")
   let manifest: unknown
@@ -93,13 +106,22 @@ export async function editPackageJson(cwd: string, version: string, change: Pack
     const map = manifest[section]
     return isDependencyMap(map) && name in map
   })
+  const followUps: FollowUp[] = []
   if (required) {
     for (const section of [...sections, "optionalDependencies", "peerDependencies"]) {
       const map = manifest[section]
       if (!isRecord(map) || !(required.name in map)) continue
       const declared = map[required.name]
-      if (typeof declared !== "string" || validRange(declared) === null || !subset(declared, required.range, { includePrerelease: true })) {
-        throw codemodError(`Migration to ${required.feature} needs ${required.name} ${required.range}. Update its range in package.json ${section}, then run the codemod again.`)
+      const resolved = typeof declared === "string" ? await resolveDeclaredRange(cwd, required.name, declared) : undefined
+      const needs = `${required.feature} needs ${required.name} ${required.range}`
+      if (resolved === undefined || validRange(resolved.range) === null) {
+        const source = resolved?.catalog ? `, which pnpm-workspace.yaml sets to ${JSON.stringify(resolved.range)}` : ""
+        followUps.push({ file: "package.json", message: `package.json ${section} declares ${required.name} ${JSON.stringify(declared)}${source}. The codemod cannot read it as a version range, so it kept it. ${needs}. Check that it installs such a version.` })
+        continue
+      }
+      if (outside(resolved.range, required.range)) {
+        const source = resolved.catalog ? ` (pnpm-workspace.yaml sets ${JSON.stringify(declared)} to ${JSON.stringify(resolved.range)})` : ""
+        throw codemodError(`Migration to ${needs}. Update its range in package.json ${section}${source}, then run the codemod again.`)
       }
     }
     if (!installed(required.name)) dependencies[required.name] = required.range
@@ -118,5 +140,5 @@ export async function editPackageJson(cwd: string, version: string, change: Pack
   manifest[target] = Object.fromEntries(Object.entries(dependencies).sort(([left], [right]) => left.localeCompare(right)))
   const indent = /^[ \t]+/m.exec(before)?.[0] ?? "  "
   const after = `${JSON.stringify(manifest, null, indent)}${before.endsWith("\n") ? "\n" : ""}`
-  return { edit: after === before ? undefined : { path: "package.json", before, after }, installCommand: command }
+  return { edit: after === before ? undefined : { path: "package.json", before, after }, installCommand: command, followUps }
 }

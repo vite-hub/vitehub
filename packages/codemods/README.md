@@ -244,7 +244,7 @@ The codemod does not move local data or baseline the database. The follow-ups li
 
 ## `nuxt-safe-runtime-config`
 
-The `.env.example` migration requires `vite-hub` in the range `>=0.5.1 <1`. If the app declares a range that the codemod cannot verify or that allows an unsupported release, it stops without writing files. Update the range in `package.json`, then run the codemod again.
+The `.env.example` migration requires `vite-hub` in the range `>=0.5.1 <1`. The codemod reads a `catalog:` version from `pnpm-workspace.yaml` and an `npm:vite-hub@` alias. If the declared range allows an unsupported release, it stops without writing files. Update the range in `package.json`, then run the codemod again. If the codemod cannot read the declaration, such as `workspace:*`, `link:`, `file:`, a pkg.pr.new URL, or `latest`, it keeps it and lists a follow-up.
 
 The codemod reads one of the two schema sources of the module:
 

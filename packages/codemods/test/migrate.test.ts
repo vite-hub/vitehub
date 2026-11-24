@@ -87,14 +87,46 @@ describe("migrate", () => {
     expect((await readdir(wizard)).filter(entry => entry.startsWith(scratchFolder))).toEqual([])
   })
 
-  it.each(["0.4.1", "^0.5.0", "workspace:*"])("leaves an envSchema app unchanged with vite-hub %s", async (range) => {
+  const catalogWorkspace = "catalog:\n  vite-hub: ^0.5.1\ncatalogs:\n  tools:\n    vite-hub: npm:vite-hub@>=0.5.1 <1\n  old:\n    vite-hub: ^0.4.0\n"
+
+  it.each([
+    ["0.4.1", undefined],
+    ["^0.5.0", undefined],
+    ["^0.4.0", undefined],
+    ["npm:vite-hub@^0.4.0", undefined],
+    ["catalog:old", catalogWorkspace],
+  ])("leaves an envSchema app unchanged with vite-hub %s", async (range, workspace) => {
     const cwd = await copyFixture("env-schema", `env-schema-incompatible-${range.replace(/\W/g, "_")}`)
     const manifest = JSON.stringify({ dependencies: { "nuxt-safe-runtime-config": "^1.0.0", "vite-hub": range } })
     await writeFile(join(cwd, "package.json"), manifest)
+    if (workspace) await writeFile(join(cwd, "pnpm-workspace.yaml"), workspace)
     const config = await readFile(join(cwd, "nuxt.config.ts"), "utf8")
     await expect(runCodemod("nuxt-safe-runtime-config", { cwd })).rejects.toThrow("vite-hub/env/vite")
     expect(await readFile(join(cwd, "nuxt.config.ts"), "utf8")).toBe(config)
     expect(await readFile(join(cwd, "package.json"), "utf8")).toBe(manifest)
+  })
+
+  it.each([
+    ["catalog:", false],
+    ["catalog:default", false],
+    ["catalog:tools", false],
+    ["npm:vite-hub@^0.5.1", false],
+    ["catalog:missing", true],
+    ["workspace:*", true],
+    ["workspace:^0.5.1", true],
+    ["link:../vite-hub", true],
+    ["file:../vite-hub.tgz", true],
+    ["https://pkg.pr.new/vite-hub@5bd5f98", true],
+    ["latest", true],
+  ])("keeps vite-hub %s when migrating envSchema", async (range, followUp) => {
+    const cwd = await copyFixture("env-schema", `env-schema-readable-${range.replace(/\W/g, "_")}`)
+    await writeFile(join(cwd, "package.json"), JSON.stringify({ dependencies: { "nuxt-safe-runtime-config": "^1.0.0", "vite-hub": range } }))
+    await writeFile(join(cwd, "pnpm-workspace.yaml"), catalogWorkspace)
+    const { result } = await runCodemod("nuxt-safe-runtime-config", { cwd })
+    expect(await readFile(join(cwd, "nuxt.config.ts"), "utf8")).toContain("vite-hub/env/vite")
+    expect(JSON.parse(await readFile(join(cwd, "package.json"), "utf8"))).toEqual({ dependencies: { "vite-hub": range } })
+    const versionFollowUps = result.followUps.filter(entry => entry.file === "package.json" && entry.message.includes("vite-hub/env/vite needs vite-hub >=0.5.1 <1"))
+    expect(versionFollowUps).toHaveLength(followUp ? 1 : 0)
   })
 
   it("keeps a compatible vite-hub pin when migrating envSchema", async () => {
