@@ -1,4 +1,3 @@
-import { viteHubPageToolAllows } from "@vite-hub/internal/runtime/page-tools"
 import { matchesPublicOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { configuredPublicOrigins } from "@vite-hub/runtime/internal/public-url"
@@ -6,7 +5,7 @@ import { configuredPublicOrigins } from "@vite-hub/runtime/internal/public-url"
 import { installedConsoleAccessPolicy } from "./access-policy.ts"
 import { consoleRequestError, consoleRoute, isConsoleDevelopmentRuntime } from "./request.ts"
 import { isConsoleLoopbackRequest } from "./loopback.ts"
-import { withPageTools } from "./site.ts"
+import { readConsoleSiteVisitor, withPageTools } from "./site.ts"
 import { appOrigin, seeOther } from "./tickets.ts"
 
 import type { ConsoleRoute } from "./request.ts"
@@ -19,8 +18,8 @@ import type { ConsoleRoute } from "./request.ts"
  * - `/_vitehub` comes back to the page of the same-origin `Referer`, such as the page with a link to `/_vitehub`, or to
  *   the app home.
  *
- * On a development server, and for a visitor whom the Console page tool already allows, the route goes to the page at
- * once. Another visitor goes to `<base>/_vitehub/site?return=<page>`, which sends the browser through the ViteHub
+ * On a development server, and for a browser with a good site cookie, the route goes to the page at once. Another
+ * visitor goes to `<base>/_vitehub/site?return=<page>`, which sends the browser through the ViteHub
  * Console for a Site access token.
  *
  * Like the pill, the route answers only on the origins of `vitehub({ publicUrl })`, when it is set. Another hostname of
@@ -128,7 +127,7 @@ const siteEntryRoute: ConsoleRoute = consoleRoute(async (event) => {
   const target = siteEntryTarget(request, origin)
   if (!target) throw consoleRequestError(404, "ViteHub serves this path itself, and nothing answered it. Open the page and follow a link to /_vitehub from it.")
   const { base, page } = target
-  if (development || await viteHubPageToolAllows(request, "console")) return seeOther(withPageTools(`${base}${page}`))
+  if (development || await readConsoleSiteVisitor(request, base)) return seeOther(withPageTools(`${base}${page}`))
   return seeOther(`${base}/_vitehub/site?${new URLSearchParams({ return: page })}`)
 })
 

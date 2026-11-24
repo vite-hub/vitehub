@@ -193,12 +193,13 @@ describe("GET /_vitehub", () => {
     expect((await enter("/portal/_vitehub/runs/42")).headers.get("location")).toBe(`/portal/_vitehub/site?${new URLSearchParams({ return: "/runs/42" })}`)
   })
 
-  it("goes to the page with the pill at once for a member with a site cookie, and on a development server", async () => {
-    const nitroApp = { fetch: (request: Request) => siteEntryRoute.fetch(request) }
-    installConsolePageTool(nitroApp, { script: "/console.js", site: readConsoleSiteVisitor })
-    const open = async (cookie: string) => (await nitroApp.fetch(new Request(`${origin}/_vitehub/docs`, { headers: { cookie } }))).headers.get("location")
+  it("goes to the page with the pill at once for a browser with a good site cookie, and on a development server", async () => {
+    const open = async (cookie: string) => (await enter("/_vitehub/docs", { cookie })).headers.get("location")
     expect(await open(await signIn())).toBe("/docs?vitehub")
-    expect(await open(await signIn({ roles: ["comments-write"] }))).toMatch(/^\/_vitehub\/site\?/)
+    expect(await open(await signIn({ roles: ["comments-write"] }))).toBe("/docs?vitehub")
+    const { state } = await startVisit()
+    expect(await open(`__Host-vitehub-site=${state}.${await token(state, { aud: `${origin}/portal` })}`)).toMatch(/^\/_vitehub\/site\?/)
+    expect(await open("__Host-vitehub-site=forged")).toMatch(/^\/_vitehub\/site\?/)
     installConsoleDevelopment("", true)
     expect((await enter("/_vitehub/docs?tab=1")).headers.get("location")).toBe("/docs?tab=1&vitehub")
   })
