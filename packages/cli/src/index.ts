@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs"
 import process from "node:process"
 
 import { collectViteHubCliContribution, createCliDiscoveryNitroCloser, getStableStdoutWrite, viteCliProjectConfig, withStdoutOnStderr } from "@vite-hub/internal/cli"
+import { quoteSupportedInstallSpecifier } from "@vite-hub/internal/features"
 import { reservedOperationNamespaces, setupCommandNames } from "@vite-hub/internal/operations"
 import { loadAllEnv, withViteStageEnvironment } from "@vite-hub/internal/vite-stage"
 import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
@@ -64,8 +65,11 @@ interface ViteHubCliLoadedConfig {
 }
 
 const BUILTIN_NAMESPACE_NAMES = new Set(reservedOperationNamespaces)
+const ROOT_HELP_WITHOUT_CONFIG = "[vitehub] The project config did not load. Project namespaces are missing. Of the commands below, only `deploy`, `provision run`, and `provision status` load the config. Fix the error above to use those three commands and the project namespaces."
+const ENV_HELP_WITHOUT_CONFIG = "[vitehub] The project config did not load. The list below shows only the env commands that do not load the config. Fix the error above to see the project env commands."
 
 const hostEnvFeatures: ViteHubCliCommandNamespace = {
+  description: "Compare, push, and pull the env names of the app on a host.",
   features: [
     {
       description: "Compare the env names of the last build with the names on the linked host. Exits with 1 when a required name is missing. Never reads values.",
@@ -232,10 +236,11 @@ function resolveRouteHandlers(nitro: unknown, projectRoot: string): unknown[] {
 
 function defaultSpawn(command: string, args: string[], options: ViteHubCliSpawnOptions = {}) {
   return new Promise<ViteHubCliSpawnResult>((resolveResult, reject) => {
-    const child = spawn(command, args, {
+    const shell = process.platform === "win32" && command !== process.execPath
+    const child = spawn(command, shell ? args.map(arg => quoteSupportedInstallSpecifier(arg) ?? arg) : args, {
       cwd: options.cwd,
       env: options.env,
-      shell: process.platform === "win32" && command !== process.execPath,
+      shell,
       stdio: [
         options.stdin || "inherit",
         options.stdout === "stderr" ? process.stderr : options.stdout || "inherit",
@@ -409,8 +414,25 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   if (helpNamespace) return await runNamespace(helpNamespace, args, { cwd, env, rootDir: cwd, spawn, stderr, stdout })
 
   const command = args[0] === "inspect" && (args[1] === "output" || args[1] === "resources" || args[1] === "routes") ? "build" : "serve"
-  const { contribution, handlers, operations, plugins, rootDir } = await (stage ? withViteStageEnvironment(env, () => loadProject(command)) : loadProject(command))
   const runtimeNamespaces = (options.runtimeNamespaces ?? []).filter(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name))
+  let project: Awaited<ReturnType<typeof loadProject>>
+  try {
+    project = await (stage ? withViteStageEnvironment(env, () => loadProject(command)) : loadProject(command))
+  }
+  catch (error: unknown) {
+    const envHelp = args[0] === hostEnvFeatures.name && isHelpFlag(args[1])
+    if (args.length && !isRootHelp(args) && !envHelp) throw error
+    stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
+    if (envHelp) {
+      stderr.write(`${ENV_HELP_WITHOUT_CONFIG}\n\n`)
+      writeNamespaceHelp(hostEnvFeatures, stdout)
+      return 1
+    }
+    stderr.write(`${ROOT_HELP_WITHOUT_CONFIG}\n\n`)
+    writeRootHelp([provisionNamespace, ...runtimeNamespaces, hostEnvFeatures], await loadCommands(), stdout)
+    return 1
+  }
+  const { contribution, handlers, operations, plugins, rootDir } = project
   const runtimeNames = new Set(runtimeNamespaces.map(namespace => namespace.name))
   const namespaces = [
     ...mergeOperationNamespaces(contribution.namespaces, createOperationNamespaces(operations)).filter(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name) && !runtimeNames.has(namespace.name)),

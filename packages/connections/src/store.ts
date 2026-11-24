@@ -158,10 +158,19 @@ function toApproval(row: unknown): ConnectionApproval {
 export function createDatabaseConnectionStore(options: { activityRetention?: ConnectionActivityRetention | false, db: EnvDatabase, encryptionKeys: readonly Uint8Array[] }): ConnectionStore {
   const envStore = createDatabaseEnvStore({ db: options.db, encryptionKeys: options.encryptionKeys, namespace: "connections" })
   const retention = resolveActivityRetention(options.activityRetention)
+  let activityIndexes: Promise<void> | undefined
+  const createActivityIndexes = async () => {
+    await options.db.run(sql`CREATE INDEX IF NOT EXISTS vitehub_connections_activity_sequence ON vitehub_env_activity (namespace, sequence) WHERE namespace = 'connections'`)
+    await options.db.run(sql`CREATE INDEX IF NOT EXISTS vitehub_connections_activity_time ON vitehub_env_activity (namespace, json_extract(payload, '$.timestamp')) WHERE namespace = 'connections' AND json_valid(payload)`)
+  }
   async function pruneActivity(limits: Required<ConnectionActivityRetention>): Promise<void> {
+    await (activityIndexes ??= createActivityIndexes().catch((error: unknown) => {
+      activityIndexes = undefined
+      throw error
+    }))
     const cutoff = new Date(Math.max(0, Date.now() - limits.maxAgeMs)).toISOString()
     await options.db.run(
-      sql`DELETE FROM vitehub_env_activity WHERE namespace = 'connections' AND (sequence <= (SELECT sequence FROM vitehub_env_activity WHERE namespace = 'connections' ORDER BY sequence DESC LIMIT 1 OFFSET ${limits.maxRecords}) OR json_extract(payload, '$.timestamp') < ${cutoff})`,
+      sql`DELETE FROM vitehub_env_activity WHERE (namespace = 'connections' AND sequence <= (SELECT sequence FROM vitehub_env_activity WHERE namespace = 'connections' ORDER BY sequence DESC LIMIT 1 OFFSET ${limits.maxRecords})) OR (namespace = 'connections' AND json_valid(payload) AND json_extract(payload, '$.timestamp') < ${cutoff})`,
     )
   }
   const access: EnvAccessStore = retention === false

@@ -86,9 +86,10 @@ When enabled, Workflow defaults to OpenWorkflow on Node and in Local Vite with t
 
 ## Test status
 
-Each host has a test status. The status tells what CI checks. It does not tell whether the latest run passed: the [live smoke runs](https://github.com/vite-hub/vitehub/actions/workflows/live-smoke.yml) and the CI runs show that.
+The tables show what CI exercises on each host. See the [live smoke runs](https://github.com/vite-hub/vitehub/actions/workflows/live-smoke.yml) for the latest results.
 
 - **Live tested:** a nightly CI job deploys the shared playground to the real host and calls the primitive.
+- **Live tested (markers missing):** the nightly smoke runs, but it does not see the expected job markers.
 - **Tested locally:** CI calls the primitive on a local runtime of the host, such as Wrangler, a Vercel function bridge, or Node. No CI job calls it on the real host.
 - **Experimental:** ViteHub has a provider or output for the host, but no CI run calls the primitive there. Unit tests, mocks, or build-output checks can exist.
 
@@ -113,7 +114,7 @@ On Cloudflare and Vercel, the status changes per primitive. A dash means that th
 | Database | Live tested | Live tested |
 | Email | Experimental | Experimental |
 | KV | Live tested | Live tested |
-| Queue | Live tested | Live tested |
+| Queue | Live tested | Live tested (markers missing) |
 | Rate Limit | Live tested | — |
 | Realtime | Experimental | — |
 | Sandbox | Live tested | Live tested |
@@ -121,6 +122,8 @@ On Cloudflare and Vercel, the status changes per primitive. A dash means that th
 | Workflow | Live tested | Live tested |
 | Workspace | Live tested | Live tested |
 <!-- support-matrix:test-status:end -->
+
+The [Vercel Queue live smoke](https://github.com/vite-hub/vitehub/actions/runs/45181386544/job/137716993575) accepted the direct send, but observed neither the direct nor the deferred job marker. Verify both paths on your deployment before relying on Vercel Queue delivery.
 
 Agent routes are not in the live smoke on any host.
 

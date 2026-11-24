@@ -129,11 +129,21 @@ export function defaultExport(module: unknown): unknown {
   return typeof module === "object" && module !== null && "default" in module ? module.default : module
 }
 
+const previousHelpers = new WeakMap<object, PropertyDescriptor>()
+
 /** Runs nuxt.config with a `defineNuxtConfig` stub and returns the exported object. */
 export async function loadNuxtConfig(path: string): Promise<Record<string, unknown>> {
-  const hadPrevious = Reflect.has(globalThis, "defineNuxtConfig")
-  const previous: unknown = Reflect.get(globalThis, "defineNuxtConfig")
-  Reflect.set(globalThis, "defineNuxtConfig", (config: unknown) => config)
+  const key = "defineNuxtConfig"
+  const current: unknown = Reflect.get(globalThis, key)
+  const helper = typeof current === "function" && "count" in current && typeof current.count === "number"
+    ? current as { count: number }
+    : Object.assign((config: unknown) => config, { count: 0 })
+  if (helper !== current) {
+    const previous = Object.getOwnPropertyDescriptor(globalThis, key)
+    if (previous) previousHelpers.set(helper, previous)
+    Reflect.set(globalThis, key, helper)
+  }
+  helper.count++
   try {
     const jiti = createJiti(path, { moduleCache: false, fsCache: false, interopDefault: false })
     const loaded = defaultExport(await jiti.import(path))
@@ -146,8 +156,11 @@ export async function loadNuxtConfig(path: string): Promise<Record<string, unkno
     throw codemodError(`Cannot load ${path} to read the $schema: ${error instanceof Error ? error.message : String(error)}`)
   }
   finally {
-    if (hadPrevious) Reflect.set(globalThis, "defineNuxtConfig", previous)
-    else Reflect.deleteProperty(globalThis, "defineNuxtConfig")
+    if (--helper.count === 0 && Reflect.get(globalThis, key) === helper) {
+      const previous = previousHelpers.get(helper)
+      if (previous) Object.defineProperty(globalThis, key, previous)
+      else Reflect.deleteProperty(globalThis, key)
+    }
   }
 }
 

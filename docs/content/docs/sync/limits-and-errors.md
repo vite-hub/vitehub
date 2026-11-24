@@ -30,7 +30,7 @@ icon: i-lucide-circle-alert
 - **Conflicts.** The last write wins for each column, in the order that the server got them. There is no conflict check beyond that.
 - **Text merge.** Two people who edit one text field at the same time do not merge: the last write wins. There are no CRDT text fields.
 - **Transactions in actions.** An action reads and then writes. The two steps are not one transaction, because D1 has no interactive transactions. When another write changes a row that the action read, the server runs the action function again, up to 3 times. Only its writes apply once, so put effects outside them, such as an email, in a [Queue](/docs/queue) job.
-- **Dropping a column that the triggers read.** The triggers read the key, the scope columns (the columns of `subsets` and each column that a `where` result returned), and the columns of unique indexes. A migration that drops one of them fails with `error in trigger vitehub_sync_<table>_... after drop column`. Put these statements before the drop in the same migration, here for the column `team_id` of the table `issues`. For a scope column, also remove it from `where` and `subsets`. For a column of a unique index, leave out the `DELETE` line. Sync adds the triggers again at its next request, and each browser gets every row again.
+- **Dropping a column.** Sync needs a primary key. Before dropping a scope column (used by `subsets` or returned by `where`) or a column in a unique index, drop the table's Sync triggers in the same migration. For a scope column, remove it from `where` and `subsets` and delete its row from `vitehub_sync_columns`, as shown for `issues.team_id` below. Separately, remove SQLite schema dependencies before `DROP COLUMN`: for example, drop any standalone index that references the column. If a table constraint still references it, you may need to rebuild the table. Sync adds its triggers again at its next request, and each browser gets every row again.
 
   ```sql
   DROP TRIGGER IF EXISTS vitehub_sync_issues_insert;
@@ -50,7 +50,7 @@ icon: i-lucide-circle-alert
 
 ## Browser storage
 
-The rows and the queue are in the IndexedDB database `vitehub-sync`, with one copy for each synced table and subset. When IndexedDB does not open, such as in some private windows, they stay in memory and `persisted` is `false`: a reload then loses the writes that wait. Clear them on sign-out, so the next person on the device does not see the rows, and the writes of other accounts go away. ViteHub Auth in Nuxt does this for you. See [Accounts and sign-out](/docs/sync/vue#accounts-and-sign-out).
+The rows and the queue are in the IndexedDB database `vitehub-sync`, with one copy for each synced table and subset. When IndexedDB does not open, such as in some private windows, they stay in memory and `persisted` is `false`: a reload then loses the writes that wait. Clear them on sign-out so the next person on the device does not see the rows. ViteHub Auth in Nuxt calls `clearSync({ keepWrites: true })` on sign-out, which clears cached rows and keeps queued writes for their account; call `clearSync()` without `keepWrites: true` to drop queued writes too. See [Accounts and sign-out](/docs/sync/vue#accounts-and-sign-out).
 
 When the table of a definition changes, such as after a deploy that adds a column, the client drops the rows that it stored for that definition and pulls them again. The writes that wait stay and go out.
 

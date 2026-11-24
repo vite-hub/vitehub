@@ -251,13 +251,13 @@ export const articles = defineCollection({
 | --- | --- |
 | `filters` | Fields a client can filter by. `?category=guide` ignores case. A repeated key matches any value. `?empty=category` matches items with no value. Dot paths read nested objects and every element of nested arrays. A `Date` matches its ISO string. |
 | `search` | Fields that `?search=` matches as a substring, ignoring case. Without it, a non-empty `search` returns `400`. |
-| `facets` | Fields counted into `page.facets` as `{ value, count }` lists over all matches. |
-| `sort` | Field and direction. Numbers sort by value, `Date` by time. Omit it to keep the array order. |
+| `facets` | Fields counted into `page.facets` as `{ value, count }` lists over all matches, ordered by count descending with ties broken by the same string order as `sort`. |
+| `sort` | Field and direction. Numbers sort by value, `Date` by time, and strings in UTF-16 code unit order after folding common Latin letters and accents (breaking ties with the original string). Omit it to keep the array order. |
 | `key` | Field that `collection.get(key)` matches in server code. |
 | `schema` | Standard Schema for one item. Each item is checked on load, and the output type is the item type. |
 | `defaultLimit`, `maxLimit` | Page size and the largest `limit`. `maxLimit` also caps the values per facet. |
 
-The loader runs per request and returns the array or `{ items, digest }`. Cursors are tied to the digest and query, so one from changed data or another filter returns `409`. Without `digest`, ViteHub hashes the items. Server code can filter any field: `articles.page({ query: { category: ['guide'] } })`.
+The loader runs per request and returns the array or `{ items, digest }`. Cursors are tied to the digest, query, and sort order, so one from changed data, another filter, or an older sort order returns `409`. Without `digest`, ViteHub hashes the items. Server code can filter any field: `articles.page({ query: { category: ['guide'] } })`.
 
 ```vue [app/pages/articles.vue]
 <script setup lang="ts">

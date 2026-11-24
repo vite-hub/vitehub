@@ -277,7 +277,7 @@ it("searches unloaded panel pages while excluding hidden pages on the server", a
     ...original,
     { ...page, id: "diagnostics", path: "/docs/kv/diagnostics", panel: true },
     { ...page, id: "diagnostics/kv_invalid_cursor", path: "/docs/kv/diagnostics/kv_invalid_cursor", sourceTitle: "KV_INVALID_CURSOR", seo: { index: false }, navigation: true },
-    { ...page, id: "hidden", path: "/docs/kv/hidden", navigation: false },
+    { ...page, id: "hidden", path: "/docs/kv/hidden", file: "hidden.md", navigation: false },
     { ...page, id: "hidden-code", path: "/docs/kv/hidden-code", seo: { index: false }, navigation: false },
   ]
   const appManifest = docsAppManifest(manifest, { panels: true }).manifest
@@ -286,6 +286,7 @@ it("searches unloaded panel pages while excluding hidden pages on the server", a
   const response = await server.fetch(new Request("https://docs.example.com/api/_docs/search.json"))
   expect(response.status).toBe(200)
   const records = await response.json()
+  expect(getItem).not.toHaveBeenCalledWith("hidden.md")
   expect(createDocsSearch(records)("KV_INVALID_CURSOR", 12).map(record => record.id)).toContain("/docs/kv/diagnostics/kv_invalid_cursor")
   expect(records.some((record: { id: string }) => record.id.startsWith("/docs/kv/hidden"))).toBe(false)
 })

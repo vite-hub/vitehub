@@ -3,7 +3,7 @@ import { backoffDelay, randomUUID } from "@vite-hub/internal/browser-environment
 import { syncErrors } from "../errors.ts"
 import { syncPushLimit } from "../protocol.ts"
 import { isProvisionalAccount, knownAccount } from "./account.ts"
-import { addedWrites, applyQueueChange, applyRowChange } from "./storage.ts"
+import { addedWrites, applyQueueChange, applyRowChange, storageLost } from "./storage.ts"
 import { SyncError } from "./types.ts"
 import { buildView, clientError, generationOf, isActive, isOwnFailure, isPull, keyColumnOf, linkWrite, linkWrites, mergeTarget, pullChange, pushChange, readError, toMutation, toWireError, whereKey } from "./view.ts"
 
@@ -128,6 +128,10 @@ function isUnchanged(meta: SyncMeta | undefined, change: SyncStorageChange): boo
     && !change.results?.length && !change.claim
 }
 
+function lostError(): SyncError {
+  return new SyncError("SYNC_CLEARED", "The browser storage of Sync was deleted before the server confirmed this write.")
+}
+
 /** Thrown inside a round that `forget()` ended, so it writes nothing more. */
 const cancelled = new Error("The Sync round was cancelled.")
 
@@ -245,6 +249,8 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   // `forget()` moves `generation`, so a write that was stored before it does not come back.
   let generation = 0
   let passGeneration = 0
+  let epoch = storage.epoch
+  let passEpoch = epoch
   let destroyed = false
   let paused = false
   let wantPull = true
@@ -565,11 +571,14 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     local.push(write)
     version++
     publish()
-    if (!flushQueued) {
-      flushQueued = true
-      queueMicrotask(flush)
-    }
+    queueFlush()
     return handle
+  }
+
+  function queueFlush(): void {
+    if (flushQueued) return
+    flushQueued = true
+    queueMicrotask(flush)
   }
 
   /**
@@ -591,11 +600,23 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     removals = []
     for (const write of batch) storing.add(write.id)
     const at = generation
-    const change: SyncStorageChange = { add: batch, remove: removed }
+    const from = epoch
+    const change: SyncStorageChange = { add: batch, remove: removed, epoch: from }
     flushed = storage.write(id, change).then((result) => {
       for (const write of batch) storing.delete(write.id)
       if (at !== generation) {
         if (batch.some(write => parked.has(write.id))) return reload().catch(() => undefined)
+        return
+      }
+      if (from !== epoch) {
+        const ids = new Set(batch.map(write => write.id))
+        local = local.filter(write => !ids.has(write.id))
+        for (const write of batch) {
+          for (const handle of pending.get(write.id) ?? []) handle.settle("rejected", lostError())
+          pending.delete(write.id)
+        }
+        version++
+        publish()
         return
       }
       // A reload may have read these writes from storage already.
@@ -618,6 +639,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       }
       if (stopped && !parked.size) stopMessages()
       if (at !== generation) return
+      if (cause === storageLost) return reload().catch(() => undefined).then(queueFlush)
       const ids = new Set(batch.map(write => write.id))
       local = local.filter(write => !ids.has(write.id))
       version++
@@ -649,7 +671,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
     const priorWrites = writes
     const priorRows = confirmed
     const actionResults = change.remove?.length && results.size ? new Map(results) : undefined
-    const result = await storage.write(id, change)
+    const result = await storage.write(id, { ...change, epoch: passEpoch })
     if (passGeneration !== generation) {
       if (parked.size && (change.remove?.length || change.update?.length)) {
         const terminal = new Set([...change.remove ?? [], ...change.update?.filter(write => write.error).map(write => write.seq) ?? []])
@@ -665,6 +687,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       }
       throw cancelled
     }
+    if (epoch !== passEpoch) throw storageLost
     meta = change.meta ?? meta
     confirmed = applyRowChange(confirmed, change)
     release(released)
@@ -681,13 +704,19 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
   async function reload(): Promise<void> {
     for (;;) {
       const at = version
+      const from = storage.epoch
       const stored = await storage.read(id)
-      if (at !== version) continue
+      if (at !== version || from !== storage.epoch) continue
+      const lost = from !== epoch
+      if (lost) lose()
       if (parked.size) settleParked(stored.writes, new Map(stored.rows))
       if (paused) return
-      // Another tab sent the actions that left the queue without an error: the server applied them.
-      const kept = new Set(stored.writes.map(write => write.id))
-      handOver(new Set(writes.filter(write => write.op === "action" && !write.error && !kept.has(write.id)).map(write => write.id)))
+      epoch = from
+      if (!lost) {
+        // Another tab sent the actions that left the queue without an error: the server applied them.
+        const kept = new Set(stored.writes.map(write => write.id))
+        handOver(new Set(writes.filter(write => write.op === "action" && !write.error && !kept.has(write.id)).map(write => write.id)))
+      }
       meta = stored.meta
       confirmed = new Map(stored.rows)
       const removed = new Set(removals)
@@ -700,6 +729,26 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       publish()
       return
     }
+  }
+
+  function lose(): void {
+    const waiting = new Set(local.map(write => write.id))
+    for (const [mutationId, handles] of pending) {
+      if (waiting.has(mutationId)) continue
+      pending.delete(mutationId)
+      results.delete(mutationId)
+      for (const handle of handles) handle.settle("rejected", lostError())
+    }
+    for (const handles of parked.values()) {
+      for (const handle of handles) handle.settle("rejected", lostError())
+    }
+    parked.clear()
+    if (stopped) stopMessages()
+    removals = []
+    livePulls = []
+    freshSnapshot = false
+    pulled = false
+    wantPull = true
   }
 
   function fail(reason: SyncError): false {
@@ -864,7 +913,8 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       const at = version
       const queue = await storage.readQueue(id)
       // Another tab changed the stored copy since this tab read it.
-      if (at === version && queueSignature(queue.meta, queue.writes) !== queueSignature(meta, writes)) await reload()
+      if (storage.epoch !== epoch || (at === version && queueSignature(queue.meta, queue.writes) !== queueSignature(meta, writes))) await reload()
+      passEpoch = epoch
       // A destroyed store sends its writes, then stops.
       if (destroyed && !hasWork()) return
       await applyLivePulls()
@@ -896,6 +946,10 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
           again = false
           await environment.lock(`vitehub-sync:${id}`, pass).catch((cause: unknown) => {
             if (cause === cancelled) return
+            if (cause === storageLost) {
+              again = true
+              return
+            }
             fail(new SyncError("SYNC_SERVER_ERROR", cause instanceof Error ? cause.message : String(cause)))
           })
         }
@@ -1196,7 +1250,7 @@ function createSyncStore<TRow, TArgs = Record<string, unknown>>(name: string, op
       writes = writes.filter(write => write !== failed)
       version++
       publish()
-      storage.write(id, { remove: [failed.seq] }).then(() => environment.post({ type: "change", id }), () => undefined)
+      storage.write(id, { remove: [failed.seq], epoch }).then(() => environment.post({ type: "change", id }), () => undefined)
     },
     destroy() {
       if (destroyed) return
