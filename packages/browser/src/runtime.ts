@@ -2,7 +2,7 @@ import { withBrowserTimeout } from "./internal/timeout.ts"
 import browserRegistry from "#vitehub/browser/registry"
 import runtimeConfig, { loadCloudflarePlaywright } from "#vitehub/browser/runtime"
 
-import { browserProviderError } from "./errors.ts"
+import { browserProviderError, browserSessionStateError } from "./errors.ts"
 import { getViteHubErrorShape } from "@vite-hub/runtime"
 import { browserRunErrors } from "./run-errors.ts"
 import { browserUnavailableError, isBrowserAvailable } from "./availability.ts"
@@ -106,6 +106,7 @@ interface BrowserDefinitionRuntimeOptions {
 
 class BrowserDefinitionBrowserImpl implements BrowserDefinitionBrowser {
   private readonly sessions: Array<ManagedBrowserPageSession<PlaywrightBrowserConnection>> = []
+  private ended = false
 
   constructor(private readonly options: BrowserDefinitionRuntimeOptions) {}
 
@@ -119,12 +120,21 @@ class BrowserDefinitionBrowserImpl implements BrowserDefinitionBrowser {
     return await runBrowserAction(action, input)
   }
 
-  async open(options?: BrowserDriverOpenOptions): Promise<BrowserPageSession> {
+  open(options?: BrowserDriverOpenOptions): Promise<BrowserPageSession> {
+    const opening = this.openSession(options)
+    void opening.catch(() => {})
+    return opening
+  }
+
+  private async openSession(options?: BrowserDriverOpenOptions): Promise<BrowserPageSession> {
+    this.throwIfEnded()
     const providerSession = await (this.options.client ?? resolveConfiguredClient()).open(options)
     let control: BrowserControl<CDPClient> | undefined
     try {
+      this.throwIfEnded()
       control = await withBrowserTimeout(providerSession.attach(this.options.controller ?? cdp()), () => browserProviderError("cdp", "attach the browser controller"))
       const { page } = await attachCDPPage(control.client)
+      this.throwIfEnded()
       const session = new ManagedBrowserPageSession(providerSession, control, page)
       this.sessions.push(session)
       return session
@@ -152,7 +162,12 @@ class BrowserDefinitionBrowserImpl implements BrowserDefinitionBrowser {
     }
   }
 
+  private throwIfEnded() {
+    if (this.ended) throw browserSessionStateError("open", "closed")
+  }
+
   async close(): Promise<void> {
+    this.ended = true
     const errors: unknown[] = []
     for (const session of [...this.sessions].reverse()) {
       try {

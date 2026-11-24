@@ -2,6 +2,8 @@ import { readFile } from "node:fs/promises"
 import { relative } from "node:path"
 
 import type { ResultError } from "@vite-hub/runtime"
+import type { RenderedEmail } from "./types.ts"
+import type { EmailTemplate } from "./templates.ts"
 
 import { emailErrorDiagnostics } from "./error-diagnostics.ts"
 import { renderEmailMarkdown } from "./markdown.ts"
@@ -23,13 +25,15 @@ export function emailTemplateNotFound(template: string, roots: readonly string[]
 }
 
 /**
- * Renders one template of `server/emails` without sending it. The name is the path under the roots without `.md`, the
- * same name as the `#vitehub/emails/<name>` import.
+ * Renders one template of `server/emails` without sending it. The name is the path under the roots without the
+ * extension, the same name as the `#vitehub/emails/<name>` import. `renderVue` renders a `.vue` template.
  */
-export async function previewEmailTemplate(roots: readonly string[], rootDir: string, name: string, data: Record<string, unknown> = {}): Promise<EmailPreview> {
+export async function previewEmailTemplate(roots: readonly string[], rootDir: string, name: string, data: Record<string, unknown> = {}, renderVue?: (template: EmailTemplate, data: Record<string, unknown>) => Promise<RenderedEmail>): Promise<EmailPreview> {
   const templates = await discoverEmailTemplates([...roots])
   const template = templates.find(entry => entry.name === name)
-  if (!template) throw emailTemplateNotFound(name, roots, rootDir, templates.map(entry => entry.name))
-  const rendered = await renderEmailMarkdown(await readFile(template.file, "utf8"), { data })
+  if (!template || (template.file.endsWith(".vue") && !renderVue)) throw emailTemplateNotFound(name, roots, rootDir, templates.map(entry => entry.name))
+  const rendered = template.file.endsWith(".vue") && renderVue
+    ? await renderVue(template, data)
+    : await renderEmailMarkdown(await readFile(template.file, "utf8"), { data })
   return { file: relative(rootDir, template.file), template: template.name, ...rendered }
 }

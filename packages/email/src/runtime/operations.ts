@@ -1,4 +1,3 @@
-import { renderEmailMarkdown } from "../markdown.ts"
 import { emailErrorDiagnostics } from "../error-diagnostics.ts"
 import { emailTemplateNotFound } from "../preview.ts"
 import { toEmailOutboxListItem } from "./console.ts"
@@ -37,8 +36,8 @@ export function clearEmailOutboxMessages(): { cleared: number } {
 
 /** Renders a template carried in generated host output, including in workers without the application's source files. */
 export async function previewEmail(template: string, data?: Record<string, unknown>): Promise<EmailPreview> {
-  const { emailPreview } = await import("#vitehub/email/definition")
+  const { emailPreview, renderEmailTemplate } = await import("#vitehub/email/definition")
   const entry = emailPreview.templates.find(entry => entry.name === template)
-  if (!entry) throw emailTemplateNotFound(template, emailPreview.roots, ".", emailPreview.templates.map(entry => entry.name))
-  return { file: entry.file, template: entry.name, ...await renderEmailMarkdown(entry.source, { data }) }
+  if (!entry || !renderEmailTemplate) throw emailTemplateNotFound(template, emailPreview.roots, ".", emailPreview.templates.map(entry => entry.name))
+  return { file: entry.file, template: entry.name, ...await renderEmailTemplate(entry.source, data, entry.name) }
 }

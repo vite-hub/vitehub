@@ -153,6 +153,7 @@ describe("one URL per page", () => {
     // Nitro serves an app only below its base, so the home of a mounted app keeps its slash.
     expect(docsCanonicalUrl("https://docs.example.com", "/", appBase)).toBe(`https://docs.example.com${appBase}`)
     expect(docsCanonicalUrl("https://docs.example.com", "/docs/kv/", appBase)).toBe(`https://docs.example.com${prefix}/docs/kv`)
+    expect(docsCanonicalUrl("https://docs.example.com", "/docs/kv/index/", appBase)).toBe(`https://docs.example.com${prefix}/docs/kv`)
   })
 
   it.each(["/", "/portal/"])("redirects a page with a trailing slash to its canonical path under %s", async (appBase) => {
@@ -164,6 +165,7 @@ describe("one URL per page", () => {
       return response.status === 301 ? response.headers.get("location") : response.status
     }
     expect(await answer("/docs/kv/")).toBe(`${prefix}/docs/kv`)
+    expect(await answer("/docs/kv/index/")).toBe(`${prefix}/docs/kv`)
     expect(await answer("/docs/kv/configure/?tab=nuxt")).toBe(`${prefix}/docs/kv/configure?tab=nuxt`)
     expect(await answer("/about/", "HEAD")).toBe(`${prefix}/about`)
     expect(await answer("/docs/kv")).toBe(200)

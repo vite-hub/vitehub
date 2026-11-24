@@ -2,7 +2,7 @@ import { defineCachedFunction } from "ocache"
 
 import { sourceError } from "../../core/errors.ts"
 import { normalizeSafeSourcePath, normalizeSourcePath } from "../../core/path.ts"
-import { matchesAny } from "../path.ts"
+import { createPathMatcher } from "../path.ts"
 import { parseGitHubArchive } from "./archive.ts"
 import { createGitHubCacheKey, githubAuthenticationScope, normalizeGitHubCache } from "./cache.ts"
 import { createGitHubClient, githubEnvToken, githubErrorStatus, loadForge } from "./client.ts"
@@ -85,10 +85,10 @@ export function github(options: GitHubSourceOptions): GitHubSource {
     return root ? `${root}/${normalized}` : normalized
   }
 
-  function shouldInclude(key: string) {
-    if (options.include && !matchesAny(key, options.include)) return false
-    if (options.ignore && matchesAny(key, options.ignore)) return false
-    return true
+  function keyFilter() {
+    const include = createPathMatcher(options.include)
+    const ignore = options.ignore ? createPathMatcher(options.ignore) : () => false
+    return (key: string) => include(key) && !ignore(key)
   }
 
   async function resolveRef(token: string | undefined) {
@@ -147,8 +147,7 @@ export function github(options: GitHubSourceOptions): GitHubSource {
     await client.resolveCommit(configuredRef, token)
   }
 
-  async function loadArchiveFiles(token: string | undefined, resolvedRef?: string) {
-    const ref = resolvedRef ?? await getRef(token)
+  async function loadArchiveFiles(token: string | undefined, ref: string, shouldInclude: (key: string) => boolean) {
     return parseGitHubArchive(await client.archive(ref, token))
       .map((entry): GitHubFile<string> | undefined => {
         const key = keyForRepoPath(entry.path)
@@ -166,6 +165,7 @@ export function github(options: GitHubSourceOptions): GitHubSource {
 
   async function loadFiles(token: string | undefined, resolvedRef?: string) {
     const ref = resolvedRef ?? await getRef(token)
+    const shouldInclude = keyFilter()
     if (sparsePatterns) {
       try {
         return await loadGitArchiveFiles({
@@ -179,7 +179,7 @@ export function github(options: GitHubSourceOptions): GitHubSource {
       }
       catch {}
     }
-    return await loadArchiveFiles(token, ref)
+    return await loadArchiveFiles(token, ref, shouldInclude)
   }
 
   const loadedFiles = new Map<string, Promise<GitHubFile<string>[]>>()
@@ -210,7 +210,7 @@ export function github(options: GitHubSourceOptions): GitHubSource {
     catch {
       return
     }
-    if (!normalizedKey || !shouldInclude(normalizedKey)) return
+    if (!normalizedKey || !keyFilter()(normalizedKey)) return
     const ref = resolvedRef ?? await getRef(token)
     const repoPath = repoPathForKey(normalizedKey)
     let file: Awaited<ReturnType<typeof client.metadata>>
@@ -265,7 +265,7 @@ export function github(options: GitHubSourceOptions): GitHubSource {
     catch {
       throw sourceError(`[vitehub] github(${JSON.stringify(options.repo)}) could not find ${JSON.stringify(key)}.`)
     }
-    if (!normalizedKey || !shouldInclude(normalizedKey)) {
+    if (!normalizedKey || !keyFilter()(normalizedKey)) {
       throw sourceError(`[vitehub] github(${JSON.stringify(options.repo)}) could not find ${JSON.stringify(key)}.`)
     }
     const ref = resolvedRef ?? await getRef(token, signal)
