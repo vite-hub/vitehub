@@ -1,6 +1,6 @@
 ---
 title: Move the Console from earlier releases
-description: Replace removed Console options, such as auth app, Console Auth, console.pill, the app MCP at /_vitehub/mcp, console.mcpClient, and console.databaseUrl, and remove the Console data that apps kept.
+description: Replace removed Console options, such as console.pill, console.mcpClient, and console.databaseUrl, and remove the Console data that apps kept.
 navigation.title: Move from earlier releases
 navigation.order: 41
 navigation.group: Reference

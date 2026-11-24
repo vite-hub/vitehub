@@ -96,10 +96,44 @@ The Console is the [`@vite-hub/console`](https://github.com/vite-hub/vitehub/tre
 
 Set `console.url` in the app to the origin of your Console. `/_vitehub`, the Console links of the app, the Site access sign-in, and the Console segment of the Comments pill then go to your Console and not to `https://console.vitehub.dev`:
 
-```ts [vite.config.ts]
-vitehub({
-  console: { url: 'https://console.example.com' },
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    console: { url: 'https://console.example.com' },
+  },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { nitro } from 'nitro/vite'
+
+export default defineConfig({
+  plugins: [vitehub({
+    console: { url: 'https://console.example.com' },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({
+    console: { url: 'https://console.example.com' },
+  })],
+})
+```
+:::
+::
 
 The value must be an `https://` origin without a path. `http://localhost` is allowed for a Console on your computer. The build fails with [`VITE_HUB_B0004`](/docs/development/diagnostics/vite_hub_b0004) for other values.

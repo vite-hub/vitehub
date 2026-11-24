@@ -4243,6 +4243,9 @@ importers:
       '@libsql/client':
         specifier: catalog:database
         version: 0.18.0
+      '@modelcontextprotocol/sdk':
+        specifier: catalog:ai
+        version: 1.32.2(@cfworker/json-schema@4.1.1)(supports-color@8.1.1)(zod@4.6.7)
       '@nuxt/ui':
         specifier: catalog:nuxt
         version: 4.12.0(45cc7921fd47c366706c9952909289da)

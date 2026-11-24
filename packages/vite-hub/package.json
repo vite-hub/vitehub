@@ -1056,6 +1056,7 @@
     "@json-render/core": "0.22.0",
     "@json-render/vue": "0.22.0",
     "@libsql/client": "catalog:database",
+    "@modelcontextprotocol/sdk": "catalog:ai",
     "@nuxt/ui": "catalog:nuxt",
     "@tiptap/core": "catalog:realtime",
     "@tiptap/extension-collaboration": "catalog:realtime",
@@ -1158,6 +1159,7 @@
     "@json-render/core": "0.22.0",
     "@json-render/vue": "0.22.0",
     "@libsql/client": "catalog:database",
+    "@modelcontextprotocol/sdk": "catalog:ai",
     "@nuxt/ui": "^4.11.0",
     "@vercel/functions": "catalog:vercel",
     "@vite-hub/agent": "workspace:*",
@@ -1249,6 +1251,9 @@
       "optional": true
     },
     "@libsql/client": {
+      "optional": true
+    },
+    "@modelcontextprotocol/sdk": {
       "optional": true
     },
     "@nuxt/ui": {
