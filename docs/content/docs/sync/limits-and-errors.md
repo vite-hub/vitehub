@@ -54,7 +54,9 @@ The rows and the queue are in the IndexedDB database `vitehub-sync`, with one co
 
 When the table of a definition changes, such as after a deploy that adds a column, the client drops the rows that it stored for that definition and pulls them again. The writes that wait stay and go out.
 
-If another tab or the browser deletes, upgrades, or closes the `vitehub-sync` IndexedDB database, an open tab loses its old stored copy. Every unconfirmed write from that old copy rejects with `SYNC_CLEARED`, including an in-flight write whose server response arrives after the loss. If the server already applied such a write, the row returns on the next full snapshot. The tab reopens the database, drops its cursor to pull a full snapshot, and queues writes made after the loss on the new copy. When another tab upgrades to a newer database format, the older tab falls back to memory storage and sets `persisted` to `false` without changing the newer database.
+If another tab or the browser deletes, upgrades, or closes the `vitehub-sync` IndexedDB database, an open tab loses its old stored copy. Every unconfirmed write from that copy rejects with `SYNC_CLEARED`, even if the server already applied the write. The tab reopens the database, drops its cursor to pull a full snapshot, and queues writes made after the loss on the new copy. When another tab upgrades to a newer database format, the older tab falls back to memory storage and sets `persisted` to `false` without changing the newer database.
+
+The next full snapshot shows current rows in scope. It does not tell you whether the server applied a specific write: an action can change another table without changing these rows. Repeat the write only if you can verify it did not apply or know it is safe to repeat.
 
 ## Errors
 
