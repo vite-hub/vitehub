@@ -211,7 +211,7 @@ function createCloudflareKVWranglerConfig(kv: KVViteRuntimeConfig["kv"], provisi
 function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
   return [
     `import { createCloudflareKVStorage } from ${JSON.stringify(CLOUDFLARE_KV_RUNTIME_IMPORT_ID)};`,
-    `import { kvClearOptionsError, kvInvalidLimitError, kvKeyLimitCodes, kvListLimitInvalid, kvResult, kvStoreNotFoundError, kvStoreWithMode, kvUnsupportedOperationError, kvWriteLimitCodes, listKVKeys } from ${JSON.stringify(KV_ERRORS_IMPORT_ID)};`,
+    `import { kvClearOptionsError, kvInvalidLimitError, kvKeyLimitCodes, kvListLimitInvalid, kvResult, kvSetCodes, kvSetTTL, kvStoreNotFoundError, kvStoreWithMode, kvUnsupportedOperationError, listKVKeys } from ${JSON.stringify(KV_ERRORS_IMPORT_ID)};`,
     "",
     `const kvConfig = ${JSON.stringify(config, null, 2)}`,
     "const storages = new Map();",
@@ -259,8 +259,8 @@ function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
     "    async increment() { return unsupported(\"increment\", name); },",
     "    lock() { return { async acquire() { return unsupported(\"lock\", name); }, async run() { return unsupported(\"lock\", name); } }; },",
     "    async list(options = {}) { if (kvListLimitInvalid(options)) return [kvInvalidLimitError(), undefined]; return kvResult(\"list\", name, () => listKVKeys(page => resolveStorage(name).listKeys(page), options), [\"KV_INVALID_CURSOR\"]); },",
-    "    async set(key, value, options) { return kvResult(\"set\", name, async () => { await resolveStorage(name).setItem(key, value, options); }, kvWriteLimitCodes); },",
-    "    async setMany(entries, options) { return kvResult(\"setMany\", name, async () => { await resolveStorage(name).setMany(entries, options); }, kvWriteLimitCodes); },",
+    "    async set(key, value, options) { return kvResult(\"set\", name, async () => { const ttl = kvSetTTL(\"set\", options); await resolveStorage(name).setItem(key, value, ttl === undefined ? undefined : { ttl }); }, kvSetCodes); },",
+    "    async setMany(entries, options) { return kvResult(\"setMany\", name, async () => { const ttl = kvSetTTL(\"setMany\", options); await resolveStorage(name).setMany(entries, ttl === undefined ? undefined : { ttl }); }, kvSetCodes); },",
     "    async setIfAbsent() { return unsupported(\"setIfAbsent\", name); },",
     "    store(storeName, options) { return kvStoreWithMode(createKVStorage(storeName), options); },",
     "  };",
