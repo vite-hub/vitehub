@@ -40,7 +40,7 @@ The [Blob + Database Store](/docs/workspace/configure#blob-database-store) keeps
 | `workspace_history_objects` | Digests and sizes registered before upload, including interrupted publications. |
 | `workspace_history_metadata` | Workspace metadata used by Sources and lifecycle operations. |
 
-Blob keys are `_vitehub/workspace-history[/<prefix>]/<sha256(workspace identity)>/sha256/<file digest>`. The digest is the SHA-256 of the full file bytes.
+For new Workspace identities, Blob keys for new objects are `_vitehub/workspace-history[/<prefix>]/<sha256(workspace identity)>/sha256/<file digest>-<generation>` (existing Workspace identities keep their existing namespace, such as `vitehub/workspace-history/`, for new writes, and existing digest-only keys stay readable). The digest is the SHA-256 of the full file bytes.
 
 - Identical files at any path share one object within a workspace.
 - Each workspace has its own namespace. There are no cross-workspace reference counts, so deleting one workspace cannot remove another's bytes.
