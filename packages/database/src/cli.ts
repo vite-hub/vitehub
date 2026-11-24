@@ -835,7 +835,7 @@ async function runUp(args: string[], context: ViteHubCliContext, getConfig?: Res
   // Drizzle Kit 0.x has an `up` command too, but it upgrades 0.x snapshots and keeps the journal.
   const major = Number.parseInt(drizzleKit.version ?? "", 10)
   if (!(major >= 1)) {
-    context.stderr.write(`[vitehub] \`vitehub database up\` needs drizzle-kit 1.0, and ${projectRoot} has drizzle-kit ${drizzleKit.version ?? "of an unknown version"}. Install the version that ViteHub uses, for example with \`pnpm add -D drizzle-kit@1.0.0-rc.5\`, and run it again.\n`)
+    context.stderr.write(`[vitehub] \`vitehub database up\` needs drizzle-kit 1.0, and ${projectRoot} has drizzle-kit ${drizzleKit.version ?? "of an unknown version"}. Install the version that ViteHub uses, for example with \`pnpm add -D drizzle-kit@1.0.0-rc.6\`, and run it again.\n`)
     return 1
   }
   const { bin } = drizzleKit

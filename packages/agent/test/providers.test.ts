@@ -545,7 +545,9 @@ describe("agent Vite plugin", () => {
 
       await rm(evalFile)
       const memoryPlugin = hubAgent({ providers: { state: { driver: "memory" } } })
-      await (memoryPlugin.configResolved as typeof configResolved)(privateConfig)
+      const memoryConfigResolvedHook: unknown = memoryPlugin.configResolved
+      const memoryConfigResolved = memoryConfigResolvedHook as typeof configResolved
+      await memoryConfigResolved(privateConfig)
       await expect(readFile(generatedQueue, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
       await expect(readFile(generatedEvalConfig, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
 
@@ -553,7 +555,7 @@ describe("agent Vite plugin", () => {
       const withDatabase = { ...privateConfig, nitro: {}, plugins: [{ name: "nitro:main" }, { name: "@vite-hub/database/vite" }] }
       await (memoryPlugin.config as typeof config)(withDatabase, { command: "build", mode: "production" })
       expect(withDatabase).toMatchObject({ nitro: { plugins: [generatedQueue] } })
-      await (memoryPlugin.configResolved as typeof configResolved)({ ...withDatabase, resolve: { alias: [] } })
+      await memoryConfigResolved({ ...withDatabase, resolve: { alias: [] } })
       await expect(readFile(generatedQueue, "utf8")).resolves.toContain("resumeWebhookQueues(waitUntil, recoverInterruptedBefore, agentRecoveryLeases())")
       await expect(readFile(generatedQueue, "utf8")).resolves.not.toContain("warmWebhookRoutes")
       await expect(readFile(generatedRoute, "utf8")).resolves.toContain("const queueOpens = false")

@@ -57,7 +57,7 @@ export function posthog(options: PostHogExporterOptions): ObservabilityExporter 
     }
   }
 
-  // captureImmediate in SDK 5.51.6 suppresses transport failures. Preserve its
+  // captureImmediate in SDK 6 reports transport failures only as events. Preserve its
   // exception parser while requiring an acknowledgement for durable reports.
   class AcknowledgedPostHog extends PostHog {
     override captureImmediate(message: Parameters<PostHog["captureImmediate"]>[0]) { return acknowledged(message) }
@@ -65,7 +65,7 @@ export function posthog(options: PostHogExporterOptions): ObservabilityExporter 
   const client = new AcknowledgedPostHog(options.apiKey, { host, disableGeoip: true, enableExceptionAutocapture: false, flushInterval: 0 })
   return {
     capture: (event, properties, delivery) => acknowledged({ distinctId: distinctId(properties), event, properties, uuid: delivery?.uuid, timestamp: delivery?.timestamp }, delivery?.signal),
-    exception: (error, properties) => client.captureExceptionImmediate(error, distinctId(properties), properties),
+    exception: (error, properties) => client.captureExceptionImmediate(error, { distinctId: distinctId(properties), properties }),
     logs: events => sendBatchToPostHog(events, { apiKey: options.apiKey, host, timeout: 3000, retries: 2 }),
     flush: () => client.shutdown(10_000),
   }

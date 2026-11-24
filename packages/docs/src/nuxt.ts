@@ -362,7 +362,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       // Pages render with Nuxt UI prose components, and search and the outline are Nuxt UI content components.
       // Nuxt UI asks for @nuxt/fonts 0.14, which writes empty font files on a Nitro 3 build.
       // Resolve the shared dependency to this package's Nitro 3-compatible version in either module order.
-      "@nuxt/fonts": {},
+      "@nuxt/fonts": { defaults: { throwOnError: false } },
       // A peer dependency: the app's own copy, so the app and the shell share one Nuxt UI.
       "@nuxt/ui": { defaults: { prose: true, content: true } },
       [dependency("@vite-hub/ui/nuxt")]: {},

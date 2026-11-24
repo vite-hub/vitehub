@@ -3699,7 +3699,8 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     await app.runNitroConfigHook({})
     if (mode === "uncached") {
       for (const hook of app.buildBeforeHooks) hook()
-      const configResolved = owner.configResolved as (config: Record<string, unknown>) => Promise<void>
+      const configResolvedHook: unknown = owner.configResolved
+      const configResolved = configResolvedHook as (config: Record<string, unknown>) => Promise<void>
       await configResolved({ ...app.nuxt.options.vite, root, command: "build", logger: { info: vi.fn(), warn } })
     }
     if (mode !== "prepare") for (const hook of app.nitroBuildBeforeHooks) hook()

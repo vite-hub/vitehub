@@ -15,8 +15,8 @@ Start with a ViteHub app from [Installation](/docs/getting-started/installation)
 Install Webhooks and the Queue and Database packages it uses:
 
 ```bash [commands/install]
-pnpm add @vite-hub/webhooks @vite-hub/queue @vite-hub/database drizzle-orm@1.0.0-rc.5
-pnpm add -D drizzle-kit@1.0.0-rc.5
+pnpm add @vite-hub/webhooks @vite-hub/queue @vite-hub/database drizzle-orm@1.0.0-rc.6
+pnpm add -D drizzle-kit@1.0.0-rc.6
 ```
 
 Turn on `queue` and `database`. In dev, Queue runs jobs in the dev server and the Default Database is a SQLite file.

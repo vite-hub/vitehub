@@ -15,8 +15,8 @@ Start with a Vue or Nuxt app from [Installation](/docs/getting-started/installat
 Install Sync and the Database packages that store the rows:
 
 ```bash [commands/install]
-pnpm add @vite-hub/sync @vite-hub/database drizzle-orm@1.0.0-rc.5
-pnpm add -D drizzle-kit@1.0.0-rc.5
+pnpm add @vite-hub/sync @vite-hub/database drizzle-orm@1.0.0-rc.6
+pnpm add -D drizzle-kit@1.0.0-rc.6
 ```
 
 ::

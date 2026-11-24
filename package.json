@@ -41,9 +41,9 @@
     "knip": "catalog:tooling",
     "nitro": "catalog:unjs",
     "oxlint": "catalog:tooling",
-    "pkg-pr-new": "0.0.93",
-    "semver": "^7.8.5",
-    "tsrs": "0.20.0-ts7.1.0-beta",
+    "pkg-pr-new": "0.0.94",
+    "semver": "^7.8.6",
+    "tsrs": "7.1.0-beta.tsrs4",
     "typescript": "catalog:tooling",
     "typescript-native": "npm:typescript@7.0.2",
     "valibot": "catalog:runtime",
@@ -64,5 +64,5 @@
   "engines": {
     "node": "^24.15.0 || >=26.0.0"
   },
-  "packageManager": "pnpm@12.16.1"
+  "packageManager": "pnpm@12.21.0"
 }
