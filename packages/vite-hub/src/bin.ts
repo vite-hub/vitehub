@@ -73,7 +73,9 @@ runViteHubCliEntrypoint({
   helpNamespaces: {
     database: async () => (await importOptionalOwner("@vite-hub/database", () => import("@vite-hub/database/cli")))?.createDbCliContributor()?.namespaces[0],
   },
-  loadConfig: loadViteHubCliConfig,
+  loadConfig: (root, command, mode) => loadViteHubCliConfig(root, command, mode, {
+    prepareNuxtTypes: process.argv[2] === "email" && process.argv[3] === "preview",
+  }),
   runtimeFeatureGuard: async (namespace, feature, cwd) => {
     if (namespace !== "agent" || (feature !== "emulator" && feature !== "invocations" && feature !== "state")) return true
     const { isAgentCliEnabled, isAgentEmulatorStandalone } = await import("./internal/runtime-feature-guard.ts")

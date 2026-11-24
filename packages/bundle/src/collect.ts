@@ -102,18 +102,22 @@ function createEdgeReader(ids: ReadonlyMap<string, string>, getModuleInfo: Colle
   return raw => visit(raw, new Set())
 }
 
+function staticChunkFiles(byFile: ReadonlyMap<string, OutputChunkLike>, pending: string[]): Set<string> {
+  const loaded = new Set<string>()
+  while (pending.length) {
+    const file = pending.pop()!
+    if (loaded.has(file)) continue
+    loaded.add(file)
+    pending.push(...byFile.get(file)?.imports ?? [])
+  }
+  return loaded
+}
+
 /** Reads one build's output: the bytes of each chunk, the share of each module, and the startup files. */
 export function collectEnvironmentReport(bundle: Record<string, unknown>, options: CollectOptions): BundleEnvironmentReport {
   const chunks = Object.values(bundle).filter(isChunk)
   const byFile = new Map(chunks.map(chunk => [chunk.fileName, chunk]))
-  const startup = new Set<string>()
-  const pending = chunks.filter(chunk => chunk.isEntry).map(chunk => chunk.fileName)
-  while (pending.length) {
-    const file = pending.pop()!
-    if (startup.has(file)) continue
-    startup.add(file)
-    pending.push(...byFile.get(file)?.imports ?? [])
-  }
+  const startup = staticChunkFiles(byFile, chunks.filter(chunk => chunk.isEntry).map(chunk => chunk.fileName))
   const ids = new Map<string, string>()
   const packages = new Map<string, string | undefined>()
   const isEntry = (id: string, chunk: OutputChunkLike) => options.getModuleInfo(id)?.isEntry ?? chunk.facadeModuleId === id
@@ -165,14 +169,8 @@ export function collectEnvironmentReport(bundle: Record<string, unknown>, option
     const layout = route.layout
     if (layout) {
       const pages = new Set(files.filter(file => file !== layout.file).map(file => moduleId(file, options.root, packages)))
-      const loaded = new Set<string>()
-      const pending = rows.filter(chunk => chunk.startup || chunk.modules.some(module => pages.has(module.id)))
-      while (pending.length) {
-        const chunk = pending.pop()!
-        if (loaded.has(chunk.file)) continue
-        loaded.add(chunk.file)
-        pending.push(...rows.filter(candidate => chunk.imports?.includes(candidate.file)))
-      }
+      const roots = rows.filter(chunk => chunk.startup || chunk.modules.some(module => pages.has(module.id)))
+      const loaded = staticChunkFiles(byFile, roots.map(chunk => chunk.file))
       const renderer = moduleId(layout.component, options.root, packages)
       const usesLayout = rows.some(chunk => loaded.has(chunk.file) && chunk.modules.some(module => module.id === renderer))
       if (!usesLayout) files = files.filter(file => file !== layout.file)

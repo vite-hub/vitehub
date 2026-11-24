@@ -249,7 +249,7 @@ A Definition sets `remote: false`, but its `cloudflare.http`, or the `cloudflare
 
 ### DATABASE_UNKNOWN_OPTION
 
-`defineDatabase()` got an option it does not support. In those objects, a PostgreSQL Definition supports only `cloudflare.binding`, `cloudflare.hyperdriveId`, and `connection.url`.
+`defineDatabase()` got an option it does not support. In those objects, a PostgreSQL Definition supports only `cloudflare.binding`, `cloudflare.hyperdriveId`, `connection.url`, and `connection.replicas`.
 
 ## Build errors
 
