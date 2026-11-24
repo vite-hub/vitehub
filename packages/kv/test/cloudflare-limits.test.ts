@@ -188,6 +188,17 @@ describe("Cloudflare KV limits", () => {
     expect(puts).toHaveLength(3)
   })
 
+  it.each(["set", "setMany"] as const)("throws KV_STORE_NOT_FOUND before validating TTL in generated %s", async (operation) => {
+    const kv = await cloudflareBuildRuntimeKV()
+    const store = kv.store("missing")
+
+    const write = operation === "set"
+      ? store.set("key", "value", { ttl: 0 })
+      : store.setMany([{ key: "key", value: "value" }], { ttl: 0 })
+    await expect(write).rejects.toMatchObject({ code: "KV_STORE_NOT_FOUND" })
+    expect(puts).toEqual([])
+  })
+
   it("keeps local stores without a host unchanged", async () => {
     process.env.VITEHUB_HOST = "local"
     const { kv } = await import("../src/runtime/storage.ts")
