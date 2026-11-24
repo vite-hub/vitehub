@@ -10,7 +10,7 @@ export const i18nErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     I18N_UNSUPPORTED_HOST: {
       why: "i18n needs Nitro 3, which runs each request in an async context. This app builds the server with Nitro 2.",
-      fix: "Use Nuxt 4.7 or newer with the `nitro` package (`pnpm add nuxt@^4.7.0 nitro`), Nuxt 5, or `vitehub()` with Nitro 3 in a Vite app.",
+      fix: "Use Nuxt 4.7 or newer with the `nitro` package (`pnpm add nuxt@^4.7.0 nitro`), Nuxt 5, or `vitehub()` with Nitro 3 in a Vite app. On Nuxt 4, use i18n without `i18n.workspace`.",
     },
     I18N_UNKNOWN_WORKSPACE: {
       why: ({ workspace, workspaces }: { workspace: string, workspaces: readonly string[] | undefined }) => workspaces === undefined

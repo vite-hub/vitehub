@@ -12,7 +12,7 @@ export interface I18nNuxt {
 export interface I18nNuxtOptions {
   /** The project root. The plugin goes to `.vitehub/i18n/`, because Nuxt clears its build directory after modules run. */
   projectRoot: string
-  /** The Nitro major version of the app. i18n needs Nitro 3: Nuxt 4.7 or newer with the `nitro` package, or Nuxt 5. */
+  /** The Nitro major version of the app. i18n needs Nitro 3: Nuxt 4.7 or newer with the `nitro` package, or Nuxt 5. On Nuxt 4, use i18n without `i18n.workspace`. */
   nitroMajorVersion: 2 | 3
   /** The public import path of the i18n re-exports, such as `vite-hub/i18n`. */
   importBase: string
