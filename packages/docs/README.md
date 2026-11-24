@@ -463,6 +463,8 @@ The design follows the comark-ui site on top of the ViteHub design system (`@vit
 - `app.config.ts` `ui` keys. Your values win over the design. The design wins over the Nuxt UI defaults, also when `@nuxt/ui` comes first in `modules`.
 - CSS variables in your stylesheet, such as `--vh-content-width` (prose width), `--vh-toc-width`, `--vh-panel-width`, `--vh-grain` (`none` turns the grain off), `--font-sans`, and the Nuxt UI `--ui-*` colors.
 
+If a font provider fails, the build reports the error and continues. The browser can use the fallback fonts. To fail the build instead, set `fonts.throwOnError: true` in `nuxt.config.ts`.
+
 In an app with its own `app.vue`, the theme stays on the docs pages:
 
 - The theme's CSS applies below the `vh-docs` class. The docs layouts put it on `<html>` on docs pages only.
