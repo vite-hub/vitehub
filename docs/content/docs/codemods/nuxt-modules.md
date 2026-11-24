@@ -20,6 +20,8 @@ npx @vite-hub/codemods nuxt-safe-runtime-config --nuxt-nightly
 
 Each codemod also adds `vite-hub` and the packages of each ViteHub feature that it turns on to `package.json`, such as `@vite-hub/email` for `resend`, and `@vite-hub/schedule` and `@vite-hub/kv` for `nuxt-cron` on Node. Without them, the build stops with `VITE_HUB_R0136`. Run the install command that the report lists.
 
+New feature packages use the app's existing `vite-hub` version, range, or matching ViteHub preview. If the codemod cannot match that dependency, it stops before writing the migration and asks you to update the `vite-hub` entry.
+
 ## nuxt-safe-runtime-config
 
 The codemod moves the `nuxt-safe-runtime-config` module to ViteHub [Env](/docs/env). It reads one of the two schema sources of the module:

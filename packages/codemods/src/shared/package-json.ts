@@ -26,7 +26,6 @@ function isDependencyMap(value: unknown): value is DependencyMap {
 export interface PackageJsonResult {
   edit?: FileEdit
   installCommand: string
-  /** The ViteHub packages that the codemod adds, as a list for the report, such as "vite-hub and @vite-hub/email". */
   installs: string
 }
 
@@ -53,20 +52,16 @@ export interface PackageJsonChange {
    * that range. A range the codemod cannot read stays as it is.
    */
   within?: Readonly<Record<string, string>>
-  /**
-   * Features that the migrated app turns on. `vite-hub` resolves the owner package of each one, such as
-   * `@vite-hub/email`, from the app, and the build stops while one is missing, so each `@vite-hub/*` package of these
-   * features is added like `add`.
-   */
   features?: readonly FeatureId[]
 }
 
-function withFeaturePackages(change: PackageJsonChange): string[] {
-  const owners = (change.features ?? []).flatMap(id => features[id].packages).filter(name => name.startsWith("@vite-hub/"))
-  return [...new Set([...change.add, ...owners])]
+function featurePackageSpecifier(name: string, viteHub: string): string {
+  if (validRange(viteHub) !== null) return viteHub
+  const preview = /^(?<base>https:\/\/pkg\.pr\.new(?:\/vite-hub\/vitehub)?)\/vite-hub@(?<ref>[^/?#]+)$/.exec(viteHub)?.groups
+  if (preview) return `${preview.base}/${name}@${preview.ref}`
+  throw codemodError(`Cannot match ${name} to vite-hub@${viteHub}. Update vite-hub in package.json to a version, a version range, or a pkg.pr.new preview from vite-hub/vitehub, then run the codemod again.`)
 }
 
-/** True when `range` allows a version that `supported` does not. A prerelease in `range` counts. */
 function outside(range: string, supported: string): boolean {
   return validRange(range) !== null && !subset(range, supported, { includePrerelease: true })
 }
@@ -78,9 +73,11 @@ function outside(range: string, supported: string): boolean {
 export async function editPackageJson(cwd: string, version: string, change: PackageJsonChange): Promise<PackageJsonResult> {
   const path = join(cwd, "package.json")
   const command = detectInstallCommand(cwd)
-  const add = withFeaturePackages(change)
-  const installs = new Intl.ListFormat("en", { type: "conjunction" }).format(add)
-  if (!existsSync(path)) return { installCommand: command, installs }
+  const owners = new Set((change.features ?? []).flatMap(id => features[id].packages).filter(name => name.startsWith("@vite-hub/")))
+  const add = new Set([...change.add, ...owners])
+  const names = new Set(add)
+  const installList = new Intl.ListFormat("en", { type: "conjunction" })
+  if (!existsSync(path)) return { installCommand: command, installs: installList.format(names) }
   const before = await readFile(path, "utf8")
   let manifest: unknown
   try {
@@ -91,10 +88,12 @@ export async function editPackageJson(cwd: string, version: string, change: Pack
   }
   if (!isRecord(manifest)) throw codemodError("package.json must contain an object.")
   const range = `^${version}`
+  let viteHub: string | undefined
   let target: (typeof sections)[number] = "dependencies"
   for (const section of sections) {
     const dependencies = manifest[section]
     if (dependencies !== undefined && !isDependencyMap(dependencies)) throw codemodError(`package.json ${section} must map names to version strings.`)
+    viteHub ??= dependencies?.["vite-hub"]
     if (dependencies && change.remove.some(name => name in dependencies)) {
       target = section
       manifest[section] = Object.fromEntries(Object.entries(dependencies).filter(([name]) => !change.remove.includes(name)))
@@ -106,19 +105,25 @@ export async function editPackageJson(cwd: string, version: string, change: Pack
     const map = manifest[section]
     return isDependencyMap(map) && name in map
   })
-  for (const name of add) if (!installed(name)) dependencies[name] = range
+  for (const name of add) {
+    if (!installed(name)) dependencies[name] = owners.has(name) && viteHub !== undefined ? featurePackageSpecifier(name, viteHub) : range
+  }
   for (const [name, supported] of Object.entries(change.within ?? {})) {
     if (!installed(name)) {
       dependencies[name] = supported
+      names.add(name)
       continue
     }
     for (const section of sections) {
       const map = section === target ? dependencies : manifest[section]
-      if (isDependencyMap(map) && typeof map[name] === "string" && outside(map[name], supported)) map[name] = supported
+      if (isDependencyMap(map) && typeof map[name] === "string" && outside(map[name], supported)) {
+        map[name] = supported
+        names.add(name)
+      }
     }
   }
   manifest[target] = Object.fromEntries(Object.entries(dependencies).sort(([left], [right]) => left.localeCompare(right)))
   const indent = /^[ \t]+/m.exec(before)?.[0] ?? "  "
   const after = `${JSON.stringify(manifest, null, indent)}${before.endsWith("\n") ? "\n" : ""}`
-  return { edit: after === before ? undefined : { path: "package.json", before, after }, installCommand: command, installs }
+  return { edit: after === before ? undefined : { path: "package.json", before, after }, installCommand: command, installs: installList.format(names) }
 }

@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs"
-import { cp, readFile, rm } from "node:fs/promises"
+import { cp, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -57,4 +57,38 @@ it.each([
   const enabled = await enabledFeatures(cwd)
   expect(enabled.length).toBeGreaterThan(0)
   expect(enabled.flatMap(([id, packages]) => packages.filter(name => name.startsWith("@vite-hub/") && !(name in listed)).map(name => `${id}: ${name}`))).toEqual([])
+})
+
+it.each([
+  ["nuxt-resend", "resend", "0.4.1", { "@vite-hub/email": "0.4.1" }],
+  ["nuxt-cron", "nuxt-cron", "0.4.1", { "@vite-hub/schedule": "0.4.1", "@vite-hub/kv": "0.4.1" }],
+  ["nuxt-resend", "resend", "~0.4.1", { "@vite-hub/email": "~0.4.1" }],
+  ["resend-sdk", "resend", "https://pkg.pr.new/vite-hub/vitehub/vite-hub@71fa186", { "@vite-hub/email": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/email@71fa186" }],
+])("%s: new feature packages match the app's ViteHub release", async (fixture, codemod, specifier, owners) => {
+  const cwd = join(scratch, `${fixture}-${encodeURIComponent(specifier)}`)
+  await rm(cwd, { recursive: true, force: true })
+  await cp(join(fixtures, fixture, "input"), cwd, { recursive: true })
+  const path = join(cwd, "package.json")
+  const manifest = JSON.parse(await readFile(path, "utf8"))
+  manifest.devDependencies = { "vite-hub": specifier }
+  await writeFile(path, JSON.stringify(manifest))
+  await runCodemod(codemod, { cwd })
+  const migrated = JSON.parse(await readFile(path, "utf8"))
+  expect(migrated.devDependencies["vite-hub"]).toBe(specifier)
+  expect(migrated.dependencies).toMatchObject(owners)
+})
+
+it("leaves the app unchanged when it cannot match the existing ViteHub specifier", async () => {
+  const cwd = join(scratch, "nuxt-resend-unmatched")
+  await rm(cwd, { recursive: true, force: true })
+  await cp(join(fixtures, "nuxt-resend", "input"), cwd, { recursive: true })
+  const path = join(cwd, "package.json")
+  const manifest = JSON.parse(await readFile(path, "utf8"))
+  manifest.dependencies["vite-hub"] = "file:../vite-hub"
+  const before = JSON.stringify(manifest)
+  await writeFile(path, before)
+  const config = await readFile(join(cwd, "nuxt.config.ts"), "utf8")
+  await expect(runCodemod("resend", { cwd })).rejects.toThrow("Update vite-hub in package.json")
+  expect(await readFile(path, "utf8")).toBe(before)
+  expect(await readFile(join(cwd, "nuxt.config.ts"), "utf8")).toBe(config)
 })
