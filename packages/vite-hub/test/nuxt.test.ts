@@ -25,6 +25,7 @@ import {
   VITEHUB_SERVER_DIRS,
 } from "@vite-hub/internal/build/vite"
 import { collectViteHubProviderOutputEntries } from "@vite-hub/internal/inspect"
+import { importRolldown } from "@vite-hub/internal/build/rolldown"
 import { viteHubDevPeerUpgradeListener } from "@vite-hub/internal/dev-peer"
 import { resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 import { hubBlob } from "@vite-hub/blob/vite"
@@ -38,7 +39,7 @@ import { hubRateLimit } from "../../rate-limit/src/vite.ts"
 import { hubRealtime } from "@vite-hub/realtime/vite"
 import { hubSchedule } from "@vite-hub/schedule/vite"
 import { viteHubUIIcons } from "@vite-hub/ui/nuxt"
-import type { ConfigEnv, Plugin, PluginOption, UserConfig } from "vite"
+import type { ConfigEnv, Plugin, PluginOption, Rolldown, UserConfig } from "vite"
 import type { BlobOptions } from "@vite-hub/blob"
 import { getConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { forgetPackageChecks } from "../src/internal/optional-owners.ts"
@@ -1207,6 +1208,8 @@ describe("ViteHub Nuxt integration", () => {
       "existing-nitro-plugin",
       "vite-hub/nuxt-runtime-resolver:@vite-hub/kv/vite",
       "vite-hub/nuxt-runtime-resolver:@vite-hub/blob/vite",
+      "builtin:vite-import-glob",
+      "vite-hub/nitro-raw-imports",
     ])
     const kvResolver = plugins.find(plugin => plugin.name === "vite-hub/nuxt-runtime-resolver:@vite-hub/kv/vite")!
     const blobResolver = plugins.find(plugin => plugin.name === "vite-hub/nuxt-runtime-resolver:@vite-hub/blob/vite")!
@@ -1322,6 +1325,30 @@ describe("ViteHub Nuxt integration", () => {
     expect(await Reflect.apply(handler(resolver?.transform), {}, [code, "/node_modules/@vite-hub/schedule/dist/run.js"])).toBe("import(/* @vite-ignore */ /* @vitehub-schedule-registry */ \"#vitehub/schedule/registry\")")
     expect(Reflect.apply(handler(resolver?.resolveId), {}, ["#vitehub/schedule/registry"])).toBe("\0#vitehub/schedule/registry")
     expect(Reflect.apply(handler(resolver?.load), {}, ["\0#vitehub/schedule/registry"])).toBe("export default { 'daily-report': {} }")
+  })
+
+  it("bundles import.meta.glob() and ?raw imports of server code in Nitro-only replay", async () => {
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    Object.assign(nuxt.options, { experimental: { nitroViteEnvironment: false } })
+    await viteHubNuxtModule({}, nuxt)
+    const config: { rollupConfig?: { plugins?: Rolldown.RolldownPluginOption[] } } = {}
+    await runNitroConfigHook(config)
+    await runNitroConfigHook(config)
+    const root = nuxt.options.rootDir
+    await mkdir(resolve(root, "skills/release"), { recursive: true })
+    await mkdir(resolve(root, "server"), { recursive: true })
+    await writeFile(resolve(root, "skills/release/SKILL.md"), "---\nname: release\n---\n")
+    await writeFile(resolve(root, "server/skills.ts"), [
+      "import skillMd from '../skills/release/SKILL.md?raw'",
+      "export const files = import.meta.glob('../skills/**', { query: '?raw', import: 'default', eager: true })",
+      "export const raw = skillMd",
+    ].join("\n"))
+    const { rolldown } = await importRolldown()
+    const bundle = await rolldown({ input: resolve(root, "server/skills.ts"), plugins: config.rollupConfig?.plugins })
+    const { output: [chunk] } = await bundle.generate({ format: "esm" })
+    const module = await import(`data:text/javascript;base64,${Buffer.from(chunk.code).toString("base64")}`)
+    expect(module.files).toEqual({ "../skills/release/SKILL.md": "---\nname: release\n---\n" })
+    expect(module.raw).toBe("---\nname: release\n---\n")
   })
 
   it("checks direct folder Agent imports before the catalog loads in Nuxt 5's separate Nitro 3 build", async () => {
@@ -3740,6 +3767,8 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
           expect.objectContaining({ name: "vite-hub/nitro-optional-peers" }),
           expect.objectContaining({ name: "vite-hub/nitro-h3" }),
           expect.objectContaining({ name: "vite-hub/nitro-cache-bypass" }),
+          expect.objectContaining({ name: "builtin:vite-import-glob" }),
+          expect.objectContaining({ name: "vite-hub/nitro-raw-imports" }),
         ],
       },
       sandbox: true,
