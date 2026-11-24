@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { parseAst } from "vite"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
+import { startViteHubHints, VITEHUB_NUXT_HINTS } from "@vite-hub/internal/hints"
 
 import { files, glob } from "../../src/index.ts"
 import { BUNDLED_GLOB_ID, collectBundledGlob, findGlobCalls, loadBundledGlob, renderBundledGlob, rewriteGlobCalls } from "../../src/internal/bundle-glob.ts"
@@ -38,7 +39,7 @@ async function project() {
   return root
 }
 
-const parse = (code: string) => parseAst(code) as unknown as Parameters<typeof findGlobCalls>[0]
+const parse = (code: string, options?: Parameters<typeof parseAst>[1]) => parseAst(code, options) as unknown as Parameters<typeof findGlobCalls>[0]
 
 async function served(source: FileSource<string>, rootDir: string) {
   const ctx = { rootDir }
@@ -170,9 +171,30 @@ describe("glob() calls in a module", () => {
     const config = plugin.config as (config: { build?: { ssr: boolean }, [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean }, env: { command: "build" | "serve", mode: string }) => unknown
     await config({ [VITEHUB_NITRO_CONFIG_CONTEXT]: true }, { command: "build", mode: "production" })
     await config({}, { command: "build", mode: "production" })
-    const code = `import { glob } from "vite-hub/source"\nexport const docs = glob("docs/**/*.md")`
+    const code = `import { glob } from "vite-hub/source"\nexport default async function (): Promise<ReturnType<typeof glob>> { return glob("docs/**/*.md") }`
     const output = transform.call({ parse }, code, "/project/server/content.ts", { ssr: true }) as { code: string } | undefined
     expect(output?.code).toContain(`import __vitehubGlob0 from`)
+    expect(output?.code).toContain(": Promise<ReturnType<typeof glob>>")
+  })
+
+  it("reports Nitro transform hints in the active report without a Vite build", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-source-glob-nitro-hint-"))
+    tempDirs.push(root)
+    const plugin = hubSource()
+    const transform = (plugin.transform as { handler: (this: unknown, code: string, id: string, options?: { ssr?: boolean }) => unknown }).handler
+    const config = plugin.config as (config: unknown, env: { command: "build", mode: string }) => unknown
+    const warn = vi.fn()
+    const deferHint = vi.fn()
+    const replayConfig = { root, logger: { warn }, [VITEHUB_NITRO_CONFIG_CONTEXT]: true, [VITEHUB_NUXT_HINTS]: deferHint }
+    await config(replayConfig, { command: "build", mode: "production" })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)(replayConfig)
+    startViteHubHints({ root, command: "build" })
+    const code = `import { glob } from "vite-hub/source"\nconst cwd = "docs"\nexport const docs = glob({ cwd })`
+    expect(transform.call({ parse }, code, join(root, "server/content.ts"), { ssr: true })).toBeUndefined()
+    expect(deferHint).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("SOURCE_GLOB_OPTIONS_NOT_LITERAL"))
+    const hints = JSON.parse(await readFile(join(root, ".vitehub/hints.json"), "utf8"))
+    expect(hints.hints).toEqual([expect.objectContaining({ code: "SOURCE_GLOB_OPTIONS_NOT_LITERAL", sources: ["server/content.ts:3:21"] })])
   })
 
   it("leaves Nitro's own development transforms unchanged", async () => {

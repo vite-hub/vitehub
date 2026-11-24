@@ -12,7 +12,7 @@ import {
 import { exportNames } from "@vite-hub/internal/build/scan-module"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { ContributionContext } from "@vite-hub/internal/contributions"
-import { reportViteHubHint, startViteHubHints } from "@vite-hub/internal/hints"
+import { reportViteHubHint, startViteHubHints, VITEHUB_NUXT_HINTS, type ViteHubHintsConfig } from "@vite-hub/internal/hints"
 import { createNitroServerKit, ownAccessRouteMeta } from "@vite-hub/internal/nitro-kit"
 import { ownModule } from "@vite-hub/internal/build/paths"
 import { isRecord } from "@vite-hub/internal/object"
@@ -744,7 +744,6 @@ async function writeContentArtifact(
           "export default defineContentGitHubWebhookHandler(content)",
           "",
         ].join("\n"))
-    // The handler checks the GitHub signature of each delivery.
     handlers.push({ handler: githubWebhook, meta: { ...ownAccessRouteMeta }, method: "post", route: "/_vitehub/content/github" })
   }
   else await rm(githubWebhook, { force: true })
@@ -907,7 +906,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
   }
   const configurationTransitionByRoot = new Map<string, Promise<unknown>>()
   let legacyServerBuild = false
-  let nitroServerBuild = false
+  let nitroBuildHints: ViteHubHintsConfig | undefined
   let resolvedConfig: ResolvedConfig | undefined
   const generatedHandlersListeners = new Set<{
     handlesHostRestart?: boolean
@@ -1020,20 +1019,25 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       filter: { id: { exclude: /\/node_modules\// }, code: /\bvite-hub\/source["'`]/ },
       handler(code, id, options) {
         const environment = this.environment?.config
+        const nitroBuild = environment ? undefined : nitroBuildHints
         const server = environment
           ? environment.consumer === "server"
-          : options?.ssr === true && (legacyServerBuild || nitroServerBuild)
+          : options?.ssr === true && (legacyServerBuild || nitroBuild)
         if (!server || (environment && environment.command !== "build")) return
-        const calls = findGlobCalls(this.parse(code) as unknown as Parameters<typeof findGlobCalls>[0])
+        const file = id.split(/[?#]/, 1)[0] ?? id
+        const lang = /\.[cm]?tsx$/.test(file) ? "tsx" : /\.[cm]?jsx$/.test(file) ? "jsx" : /\.[cm]?ts$/.test(file) ? "ts" : "js"
+        const ast = this.parse(code, nitroBuild ? { lang } : undefined)
+        // SAFETY: Rolldown's ESTree program is a plain node with type, start, end and a body of child nodes.
+        const calls = findGlobCalls(ast as unknown as Parameters<typeof findGlobCalls>[0])
         for (const call of calls.filter(call => call.input === undefined)) {
           const hint = sourceErrorDiagnostics.SOURCE_GLOB_OPTIONS_NOT_LITERAL()
-          const config = environment ?? resolvedConfig
+          const config = environment ?? nitroBuild ?? resolvedConfig
           if (!config) {
             this.warn({ message: `[vitehub] ${hint.why}`, pos: call.start })
             continue
           }
           const lines = code.slice(0, call.start).split("\n")
-          hint.sources = [`${relative(config.root, id)}:${lines.length}:${lines.at(-1)!.length + 1}`]
+          hint.sources = [`${relative(config.root, file)}:${lines.length}:${lines.at(-1)!.length + 1}`]
           reportViteHubHint(config, hint)
         }
         if (calls.some(call => call.input !== undefined)) return { code: rewriteGlobCalls(code, calls), map: null }
@@ -1079,7 +1083,12 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       // SAFETY: Vite passes its user config with ViteHub's shared symbols attached.
       const viteConfig = config as SourcePluginConfig
       if (viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT]) {
-        nitroServerBuild = env.command === "build"
+        nitroBuildHints = env.command === "build" ? {
+          ...config,
+          command: env.command,
+          root: viteConfig[VITEHUB_PROJECT_ROOT] ?? config.root ?? process.cwd(),
+          [VITEHUB_NUXT_HINTS]: true,
+        } : undefined
         return
       }
       legacyServerBuild = env.command === "build" && config.build?.ssr === true
