@@ -114,6 +114,56 @@ describe("console-out-of-app", () => {
     ])
   })
 
+  it("removes only the checks of the first parameter's via in the own body, and reports a nested one", () => {
+    const input = lines(
+      "import { defineConsoleAuthorize } from 'vite-hub/console/auth'",
+      "export default defineConsoleAuthorize(({ via, user }, other) => {",
+      "  if (other.via === 'page') return false",
+      "  const check = (via) => {",
+      "    if (via === 'page') return false",
+      "    return true",
+      "  }",
+      "  if (via === 'page') return user?.role === 'admin'",
+      "  return check(user)",
+      "})",
+    )
+    const result = migrateConsoleAuthorize("server/console.ts", input)
+    expect(result.code).toBe(lines(
+      "import { defineConsoleAuthorize } from 'vite-hub/console/auth'",
+      "export default defineConsoleAuthorize(({ via, user }, other) => {",
+      "  if (other.via === 'page') return false",
+      "  const check = (via) => {",
+      "    if (via === 'page') return false",
+      "    return true",
+      "  }",
+      "  return check(user)",
+      "})",
+    ))
+    expect(result.followUps.map(followUp => followUp.line)).toEqual([5])
+  })
+
+  it("keeps the import of a page context alias that is still used", () => {
+    const input = lines(
+      "import { defineConsoleAuthorize } from 'vite-hub/console/auth'",
+      "import type { ConsolePageAuthorizeContext as Unused, ConsolePageAuthorizeContext as Used } from 'vite-hub/console/auth'",
+      "export type Kept = Used",
+      "export default defineConsoleAuthorize(({ via }) => {",
+      "  if (via === 'page') return false",
+      "  return true",
+      "})",
+    )
+    const result = migrateConsoleAuthorize("server/console.ts", input)
+    expect(result.code).toBe(lines(
+      "import { defineConsoleAuthorize } from 'vite-hub/console/auth'",
+      "import type { ConsolePageAuthorizeContext as Used } from 'vite-hub/console/auth'",
+      "export type Kept = Used",
+      "export default defineConsoleAuthorize(({ via }) => {",
+      "  return true",
+      "})",
+    ))
+    expect(result.followUps.map(followUp => [followUp.line, followUp.message])).toEqual([[2, expect.stringContaining("`ConsolePageAuthorizeContext` was removed")]])
+  })
+
   it("leaves other functions and other modules alone", () => {
     const input = lines(
       "import { defineConsoleAuthorize } from './my-auth'",
@@ -130,11 +180,12 @@ describe("console-out-of-app", () => {
     const cwd = await project({
       ".env": "NUXT_PUBLIC_SITE=1\nVITEHUB_CONSOLE_MCP_KEY=secret-value-123\n",
       "apps/web/wrangler.jsonc": "{ \"vars\": { \"VITEHUB_CONSOLE_MCP_KEY\": \"secret-value-456\" } }\n",
+      "wrangler.production.toml": "[vars]\nVITEHUB_CONSOLE_MCP_KEY = \"secret-value-789\"\n",
     })
     expect((await detectCodemods(cwd)).map(entry => entry.codemod.name)).toContain("console-out-of-app")
     const run = await runCodemod("console-out-of-app", { cwd, dryRun: true })
     expect(run.result.edits).toEqual([])
-    expect(run.result.followUps.map(followUp => `${followUp.file}:${followUp.line}`)).toEqual([".env:2", "apps/web/wrangler.jsonc:1"])
+    expect(run.result.followUps.map(followUp => `${followUp.file}:${followUp.line}`)).toEqual([".env:2", "apps/web/wrangler.jsonc:1", "wrangler.production.toml:2"])
     expect(formatReport(run)).not.toContain("secret-value")
   })
 })

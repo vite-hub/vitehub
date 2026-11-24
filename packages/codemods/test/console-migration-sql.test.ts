@@ -35,14 +35,18 @@ function appDatabase(): DatabaseSync {
   user.run("spaced", "Di", "di@example.com", 1, "admin, console")
   user.run("own-roles", "Ed", "ed@example.com", 1, "user,consoleadmin,comments")
   user.run("plain", "Flo", "guest-like@example.com", 0, null)
+  user.run("customer", "Gus", "guest-customer@guests.invalid", 1, "user")
+  user.run("regional", "Hal", "hal@example.com", 1, "regional manager, console")
   user.run("guest-old", "Old guest", "guest-6f1c9a52-0d7e-4c6b-9a8f-1b2c3d4e5f60@guests.invalid", 0, "guest,comments-read")
   user.run("guest-new", "New guest", "guest-0b7f2d4e-8a1c-4e3f-9b6d-2c5a7e9f1d30@guests.invalid", 0, "guest,console")
   session.run("s-admin", "t1", "admin")
   session.run("s-plain", "t2", "plain")
+  session.run("s-customer", "t5", "customer")
   session.run("s-guest-old", "t3", "guest-old")
   session.run("s-guest-new", "t4", "guest-new")
   account.run("a-admin", "gh-1", "github", "admin")
   account.run("a-plain", "plain", "credential", "plain")
+  account.run("a-customer", "customer", "credential", "customer")
   account.run("a-guest-new", "guest-new", "vitehub-site-guest", "guest-new")
   return db
 }
@@ -59,14 +63,16 @@ function snapshot(db: DatabaseSync) {
 const expected = {
   users: [
     { id: "admin", role: "admin" },
+    { id: "customer", role: "user" },
     { id: "member", role: null },
     { id: "own-roles", role: "user,consoleadmin,comments" },
     { id: "plain", role: null },
+    { id: "regional", role: "regional manager" },
     { id: "spaced", role: "admin" },
     { id: "writer", role: "user" },
   ],
-  sessions: ["s-admin", "s-plain"],
-  accounts: ["a-admin", "a-plain"],
+  sessions: ["s-admin", "s-customer", "s-plain"],
+  accounts: ["a-admin", "a-customer", "a-plain"],
   tables: ["account", "session", "user"],
 }
 
@@ -86,20 +92,20 @@ describe("Console migration SQL on SQLite", () => {
     expect(snapshot(db)).toEqual(expected)
   })
 
-  it("drops the usage tables and triggers of both index versions, and the journal keeps working", () => {
+  it("drops the usage tables and triggers, and the journal keeps working", () => {
     const db = new DatabaseSync(":memory:")
     db.exec(`CREATE TABLE "vitehub_agent_invocations" ("id" TEXT PRIMARY KEY, "status" TEXT, "record" TEXT NOT NULL)`)
-    for (const table of ["vitehub_console_usage", "vitehub_console_usage_v2"]) {
-      db.exec(`
-        CREATE TABLE ${table} ("id" TEXT NOT NULL, "model_key" TEXT NOT NULL, "agent" TEXT NOT NULL, "at" TEXT NOT NULL, PRIMARY KEY ("id", "model_key"));
-        CREATE INDEX ${table}_at ON ${table}("model_key", "at" DESC, "id" DESC);
-        CREATE INDEX ${table}_agent_at ON ${table}("model_key", "agent", "at" DESC, "id" DESC);
-        CREATE TABLE ${table}_dirty ("id" TEXT PRIMARY KEY, "generation" INTEGER NOT NULL DEFAULT 1);
-        CREATE TRIGGER ${table}_insert AFTER INSERT ON "vitehub_agent_invocations" BEGIN INSERT INTO ${table}_dirty("id") VALUES (NEW."id") ON CONFLICT("id") DO UPDATE SET "generation" = "generation" + 1; END;
-        CREATE TRIGGER ${table}_update AFTER UPDATE ON "vitehub_agent_invocations" BEGIN INSERT INTO ${table}_dirty("id") VALUES (NEW."id") ON CONFLICT("id") DO UPDATE SET "generation" = "generation" + 1; END;
-        CREATE TRIGGER ${table}_delete AFTER DELETE ON "vitehub_agent_invocations" BEGIN DELETE FROM ${table} WHERE "id" = OLD."id"; DELETE FROM ${table}_dirty WHERE "id" = OLD."id"; END;
-      `)
-    }
+    const table = "vitehub_console_usage_v2"
+    expect([...usageSql.matchAll(/"(vitehub_console_usage[^"]*)"/g)].map(match => match[1])).toEqual([`${table}_insert`, `${table}_update`, `${table}_delete`, table, `${table}_dirty`])
+    db.exec(`
+      CREATE TABLE ${table} ("id" TEXT NOT NULL, "model_key" TEXT NOT NULL, "agent" TEXT NOT NULL, "at" TEXT NOT NULL, PRIMARY KEY ("id", "model_key"));
+      CREATE INDEX ${table}_at ON ${table}("model_key", "at" DESC, "id" DESC);
+      CREATE INDEX ${table}_agent_at ON ${table}("model_key", "agent", "at" DESC, "id" DESC);
+      CREATE TABLE ${table}_dirty ("id" TEXT PRIMARY KEY, "generation" INTEGER NOT NULL DEFAULT 1);
+      CREATE TRIGGER ${table}_insert AFTER INSERT ON "vitehub_agent_invocations" BEGIN INSERT INTO ${table}_dirty("id") VALUES (NEW."id") ON CONFLICT("id") DO UPDATE SET "generation" = "generation" + 1; END;
+      CREATE TRIGGER ${table}_update AFTER UPDATE ON "vitehub_agent_invocations" BEGIN INSERT INTO ${table}_dirty("id") VALUES (NEW."id") ON CONFLICT("id") DO UPDATE SET "generation" = "generation" + 1; END;
+      CREATE TRIGGER ${table}_delete AFTER DELETE ON "vitehub_agent_invocations" BEGIN DELETE FROM ${table} WHERE "id" = OLD."id"; DELETE FROM ${table}_dirty WHERE "id" = OLD."id"; END;
+    `)
     db.exec(`INSERT INTO "vitehub_agent_invocations" VALUES ('run-1', 'completed', '{}')`)
     expect(db.prepare(`SELECT count(*) AS count FROM "vitehub_console_usage_v2_dirty"`).get()).toEqual({ count: 1 })
     db.exec(usageSql)

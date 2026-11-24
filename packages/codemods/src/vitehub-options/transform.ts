@@ -217,6 +217,7 @@ export function migrateViteHubOptions(file: string, code: string, findOptions?: 
     const entries = items.map(text)
     const agent = property(options, "agent")
     if (!agent) {
+      if (options === legacyAgentTarget || options.properties.some(item => item.type === "SpreadElement")) return false
       insertProperties(options, [`agent: { invocations: { ${entries.join(", ")} } }`])
       return true
     }
@@ -234,7 +235,7 @@ export function migrateViteHubOptions(file: string, code: string, findOptions?: 
     return true
   }
 
-  const migrateConsoleOptions = (options: ObjectExpression, consoleOptions: ObjectExpression) => {
+  const migrateConsoleOptions = (options: ObjectExpression, consoleProperty: ObjectProperty, consoleOptions: ObjectExpression) => {
     const removable: ObjectProperty[] = []
     const moved: ObjectProperty[] = []
     let kept = 0
@@ -269,6 +270,7 @@ export function migrateViteHubOptions(file: string, code: string, findOptions?: 
     }
     if (!removable.length) return
     if (kept) for (const item of removable) remove(item)
+    else if (environmentOptions.includes(options)) remove(consoleProperty)
     else {
       editor.output.overwrite(start(consoleOptions), end(consoleOptions), "true")
       for (const item of removable) removed.add(item)
@@ -305,6 +307,10 @@ export function migrateViteHubOptions(file: string, code: string, findOptions?: 
     }
   }
 
+  // Only a config root, not an imported options object, can contain legacy top-level Vite keys.
+  const viteObject = importedOptions ? undefined : nuxt ? objectValue(property(root, "vite")?.value) : root
+  const legacyAgentTarget = viteObject && property(viteObject, "agent") && optionObjects.length === 1 && !emptyCalls.length ? optionObjects[0] : undefined
+
   for (const options of new Set([...optionObjects, ...environmentOptions])) {
     renameKey(options, "preset", "host", "Both preset and host are set. Remove preset: host picks the deployment target.")
     const sandbox = property(options, "sandbox")
@@ -321,8 +327,9 @@ export function migrateViteHubOptions(file: string, code: string, findOptions?: 
     }
     const cloudflare = property(options, "cloudflare")
     if (cloudflare) follow(cloudflare, "cloudflare.secretsFile was removed: `vitehub deploy` uploads the Worker secrets that the app reads. Keep the values in the shell or in .env.production, then remove cloudflare.")
-    const consoleOptions = objectValue(property(options, "console")?.value)
-    if (consoleOptions) migrateConsoleOptions(options, consoleOptions)
+    const consoleProperty = property(options, "console")
+    const consoleOptions = objectValue(consoleProperty?.value)
+    if (consoleProperty && consoleOptions) migrateConsoleOptions(options, consoleProperty, consoleOptions)
     const contentImportBase = property(options, "contentImportBase")
     if (contentImportBase) {
       remove(contentImportBase)
@@ -386,8 +393,6 @@ export function migrateViteHubOptions(file: string, code: string, findOptions?: 
     else remove(evlog)
   }
 
-  // Only a config root, not an imported options object, can contain legacy top-level Vite keys.
-  const viteObject = importedOptions ? undefined : nuxt ? objectValue(property(root, "vite")?.value) : root
   const envProperty = viteObject ? property(viteObject, "env") : undefined
   if (envProperty && viteObject) {
     const envValue = unwrapExpression(envProperty.value)

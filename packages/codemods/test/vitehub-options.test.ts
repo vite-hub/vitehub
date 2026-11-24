@@ -435,6 +435,22 @@ describe("vitehub-options transform", () => {
     ])
   })
 
+  it("removes an emptied console key in a Nuxt environment override, so the base console options still apply", () => {
+    const input = "export default defineNuxtConfig({ modules: ['vite-hub/nuxt'], vitehub: { console: { pill: false } }, $production: { vitehub: { console: { pill: false } } } })\n"
+    const result = migrateViteHubOptions("nuxt.config.ts", input)
+    expect(result.code.replace(/\s+/g, "")).toBe("exportdefaultdefineNuxtConfig({modules:['vite-hub/nuxt'],vitehub:{console:true},$production:{vitehub:{}}})")
+  })
+
+  it.each([
+    ["a spread in the options", "export default { plugins: [vitehub({ ...shared, console: { retention: 7 } })] }\n"],
+    ["a legacy top-level agent key", "export default { agent: { tools: [] }, plugins: [vitehub({ console: { retention: 7 } })] }\n"],
+  ])("reports the Console journal options next to %s and inserts no second agent", (_, config) => {
+    const result = migrateViteHubOptions("vite.config.ts", `import { vitehub } from 'vite-hub'\n${config}`)
+    expect(result.code).toContain("console: { retention: 7 }")
+    expect(result.code.match(/agent:/g)?.length ?? 0).toBeLessThanOrEqual(1)
+    expect(result.followUps.map(followUp => followUp.message)).toContain("console.retention was removed. Move it to agent: { invocations: { retention } } in the vite-hub options by hand.")
+  })
+
   it("keeps console.auth false and reports console.auth objects", () => {
     expect(migrateViteHubOptions("vite.config.ts", "import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ console: { auth: false } })] }\n")).toMatchObject({ changed: false, followUps: [] })
     const result = migrateViteHubOptions("vite.config.ts", "import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ console: { auth: { github: true } } })] }\n")

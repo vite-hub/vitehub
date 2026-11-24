@@ -108,20 +108,20 @@ Guests and members sign in again through the Console. Routes that check the app'
 :::tabs-item{label="SQLite and D1"}
 ```sql [site-access-cleanup.sql]
 DROP TABLE IF EXISTS "vitehub_console_site";
-DELETE FROM "session" WHERE "user_id" IN (SELECT "id" FROM "user" WHERE "email" LIKE 'guest-%@guests.invalid');
-DELETE FROM "account" WHERE "provider_id" = 'vitehub-site-guest' OR "user_id" IN (SELECT "id" FROM "user" WHERE "email" LIKE 'guest-%@guests.invalid');
-DELETE FROM "user" WHERE "email" LIKE 'guest-%@guests.invalid';
-UPDATE "user" SET "role" = NULLIF(trim(replace(replace(replace(replace(replace(',' || replace("role", ' ', '') || ',', ',console,', ','), ',comments-read,', ','), ',comments-write,', ','), ',comments-resolve,', ','), ',comments-delete,', ','), ','), '') WHERE ',' || replace("role", ' ', '') || ',' LIKE '%,console,%' OR ',' || replace("role", ' ', '') || ',' LIKE '%,comments-%';
+DELETE FROM "session" WHERE "user_id" IN (SELECT "id" FROM "user" WHERE "email" LIKE 'guest-________-____-____-____-____________@guests.invalid');
+DELETE FROM "account" WHERE "provider_id" = 'vitehub-site-guest' OR "user_id" IN (SELECT "id" FROM "user" WHERE "email" LIKE 'guest-________-____-____-____-____________@guests.invalid');
+DELETE FROM "user" WHERE "email" LIKE 'guest-________-____-____-____-____________@guests.invalid';
+UPDATE "user" SET "role" = NULLIF(trim(replace(replace(replace(replace(replace(',' || replace(replace("role", ', ', ','), ' ,', ',') || ',', ',console,', ','), ',comments-read,', ','), ',comments-write,', ','), ',comments-resolve,', ','), ',comments-delete,', ','), ','), '') WHERE ',' || replace(replace("role", ', ', ','), ' ,', ',') || ',' LIKE '%,console,%' OR ',' || replace(replace("role", ', ', ','), ' ,', ',') || ',' LIKE '%,comments-%';
 ```
 :::
 
 :::tabs-item{label="Postgres"}
 ```sql [site-access-cleanup.sql]
 DROP TABLE IF EXISTS "vitehub_console_site";
-DELETE FROM "session" WHERE "user_id" IN (SELECT "id" FROM "user" WHERE "email" LIKE 'guest-%@guests.invalid');
-DELETE FROM "account" WHERE "provider_id" = 'vitehub-site-guest' OR "user_id" IN (SELECT "id" FROM "user" WHERE "email" LIKE 'guest-%@guests.invalid');
-DELETE FROM "user" WHERE "email" LIKE 'guest-%@guests.invalid';
-UPDATE "user" SET "role" = NULLIF(trim(both ',' from replace(replace(replace(replace(replace(',' || replace("role", ' ', '') || ',', ',console,', ','), ',comments-read,', ','), ',comments-write,', ','), ',comments-resolve,', ','), ',comments-delete,', ',')), '') WHERE ',' || replace("role", ' ', '') || ',' LIKE '%,console,%' OR ',' || replace("role", ' ', '') || ',' LIKE '%,comments-%';
+DELETE FROM "session" WHERE "user_id" IN (SELECT "id" FROM "user" WHERE "email" LIKE 'guest-________-____-____-____-____________@guests.invalid');
+DELETE FROM "account" WHERE "provider_id" = 'vitehub-site-guest' OR "user_id" IN (SELECT "id" FROM "user" WHERE "email" LIKE 'guest-________-____-____-____-____________@guests.invalid');
+DELETE FROM "user" WHERE "email" LIKE 'guest-________-____-____-____-____________@guests.invalid';
+UPDATE "user" SET "role" = NULLIF(trim(both ',' from replace(replace(replace(replace(replace(',' || replace(replace("role", ', ', ','), ' ,', ',') || ',', ',console,', ','), ',comments-read,', ','), ',comments-write,', ','), ',comments-resolve,', ','), ',comments-delete,', ',')), '') WHERE ',' || replace(replace("role", ', ', ','), ' ,', ',') || ',' LIKE '%,console,%' OR ',' || replace(replace("role", ', ', ','), ' ,', ',') || ',' LIKE '%,comments-%';
 ```
 :::
 ::
@@ -139,17 +139,14 @@ The SQL keeps the other roles of a member, such as `admin` or `user`, and sets `
 
 The Console kept an index of Agent usage next to the Agent Invocation journal. The Console now reads usage from the journal, so the index tables and their triggers are not used. Each change to the journal still runs the triggers until you drop them.
 
+Run this SQL only after every running instance of the app uses this release. An older instance still writes the index, and it fails without the tables.
+
 ```sql [drop-console-usage.sql]
 DROP TRIGGER IF EXISTS "vitehub_console_usage_v2_insert";
 DROP TRIGGER IF EXISTS "vitehub_console_usage_v2_update";
 DROP TRIGGER IF EXISTS "vitehub_console_usage_v2_delete";
-DROP TRIGGER IF EXISTS "vitehub_console_usage_insert";
-DROP TRIGGER IF EXISTS "vitehub_console_usage_update";
-DROP TRIGGER IF EXISTS "vitehub_console_usage_delete";
 DROP TABLE IF EXISTS "vitehub_console_usage_v2";
 DROP TABLE IF EXISTS "vitehub_console_usage_v2_dirty";
-DROP TABLE IF EXISTS "vitehub_console_usage";
-DROP TABLE IF EXISTS "vitehub_console_usage_dirty";
 ```
 
 The index was only on SQLite, libSQL and D1 journals, so a Postgres journal needs no change. Dropping a table also drops its indexes. Run the SQL on the database of the journal:

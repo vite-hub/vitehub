@@ -16,7 +16,7 @@ const authModule = "vite-hub/console/auth"
 const pageContextType = "ConsolePageAuthorizeContext"
 const authorizeFile = /(?:^|\/)server\/console-authorize\.[cm]?[jt]s$/
 const sourcePatterns = ["**/*.{ts,mts,cts,js,mjs,cjs}"]
-const envPatterns = [".env", ".env.*", ".dev.vars", "wrangler.toml", "wrangler.json", "wrangler.jsonc", "**/.env", "**/.env.*", "**/.dev.vars", "**/wrangler.toml", "**/wrangler.json", "**/wrangler.jsonc"]
+const envPatterns = [".env", ".env.*", ".dev.vars", "wrangler.*", "**/.env", "**/.env.*", "**/.dev.vars", "**/wrangler.*"]
 const ignoredPatterns = ["**/node_modules/**", "**/.nuxt/**", "**/.output/**", "**/.data/**", "**/.vitehub/**", "**/dist/**", "**/coverage/**"]
 
 const pageBranch = "`console.authorize` no longer gets `via: \"page\"`: the Comments pill loads the Console segment from the ViteHub Console, which checks the person and the team. Remove the code that handles `\"page\"`."
@@ -29,11 +29,31 @@ function isFunction(node: Node | null | undefined): node is FunctionNode {
   return node?.type === "ArrowFunctionExpression" || node?.type === "FunctionDeclaration" || node?.type === "FunctionExpression"
 }
 
-function isVia(node: Node): boolean {
-  const value = unwrapExpression(node)
-  if (value.type === "Identifier") return value.name === "via"
-  if (value.type !== "MemberExpression" && value.type !== "OptionalMemberExpression") return false
-  return keyName(value.property, value.computed) === "via"
+type Resolve = ReturnType<typeof bindingResolver>
+
+function isNestedScope(node: Node): boolean {
+  return isFunction(node) || node.type === "ObjectMethod" || node.type === "ClassMethod" || node.type === "ClassPrivateMethod"
+}
+
+function viaMatcher(fn: FunctionNode, resolve: Resolve): (node: Node, nested: boolean) => boolean {
+  const first = fn.params[0]
+  const param = first?.type === "AssignmentPattern" ? first.left : first
+  const context = param?.type === "Identifier" ? param : undefined
+  let via: Identifier | undefined
+  if (param?.type === "ObjectPattern") {
+    for (const item of param.properties) {
+      if (item.type !== "ObjectProperty" || keyName(item.key, item.computed) !== "via") continue
+      const value = item.value.type === "AssignmentPattern" ? item.value.left : item.value
+      if (value.type === "Identifier") via = value
+    }
+  }
+  return (node, nested) => {
+    const value = unwrapExpression(node)
+    if (value.type === "Identifier") return (via !== undefined && resolve(value) === via) || (nested && value.name === "via")
+    if (value.type !== "MemberExpression" && value.type !== "OptionalMemberExpression") return false
+    if (keyName(value.property, value.computed) !== "via" || value.object.type !== "Identifier" || !context) return false
+    return resolve(value.object) === context || (nested && value.object.name === context.name)
+  }
 }
 
 function isPage(node: Node): boolean {
@@ -41,8 +61,7 @@ function isPage(node: Node): boolean {
   return value.type === "StringLiteral" && value.value === "page"
 }
 
-function authorizeFunctions(file: string, program: File): FunctionNode[] {
-  const resolve = bindingResolver(program)
+function authorizeFunctions(file: string, program: File, resolve: Resolve): FunctionNode[] {
   const defines = new Set<Identifier>()
   for (const statement of program.program.body) {
     if (statement.type !== "ImportDeclaration" || statement.source.value !== authModule) continue
@@ -105,20 +124,23 @@ export function migrateConsoleAuthorize(file: string, code: string): { code: str
   const inRemoved = (node: Node) => removedRanges.some(([from, to]) => start(node) >= from && end(node) <= to)
   const follow = (node: Node, message: string) => followUps.push({ file, line: line(node), message })
 
-  for (const fn of authorizeFunctions(file, program)) {
+  const resolve = bindingResolver(program)
+  for (const fn of authorizeFunctions(file, program, resolve)) {
+    const isVia = viaMatcher(fn, resolve)
     walk(fn, (node, ancestors) => {
       if (inRemoved(node)) return
+      const nested = ancestors.slice(1).some(isNestedScope)
       if (node.type === "SwitchCase" && node.test && isPage(node.test)) {
         const parent = ancestors.at(-1)
-        if (parent?.type === "SwitchStatement" && isVia(parent.discriminant)) follow(node, pageBranch)
+        if (parent?.type === "SwitchStatement" && isVia(parent.discriminant, nested)) follow(node, pageBranch)
         return
       }
       if (node.type !== "BinaryExpression" || !["===", "==", "!==", "!="].includes(node.operator)) return
       if (node.left.type === "PrivateName") return
-      if (!((isVia(node.left) && isPage(node.right)) || (isPage(node.left) && isVia(node.right)))) return
+      if (!((isVia(node.left, nested) && isPage(node.right)) || (isPage(node.left) && isVia(node.right, nested)))) return
       const parent = ancestors.at(-1)
       const block = ancestors.at(-2)
-      const removable = (node.operator === "===" || node.operator === "==")
+      const removable = !nested && (node.operator === "===" || node.operator === "==")
         && parent?.type === "IfStatement" && parent.test === node && !parent.alternate
         && (block?.type === "BlockStatement" || block?.type === "Program")
       if (removable) removeRange(listItemRemoval(code, parent))
@@ -129,7 +151,7 @@ export function migrateConsoleAuthorize(file: string, code: string): { code: str
   for (const statement of program.program.body) {
     if (statement.type !== "ImportDeclaration" || statement.source.value !== authModule) continue
     const pageSpecifiers = statement.specifiers.filter(specifier => specifier.type === "ImportSpecifier" && keyName(specifier.imported) === pageContextType)
-    for (const specifier of pageSpecifiers) {
+    const unused = pageSpecifiers.filter((specifier) => {
       const local = specifier.local.name
       let used = false
       walk(program, (node, ancestors) => {
@@ -137,16 +159,11 @@ export function migrateConsoleAuthorize(file: string, code: string): { code: str
         if (ancestors.at(-1) === specifier) return
         used = true
       })
-      if (used) {
-        follow(specifier, pageType)
-        continue
-      }
-      if (statement.specifiers.length === pageSpecifiers.length) {
-        removeRange(listItemRemoval(code, statement))
-        break
-      }
-      removeRange(listItemRemoval(code, specifier))
-    }
+      if (used) follow(specifier, pageType)
+      return !used
+    })
+    if (unused.length && unused.length === statement.specifiers.length) removeRange(listItemRemoval(code, statement))
+    else for (const specifier of unused) removeRange(listItemRemoval(code, specifier))
   }
   return changed ? { code: output.toString(), changed, followUps } : unchanged
 }
