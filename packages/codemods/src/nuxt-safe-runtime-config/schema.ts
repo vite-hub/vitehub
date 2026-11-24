@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { toJsonSchema } from "@valibot/to-json-schema"
 
 import { codemodError } from "../error-diagnostics.ts"
+import { defaultRejection, fieldSchema } from "./field-schema.ts"
 import { flatPublicName, looksSecret, nuxtVariableName, pathLabel } from "./fields.ts"
 
 import type { BaseIssue, BaseSchema } from "valibot"
@@ -295,9 +296,11 @@ export interface SchemaPlan {
 }
 
 interface PlanInput {
+  /** The `$schema` itself. Each kept default must pass its field's schema. */
+  schema?: unknown
   jsonSchema: JsonObject
   issues: Map<string, string[]>
-  runtimeConfig: Map<string, RuntimeConfigValue>
+  runtimeConfig: Map<string, Pick<RuntimeConfigValue, "expression" | "literal" | "processEnv">>
 }
 
 function resolveReference(root: JsonObject, node: unknown): JsonObject {
@@ -399,7 +402,7 @@ function literalText(value: LiteralValue): string {
 }
 
 /** Plans Env declarations from the JSON Schema of `runtimeConfig` and the values in nuxt.config. */
-export function planFromJsonSchema(input: PlanInput): SchemaPlan {
+export async function planFromJsonSchema(input: PlanInput): Promise<SchemaPlan> {
   const root = resolveReference(input.jsonSchema, input.jsonSchema)
   const properties = root.properties
   if (root.type !== "object" || !isRecord(properties)) {
@@ -414,7 +417,7 @@ export function planFromJsonSchema(input: PlanInput): SchemaPlan {
 
   const requiredOf = (node: JsonObject) => new Set(Array.isArray(node.required) ? node.required.filter(key => typeof key === "string") : [])
 
-  const visit = (section: EnvField["section"], configPath: string[], node: unknown, required: boolean): void => {
+  const visit = async (section: EnvField["section"], configPath: string[], node: unknown, required: boolean): Promise<void> => {
     const label = pathLabel({ section, configPath })
     const runtimeValue = input.runtimeConfig.get(label)
     const leaf = describeLeaf(input.jsonSchema, isRecord(node) ? node : {})
@@ -426,7 +429,7 @@ export function planFromJsonSchema(input: PlanInput): SchemaPlan {
         follow(`${label} has ${issue}, such as a cross-field rule. Env does not run it. Check it in server code.`, { schema: label })
       }
       for (const [key, child] of Object.entries(objectProperties)) {
-        visit(section, [...configPath, key], child, required && childRequired.has(key))
+        await visit(section, [...configPath, key], child, required && childRequired.has(key))
       }
       return
     }
@@ -468,7 +471,9 @@ export function planFromJsonSchema(input: PlanInput): SchemaPlan {
     }
 
     let defaultValue: LiteralValue | undefined
+    let moduleInput: LiteralValue | undefined
     if (runtimeValue?.literal !== undefined) {
+      moduleInput = runtimeValue.literal
       defaultValue = coerceDefault(runtimeValue.literal, field)
       if (defaultValue === undefined) {
         follow(`runtimeConfig.${label} has the value ${literalText(runtimeValue.literal)}, which is not a valid ${kind}. It was not kept as a default.`, { env: field })
@@ -477,6 +482,7 @@ export function planFromJsonSchema(input: PlanInput): SchemaPlan {
     else if (runtimeValue?.processEnv) {
       field.extraVariables = [runtimeValue.processEnv.name]
       if (runtimeValue.processEnv.fallback !== undefined) {
+        moduleInput = runtimeValue.processEnv.fallback
         defaultValue = coerceDefault(runtimeValue.processEnv.fallback, field)
       }
       follow(`runtimeConfig.${label} read process.env.${runtimeValue.processEnv.name} when Nuxt loaded the config. Env now reads ${field.variable === runtimeValue.processEnv.name ? field.variable : `${field.variable}, then ${runtimeValue.processEnv.name}`}, ${section === "public" ? "during the build" : "when the server runs"}. Env treats an empty variable as unset.`, { env: field })
@@ -490,7 +496,14 @@ export function planFromJsonSchema(input: PlanInput): SchemaPlan {
         defaultValue = coerceDefault(schemaDefault, field)
       }
     }
-    // An empty default preserves behavior without embedding a credential in the build.
+    const rejection = defaultValue === undefined
+      ? undefined
+      : await defaultRejection({ schema: fieldSchema(input.schema, section === "public" ? ["public", ...configPath] : configPath), node: leaf.node, input: moduleInput, value: defaultValue })
+    if (defaultValue !== undefined && rejection !== undefined) {
+      follow(`${label} had the value ${literalText(defaultValue)}, which its $schema rejects: ${rejection}. The module stopped the app at boot when ${field.variable} was not set, so the codemod kept no default and Env requires ${field.variable}.`, { env: field })
+      field.required = true
+      defaultValue = undefined
+    }
     if (defaultValue !== undefined && defaultValue !== "" && field.secret) {
       follow(`${label} is secret, so its value ${literalText(defaultValue)} was not kept as a default. Defaults are written into the server build. Set ${field.variable} instead.`, { env: field })
       defaultValue = undefined
@@ -516,7 +529,7 @@ export function planFromJsonSchema(input: PlanInput): SchemaPlan {
       }
       const publicRequired = requiredOf(publicNode.node)
       for (const [publicKey, child] of Object.entries(publicProperties)) {
-        visit("public", [publicKey], child, rootRequired.has("public") && publicRequired.has(publicKey))
+        await visit("public", [publicKey], child, rootRequired.has("public") && publicRequired.has(publicKey))
       }
       continue
     }
@@ -525,7 +538,7 @@ export function planFromJsonSchema(input: PlanInput): SchemaPlan {
       follow(`${key} is a reserved Nuxt runtimeConfig key. The codemod left it and its schema rules alone.`, { runtimeConfig: key })
       continue
     }
-    visit("server", [key], node, rootRequired.has(key))
+    await visit("server", [key], node, rootRequired.has(key))
   }
   const publicPaths = new Map<string, EnvField[]>()
   for (const field of plan.fields.filter(field => field.section === "public")) {
