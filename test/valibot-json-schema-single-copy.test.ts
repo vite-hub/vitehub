@@ -18,7 +18,7 @@ async function codeFiles(directory: string): Promise<string[]> {
 
 async function inlinesJsonSchema(name: string): Promise<boolean> {
   for (const file of await codeFiles(join(packagesRoot, name, "dist"))) {
-    if (/^\/\/#region [^\n]*@valibot\+to-json-schema/m.test(await readFile(file, "utf8"))) return true
+    if (/^\/\/(?:#region)? [^\n]*@valibot\+to-json-schema/m.test(await readFile(file, "utf8"))) return true
   }
   return false
 }

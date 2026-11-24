@@ -77,14 +77,18 @@ function searchRequestError(message: string): Error {
 
 /** Search the Agent Invocations of the Console. A search adds the matching excerpt of each Invocation. */
 export async function searchConsoleInvocations(input: { cursor?: string, limit?: number, search?: string }): Promise<ConsoleSearchPage> {
-  if (input.limit !== undefined && input.limit < 1) throw searchRequestError("Console search limit must be a positive integer.")
+  if (input.limit !== undefined && (!Number.isSafeInteger(input.limit) || input.limit < 1)) throw searchRequestError("Console search limit must be a positive integer.")
   const search = input.search?.trim()
   if (search && search.length > maxSearchLength) throw searchRequestError(`Console search must be at most ${maxSearchLength} characters.`)
+  if (input.cursor === "") throw searchRequestError("Console search cursor must be the nextCursor of the last page.")
   const invocations = getConsoleInvocations()
   const listQuery: Parameters<typeof invocations.list>[0] = { limit: Math.min(input.limit ?? defaultSearchLimit, maxSearchLimit) }
-  if (input.cursor) listQuery.cursor = input.cursor
+  if (input.cursor !== undefined) listQuery.cursor = input.cursor
   if (search) listQuery.search = search
-  const page = await invocations.list(listQuery)
+  const page = await invocations.list(listQuery).catch((error: unknown) => {
+    if (error instanceof Error && "code" in error && error.code === "AGENT_R0621") throw searchRequestError("Console search cursor must be the nextCursor of the last page.")
+    throw error
+  })
   const items = await Promise.all(page.invocations.map(async (summary) => {
     const record = search ? await invocations.get(summary.id) : undefined
     return searchItem(summary, record ? consoleSearchExcerpt(record, search) : undefined)

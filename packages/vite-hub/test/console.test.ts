@@ -3033,6 +3033,9 @@ describe("Agent invocation console", () => {
     expect([...firstPage.items, ...secondPage.items].map(item => item.id).sort()).toEqual(["matching-invocation", "other-invocation"])
 
     await expect(searchConsoleInvocations({ limit: 0 })).rejects.toMatchObject({ status: 400 })
+    await expect(searchConsoleInvocations({ limit: 2 ** 53 })).rejects.toMatchObject({ code: "VITE_HUB_R0052", status: 400 })
+    await expect(searchConsoleInvocations({ cursor: "" })).rejects.toMatchObject({ code: "VITE_HUB_R0052", status: 400 })
+    await expect(searchConsoleInvocations({ cursor: "not-a-cursor" })).rejects.toMatchObject({ code: "VITE_HUB_R0052", status: 400 })
   })
 
   it("accepts persisted Agent names up to the metadata limit", async () => {
