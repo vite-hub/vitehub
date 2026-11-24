@@ -153,7 +153,7 @@ With a partial prefix such as `docs/re`, a page can be empty while `hasMore` is 
 
 `limit` must be a safe integer of 0 or more, or omitted. Another value, such as `-1`, `2.5`, `9007199254740992`, or `NaN` from `Number(query.limit)`, throws `BLOB_R0034` as an H3 `HTTPError` with status `400` before `list()` reads the store. With `limit: 0`, `fs`, files-sdk, Vercel Blob, and Netlify Blobs return no blobs, while a folded zero-limit page can still return folders.
 
-The `fs` driver sorts keys by UTF-16 code unit, so `B.txt` comes before `a.txt`. Its cursor holds the last listed key, so a key added between pages does not repeat or skip another key. It reads only the directories on the `prefix` path and the directories that the page reaches.
+The `fs` driver sorts keys by UTF-16 code unit, so `B.txt` comes before `a.txt`. The `fs`, `cloudflare` (R2 binding), and files-sdk drivers also sort folded `folders` by UTF-16 code unit, so `B/` comes before `a/`. On `fs`, the cursor holds the last listed key, so a key added between pages does not repeat or skip another key. It reads only the directories on the `prefix` path and the directories that the page reaches.
 
 ### Delete a folder
 

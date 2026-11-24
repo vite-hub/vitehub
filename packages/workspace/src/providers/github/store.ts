@@ -211,9 +211,8 @@ async function waitForGitHubOperation<T>(read: Promise<T>, signal?: AbortSignal)
 }
 
 class GitHubWorkspaceStore implements WorkspaceStore {
+  #sessionArchive: { revision: string; read: Promise<Uint8Array> } | undefined;
   #baseline: WorkspaceSnapshot | undefined;
-  #archive: { bytes: Uint8Array; revision: string } | undefined;
-  #archiveReads = new Map<string, Promise<Uint8Array>>();
   #baselineRefSha: string | undefined;
   #dirty = false;
   #files = new Map<string, GitHubWorkspaceStoreFile>();
@@ -302,22 +301,11 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       const files = [...this.#remoteFiles.keys()].filter(path =>
         !isReservedWorkspacePath(path) && (!paths || paths.some(root => path === root || path.startsWith(`${root}/`))),
       ).length;
-      if (!this.#dirty && paths === undefined && this.#archive?.revision !== revision) {
-        let read = this.#archiveReads.get(revision);
-        if (!read) {
-          read = readGitHubArchive(this.#client, revision);
-          this.#archiveReads.set(revision, read);
-          void read.finally(() => {
-            if (this.#archiveReads.get(revision) === read) this.#archiveReads.delete(revision);
-          }).catch(() => {});
-        }
-        this.#archive = {
-          bytes: await waitForGitHubOperation(read, options?.abortSignal),
-          revision,
-        };
-      }
+      const archive = !this.#dirty && paths === undefined
+        ? await waitForGitHubOperation(this.#readSessionArchive(revision), options?.abortSignal)
+        : undefined;
       return {
-        ...(!this.#dirty && paths === undefined ? { archive: this.#archive!.bytes } : {}),
+        ...(!this.#dirty && archive ? { archive: archive.slice() } : {}),
         files,
         paths,
         revision,
@@ -325,6 +313,16 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       };
     },
   };
+
+  #readSessionArchive(revision: string) {
+    if (this.#sessionArchive?.revision === revision) return this.#sessionArchive.read;
+    const entry = { revision, read: readGitHubArchive(this.#client, revision) };
+    this.#sessionArchive = entry;
+    void entry.read.catch(() => {
+      if (this.#sessionArchive === entry) this.#sessionArchive = undefined;
+    });
+    return entry.read;
+  }
 
   async readFile(path: string): Promise<WorkspaceFile | undefined> {
     const normalized = normalizeSafeWorkspacePath(path);

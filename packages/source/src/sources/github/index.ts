@@ -66,18 +66,15 @@ export function github(options: GitHubSourceOptions): GitHubSource {
   }
 
   function keyForRepoPath(path: string) {
-    let normalized: string
     try {
-      normalized = normalizeSafeSourcePath(path)
+      const normalized = normalizeSafeSourcePath(path)
+      if (!root) return normalized
+      if (!normalized.startsWith(`${root}/`)) return
+      return normalizeSafeSourcePath(normalized.slice(root.length + 1))
     }
     catch {
       return
     }
-    if (!root) return normalized
-    if (!normalized.startsWith(`${root}/`)) return undefined
-    const key = normalized.slice(root.length + 1)
-    if (!key || key.startsWith("/")) return undefined
-    return normalizeSafeSourcePath(key)
   }
 
   function repoPathForKey(key: string) {
@@ -89,6 +86,16 @@ export function github(options: GitHubSourceOptions): GitHubSource {
     const include = createPathMatcher(options.include)
     const ignore = options.ignore ? createPathMatcher(options.ignore) : () => false
     return (key: string) => include(key) && !ignore(key)
+  }
+
+  function sourceKeys(paths: readonly string[]) {
+    const shouldInclude = keyFilter()
+    const keys = new Set<string>()
+    for (const path of paths) {
+      const key = keyForRepoPath(path)
+      if (key && shouldInclude(key)) keys.add(key)
+    }
+    return [...keys]
   }
 
   async function resolveRef(token: string | undefined) {
@@ -352,14 +359,12 @@ export function github(options: GitHubSourceOptions): GitHubSource {
     async changes(base, head) {
       const paths = await client.changedPaths(base, head, await resolveAuth())
       if (!paths) return
-      const prefix = root ? `${root}/` : ""
-      return [...new Set(paths.filter(path => path.startsWith(prefix)).map(path => path.slice(prefix.length)))]
+      return sourceKeys(paths)
     },
     async pullChanges(number) {
       const paths = await client.pullPaths(number, await resolveAuth())
       if (!paths) return
-      const prefix = root ? `${root}/` : ""
-      return [...new Set(paths.filter(path => path.startsWith(prefix)).map(path => path.slice(prefix.length)))]
+      return sourceKeys(paths)
     },
     async resolveRef(ref, refOptions) {
       const token = await resolveAuth()
