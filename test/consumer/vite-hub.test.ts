@@ -52,16 +52,16 @@ const fixtureViteHubPackages = [
 
 /**
  * The Nuxt release that the packed Nuxt apps install. `VITEHUB_CONSUMER_NUXT=4.7` selects Nuxt 4.7, which builds the
- * server with Nitro 3 because the app depends on `nitro`. Any other value selects the Nuxt 5 nightly.
+ * server with Nitro 3 because the app depends on `nitro`, and needs Vite 8.3.8. Any other value selects the Nuxt 5 nightly.
  */
 const consumerNuxt = process.env.VITEHUB_CONSUMER_NUXT === "4.7"
   ? {
       dependencies: { nitro: "3.0.261103-rc", nuxt: "4.7.0" },
-      overrides: { nitro: "3.0.261103-rc", rolldown: "1.2.19" },
+      overrides: { nitro: "3.0.261103-rc", rolldown: "1.2.19", vite: "8.3.8" },
     }
   : {
       dependencies: { nitro: "3.0.261102-rc", nuxt: "npm:nuxt-nightly@5.0.0-2611031025-9496b7e" },
-      overrides: { nitro: "3.0.261102-rc", rolldown: "1.2.4" },
+      overrides: { nitro: "3.0.261102-rc", rolldown: "1.2.4", vite: "npm:@voidzero-dev/vite-plus-core@0.1.24" },
     }
 
 interface PackageManifest {
@@ -787,7 +787,6 @@ export default {
           "oxc-parser": "0.140.0",
           ...consumerNuxt.overrides,
           "nitro>h3": "2.0.8",
-          vite: "npm:@voidzero-dev/vite-plus-core@0.1.24",
         })),
       ])
       await installApp(appDir, "--no-strict-peer-dependencies")
@@ -861,7 +860,6 @@ export default {
           "oxc-parser": "0.140.0",
           ...consumerNuxt.overrides,
           "nitro>h3": "2.0.8",
-          vite: "npm:@voidzero-dev/vite-plus-core@0.1.24",
         })),
       ])
       await installApp(appDir, "--no-strict-peer-dependencies")
@@ -926,7 +924,6 @@ export default {
           "oxc-parser": "0.140.0",
           ...consumerNuxt.overrides,
           "nitro>h3": "2.0.8",
-          vite: "npm:@voidzero-dev/vite-plus-core@0.1.24",
         })),
       ])
       await installApp(appDir, "--no-strict-peer-dependencies")
@@ -1027,7 +1024,6 @@ export default {
           "oxc-parser": "0.140.0",
           ...consumerNuxt.overrides,
           "nitro>h3": "2.0.8",
-          vite: "npm:@voidzero-dev/vite-plus-core@0.1.24",
         })),
       ])
       await installApp(appDir, "--no-strict-peer-dependencies")
@@ -1159,7 +1155,6 @@ export default {
           "oxc-parser": "0.140.0",
           ...consumerNuxt.overrides,
           "nitro>h3": "2.0.8",
-          vite: "npm:@voidzero-dev/vite-plus-core@0.1.24",
         }), "utf8"),
       ])
 
@@ -1263,7 +1258,6 @@ export default {
           "oxc-parser": "0.140.0",
           ...consumerNuxt.overrides,
           "nitro>h3": "2.0.8",
-          vite: "npm:@voidzero-dev/vite-plus-core@0.1.24",
         }), "utf8"),
       ])
       await installApp(appDir, "--no-strict-peer-dependencies")
@@ -1344,7 +1338,6 @@ export default {
           "oxc-parser": "0.140.0",
           ...consumerNuxt.overrides,
           "nitro>h3": "2.0.8",
-          vite: "npm:@voidzero-dev/vite-plus-core@0.1.24",
         }), "utf8"),
       ])
       await installApp(appDir, "--no-strict-peer-dependencies")
