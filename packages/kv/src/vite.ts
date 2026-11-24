@@ -17,7 +17,7 @@ import {
   isProviderJsonRecord,
   useProviderOutputCatalog,
 } from "@vite-hub/internal/build/deployment-output"
-import { createNoExternalAddition, hasNitroConfigContext, isServerEnvironment, markViteConfigPlugin, resolveViteHubProjectRoot, shouldSkipViteProviderBuild } from "@vite-hub/internal/build/vite"
+import { VITEHUB_NITRO_CONFIG_CONTEXT, createNoExternalAddition, hasNitroConfigContext, isServerEnvironment, markViteConfigPlugin, resolveViteHubProjectRoot, shouldSkipViteProviderBuild } from "@vite-hub/internal/build/vite"
 import { reportViteHubHint, startViteHubHints, VITEHUB_NUXT_HINTS, type ViteHubHintsConfig } from "@vite-hub/internal/hints"
 import { isPlainObject } from "@vite-hub/internal/object"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
@@ -161,6 +161,10 @@ function kvStorageMountName(store: string): string {
 
 function configureNitroStorage(nitro: NitroCloudflareKVTarget, kv: KVViteRuntimeConfig["kv"]): void {
   if (!kv) return
+  const deps = nitro.deps ??= {}
+  const paths = deps.paths ??= {}
+  paths.unstorage ??= import.meta.resolve("unstorage")
+
   const names = Object.keys({ default: kv.store, ...kv.stores })
   const mounts = isPlainObject(nitro.kv) ? nitro.kv : {}
   const legacy = isPlainObject(nitro.storage) ? nitro.storage : {}
@@ -277,6 +281,7 @@ interface KVNitroBuild {
 }
 
 interface NitroCloudflareKVTarget {
+  deps?: { paths?: Record<string, string> }
   handlers?: unknown[]
   kv?: Record<string, unknown>
   storage?: Record<string, unknown>
@@ -363,7 +368,7 @@ function configureNitroCloudflareKV(
   const kv = resolveKVViteConfig(options, input).kv
   configureNitroCloudflareRequestEnv(target, kv)
   configureNitroPlugin(target, kv)
-  configureNitroStorage(target, kv)
+  if (Reflect.get(config, VITEHUB_NITRO_CONFIG_CONTEXT) === true) configureNitroStorage(target, kv)
   if (kv) {
     const existingNamespaces = new Set(target.cloudflare?.wrangler?.kv_namespaces)
     configureCloudflareKV(target, kv, provisionState)
@@ -415,6 +420,7 @@ export function hubKV(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
       setup(nitro) {
         nitroOptions = nitro.options
         if (runtimeConfig) reconcileNitroCloudflareKV(nitroOptions, runtimeConfig.kv, ownedNitroNamespaces, readProvisionStateSync(projectRoot))
+        else configureNitroStorage(nitroOptions, resolveKVViteConfig(options, resolutionInput()).kv)
         nitro.hooks?.hook("prerender:config", (config: KVPrerenderConfig) => {
           const prerender = resolveKVViteConfig(options, { hosting: input.hosting, prerender: true })
           if (prerender.kv && Object.values({ ...prerender.kv.stores, default: prerender.kv.store }).some(store => store.driver === "deno-kv")) return
