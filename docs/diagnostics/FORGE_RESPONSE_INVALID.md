@@ -1,3 +1,7 @@
+---
+description: "Read the FORGE_RESPONSE_INVALID error message to find out what data is missing or malformed in the Forge response."
+---
+
 A Forge response contains missing or invalid data. For example, `forgeBlob()` raises this error if GitHub returns blob content that is not valid Base64.
 
 ## How to fix it
