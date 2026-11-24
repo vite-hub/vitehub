@@ -221,6 +221,7 @@ class BlockRewriter {
   private readonly style: Pick<CodeStyle, "quote" | "semicolons">
   private readonly bindings: Map<string, Node[]>
   private readonly safeImports = new Map<string, ImportSpecifier>()
+  private readonly namespaces = new Set<string>()
   private readonly rewrittenCallees = new Set<Node>()
   private readonly nitro: boolean
   private readonly callName: string
@@ -245,6 +246,7 @@ class BlockRewriter {
         if (specifier.type === "ImportSpecifier" && specifier.importKind !== "type" && keyName(specifier.imported) === composable) {
           this.safeImports.set(specifier.local.name, specifier)
         }
+        if (specifier.type === "ImportNamespaceSpecifier") this.namespaces.add(specifier.local.name)
       }
     }
   }
@@ -262,6 +264,12 @@ class BlockRewriter {
     const runtimeCalls: Array<{ call: CallExpression, ancestors: Node[] }> = []
     const composable = this.nitro ? "useRuntimeConfig" : "useSafeRuntimeConfig"
     walk(this.program, (node, ancestors) => {
+      if (node.type === "CallExpression" && node.callee.type === "MemberExpression" && node.callee.object.type === "Identifier"
+        && this.namespaces.has(node.callee.object.name) && memberName(node.callee) === composable) {
+        this.follow(this.lineOf(node), `${node.callee.object.name}.${composable}() is called through a namespace import, so the codemod left it unchanged.${this.nitro ? " Values that moved to Env are no longer in runtimeConfig." : ""} Rewrite it by hand with ${this.accessors}.`)
+        this.state.remainingCalls++
+        return
+      }
       if (node.type !== "CallExpression" || node.callee.type !== "Identifier") return
       if (node.callee.name === composable || this.safeImports.has(node.callee.name)) safeCalls.push({ call: node, ancestors: [...ancestors] })
       else if (node.callee.name === "useRuntimeConfig") runtimeCalls.push({ call: node, ancestors: [...ancestors] })
@@ -490,7 +498,7 @@ class BlockRewriter {
     const kept = reads.some(read => this.resolver.resolve(read.segments).kind === "kept")
     const other = accesses.find(access => access.kind === "other")
     if (!kept && !other) return true
-    if (other && reads.some(read => this.resolver.resolve(read.segments).kind !== "kept")) {
+    if (other) {
       this.follow(other.line, `${this.callName} result ${other.reason}. Values that moved to Env are no longer in it. Read them by hand with ${this.accessors}.`)
     }
     for (const read of reads) this.reportRuntimeRead(read.segments, read.line)

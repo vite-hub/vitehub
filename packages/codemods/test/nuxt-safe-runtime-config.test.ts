@@ -155,6 +155,53 @@ describe("nuxt-safe-runtime-config on a Nitro 3 app with a vite.config", () => {
     }
   })
 
+  it("reports each call whose config object escapes or comes from a namespace import", async () => {
+    const cwd = await mkdtemp(join(fixtures, ".nitro3-"))
+    try {
+      await cp(join(fixtures, "nitro3-module/input"), cwd, { recursive: true })
+      await mkdir(join(cwd, "utils"))
+      await writeFile(join(cwd, "utils/config.ts"), [
+        "import { useRuntimeConfig } from 'nitro/runtime-config'",
+        "import * as rt from 'nitro/runtime-config'",
+        "",
+        "export function client() {",
+        "  const config = useRuntimeConfig()",
+        "  const { greeting, port } = config",
+        "  return { greeting, port }",
+        "}",
+        "export const whole = () => { const config = useRuntimeConfig(); return config }",
+        "export const byKey = (key: 'greeting' | 'port') => useRuntimeConfig()[key]",
+        "export const has = () => { const config = useRuntimeConfig(); return 'greeting' in config }",
+        "export const namespaced = () => rt.useRuntimeConfig().greeting",
+        "",
+      ].join("\n"))
+      const run = await runCodemod("nuxt-safe-runtime-config", { cwd, dryRun: true })
+      expect(run.result.edits.find(edit => edit.path === "utils/config.ts")).toBeUndefined()
+      const reported = run.result.followUps.filter(entry => entry.file === "utils/config.ts").map(entry => entry.line ?? 0).sort((left, right) => left - right)
+      expect(reported).toEqual([6, 9, 10, 11, 12])
+      expect(run.result.followUps.find(entry => entry.file === "utils/config.ts" && entry.line === 12)?.message).toContain("rt.useRuntimeConfig() is called through a namespace import")
+    }
+    finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
+  it("takes the host from a preset in the vite.config nitro() options", async () => {
+    const cwd = await mkdtemp(join(fixtures, ".nitro3-"))
+    try {
+      await cp(join(fixtures, "nitro3-module/input"), cwd, { recursive: true })
+      await writeFile(join(cwd, "vite.config.ts"), "import { nitro } from 'nitro/vite'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [\n    nitro({ preset: 'vercel', serverDir: './' }),\n  ],\n})\n")
+      const run = await runCodemod("nuxt-safe-runtime-config", { cwd, dryRun: true })
+      const vite = run.result.edits.find(edit => edit.path === "vite.config.ts")?.after
+      expect(vite).toContain("      host: 'vercel',")
+      expect(vite).toContain("    nitro({ serverDir: './' }),")
+      expect(run.result.followUps.find(entry => entry.message.includes("host: \"node\""))).toBeUndefined()
+    }
+    finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
   it("stops when the vite.config already uses vitehub()", async () => {
     const cwd = await mkdtemp(join(fixtures, ".nitro3-"))
     try {

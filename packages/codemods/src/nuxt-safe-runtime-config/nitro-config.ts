@@ -72,23 +72,53 @@ export function findNitroModuleEntry(config: NuxtConfigFile): NitroModuleEntry |
   return element ? { modules, element } : undefined
 }
 
-/** The ViteHub host for the Nitro `preset`, and the `preset` property that `vitehub()` replaces. */
+/**
+ * The ViteHub host for the Nitro `preset`, and the `preset` property that `vitehub()` replaces: `preset` in nitro.config,
+ * or `removeVitePreset` for a `preset` in the vite.config `nitro()` options, which win over nitro.config.
+ */
 export interface NitroHostPlan {
   host?: string
   note?: string
   preset?: ObjectProperty
+  removeVitePreset?: boolean
 }
 
-export function planNitroHost(config: NuxtConfigFile): NitroHostPlan {
-  const property = findProperty(config.root, "preset")
+function nitroPluginOptions(config: NuxtConfigFile): ObjectExpression[] {
+  const local = importedLocal(config, "nitro/vite", "nitro")
+  const options: ObjectExpression[] = []
+  const nitroKey = objectProperty(config.root, "nitro")
+  if (nitroKey) options.push(nitroKey)
+  if (!local) return options
+  walk(config.program, (node) => {
+    if (node.type !== "CallExpression" || node.callee.type !== "Identifier" || node.callee.name !== local) return
+    const [argument] = node.arguments
+    if (argument?.type === "ObjectExpression") options.push(argument)
+  })
+  return options
+}
+
+function vitePresetProperty(config: NuxtConfigFile): ObjectProperty | undefined {
+  return nitroPluginOptions(config).map(options => findProperty(options, "preset")).find(property => property !== undefined)
+}
+
+export async function readVitePreset(cwd: string): Promise<{ fileName: string, property: ObjectProperty } | undefined> {
+  const fileName = findViteConfigName(cwd)
+  if (!fileName) return undefined
+  const property = vitePresetProperty(await readConfigFile(cwd, fileName, "defineConfig"))
+  return property ? { fileName, property } : undefined
+}
+
+export function planNitroHost(config: NuxtConfigFile, vitePreset?: { fileName: string, property: ObjectProperty }): NitroHostPlan {
+  const property = vitePreset?.property ?? findProperty(config.root, "preset")
+  const fileName = vitePreset?.fileName ?? config.fileName
   if (!property) {
     return { host: "node", note: "ViteHub needs a host, so the codemod set host: \"node\" in vitehub(). Change it to \"cloudflare\", \"deno\", \"netlify\", or \"vercel\" for other hosts." }
   }
   const value = literalValue(property.value)
-  if (typeof value !== "string") throw codemodError(`${config.fileName} sets preset to an expression. Make it a string literal, then run the codemod again.`)
+  if (typeof value !== "string") throw codemodError(`${fileName} sets preset to an expression. Make it a string literal, then run the codemod again.`)
   const host = nitroPresetHosts[value.trim().toLowerCase().replaceAll("_", "-")]
-  if (host) return { host, preset: property }
-  return { note: `preset "${value}" has no ViteHub host. ViteHub sets the Nitro preset from its host, and a different preset stops the build. Set host in vitehub() to "cloudflare", "deno", "netlify", "node", or "vercel", and remove preset from ${config.fileName}.` }
+  if (host) return vitePreset ? { host, removeVitePreset: true } : { host, preset: property }
+  return { note: `preset "${value}" has no ViteHub host. ViteHub sets the Nitro preset from its host, and a different preset stops the build. Set host in vitehub() to "cloudflare", "deno", "netlify", "node", or "vercel", and remove preset from ${fileName}.` }
 }
 
 export interface NitroConfigEditResult {
@@ -133,6 +163,7 @@ export interface ViteConfigInput {
   env: EnvSource
   host?: string
   schemaModule?: SchemaModuleReference
+  removePreset?: boolean
 }
 
 export interface ViteConfigResult {
@@ -224,6 +255,8 @@ async function editViteConfig(input: ViteConfigInput, fileName: string): Promise
   const editor = new ConfigEditor(config)
   const style = editor.style
   const semicolon = style.semicolons ? ";" : ""
+  const preset = input.removePreset ? vitePresetProperty(config) : undefined
+  if (preset) editor.removeItem(preset)
   const envName = bindingFree(config, "env") ? "env" : "viteHubEnv"
   const nitroLocal = importedLocal(config, "nitro/vite", "nitro")
   const nitroName = nitroLocal ?? (bindingFree(config, "nitro") ? "nitro" : undefined)
