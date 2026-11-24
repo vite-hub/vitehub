@@ -14,6 +14,9 @@ export const moduleName = "nuxt-safe-runtime-config"
 export interface StaticOptions {
   envSchema?: { file: string, paths: Record<string, string> }
   schemaPath?: string
+  onError?: string
+  validateAtBuild?: boolean
+  validateAtRuntime?: boolean
   /** `$schema` is an inline expression; the evaluated config supplies it. */
   inlineSchema: boolean
   /** An option could not be read without running the config. */
@@ -28,6 +31,12 @@ function readStaticPaths(node: Node | undefined): Record<string, string> | undef
   for (const property of value.properties) {
     if (property.type !== "ObjectProperty") return undefined
     const key = keyName(property.key, property.computed)
+    if (key === "onError" || key === "validateAtBuild" || key === "validateAtRuntime") {
+      const value = literalValue(property.value)
+      if (key === "onError" && typeof value === "string") result.onError = value
+      else if (key !== "onError" && typeof value === "boolean") result[key] = value
+      else result.dynamic = true
+    }
     const mapped = literalValue(property.value)
     if (!key || typeof mapped !== "string") return undefined
     paths[key] = mapped

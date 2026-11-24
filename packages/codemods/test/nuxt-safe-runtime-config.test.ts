@@ -1,4 +1,5 @@
-import { readFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { runInNewContext } from "node:vm"
@@ -126,6 +127,46 @@ describe("defaults that the field schema rejects", () => {
     return { ...config.vitehub.env.server }
   }
 
+  async function migrateSchemaConfig(config: string, schema: string) {
+    const cwd = await mkdtemp(join(tmpdir(), "vitehub-codemod-defaults-"))
+    try {
+      await Promise.all([
+        writeFile(join(cwd, "package.json"), '{"dependencies":{"nuxt-safe-runtime-config":"0.3.2"}}'),
+        writeFile(join(cwd, "nuxt.config.ts"), config),
+        writeFile(join(cwd, "schema.ts"), `import * as v from ${JSON.stringify(fileURLToPath(import.meta.resolve("valibot")))}\nexport default ${schema}`),
+      ])
+      const run = await runCodemod("nuxt-safe-runtime-config", { cwd, dryRun: true })
+      return { code: run.result.edits.find(edit => edit.path === "nuxt.config.ts")?.after ?? "", report: formatReport(run) }
+    }
+    finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  }
+
+  it("keeps runtime-coerced defaults and passes strings to string-input transforms", async () => {
+    const { code } = await migrateSchemaConfig(`export default defineNuxtConfig({
+      modules: ['nuxt-safe-runtime-config'],
+      safeRuntimeConfig: { $schema: './schema', validateAtRuntime: true },
+      runtimeConfig: { retryCount: process.env.COUNT ?? '3', featureEnabled: 'false', port: '3000' },
+    })`, "v.object({ retryCount: v.number(), featureEnabled: v.boolean(), port: v.pipe(v.string(), v.transform(Number), v.number()) })")
+    for (const name of ["COUNT", "NUXT_RETRY_COUNT", "VITEHUB_RETRY_COUNT", "NUXT_FEATURE_ENABLED", "VITEHUB_FEATURE_ENABLED", "NUXT_PORT", "VITEHUB_PORT"]) vi.stubEnv(name, undefined)
+    expect(resolveServerEnv(createRuntimeEnvRegistry(migratedServerEnv(code), { prefix: false }))).toMatchObject({ retryCount: 3, featureEnabled: false, port: 3000 })
+  })
+
+  it.each([
+    ["top-level warn", "'nuxt-safe-runtime-config'", "onError: 'warn'"],
+    ["tuple ignore overriding throw", "['nuxt-safe-runtime-config', { onError: 'ignore' }]", "onError: 'throw'"],
+  ])("keeps defaults under %s", async (_label, moduleEntry, options) => {
+    const { code, report } = await migrateSchemaConfig(`export default defineNuxtConfig({
+      modules: [${moduleEntry}],
+      safeRuntimeConfig: { $schema: './schema', validateAtRuntime: true, ${options} },
+      runtimeConfig: { region: 'x', apiSecret: 'x' },
+    })`, "v.object({ region: v.pipe(v.string(), v.minLength(3)), apiSecret: v.pipe(v.string(), v.minLength(3)) })")
+    expect(code).toContain("region: env({ default: 'x', source: env.source('NUXT_REGION') })")
+    expect(code).toContain("apiSecret: env({ secret: true, source: env.source('NUXT_API_SECRET') })")
+    expect(report).not.toContain("which its $schema rejects")
+  })
+
   it("requires a variable whose empty default failed the schema at boot", async () => {
     const run = await runCodemod("nuxt-safe-runtime-config", { cwd: join(fixtures, "valibot-schema-module/input"), dryRun: true })
     const code = run.result.edits.find(edit => edit.path === "nuxt.config.ts")?.after ?? ""
@@ -192,12 +233,22 @@ describe("defaults that the field schema rejects", () => {
   })
 
   it.each([
+    ["Valibot", v.object({ group: v.lazy(() => v.object({ region: v.pipe(v.string(), v.check(value => value !== "none")) })) })],
+    ["Zod", z.object({ group: z.lazy(() => z.object({ region: z.string().refine(value => value !== "none") })) })],
+  ])("checks child defaults within a lazy %s object", async (_label, schema) => {
+    const plan = await planned(schema, "group.region", "none")
+    expect(plan.fields[0]).toMatchObject({ configPath: ["group", "region"], required: true })
+    expect(plan.fields[0]).not.toHaveProperty("default")
+  })
+
+  it.each([
     [{ type: "string", minLength: 16 }, ""],
     [{ type: "string", pattern: "^sk_" }, "pk_1"],
     [{ type: "string", format: "uri" }, "not a url"],
     [{ type: "string", format: "email" }, ""],
     [{ type: "number", minimum: 1 }, 0],
     [{ type: "integer" }, 1.5],
+    [{ type: "number", multipleOf: 0.1 }, 0.35],
   ])("falls back to the JSON Schema rules %j without a field schema", async (node, value) => {
     const plan = await planFromJsonSchema({
       jsonSchema: { type: "object", required: ["value"], properties: { value: node } },
@@ -206,5 +257,14 @@ describe("defaults that the field schema rejects", () => {
     })
     expect(plan.fields[0]).not.toHaveProperty("default")
     expect(plan.fields[0]?.required).toBe(true)
+  })
+
+  it.each([[0.3, 0.1], [-3e-8, 1e-8]])("keeps %s as a decimal multiple of %s", async (value, multipleOf) => {
+    const plan = await planFromJsonSchema({
+      jsonSchema: { type: "object", required: ["value"], properties: { value: { type: "number", multipleOf } } },
+      issues: new Map(),
+      runtimeConfig: new Map([["value", { literal: value }]]),
+    })
+    expect(plan.fields[0]?.default).toBe(value)
   })
 })

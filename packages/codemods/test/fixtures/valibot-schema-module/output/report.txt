@@ -6,7 +6,7 @@ Files to change (2):
   package.json
 
 Manual follow-ups (8):
-  1. nuxt.config.ts:12 apiSecret had the value "", which its $schema rejects: Invalid length: Expected >=16 but received 0. The module stopped the app at boot when NUXT_API_SECRET was not set, so the codemod kept no default and Env requires NUXT_API_SECRET.
+  1. nuxt.config.ts:12 apiSecret had the value "", which its $schema rejects: Invalid length: Expected >=16 but received 0. The module treats this validation failure as fatal, so the codemod kept no default and Env requires NUXT_API_SECRET.
   2. nuxt.config.ts:12 apiSecret: Env does not keep minimum length 16. Check the value in code, or use envSchema() with a .env.example for length, range, integer, and URL checks.
   3. nuxt.config.ts:14 allowedOrigins: Env does not keep the Valibot transform action. Check the value in code, or use envSchema() with a .env.example for length, range, integer, and URL checks.
   4. nuxt.config.ts:15 port: Env does not keep minimum 1, the Valibot transform action. Check the value in code, or use envSchema() with a .env.example for length, range, integer, and URL checks.

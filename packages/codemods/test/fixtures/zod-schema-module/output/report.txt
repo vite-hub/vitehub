@@ -9,7 +9,7 @@ Files to change (4):
 
 Manual follow-ups (20):
   1. runtime-config.schema.ts The $schema has a Zod refinement on the whole runtimeConfig, such as a cross-field rule. Env does not run it. Check it in server code.
-  2. nuxt.config.ts:18 sessionPassword had the value "dev-only-password", which its $schema rejects: Too small: expected string to have >=32 characters. The module stopped the app at boot when NUXT_SESSION_PASSWORD was not set, so the codemod kept no default and Env requires NUXT_SESSION_PASSWORD.
+  2. nuxt.config.ts:18 sessionPassword had the value "dev-only-password", which its $schema rejects: Too small: expected string to have >=32 characters. The module treats this validation failure as fatal, so the codemod kept no default and Env requires NUXT_SESSION_PASSWORD.
   3. nuxt.config.ts:18 sessionPassword: Env does not keep minimum length 32. Check the value in code, or use envSchema() with a .env.example for length, range, integer, and URL checks.
   4. nuxt.config.ts:19 timeoutMs: Env does not keep the integer rule. Check the value in code, or use envSchema() with a .env.example for length, range, integer, and URL checks.
   5. nuxt.config.ts:21 cacheTtl: Env does not keep a Zod refinement. Check the value in code, or use envSchema() with a .env.example for length, range, integer, and URL checks.

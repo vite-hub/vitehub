@@ -26,7 +26,7 @@ import type { EnvSource } from "./config-edit.ts"
 import type { EnvField, PlannedFollowUp } from "./fields.ts"
 import type { StaticOptions } from "./nuxt-config.ts"
 
-interface ResolvedOptions {
+interface ResolvedOptions extends Pick<StaticOptions, "onError" | "validateAtBuild" | "validateAtRuntime"> {
   envSchema?: { file: string, paths: Record<string, string> }
   schemaPath?: string
   schema?: unknown
@@ -36,6 +36,9 @@ function mergeStatic(top: StaticOptions, inline: StaticOptions): StaticOptions {
   return {
     envSchema: inline.envSchema ?? top.envSchema,
     schemaPath: inline.schemaPath ?? (inline.inlineSchema ? undefined : top.schemaPath),
+    onError: inline.onError ?? top.onError,
+    validateAtBuild: inline.validateAtBuild ?? top.validateAtBuild,
+    validateAtRuntime: inline.validateAtRuntime ?? top.validateAtRuntime,
     inlineSchema: inline.inlineSchema || (!inline.schemaPath && top.inlineSchema),
     dynamic: inline.dynamic || top.dynamic,
   }
@@ -51,7 +54,7 @@ function evaluatedEnvSchema(value: unknown): ResolvedOptions["envSchema"] {
 /** Reads the module options statically, and runs nuxt.config only when an inline schema or a dynamic option needs it. */
 async function resolveOptions(config: NuxtConfigFile, staticOptions: StaticOptions): Promise<ResolvedOptions> {
   if (!staticOptions.inlineSchema && !staticOptions.dynamic) {
-    return { envSchema: staticOptions.envSchema, schemaPath: staticOptions.schemaPath }
+    return staticOptions
   }
   const evaluated = await loadNuxtConfig(config.path)
   const modules = Array.isArray(evaluated.modules) ? evaluated.modules : []
@@ -65,6 +68,9 @@ async function resolveOptions(config: NuxtConfigFile, staticOptions: StaticOptio
     envSchema: evaluatedEnvSchema(options.envSchema) ?? staticOptions.envSchema,
     schemaPath: typeof schema === "string" ? schema : undefined,
     schema: typeof schema === "string" ? undefined : schema,
+    onError: typeof options.onError === "string" ? options.onError : undefined,
+    validateAtBuild: typeof options.validateAtBuild === "boolean" ? options.validateAtBuild : undefined,
+    validateAtRuntime: typeof options.validateAtRuntime === "boolean" ? options.validateAtRuntime : undefined,
   }
 }
 
@@ -201,7 +207,17 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     if (runtimeProperty && !runtime.object) {
       planned.push({ message: "runtimeConfig is not an object literal, so the codemod kept its values and removed no keys. Move the migrated values to Env defaults by hand." })
     }
-    const plan = await planFromJsonSchema({ schema, jsonSchema: await schemaToJsonSchema(schema, cwd), issues: schemaIssues(schema), runtimeConfig: runtime.values })
+    const validateAtRuntime = options.validateAtRuntime ?? false
+    const validateAtBuild = options.validateAtBuild ?? !validateAtRuntime
+    const plan = await planFromJsonSchema({
+      schema,
+      jsonSchema: await schemaToJsonSchema(schema, cwd),
+      issues: schemaIssues(schema),
+      runtimeConfig: runtime.values,
+      validateAtBuild,
+      validateAtRuntime,
+      rejectInvalidDefaults: (options.onError ?? "throw") === "throw",
+    })
     fields = plan.fields
     unmigrated = plan.unmigrated
     planned.push(...plan.followUps)

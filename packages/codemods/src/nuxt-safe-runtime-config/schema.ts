@@ -301,6 +301,9 @@ interface PlanInput {
   jsonSchema: JsonObject
   issues: Map<string, string[]>
   runtimeConfig: Map<string, Pick<RuntimeConfigValue, "expression" | "literal" | "processEnv">>
+  validateAtBuild?: boolean
+  validateAtRuntime?: boolean
+  rejectInvalidDefaults?: boolean
 }
 
 function resolveReference(root: JsonObject, node: unknown): JsonObject {
@@ -401,6 +404,25 @@ function literalText(value: LiteralValue): string {
   return typeof value === "string" ? JSON.stringify(value) : String(value)
 }
 
+function coerceRuntimeInput(value: LiteralValue, leaf: Leaf): LiteralValue {
+  const kind = leaf.kind === "integer" ? "number" : leaf.kind
+  if (kind === "array" || kind === "object" || kind === "union" || kind === "unknown") return value
+  const normalized = typeof value === "string" && kind === "boolean" ? value.trim().toLowerCase() : value
+  if ((kind === "string" || kind === "enum") && typeof value === "number" && !Number.isSafeInteger(value)) return value
+  const coerced = coerceDefault(normalized, { kind, values: leaf.values })
+  if (coerced === undefined || (leaf.kind === "integer" && !Number.isInteger(coerced))) return value
+  return coerced
+}
+
+function leafAtPath(jsonSchema: JsonObject, path: readonly string[]): Leaf {
+  let node = resolveReference(jsonSchema, jsonSchema)
+  for (const key of path) {
+    const properties = describeLeaf(jsonSchema, node).node.properties
+    node = isRecord(properties) ? resolveReference(jsonSchema, properties[key]) : {}
+  }
+  return describeLeaf(jsonSchema, node)
+}
+
 /** Plans Env declarations from the JSON Schema of `runtimeConfig` and the values in nuxt.config. */
 export async function planFromJsonSchema(input: PlanInput): Promise<SchemaPlan> {
   const root = resolveReference(input.jsonSchema, input.jsonSchema)
@@ -416,6 +438,11 @@ export async function planFromJsonSchema(input: PlanInput): Promise<SchemaPlan> 
   }
 
   const requiredOf = (node: JsonObject) => new Set(Array.isArray(node.required) ? node.required.filter(key => typeof key === "string") : [])
+  const validateAtRuntime = input.validateAtRuntime ?? false
+  const validateAtBuild = input.validateAtBuild ?? !validateAtRuntime
+  const coercionSchema = validateAtRuntime && isValibotSchema(input.schema)
+    ? Object.fromEntries(Object.entries(toJsonSchema(input.schema, { errorMode: "ignore", typeMode: "input" })))
+    : undefined
 
   const visit = async (section: EnvField["section"], configPath: string[], node: unknown, required: boolean): Promise<void> => {
     const label = pathLabel({ section, configPath })
@@ -470,21 +497,19 @@ export async function planFromJsonSchema(input: PlanInput): Promise<SchemaPlan> 
       follow(`${label} is nested. Public Env is flat, so read it as usePublicEnv().${field.envPath[0]}.`, { env: field })
     }
 
-    let defaultValue: LiteralValue | undefined
-    let moduleInput: LiteralValue | undefined
+    const moduleInput = runtimeValue?.literal ?? runtimeValue?.processEnv?.fallback
+    const schemaPath = section === "public" ? ["public", ...configPath] : configPath
+    const runtimeInput = moduleInput !== undefined && validateAtRuntime
+      ? coerceRuntimeInput(moduleInput, coercionSchema ? leafAtPath(coercionSchema, schemaPath) : leaf)
+      : moduleInput
+    let defaultValue = runtimeInput === undefined ? undefined : coerceDefault(runtimeInput, field)
     if (runtimeValue?.literal !== undefined) {
-      moduleInput = runtimeValue.literal
-      defaultValue = coerceDefault(runtimeValue.literal, field)
       if (defaultValue === undefined) {
         follow(`runtimeConfig.${label} has the value ${literalText(runtimeValue.literal)}, which is not a valid ${kind}. It was not kept as a default.`, { env: field })
       }
     }
     else if (runtimeValue?.processEnv) {
       field.extraVariables = [runtimeValue.processEnv.name]
-      if (runtimeValue.processEnv.fallback !== undefined) {
-        moduleInput = runtimeValue.processEnv.fallback
-        defaultValue = coerceDefault(runtimeValue.processEnv.fallback, field)
-      }
       follow(`runtimeConfig.${label} read process.env.${runtimeValue.processEnv.name} when Nuxt loaded the config. Env now reads ${field.variable === runtimeValue.processEnv.name ? field.variable : `${field.variable}, then ${runtimeValue.processEnv.name}`}, ${section === "public" ? "during the build" : "when the server runs"}. Env treats an empty variable as unset.`, { env: field })
     }
     else if (runtimeValue?.expression) {
@@ -496,11 +521,17 @@ export async function planFromJsonSchema(input: PlanInput): Promise<SchemaPlan> 
         defaultValue = coerceDefault(schemaDefault, field)
       }
     }
-    const rejection = defaultValue === undefined
-      ? undefined
-      : await defaultRejection({ schema: fieldSchema(input.schema, section === "public" ? ["public", ...configPath] : configPath), node: leaf.node, input: moduleInput, value: defaultValue })
+    let rejection: string | undefined
+    if (defaultValue !== undefined && input.rejectInvalidDefaults !== false && (validateAtRuntime || validateAtBuild)) {
+      const schema = fieldSchema(input.schema, schemaPath)
+      const check = { schema, node: leaf.node, input: validateAtBuild ? moduleInput : runtimeInput, value: defaultValue }
+      rejection = await defaultRejection(check)
+      if (rejection === undefined && validateAtBuild && runtimeInput !== moduleInput) {
+        rejection = await defaultRejection({ ...check, input: runtimeInput })
+      }
+    }
     if (defaultValue !== undefined && rejection !== undefined) {
-      follow(`${label} had the value ${literalText(defaultValue)}, which its $schema rejects: ${rejection}. The module stopped the app at boot when ${field.variable} was not set, so the codemod kept no default and Env requires ${field.variable}.`, { env: field })
+      follow(`${label} had the value ${literalText(defaultValue)}, which its $schema rejects: ${rejection}. The module treats this validation failure as fatal, so the codemod kept no default and Env requires ${field.variable}.`, { env: field })
       field.required = true
       defaultValue = undefined
     }
