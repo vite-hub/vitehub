@@ -58,7 +58,7 @@ The root export only sets up the framework plugin. Import Runtime Helpers, Defin
 | `@vite-hub/ui` | AI SDK Vue and Nuxt components, headless message scrolling, shadcn/ui parts, Pierre code views | `@vite-hub/ui`, `@vite-hub/ui/headless`, `@vite-hub/ui/markdown-editor`, `@vite-hub/ui/motion`, `@vite-hub/ui/motion/core`, `@vite-hub/ui/workspace`, `@vite-hub/ui/playground`, `@vite-hub/ui/theme`, `@vite-hub/ui/vite` |
 | `@vite-hub/web-container` | [WebContainer](/docs/web-container) lifecycle, app commands, preview status, snapshots, isolation headers, connection metadata | `@vite-hub/web-container`, `@vite-hub/web-container/vue`, `@vite-hub/web-container/vite`, `@vite-hub/web-container/env`, `@vite-hub/web-container/connect` |
 | `@vite-hub/webhooks` | Webhooks to URLs outside the app: `defineWebhook()` in `server/webhooks/`, `sendWebhook()` with signing, retries, and durable debounce, and the delivery table | `@vite-hub/webhooks`, `@vite-hub/webhooks/runtime`, `@vite-hub/webhooks/database`, `@vite-hub/webhooks/vite` |
-| `@vite-hub/workflow` | Workflow Definitions, durable run state, steps, provider workflow output | `@vite-hub/workflow`, `@vite-hub/workflow/vite` |
+| `@vite-hub/workflow` | Workflow Definitions, durable run state, steps, provider workflow output | `@vite-hub/workflow`, `@vite-hub/workflow/openworkflow`, `@vite-hub/workflow/vite` |
 | `@vite-hub/workspace` | Workspace Definitions, Stores, history contracts, Source Bindings, runtime facades, extensions | `@vite-hub/workspace`, `@vite-hub/workspace/vite`, `@vite-hub/workspace/runtime` |
 
 ## Internal and support packages
