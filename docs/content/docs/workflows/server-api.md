@@ -17,7 +17,8 @@ icon: i-lucide-code-2
 | `NonRetryableError` from `vite-hub/workflow` | Fail a run at once, with no more retries, on every provider. |
 | `readRequestPayload`, `readValidatedPayload`, `validatePayload` from `vite-hub/workflow` | Read provider request payloads in custom runtime entry points. `readRequestPayload()` returns `unknown`: check it with `validatePayload()`, or call `readValidatedPayload()`. |
 | `getCloudflareWorkflowBindingName` from `vite-hub/workflow` | Compute the generated Cloudflare Workflow binding name for a Workflow name. |
-| `startOpenWorkflowWorker`, `createOpenWorkflowWorker` from `vite-hub/workflow/openworkflow` | Run a separate OpenWorkflow worker process when `workflow: { worker: false }`. |
+| `startOpenWorkflowWorker` from `vite-hub/workflow/openworkflow` | Create a worker and start polling in a separate process when `workflow: { worker: false }`. |
+| `createOpenWorkflowWorker` from `vite-hub/workflow/openworkflow` | Create a worker without starting it. Call `await worker.start()` on the returned worker to start polling. |
 | `hubWorkflow` from `@vite-hub/workflow/vite` | Add Workflow discovery and host output. |
 
 `vite-hub/workflow` also exports the Provider, Definition, Run, Step, Start Options, and Integration Options types.
@@ -67,7 +68,7 @@ export default defineEventHandler(async (event) => {
 | --- | --- | --- |
 | OpenWorkflow | The run stays pending in storage until its start time. | `queued` |
 | Cloudflare | The run sleeps until its start time before the handler. A waiting instance does not count toward the concurrency limit. | `running` |
-| Vercel `native` entry of a folder Workflow without `index.ts` | The generated entry calls Workflow DevKit `sleep()` before the first step. | `running` |
+| Vercel, generated native entry for numbered steps without an index handler | The generated entry calls Workflow DevKit `sleep()` before the first step. | `running` |
 | Vercel `native` entry that you wrote | Not supported. `startWorkflow()` returns the error `WORKFLOW_OPERATION_UNSUPPORTED`. | |
 | Inline runs (`vite dev`, normal Vercel handlers) | A timer in the server process. It is not durable: a restart loses the run. Outside `vite dev`, the first delayed run of each Workflow logs a warning. | `queued` |
 
@@ -82,9 +83,13 @@ On Cloudflare, ViteHub cannot tell the delay from other sleeps, so the run repor
 | `getWorkflowRun(name, id)` | Reads the current run state. Returns `[error, run]`. |
 | `cancelWorkflow(name, id)` | Cancels a Cloudflare run, a native Vercel run, or a pending or running OpenWorkflow run. Returns `[error, run]`. |
 | `resumeWorkflow(token, payload)` | Sends `payload` to a run that waits on the token of `context.createSignal()`, or to a Workflow DevKit hook on Vercel. Returns `[error, signal]`. |
-| `createWorkflow(name, handler?, options?)` | Returns a handle with `start`, `defer`, `getRun`, and `cancel`. Also accepts `createWorkflow(name, options)` and `createWorkflow({ name, handler, ...options })`. `start`, `getRun`, and `cancel` return `[error, data]`. |
+| `createWorkflow(name, options?)` | Returns a handle with `start`, `defer`, `getRun`, and `cancel`. You can pass `handler` in `options`. `start`, `getRun`, and `cancel` return `[error, data]`. |
+| `createWorkflow(name, handler, options?)` | Returns a handle with the handler passed as the second argument. |
+| `createWorkflow({ name, handler, ...options })` | Returns a handle with the name and handler passed in one object. Both are required. |
 
-`WorkflowStartOptions` accepts `id` and `delay`. For `id`, use only letters, digits, `-`, and `_`, start with a letter, a digit, or `_`, and use up to 100 characters, so the id works on every provider. On Cloudflare, `startWorkflow()` returns the error `WORKFLOW_CLOUDFLARE_RUN_ID_INVALID` for another id, also in `vite dev`. `getWorkflowRun()` queries Cloudflare for existing instances, whose ids can follow different rules. Passing `id` to `createWorkflow()`, such as `createWorkflow(name, { id })` or `createWorkflow(name, handler, { id })`, hashes its value into an id that follows these rules.
+`WorkflowStartOptions` accepts `id` and `delay`. On providers that accept custom run IDs, use at most 100 characters from `A–Z`, `a–z`, `0–9`, `-`, and `_`. Do not start with `-`. On Cloudflare, `startWorkflow()` returns `WORKFLOW_CLOUDFLARE_RUN_ID_INVALID` for an ID that does not follow these rules, also in `vite dev`. `getWorkflowRun()` can query existing Cloudflare instances whose IDs follow different rules.
+
+Pass an `id` callback to `createWorkflow(name, { id })` or `createWorkflow(name, handler, { id })` to set a default run ID. When `.start()` or `.defer()` has no explicit ID, the handle hashes the callback's return value together with the Workflow name to generate the ID. Native Vercel assigns its own IDs and rejects both explicit and generated custom IDs with `WORKFLOW_RUN_ID_UNSUPPORTED`.
 
 The `result` of a completed run is the value that the handler returned, stored as JSON. All providers return the same plain value. A `Date` comes back as a string, and `undefined` fields are removed. Return a JSON-safe value. Return a `Response` for binary data, a status, or headers. Then `result` is a `Response`.
 
@@ -142,7 +147,6 @@ const welcome = createWorkflow<{ email: string }>("welcome", async ({ payload })
   await sendWelcomeEmail(payload.email)
 })
 const [error, run] = await welcome.start({ email: "ada@example.com" })
-// welcome.start() is a type error.
 ```
 
-`startWorkflow()` and `deferWorkflow()` read the payload type of a discovered Workflow from `.vitehub/workflow.d.ts`. A Workflow that code creates with `createWorkflow()` is not in that file, so use its handle. Stored run results stay `unknown`.
+For a Workflow created outside discovery, use its handle. For a discovered Workflow, use its discovered name with `startWorkflow()` or `deferWorkflow()`, even if its file exports a `createWorkflow()` handle with a different name. These functions read the payload type from `.vitehub/workflow.d.ts` when the default export has a typed handler. A handle export does not supply that handler type. Stored run results stay `unknown`.
