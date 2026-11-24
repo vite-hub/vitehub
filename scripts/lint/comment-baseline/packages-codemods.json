@@ -59,7 +59,6 @@
   "packages/codemods/test/define-forms.test.ts": 4,
   "packages/codemods/test/e2e.mjs": 3,
   "packages/codemods/test/fixture-version.ts": 1,
-  "packages/codemods/test/migration-safety.test.ts": 1,
   "packages/codemods/test/nuxt-cron.test.ts": 1,
   "packages/codemods/test/nuxt-safe-runtime-config.test.ts": 1,
   "packages/codemods/test/nuxthub-contracts.test.ts": 1,
