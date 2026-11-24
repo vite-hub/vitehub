@@ -71,7 +71,7 @@ export default async function fetchIssues(input: { repo: string }, { signal }: W
 | --- | --- | --- |
 | Cloudflare | Sent to `step.do()`. | Sent to `step.do()`. Without `timeout`, Cloudflare stops an attempt after 10 minutes. |
 | OpenWorkflow | Sent as the step's `retryPolicy`, with `maximumAttempts: limit + 1`. | ViteHub aborts `signal` and fails the attempt. |
-| Vercel, folder without `index.ts` | `limit` becomes Workflow DevKit's `maxRetries`. DevKit retries a step after about one second, so `delay` or `backoff` fails the build with `WORKFLOW_STEP_RETRY_DELAY_UNSUPPORTED`. | ViteHub aborts `signal` and fails the attempt. |
+| Vercel, generated native entry for numbered steps without an index handler | `limit` becomes Workflow DevKit's `maxRetries`. DevKit retries a step after about one second, so `delay` or `backoff` fails the build with `WORKFLOW_STEP_RETRY_DELAY_UNSUPPORTED`. | ViteHub aborts `signal` and fails the attempt. |
 | Inline (`vite dev`, normal Vercel handlers) | No retries. | ViteHub aborts `signal` and fails the attempt. |
 
 > [!NOTE]

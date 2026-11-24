@@ -39,6 +39,7 @@ jobs:
       - consumer-contracts
       - consumer-contracts-success
       - node-floor
+      - codemods-node-22
       - docs
       - docs-snippets
       - docs-deploy
@@ -567,8 +568,63 @@ jobs:
     steps:
       - run: echo 'All consumer contract shards passed'
 
-  # The workspace and every package require Node.js 24.15. Other jobs run the
-  # newest Node.js 24. This job runs the tests for built-ins that change between
+  # The codemods run before an app moves to ViteHub, often on Node.js 22, so
+  # @vite-hub/codemods requires Node.js 22.12. This job runs its built CLI on
+  # that floor.
+  codemods-node-22:
+    name: codemods on node 22.12
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Select the check
+        id: changed
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+        run: |
+          if [ "$FULL_SUITE" = "true" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet "$BASE_REF...HEAD" -- packages/codemods packages/internal package.json pnpm-workspace.yaml pnpm-lock.yaml .github/workflows/ci.yml .github/actions/setup; then
+            echo "This change does not touch the codemods, their dependencies, or CI."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: ${{ steps.changed.outputs.run == 'true' }}
+        uses: ./.github/actions/setup
+        with:
+          prepare-docs: "false"
+      - if: ${{ steps.changed.outputs.run == 'true' }}
+        run: vp run --cache -t @vite-hub/codemods#build
+      - if: ${{ steps.changed.outputs.run == 'true' }}
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22.12.0"
+      - name: Run the codemods CLI on Node.js 22.12
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        run: |
+          node -e 'if (process.version !== "v22.12.0") throw new Error("Expected Node.js v22.12.0, got " + process.version)'
+          fixture="$RUNNER_TEMP/env-schema"
+          cp -R packages/codemods/test/fixtures/env-schema/input "$fixture"
+          node packages/codemods/dist/cli.js nuxt-safe-runtime-config "$fixture" --dry-run > "$RUNNER_TEMP/report.txt"
+          cat "$RUNNER_TEMP/report.txt"
+          grep -F "vite-hub needs Node 24.15+; this shell runs 22.12.0." "$RUNNER_TEMP/report.txt"
+          node packages/codemods/dist/cli.js "$fixture" --dry-run
+          current="$RUNNER_TEMP/current-app"
+          mkdir "$current"
+          printf '%s\n' 'export default defineNuxtConfig({ modules: ["vite-hub/nuxt"] })' > "$current/nuxt.config.ts"
+          node packages/codemods/dist/cli.js "$current" --dry-run > "$RUNNER_TEMP/current-report.txt"
+          cat "$RUNNER_TEMP/current-report.txt"
+          grep -F "Nothing to migrate" "$RUNNER_TEMP/current-report.txt"
+          grep -F "vite-hub needs Node 24.15+; this shell runs 22.12.0." "$RUNNER_TEMP/current-report.txt"
+
+  # The workspace and every package except @vite-hub/codemods require Node.js
+  # 24.15. Other jobs run the newest Node.js 24. This job runs the tests for built-ins that change between
   # releases (fs glob, node:sqlite, module hooks, Response brand checks,
   # TextDecoder, and structuredClone) on the exact floor.
   node-floor:
