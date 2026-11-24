@@ -15,7 +15,6 @@ const notReplayed: Record<string, { hooks: readonly ReplayHook[], reason: string
   "@vite-hub/content/vite": { hooks: ["resolveId", "load", "transform"], reason: "The plugin's nitro.setup adds @vite-hub/content/nitro-kv for the KV registration. Without a Vite environment the build makes no Source snapshots, so a cold server parses glob() and files() Sources on its first read." },
   "@vite-hub/database/vite": { hooks: ["resolveId", "load", "transform"], reason: "@vite-hub/database/nuxt owns the Nitro aliases of the Database runtime." },
   "@vite-hub/env/vite": { hooks: ["resolveId", "load"], reason: "@vite-hub/env/vite createEnvImportAliases gives Nitro the generated #vitehub/env/* files as aliases." },
-  "@vite-hub/i18n/vite": { hooks: ["resolveId", "load"], reason: "KNOWN GAP: with i18n.workspace, .vitehub/nitro/i18n/plugin.mjs imports virtual:vite-hub/i18n/build-messages, which the Nitro build leaves unresolved, and the server does not start." },
   "@vite-hub/kv/optional-peers": { hooks: ["resolveId"], reason: "Optional peer stubs; Nuxt aliases the disabled KV drivers itself." },
   "@vite-hub/sandbox/task/vite": { hooks: ["resolveId", "load"], reason: "The plugin's nitro.setup aliases @vite-hub/sandbox/task to the generated facade (#5462)." },
   "@vite-hub/source/vite": { hooks: ["resolveId", "load", "transform"], reason: "KNOWN GAP: glob() Sources are not bundled in the Nitro build. #5463 replays these hooks." },

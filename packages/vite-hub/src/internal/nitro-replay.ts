@@ -18,6 +18,7 @@ export const nitroRuntimeResolverNames = new Set([
   "@vite-hub/blob/vite",
   "@vite-hub/browser/vite",
   "@vite-hub/email/vite",
+  "@vite-hub/i18n/vite",
   "@vite-hub/kv/vite",
   "@vite-hub/markdown-template/vite",
   "@vite-hub/realtime/vite",

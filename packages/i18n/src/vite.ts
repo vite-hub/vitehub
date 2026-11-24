@@ -141,6 +141,7 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
   let serverWrite = Promise.resolve()
   let buildRecords: Promise<Record<string, TranslationRecords>> | undefined
   const browserEnvironments = new Set<string>()
+  const builtClientIds = (): string[] => [...new Set([...browserEnvironments].flatMap(name => Object.keys(manifest.environments[name] ?? {})))].sort()
 
   const setup = (config: ViteHubConfig): void => {
     configured = { ...options, ...config.i18n }
@@ -266,6 +267,7 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
       if (!projectRoot || !locale) return
       if (id === resolvedClientModule) return renderClientModule(importBase, locale, Boolean(configured.workspace))
       if (id === resolvedBuildMessagesModule) {
+        if (isBuild && !this.environment) return `export const clientIds = ${JSON.stringify(builtClientIds())}\nexport const sources = ${JSON.stringify(allMessages(manifest))}\n`
         if (isBuild) return `export const clientIds = ${JSON.stringify(clientIdsMarker)}\nexport const sources = ${JSON.stringify(sourcesMarker)}\n`
         return `export const clientIds = null\nexport const sources = ${JSON.stringify(lingui ? await scanMessages(lingui) : {})}\n`
       }
@@ -310,9 +312,8 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
     },
     async renderChunk(code) {
       if (code.includes(clientIdsMarker) || code.includes(sourcesMarker)) {
-        const ids = [...browserEnvironments].flatMap(name => Object.keys(manifest.environments[name] ?? {}))
         const values: Record<string, string> = {
-          [clientIdsMarker]: JSON.stringify([...new Set(ids)].sort()),
+          [clientIdsMarker]: JSON.stringify(builtClientIds()),
           [sourcesMarker]: JSON.stringify(allMessages(manifest)),
         }
         const output = new MagicString(code)
