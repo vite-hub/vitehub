@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest"
 import { bundleCliContributor } from "../src/cli.ts"
 import { collectEnvironmentReport } from "../src/collect.ts"
 import { compareBundleReports, readSavedBundleReport } from "../src/compare.ts"
-import { writeEnvironmentReport } from "../src/files.ts"
+import { writeBundleReportRoot, writeEnvironmentReport } from "../src/files.ts"
 import { createBundleReport } from "../src/report.ts"
 
 import type { ViteHubCliContext } from "@vite-hub/internal/cli"
@@ -109,6 +109,15 @@ describe("vitehub bundle --against", () => {
     expect(readSavedBundleReport(copy)!.build).toBe("2026-11-07T10:00:00.000Z")
     expect(JSON.parse(run(dir, ["--against", copy, "--json"]).stdout).server.delta.bytes).toBe(320)
     expect(JSON.parse(run(dir, ["--against", otherRoot, "--json"]).stdout).server.delta.bytes).toBe(320)
+  })
+
+  it("follows the report root of another checkout, like a monorepo build in a nested app", () => {
+    const dir = project()
+    writeEnvironmentReport(dir, after)
+    const checkout = mkdtempSync(join(tmpdir(), "vitehub-bundle-checkout-"))
+    writeEnvironmentReport(join(checkout, "apps/web"), before)
+    writeBundleReportRoot(checkout, join(checkout, "apps/web"))
+    expect(JSON.parse(run(dir, ["--against", checkout, "--json"]).stdout).server.delta.bytes).toBe(320)
   })
 
   it("says when both reports are from the same build", () => {
