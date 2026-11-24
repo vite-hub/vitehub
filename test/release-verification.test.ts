@@ -231,7 +231,7 @@ describe("release verification before tagging", () => {
       }).trim()
       git("init", "-q", "-b", "main")
       git("remote", "add", "origin", directory)
-      let manifest = { name: "vitehub", version: "0.4.0", dependencies: { vite: "8.0.0" } }
+      let manifest = { version: "0.4.0", name: "vitehub", dependencies: { vite: "8.0.0" } }
       const shas: string[] = []
       const commits: Change[] = [{ version: "0.4.0" }, ...changes]
       for (const change of commits) {
@@ -276,6 +276,19 @@ describe("release verification before tagging", () => {
       const result = check(directory, shas[1]!)
       expect(result.stderr).not.toContain("No tag is created")
       expect(result.status).toBe(0)
+    })
+
+    it("allows a dependency PR branched before the release and merged after it", () => {
+      const { directory, git, shas } = history([{ version: "0.5.0" }])
+      git("checkout", "-qb", "dependency", shas[0]!)
+      const path = join(directory, "package.json")
+      writeFileSync(path, readFileSync(path, "utf8").replace("8.0.0", "8.1.0"))
+      git("commit", "-qam", "update dependency")
+      git("checkout", "-q", "main")
+      git("merge", "-q", "--no-ff", "dependency")
+
+      const result = check(directory, shas[1]!)
+      expect(result.status, result.stderr).toBe(0)
     })
 
     it("refuses the tag after a revert of the release", () => {

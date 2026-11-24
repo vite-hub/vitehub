@@ -266,7 +266,13 @@ Review the version, package changes, CI result, and release notes before merging
 
 Before the publish job publishes a package, it checks each package that npm does not yet show at the release version. The package must exist on npm, and npm must accept the identity of `release.yml` in a trusted publisher OIDC exchange. The job discards the token. If a check fails, the job lists each failed package and publishes nothing. The exchange checks identity, not permission to publish directly: a stage-only publisher can pass preflight and fail later, after other packages have published.
 
-If merge verification fails before the tag exists, rerun the failed jobs when the failure is transient. Otherwise, revert the release PR and merge the revert. The release PR opens again at the same version, and fixes merge as normal PRs. To get a fresh CI result on the reopened PR, delete the old `release/vX.Y.Z` branch before you merge the revert. A late or rerun verify of the reverted release does not tag it. After the tag exists, do not revert. Use the section below.
+If merge verification fails before the tag exists, rerun the failed jobs when the failure is transient. Otherwise, roll back the release:
+
+1. Cancel all queued and running **prepare release** runs that could tag this release, including manual `recover_failed_release` runs. Wait for them to stop. Do not start or rerun verification or legacy recovery for the discarded release once you choose rollback.
+2. Confirm the tag still does not exist on GitHub, for example with `git ls-remote --tags origin refs/tags/vX.Y.Z`. If the tag exists, do not revert. Use [Recover a failed npm publication](#recover-a-failed-npm-publication) instead.
+3. Delete the old `release/vX.Y.Z` branch to get fresh CI on the reopened PR. Revert the release PR and merge the revert only after the first two steps are complete.
+
+The release PR opens again at the same version, and fixes merge as normal PRs. The tag job checks `main` before creating the tag, but a run that already passed that check can still create it. That's why the rollback must wait for in-flight runs to stop.
 
 The older recovery path still works while no other PR has merged after the failed release merge: merge a correction PR directly after it, then manually run **prepare release** on `main` with `recover_failed_release` enabled and its `recovery_pr` number. Recovery runs the full gate and tags that reviewed correction commit with the original unpublished version.
 
