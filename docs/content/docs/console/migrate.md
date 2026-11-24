@@ -108,10 +108,12 @@ The SQL finds guests by the `vitehub-site-guest` account, not by the email, so i
 :::tabs-item{label="SQLite and D1"}
 ```sql [site-access-cleanup.sql]
 DROP TABLE IF EXISTS "vitehub_console_site";
-DELETE FROM "session" WHERE "user_id" IN (SELECT "user_id" FROM "account" WHERE "provider_id" = 'vitehub-site-guest');
-DELETE FROM "account" WHERE "provider_id" <> 'vitehub-site-guest' AND "user_id" IN (SELECT "user_id" FROM "account" WHERE "provider_id" = 'vitehub-site-guest');
-DELETE FROM "user" WHERE "id" IN (SELECT "user_id" FROM "account" WHERE "provider_id" = 'vitehub-site-guest');
-DELETE FROM "account" WHERE "provider_id" = 'vitehub-site-guest';
+CREATE TABLE IF NOT EXISTS "vitehub_site_guest_cleanup" ("id" PRIMARY KEY);
+INSERT OR IGNORE INTO "vitehub_site_guest_cleanup" SELECT "user_id" FROM "account" WHERE "provider_id" = 'vitehub-site-guest';
+DELETE FROM "session" WHERE "user_id" IN (SELECT "id" FROM "vitehub_site_guest_cleanup");
+DELETE FROM "account" WHERE "user_id" IN (SELECT "id" FROM "vitehub_site_guest_cleanup");
+DELETE FROM "user" WHERE "id" IN (SELECT "id" FROM "vitehub_site_guest_cleanup");
+DROP TABLE "vitehub_site_guest_cleanup";
 WITH RECURSIVE "piece"("user_id", "n", "raw", "rest") AS (
   SELECT "id", 0, NULL, "role" || ',' FROM "user" WHERE "role" IS NOT NULL
   UNION ALL
@@ -155,7 +157,7 @@ cat site-access-cleanup.sql | pnpm vitehub database sql
 cat site-access-cleanup.sql | pnpm vitehub database sql --remote --stage production
 ```
 
-The SQL keeps the other roles of a member, such as `admin` or `user`, as they are written, and sets `role` to `NULL` when no role stays. A member that Site access made from an email keeps the user row, without the Site access roles. Delete these users in the Auth section of the Console if you do not need them. D1 does not accept `BEGIN` and `COMMIT`, so the SQL has no transaction. `vitehub database sql` stops at the first error, and you can run the SQL again after you fix it.
+The SQL keeps the other roles of a member, such as `admin` or `user`, as they are written, and sets `role` to `NULL` when no role stays. A member that Site access made from an email keeps the user row, without the Site access roles. Delete these users in the Auth section of the Console if you do not need them. D1 does not accept `BEGIN` and `COMMIT`, so the SQL has no transaction. On SQLite and D1 it keeps the guest ids in the `vitehub_site_guest_cleanup` table until the guests are deleted. `vitehub database sql` stops at the first error, and you can run the SQL again after you fix it.
 
 ## Drop the usage tables
 

@@ -16,13 +16,13 @@ function sqlBlock(file: string, after = ""): string {
 const siteAccessSql = sqlBlock("site-access-cleanup.sql", ":::tabs-item{label=\"SQLite and D1\"}")
 const usageSql = sqlBlock("drop-console-usage.sql")
 
-function appDatabase(): DatabaseSync {
+function appDatabase(onDelete = "CASCADE"): DatabaseSync {
   const db = new DatabaseSync(":memory:")
   db.exec(`
     PRAGMA foreign_keys = ON;
     CREATE TABLE "user" ("id" TEXT PRIMARY KEY, "name" TEXT NOT NULL, "email" TEXT NOT NULL UNIQUE, "email_verified" INTEGER NOT NULL, "role" TEXT);
-    CREATE TABLE "session" ("id" TEXT PRIMARY KEY, "token" TEXT NOT NULL, "user_id" TEXT NOT NULL REFERENCES "user"("id") ON DELETE CASCADE);
-    CREATE TABLE "account" ("id" TEXT PRIMARY KEY, "account_id" TEXT NOT NULL, "provider_id" TEXT NOT NULL, "user_id" TEXT NOT NULL REFERENCES "user"("id") ON DELETE CASCADE);
+    CREATE TABLE "session" ("id" TEXT PRIMARY KEY, "token" TEXT NOT NULL, "user_id" TEXT NOT NULL REFERENCES "user"("id") ON DELETE ${onDelete});
+    CREATE TABLE "account" ("id" TEXT PRIMARY KEY, "account_id" TEXT NOT NULL, "provider_id" TEXT NOT NULL, "user_id" TEXT NOT NULL REFERENCES "user"("id") ON DELETE ${onDelete});
     CREATE TABLE "vitehub_console_site" ("namespace" TEXT NOT NULL, "key" TEXT NOT NULL, "value" TEXT NOT NULL, "expires_at" INTEGER, PRIMARY KEY ("namespace", "key"));
     INSERT INTO "vitehub_console_site" VALUES ('site', 'invite:1', '{}', NULL);
   `)
@@ -100,6 +100,14 @@ const expected = {
 describe("Console migration SQL on SQLite", () => {
   it("drops vitehub_console_site, deletes the Site access guests with their sessions and accounts, and keeps the other roles of members", () => {
     const db = appDatabase()
+    db.exec(siteAccessSql)
+    expect(snapshot(db)).toEqual(expected)
+    db.exec(siteAccessSql)
+    expect(snapshot(db)).toEqual(expected)
+  })
+
+  it("deletes the guests when the foreign keys have no cascade", () => {
+    const db = appDatabase("NO ACTION")
     db.exec(siteAccessSql)
     expect(snapshot(db)).toEqual(expected)
     db.exec(siteAccessSql)
