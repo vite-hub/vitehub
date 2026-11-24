@@ -139,7 +139,7 @@ it.each([
   const requestPolicy = join(rootDir, ".vitehub/nitro/request-policy.mjs")
   const standardContext = join(rootDir, ".vitehub/nitro/standard-context.mjs")
   expect((nitroConfig.plugins as string[]).slice(0, 4)).toEqual([generated, requestPolicy, standardContext, "/app/existing-plugin.mjs"])
-  expect(nitroConfig.plugins).not.toContain(join(rootDir, ".vitehub/nitro/workflow/dev-plugin.mjs"))
+  expect(nitroConfig.plugins).not.toContain(join(rootDir, ".vitehub/nitro/workflow/build-plugin.mjs"))
   expect((nitroConfig.plugins as string[]).filter(plugin => plugin === generated)).toHaveLength(1)
   await expect(readFile(generated, "utf8")).resolves.toContain(installation)
 })

@@ -31,7 +31,7 @@ This example lets anyone comment and edit, so keep it on your computer. [Decide 
 ## Turn on Comments
 
 ```bash [commands/install]
-pnpm add vite-hub @vite-hub/comments @vite-hub/content @vite-hub/database @vite-hub/realtime drizzle-orm@1.0.0-rc.5 h3 zod
+pnpm add vite-hub @vite-hub/cms @vite-hub/comments @vite-hub/content @vite-hub/database @vite-hub/realtime drizzle-orm@1.0.0-rc.5 h3 zod
 pnpm add -D drizzle-kit@1.0.0-rc.5 nitro
 ```
 
@@ -102,7 +102,7 @@ export const comments = defineComments({
 })
 ```
 
-Comments adds the tables `vitehub_comment_threads`, `vitehub_comment_messages`, and `vitehub_comment_counters` to the `default` Database. Generate the migration and apply it:
+Comments adds the tables `vitehub_comment_threads`, `vitehub_comment_messages`, `vitehub_comment_counters`, and `vitehub_comment_forge` to the `default` Database. Generate the migration and apply it:
 
 ```bash [commands/migrate]
 pnpm vitehub database generate

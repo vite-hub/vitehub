@@ -332,7 +332,7 @@ describe("vitehub status", () => {
       const missing = (await runSetup<SetupStatus>(["status", "--json"], root)).json
       expect(feature(missing, "schedule")).toMatchObject({ fix: "pnpm add @vite-hub/schedule", missingPackages: ["@vite-hub/schedule"] })
       expect(feature(missing, "database")).toMatchObject({
-        fix: "pnpm add @vite-hub/database drizzle-orm && pnpm add -D drizzle-kit",
+        fix: 'pnpm add @vite-hub/database "drizzle-orm@1.0.0-rc.5 || ^1.0.0" && pnpm add -D "drizzle-kit@1.0.0-rc.5 || ^1.0.0"',
         missingPackages: ["@vite-hub/database", "drizzle-orm", "drizzle-kit"],
       })
 

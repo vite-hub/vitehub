@@ -68,6 +68,7 @@ const operationProbes = [
   ["invocations.undo", state => ({ change: absent, id: state.invocation ?? absent }), invocationFailures],
   ["conversations.export", { agent, channel: absent, thread: absent }, channelFailures],
   ["usage.get", {}],
+  ["invocations.usage", {}],
   ["search.query", { search: "hello" }],
   ["env.get", {}],
   ["env.inspect", {}],
@@ -91,6 +92,7 @@ const operationProbes = [
   ["documents.preview", { collection: absent, id: absent, section: "content" }, sectionFailures],
   ["media.action", { action: "list", section: "content" }, sectionFailures],
   ["media.upload", { data: "", filename: "console-weight.txt", section: "content" }, sectionFailures],
+  ["site.access", {}],
   ["site.grants", {}],
   ["site.sessions", {}, [], (value, state) => {
     state.sessionsBefore = Array.isArray(value?.sessions) ? value.sessions.length : undefined
