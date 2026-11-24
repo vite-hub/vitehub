@@ -33,6 +33,6 @@ Notes:
   - Auth keeps users in the app Database with authDatabase(). Run `vitehub database generate`: when the Better Auth tables exist, ViteHub reads them from the latest migration snapshot and adds only what is missing.
 
 Next steps:
-  - Run `pnpm install` to install vite-hub and @vite-hub/auth and remove @nuxtjs/better-auth.
+  - Run `pnpm install` to install vite-hub, @vite-hub/auth, and better-auth and remove @nuxtjs/better-auth.
   - Run `npx nuxi prepare`, then type-check the app.
   - Sign up, sign in, and open a guarded page to check the migration.

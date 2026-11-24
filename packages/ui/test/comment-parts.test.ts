@@ -95,9 +95,9 @@ function withState(child: () => ReturnType<typeof h>, comments = client()) {
 }
 
 function addFiles(wrapper: Pick<VueWrapper, "get">, files: File[]) {
-  const input = wrapper.get("input[type=file]").element as HTMLInputElement;
-  Object.defineProperty(input, "files", { configurable: true, value: files });
-  input.dispatchEvent(new Event("change"));
+  const input = wrapper.get("input[type=file]");
+  Object.defineProperty(input.element, "files", { configurable: true, value: files });
+  void input.trigger("change");
 }
 
 describe("mention ranking", () => {
@@ -383,6 +383,7 @@ describe("composer attachments", () => {
   });
 
   it("does not send files without text in a new comment unless allowEmpty is on", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.now());
     const wrapper = keep(mount(CommentComposer, { attachTo: document.body, global, props: { autofocus: false, guard: false } }));
     addFiles(wrapper, [shot]);
     await flushPromises();
