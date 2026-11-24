@@ -176,8 +176,8 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ host }: { host?: unknown }) => `init cannot change an enabled ViteHub stack to the ${String(host)} host.`,
     },
     SETUP_INIT_NUXT_VERSION: {
-      fix: ({ dir, scaffolded }: { dir?: unknown, scaffolded?: unknown }) => `${scaffolded ? `The scaffold files remain in ${String(dir)}. ` : ""}Set nuxt to a Nuxt 5 version, then run init on that folder again.`,
-      why: ({ dir }: { dir?: unknown }) => `${String(dir)} does not declare a known Nuxt 5 version. ViteHub did not adopt it.`,
+      fix: ({ dir, scaffolded }: { dir?: unknown, scaffolded?: unknown }) => `${scaffolded ? `The scaffold files remain in ${String(dir)}. ` : ""}Upgrade to Nuxt 4.7 with Nitro 3 (\`pnpm add nuxt@^4.7.0 nitro\`), or set nuxt to a Nuxt 5 version. Then run init on that folder again.`,
+      why: ({ dir }: { dir?: unknown }) => `${String(dir)} does not declare a supported Nuxt version. ViteHub needs Nitro 3, which runs on Nuxt 4.7 with the nitro package, or on Nuxt 5. ViteHub did not adopt it.`,
     },
     SETUP_DEPLOY_HOST_UNSUPPORTED: {
       fix: "Set `host` in vitehub() to cloudflare, vercel, netlify, or deno, or start the Node server from `.output` yourself.",
