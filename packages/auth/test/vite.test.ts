@@ -255,6 +255,7 @@ describe("hubAuth", () => {
       nitro: { handlers: expect.arrayContaining([
         { handler: join(root, ".vitehub/auth/route.ts"), lazy: true, route: "/api/auth/**" },
         { handler: join(root, ".vitehub/auth/access-middleware.ts"), middleware: true, route: "/**" },
+        { handler: join(root, ".vitehub/auth/client-request-middleware.ts"), middleware: true, route: "/**" },
       ]) },
     })
     await expect(readFile(join(root, ".vitehub/auth/access-middleware.ts"), "utf8")).resolves.toContain("/private/**")
@@ -594,7 +595,7 @@ describe("hubAuth", () => {
     expect(nitro.cloudflare.wrangler.secrets.required).toEqual(["VITEHUB_TOKEN"])
     expect(nitro.plugins).toEqual(["/app/plugin.ts"])
     expect(createAuthNitroConfig(hubAuth(), { nitro: inlineConfig.nitro, projectRoot: root })).toEqual(nitro)
-    expect(nitro.handlers).toEqual([middleware, { handler: resolve(root, ".vitehub/auth/route.ts"), lazy: true, route: "/api/auth/**" }])
+    expect(nitro.handlers).toEqual([middleware, { handler: resolve(root, ".vitehub/auth/client-request-middleware.ts"), middleware: true, route: "/**" }, { handler: resolve(root, ".vitehub/auth/route.ts"), lazy: true, route: "/api/auth/**" }])
     expect(resolved.server.watch?.ignored).toEqual(["**/dist/**", "**/.vitehub/**"])
     expect(resolved.ssr.noExternal).toEqual(["existing", "@vite-hub/auth"])
     expect(resolved.environments.ssr?.resolve.noExternal).toEqual(["existing", "@vite-hub/auth"])
@@ -606,7 +607,7 @@ describe("hubAuth", () => {
     const middleware = { handler: "/app/middleware.ts", middleware: true, route: "/**" }
     const nitro = { handlers: [middleware], plugins: ["/app/plugin.ts"] }
     const composed = createAuthNitroConfig(hubAuth(), { nitro, projectRoot: root })
-    expect(composed).toMatchObject({ handlers: [middleware, { handler: resolve(root, ".vitehub/auth/route.ts"), route: "/api/auth/**" }], plugins: ["/app/plugin.ts"] })
+    expect(composed).toMatchObject({ handlers: [middleware, { handler: resolve(root, ".vitehub/auth/client-request-middleware.ts"), middleware: true, route: "/**" }, { handler: resolve(root, ".vitehub/auth/route.ts"), route: "/api/auth/**" }], plugins: ["/app/plugin.ts"] })
     expect(nitro).toEqual({ handlers: [middleware], plugins: ["/app/plugin.ts"] })
     const repeated = createAuthNitroConfig(hubAuth(), { nitro: composed, projectRoot: root })
     expect(repeated).toEqual(composed)
@@ -621,7 +622,7 @@ describe("hubAuth", () => {
 
     expect(config({ root })).toMatchObject({
       nitro: {
-        handlers: [{
+        handlers: [{ handler: resolve(root, ".vitehub/auth/client-request-middleware.ts"), middleware: true, route: "/**" }, {
           handler: resolve(root, ".vitehub/auth/route.ts"),
           route: "/api/auth/**",
         }],
@@ -647,6 +648,7 @@ describe("hubAuth", () => {
     expect(config({ root })).toMatchObject({
       nitro: {
         handlers: [
+          { handler: resolve(root, ".vitehub/auth/client-request-middleware.ts"), middleware: true, route: "/**" },
           {
             handler: resolve(root, ".vitehub/auth/route.ts"),
             lazy: true,
@@ -687,7 +689,7 @@ describe("hubAuth", () => {
 
     expect(config({ root })).toMatchObject({
       nitro: {
-        handlers: [{
+        handlers: [{ handler: resolve(root, ".vitehub/auth/client-request-middleware.ts"), middleware: true, route: "/**" }, {
           handler: resolve(root, ".vitehub/auth/route.ts"),
           lazy: true,
           route: "/auth/**",

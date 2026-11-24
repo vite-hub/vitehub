@@ -4,6 +4,7 @@ import { canonicalAccessPath, resolveAccessRoutePath } from "../application-path
 import { authErrorDiagnostics } from "../error-diagnostics.ts"
 import { routedToAccessHandler } from "../own-access.ts"
 import { unwrapAuthRequest } from "../request.ts"
+import { runWithClientRequest } from "../client-request.ts"
 import { getAuthRuntimeState } from "../runtime-state.ts"
 
 export { authAccessHandlerMeta } from "../own-access.ts"
@@ -91,6 +92,14 @@ export function createAuthAccessRouteMatcher(
 }
 
 type AuthAccessHandler = (input: AuthRequestInput) => Promise<Response | undefined>
+
+/**
+ * The middleware of generated hosts that keeps each client request for the requests that the server serves in process
+ * for it, so Auth reads their session at the origin of the client request.
+ */
+export function authClientRequestMiddleware(input: AuthRequestInput, next: () => unknown): unknown {
+  return runWithClientRequest(unwrapAuthRequest(input), next)
+}
 
 /**
  * The access middleware of generated hosts. A request that no access route matches returns without loading `load()`,

@@ -10,6 +10,7 @@ import { HTTPError } from "nitro/h3"
 import { canonicalAccessPath, resolveAuthMountPath } from "../application-path.ts"
 import { normalizeAuthBasePath } from "../shared.ts"
 import { authRequestEvent, unwrapAuthRequest } from "../request.ts"
+import { clientRequest } from "../client-request.ts"
 import { resolveAuthOptions, trustsProxyHeaders } from "../runtime-options.ts"
 import { authenticationRefusalError, authenticationRefusalResponse, getAuthenticationSession, type AuthenticationRefusal, type AuthenticationSessionSnapshot } from "../session.ts"
 import { prepareSessionCookies, sendSessionCookies } from "../session-cookies.ts"
@@ -1151,7 +1152,8 @@ async function readCaller(event: AuthRequestInput, definition: AuthDefinition): 
     if (isJwsToken(token) && mcpOAuthResources(options.plugins).length) {
       const { verifyAppAccessToken } = await import("../mcp-token.ts")
       const url = new URL(request.url)
-      const origin = trustsProxyHeaders(options) ? forwardedRequestOrigin(request) : url.origin
+      const client = clientRequest(request)
+      const origin = trustsProxyHeaders(options) ? forwardedRequestOrigin(client) : new URL(client.url).origin
       const [error, caller] = await verifyAppAccessToken(token, origin, url.pathname, auth)
       if (error) return [error, undefined]
       return [undefined, Object.freeze({

@@ -7,7 +7,7 @@ import { it } from "vitest"
 
 const execFile = promisify(execFileCallback)
 
-it("renders a guarded Nuxt page and lists sessions at the HTTPS request origin", async () => {
+it("renders a guarded Nuxt page, lists sessions, and calls guarded API routes at the HTTPS request origin", async () => {
   const cache = resolve(import.meta.dirname, "../../../.cache")
   await mkdir(cache, { recursive: true })
   const root = await mkdtemp(join(cache, "nuxt-secure-session-"))
@@ -41,12 +41,36 @@ export default defineMiddleware((event) => {
   }
 })
 `)
+    await mkdir(join(root, "server/api"), { recursive: true })
+    await writeFile(join(root, "server/api/items.get.ts"), `import { defineHandler } from "nitro"
+import { requireAuth } from "@vite-hub/auth/server"
+
+export default defineHandler(async (event) => {
+  const { user } = await requireAuth(event)
+  return { email: user.email }
+})
+`)
+    await writeFile(join(root, "server/api/session.get.ts"), `import { defineHandler } from "nitro"
+import { useAuth } from "@vite-hub/auth/server"
+
+export default defineHandler(async (event) => {
+  const session = await useAuth(event).api.getSession({ headers: event.req.headers })
+  return { email: session?.user.email ?? null }
+})
+`)
     await mkdir(join(root, "app/pages"), { recursive: true })
     await writeFile(join(root, "app/pages/private.vue"), `<script setup>
 definePageMeta({ auth: "user" })
 const { data } = await useAuthClient().listSessions()
 </script>
 <template><div>Signed-in sessions: {{ data?.length }}</div></template>
+`)
+    await writeFile(join(root, "app/pages/items.vue"), `<script setup>
+definePageMeta({ auth: "user" })
+const { data: items, error } = await useFetch("/api/items")
+const { data: session } = await useFetch("/api/session")
+</script>
+<template><div>Items of {{ items?.email }} ({{ error?.statusCode ?? "ok" }}), session of {{ session?.email }}</div></template>
 `)
     await writeFile(join(root, "probe.mjs"), `import assert from "node:assert/strict"
 import server from "./.output/server/index.mjs"
@@ -65,6 +89,9 @@ assert.equal((await session.json()).user.email, "ada@example.com")
 const page = await server.fetch(new Request(origin + "/private", { headers: { cookie, host: new URL(origin).host } }))
 assert.equal(page.status, 200, page.headers.get("location"))
 assert.match(await page.text(), /Signed-in sessions: 1/)
+const items = await server.fetch(new Request(origin + "/items", { headers: { cookie, host: new URL(origin).host } }))
+assert.equal(items.status, 200, items.headers.get("location"))
+assert.match(await items.text(), /Items of ada@example.com \\(ok\\), session of ada@example.com/)
 `)
 
     const { build, loadNuxt } = await import("nuxt")

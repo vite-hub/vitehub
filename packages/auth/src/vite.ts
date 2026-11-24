@@ -48,6 +48,7 @@ const authPackageName = "@vite-hub/auth"
 const envServerModuleId = "#vitehub/env/server"
 const envVitePluginName = "@vite-hub/env/vite"
 const generatedAuthAccessMiddlewareHandler = ".vitehub/auth/access-middleware.ts"
+const generatedAuthClientRequestMiddlewareHandler = ".vitehub/auth/client-request-middleware.ts"
 const generatedAuthRouteHandler = ".vitehub/auth/route.ts"
 const generatedAuthSchema = ".vitehub/auth/schema.ts"
 const cachedAccessRouteGuardName = "vite-hub/auth-cached-access-route-guard"
@@ -239,6 +240,10 @@ function renderAuthAccessMiddlewareHandler(config: ResolvedAuthViteConfig | unde
   ].join("\n")
 }
 
+function renderAuthClientRequestMiddlewareHandler(importBase = authPackageName): string {
+  return `export { authClientRequestMiddleware as default } from ${JSON.stringify(privateAuthImport(importBase, "runtime/server"))}\n`
+}
+
 /** A relative `import()` type specifier that resolves under NodeNext and bundler resolution: `auth.ts` becomes `auth.js`. */
 function typeImportSpecifier(from: string, file: string): string {
   const path = relative(from, file).replaceAll("\\", "/").replace(/\.([cm]?)ts$/, ".$1js")
@@ -304,6 +309,7 @@ function renderAuthServerTypes(importBase: string = authPackageName): string {
 async function refreshAuthGeneratedFiles(root: string, config?: ResolvedAuthViteConfig, options: { client?: string, importBase?: string, serverEnv?: boolean } = {}): Promise<void> {
   await Promise.all([
     writeFileIfChanged(resolve(root, generatedAuthAccessMiddlewareHandler), renderAuthAccessMiddlewareHandler(config, options.importBase)),
+    writeFileIfChanged(resolve(root, generatedAuthClientRequestMiddlewareHandler), renderAuthClientRequestMiddlewareHandler(options.importBase)),
     writeFileIfChanged(authAmbientTypesPath(root), renderAuthAmbientTypes({
       abilities: config?.abilities && typeImportSpecifier(dirname(authAmbientTypesPath(root)), config.abilities),
       client: options.client && typeImportSpecifier(dirname(authAmbientTypesPath(root)), options.client),
@@ -360,6 +366,11 @@ function mergeNitroAuthHandler(value: unknown, config: ResolvedAuthViteConfig | 
 
   const kit = createNitroServerKit(nitro)
   const authHandlers: NitroHandler[] = [
+    {
+      handler: resolve(resolveViteHubProjectRoot(config.rootDir), generatedAuthClientRequestMiddlewareHandler),
+      middleware: true,
+      route: "/**",
+    },
     ...(config.route === false
       ? []
       : [{

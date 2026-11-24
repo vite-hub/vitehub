@@ -25,6 +25,7 @@ import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
 import { optionsKey } from "./options-key.ts"
 import { authCloudflareEnv } from "./request.ts"
+import { clientRequest } from "./client-request.ts"
 import { assertNoRuntimeOption, validateAuthAccessPolicy, validateAuthComponents } from "./definition.ts"
 import { createAccessPolicyPlugin } from "./access-policy.ts"
 import { siteRolesPlugin } from "./site-roles.ts"
@@ -274,8 +275,9 @@ export function resolveAuthOptions(
   const callback = typeof definition.options === "function"
   const usesContext = !request || callback
   const env = usesContext ? input.env?.(input.event) ?? {} : {}
-  const requestUrlOrigin = request ? new URL(request.url).origin : undefined
-  const proxiedOrigin = request ? forwardedRequestOrigin(request) : undefined
+  const origin = request && clientRequest(request)
+  const requestUrlOrigin = origin ? new URL(origin.url).origin : undefined
+  const proxiedOrigin = origin ? forwardedRequestOrigin(origin) : undefined
   const resolveAt = (origin: string | undefined) => {
     const context: AuthRuntimeContext = {
       env,
@@ -304,8 +306,8 @@ export function resolveAuthOptions(
   const { declared, trusted } = resolved
   // A callback result is request-scoped as a whole. A static Definition adds only the request defaults below.
   let requestRuntimeOptions = (callback ? declared : {}) as AuthRuntimeOptions & Record<string, unknown>
-  if (request) {
-    const requestOrigin = trusted && proxiedOrigin ? proxiedOrigin : request.url
+  if (origin) {
+    const requestOrigin = trusted && proxiedOrigin ? proxiedOrigin : origin.url
     const baseURL = requestRuntimeOptions.baseURL || resolvePublicUrl({ request: { url: requestOrigin } })
     if (!baseURL) {
       throw authErrorDiagnostics.AUTH_R0022({ message: `[vitehub] The request host ${new URL(requestOrigin).host} is not an origin of vitehub({ publicUrl }), so Auth has no base URL.` })
