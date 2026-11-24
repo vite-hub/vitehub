@@ -56,12 +56,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          merged_branch="$(gh api "repos/${GITHUB_REPOSITORY}/pulls?state=closed&base=main&sort=updated&direction=desc&per_page=100" \
-            --jq '[.[] | select(.merged_at != null and .head.repo.full_name == .base.repo.full_name and (.head.ref | startswith("release/v")))] | sort_by(.merged_at) | last | .head.ref // empty')"
-          if [[ -z "$merged_branch" ]]; then
-            exit 0
-          fi
-          release_tag="${merged_branch#release/}"
+          # Main at an untagged version means a merged release still waits for its tag.
+          # A revert of the release PR moves main back to a tagged version.
+          version="$(node -p "require('./package.json').version")"
+          release_tag="v${version}"
           tag_sha="$(bash .github/scripts/lookup-release-tag.sh "$release_tag")"
           mapfile -t stale_prs < <(gh api "repos/${GITHUB_REPOSITORY}/pulls?state=open&base=main&per_page=100" \
             --jq '.[] | select(.head.repo.full_name == .base.repo.full_name and (.head.ref | startswith("release/v"))) | "\(.number)|\(.head.sha)"')
@@ -75,8 +73,9 @@ jobs:
             fi
             gh pr close "$pr" --repo "$GITHUB_REPOSITORY" --delete-branch
           done
-          if [[ -z "$tag_sha" || "$tag_sha" == "$GITHUB_SHA" ]]; then
+          if [[ -z "$tag_sha" ]]; then
             echo "pending=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::main is at ${version} and ${release_tag} is not tagged. Rerun the failed verify jobs, or revert the release PR to roll back."
           fi
       - uses: danielroe/uppt/pr@6c1a9b480b0f02a3f535dedaf1a113f590aa56f2 # v0.6.12
         if: steps.current.outputs.current == 'true' && steps.pending-release.outputs.pending != 'true'
@@ -314,11 +313,32 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
           persist-credentials: false
       - name: Check release candidate again
         env:
           RELEASE_BRANCH: ${{ github.event.pull_request.head.ref }}
         run: node .github/scripts/check-release-candidate.mjs "$RELEASE_BRANCH"
+      # A revert of the release PR rolls the release back, so a late or rerun job must not tag it.
+      - name: Check that main still carries this release
+        env:
+          RELEASE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          VERIFIED_VERSION: ${{ needs.verify-release.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$RELEASE_SHA" FETCH_HEAD; then
+            echo "Release merge ${RELEASE_SHA} is not on main. No tag is created." >&2
+            exit 1
+          fi
+          for sha in $(git rev-list "${RELEASE_SHA}..FETCH_HEAD" -- package.json); do
+            version="$(git show "${sha}:package.json" | jq -r .version)"
+            if [[ "$version" != "$VERIFIED_VERSION" ]]; then
+              echo "main changed to ${version} in ${sha} after this release merged. The release was rolled back. No tag is created." >&2
+              exit 1
+            fi
+          done
       - name: Create tag and dispatch verified release
         env:
           GH_TOKEN: ${{ github.token }}
