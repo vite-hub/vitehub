@@ -146,6 +146,7 @@ function isNonFastForward(error: unknown) {
 class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   #baseline: WorkspaceSnapshot | undefined
   #branch = "main"
+  #digests = new WeakMap<Uint8Array, string>()
   #files = new Map<string, FileMetadata>()
   #fs: MemoryFS | undefined
   #head: string | undefined
@@ -233,7 +234,7 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
       if (entry.kind === "file") {
         const fileMetadata = this.#files.get(path)
         entries.push({
-          digest: await sha256(entry.data),
+          digest: await this.#digest(entry.data),
           mediaType: fileMetadata?.mediaType,
           metadata: structuredClone(fileMetadata?.metadata),
           mtime: entry.mtimeMs,
@@ -248,6 +249,15 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
     }
 
     return entries.sort((a, b) => a.path.localeCompare(b.path))
+  }
+
+  async #digest(data: Uint8Array): Promise<string> {
+    let digest = this.#digests.get(data)
+    if (digest === undefined) {
+      digest = await sha256(data)
+      this.#digests.set(data, digest)
+    }
+    return digest
   }
 
   async glob(pattern: string | string[], options: GlobOptions = {}): Promise<WorkspaceEntry[]> {
@@ -266,10 +276,10 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
   async #stat(normalized: string): Promise<WorkspaceStat | undefined> {
     const stat = await this.#fs!.promises.stat(this.#absolute(normalized)).catch(() => undefined) as { isFile(): boolean, isDirectory(): boolean, mtimeMs?: number, size?: number } | undefined
     if (!stat) return undefined
-    const bytes = stat.isFile() ? await this.#fs!.promises.readFile(this.#absolute(normalized)) as Uint8Array : undefined
+    const entry = this.#fs!.entries.get(this.#fs!.normalize(this.#absolute(normalized)))
     const fileMetadata = stat.isFile() ? this.#files.get(normalized) : undefined
     return {
-      digest: bytes ? await sha256(bytes) : undefined,
+      digest: entry?.kind === "file" ? await this.#digest(entry.data) : undefined,
       mediaType: fileMetadata?.mediaType,
       metadata: structuredClone(fileMetadata?.metadata),
       mtime: stat.mtimeMs,

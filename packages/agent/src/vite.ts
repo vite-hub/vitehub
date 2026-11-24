@@ -161,6 +161,7 @@ const generatedAgentDenoServer = "agent/deno-server.ts"
 const generatedAgentDiscordGatewayRouteHandler = "agent/discord-gateway-route.ts"
 const generatedAgentDiscordGatewayPlugin = "agent/discord-gateway-plugin.ts"
 const generatedAgentWebhookRouteHandler = "agent/chat-webhook-route.ts"
+const generatedAgentHttpRoute = "agent/http-route.ts"
 const generatedAgentDeclaredWebhookRouteHandler = "agent/declared-webhook-route.ts"
 const generatedAgentPreparationPlugin = "agent/preparation-plugin.ts"
 const generatedAgentPreparationHandler = "agent/preparation-route.ts"
@@ -1602,7 +1603,7 @@ function generatedHostedWorkspaceRuntimeSetup(
 async function writeAgentRuntimeRegistry(
   root: string,
   definitions: DiscoveredAgentDefinition[],
-  options: { agentHost?: boolean } = {},
+  options: { agentHost?: string } = {},
 ): Promise<void> {
   const seen = new Set<string>()
   for (const definition of definitions) {
@@ -1613,6 +1614,7 @@ async function writeAgentRuntimeRegistry(
   }
   const registryPath = join(root, generatedAgentRegistry)
   const catalogPath = join(root, generatedAgentRegistryCatalog)
+  const hostImport = options.agentHost && moduleImportSpecifier(registryPath, join(root, options.agentHost))
   await mkdir(dirname(registryPath), { recursive: true })
   // SAFETY: this accumulator is intentionally mutable while generating one lazy registry entry per definition.
   const entries = [] as string[]
@@ -1620,7 +1622,6 @@ async function writeAgentRuntimeRegistry(
     const definition = definitions[index]
     const definitionCatalogPath = join(dirname(catalogPath), `${basename(catalogPath, extname(catalogPath))}-${index}${extname(catalogPath)}`)
     const catalog = await generateAgentDeploymentCatalog([definition], definitionCatalogPath, {
-      ...options,
       channelHandlers: false,
       workspaceRegistry: false,
       resetPublicUrlAgentNames: false,
@@ -1630,7 +1631,6 @@ async function writeAgentRuntimeRegistry(
   }
   // Keep the aggregate catalog for development refreshes and existing consumers.
   const aggregateCatalog = await generateAgentDeploymentCatalog(definitions, catalogPath, {
-    ...options,
     channelHandlers: false,
     workspaceRegistry: false,
   })
@@ -1642,7 +1642,7 @@ async function writeAgentRuntimeRegistry(
     "resetPublicUrlAgentNames()",
     `export default {${entries.length ? `\n  ${entries.join(",\n  ")}\n` : ""}}`,
     `export const metadata = {${generatedAgentIdentityEntries(definitions)}}`,
-    `export async function loadAgentHost() {${options.agentHost ? ' await import("./chat-webhook-route") ' : ""}}`,
+    `export async function loadAgentHost() {${hostImport ? ` await import(${JSON.stringify(hostImport)}) ` : ""}}`,
     "",
   ].join("\n"))
 }
@@ -2127,6 +2127,7 @@ async function writeAgentWebhookRouteHandler(
   options = { ...options, standaloneChannels, explicitWebhookAliasPaths: Object.keys(options.webhookAliases || {}), webhookAliases: standaloneChannelWebhookAliases(standaloneChannels, options.webhookAliases) }
   await mkdir(dirname(handlerPath), { recursive: true })
   await writeFileIfChanged(handlerPath, await generateAgentWebhookRouteHandler(definitions, handlerPath, options))
+  await writeFileIfChanged(join(root, generatedAgentHttpRoute), `export { default } from "./chat-webhook-route"\n`)
   // Nitro middleware passes a request on when it returns nothing, so this one stays an event handler. A Fetchable must
   // return a Response. It imports nothing from H3: it gives the Request to the route module.
   await writeFileIfChanged(join(root, generatedAgentDeclaredWebhookRouteHandler), [
@@ -2896,7 +2897,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
     // inventory callers such as Vite Doctor can report it.
     for (const definition of registryDefinitions) await assertAgentDefaultExport(definition)
     await writeAgentRuntimeRegistry(generatedRoot, registryDefinitions, {
-      agentHost: Boolean(normalized && hasHostedAgents && normalized.runtime !== "deno"),
+      agentHost: normalized && hasHostedAgents && normalized.runtime !== "deno" ? generatedAgentHttpRoute : undefined,
     })
     if (normalized && config.command === "serve") {
       const registryEntry = agentRuntimeModule("server/registry")
@@ -3360,19 +3361,19 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
           : []),
         ...(resolved && hasHostedAgents && !denoOutput && resolved.routes.inspection
           ? [{
-              handler: join(generatedRoot, generatedAgentWebhookRouteHandler),
+              handler: join(generatedRoot, generatedAgentHttpRoute),
               route: normalizeNitroRoute(resolved.routes.inspection),
             }]
           : []),
         ...(resolved && hasHostedAgents && !denoOutput
           ? [{
-              handler: join(generatedRoot, generatedAgentWebhookRouteHandler),
+              handler: join(generatedRoot, generatedAgentHttpRoute),
               route: normalizeNitroRoute(defaultAgentChatRoute),
             }]
           : []),
         ...(resolved && hasHostedAgents && !denoOutput
           ? [{
-              handler: join(generatedRoot, generatedAgentWebhookRouteHandler),
+              handler: join(generatedRoot, generatedAgentHttpRoute),
               route: normalizeNitroRoute(resolved.routes.webhooks),
             }]
           : []),
@@ -3417,7 +3418,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
             throw agentDiagnostics.AGENT_WEBHOOK_ALIAS_TARGET_INVALID()
           }
           const route = validateAgentStaticRoute(path, [...routes, ...nitroHandlers, ...devNitroHandlers], "webhook alias", "/_vitehub/channels")
-          nitroHandlers.push({ handler: join(generatedRoot, generatedAgentWebhookRouteHandler), route })
+          nitroHandlers.push({ handler: join(generatedRoot, generatedAgentHttpRoute), route })
         }
       }
       if (installPreparation && resolved && resolved.preparation) {
@@ -3666,7 +3667,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
           const retainedGeneratedRoot = join(retainedSources.resolve(config.root), ".vitehub")
           const agentHost = hostedDefinitions.length > 0 && normalized.runtime !== "deno"
           await writeAgentRuntimeRegistry(retainedGeneratedRoot, retainedDefinitions, {
-            agentHost,
+            agentHost: agentHost ? generatedAgentWebhookRouteHandler : undefined,
           })
           if (agentHost) {
             const handlerPath = join(retainedGeneratedRoot, generatedAgentWebhookRouteHandler)

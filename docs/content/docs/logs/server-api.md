@@ -70,7 +70,7 @@ log.info({ action: 'order.paid', orderId: 'ord_42' })
 const page = await buffer.source.query({ service: 'checkout', text: 'ord_42' })
 ```
 
-When Evlog is already configured, attach `buffer.drain` to your existing `evlog:drain` hook instead of calling `initLogger()` again.
+In Nitro, attach `buffer.drain` to the `evlog:drain` hook when Evlog is already configured. In a standalone script that already calls `initLogger()` with a drain, combine both drains with `composeDrains([existingDrain, buffer.drain])` from `evlog/toolkit` in the original `initLogger()` call instead of calling `initLogger()` twice.
 
 ## Inspection
 

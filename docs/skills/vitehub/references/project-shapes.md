@@ -22,7 +22,7 @@ pnpm dlx vite-hub init <dir> --host <preset> --features <id,id,...> [--option fe
 - `--host` is the host preset: `cloudflare`, `vercel`, `netlify`, `deno`, or `node`. `--features` takes the ids that `catalog` lists. Pass `--framework nuxt` for a Nuxt app.
 - Pass every input as a flag. Without a terminal, a missing flag exits with `2`, and the error names the flag and its choices. Add the flag and run the `rerun` command.
 - A feature that the host does not support exits with `3` before any file is written. Choose another host or another feature.
-- A saved selection of host, features, and options is a _stack_. `init` writes the command that reproduces the stack into the `README.md` stack block, and `vitehub status --json` returns it as `stack.command`. Run that command to make the same project again.
+- The current host, features, and options form a _stack_. Read `stack.command` from `vitehub status --json` to recreate it. Check `stack.omits` for settings to restore separately, including credentials and config expressions. If the command is `null`, the CLI could not plan a fresh setup; inspect the omissions before recreating it.
 - When the developer gives a `--console <pendingId>:sha256:<hex>` value from console.vitehub.dev, pass it to `init` unchanged. See [Link and deploy](sandboxes-hosts.md#link-and-deploy).
 
 See [Create a project](https://vitehub.dev/raw/docs/cli/project.md#create-a-project).

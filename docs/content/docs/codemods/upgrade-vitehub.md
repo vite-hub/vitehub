@@ -409,7 +409,10 @@ The codemod removes legacy `auth.redirects` only after it can move the settings 
 
 `channels` moves Channel imports off the removed `vite-hub/agent/channels` path, and replaces the removed Agent `http()` adapter. Built-in adapters, such as `slack()`, `github()`, `webhook()`, `stripe()`, and `channelAdapter()`, come from `vite-hub/channels/adapters` and need `@vite-hub/agent`. `defineChannel()`, `defineChannelTrigger()`, `ignored()`, `retryLater()`, and `rejected()` come from `vite-hub/channels`, which needs `@vite-hub/channels` and no `@vite-hub/agent`. Use `webhook()` for an HTTP sender, or `channelAdapter("http", options)` to keep the kind and State of an old `http()` Channel.
 
+The codemod does not change `package.json`. Install `@vite-hub/channels` in the app, also when an Agent has only an inline Channel, such as `webChat()`. Without it, the build stops with `VITE_HUB_R0136`.
+
 ```bash [Terminal]
+pnpm add @vite-hub/channels
 npx @vite-hub/codemods channels [dir] [--dry-run]
 ```
 
@@ -663,13 +666,24 @@ npx @vite-hub/codemods nuxt-server-imports [dir] [--dry-run]
 ```
 
 ```diff [server/api/welcome.post.ts]
- import { defineEventHandler, readBody } from 'nitro/h3'
+ import { createError, defineEventHandler, readBody } from 'nitro/h3'
 +import { kv } from 'vite-hub/kv'
 +import { sendQueue } from 'vite-hub/queue'
 
  export default defineEventHandler(async (event) => {
-   const { email } = await readBody<{ email: string }>(event)
-   const [error] = await sendQueue('welcome', { email })
+   const body = await readBody<{ email?: unknown }>(event)
+   const email = typeof body?.email === 'string' ? body.email.trim() : ''
+   if (!email) throw createError({ status: 400, message: 'Email is required.' })
+   const [queueError] = await sendQueue('welcome', { email })
+   if (queueError) throw queueError
+   try {
+     const [kvError] = await kv.set(`welcome:${email}`, 'queued')
+     if (kvError) throw kvError
+   } catch (error) {
+     console.error('Could not save the welcome queue status.', error)
+   }
+   return { queued: true }
+ })
 ```
 
 The codemod reads the server directory of the app and of each local layer. It uses the helper list of [Nuxt server auto-imports](/docs/frameworks-hosts/nuxt-server-auto-imports). It joins a name with an existing import of the same entry, and it leaves a name that the file declares or imports.

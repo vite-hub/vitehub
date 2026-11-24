@@ -93,6 +93,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
 export const cliAgentTree: Codemod = {
   name: "cli-agent-tree",
   description: "Move vitehub agents, invocations, and conversations calls of scripts and CI into the vitehub agent commands",
+  detectAfterEdits: true,
   usage: "[dir]",
   async detect({ cwd }) {
     const { edits, followUps } = await migrate({ cwd })
