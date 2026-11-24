@@ -55,7 +55,7 @@ it.each(["null", "123456", '"123"', '{"singleUse": true}'])("preserves stored te
     }
     else if (command === "getdel") data.delete(key!)
     else if (command !== "get") throw new Error(`Unexpected Redis command: ${command}`)
-    return Response.json({ result: result === null || result === "OK" ? result : Buffer.from(result).toString("base64") })
+    return Response.json({ result })
   }))
   const options = {
     base: "app",

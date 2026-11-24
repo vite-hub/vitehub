@@ -160,10 +160,10 @@ describe("vitehub init", () => {
     const parent = await createProject()
     const result = await init(["app", "--host", "node", "--features", "database", "--no-install", "--yes"], parent)
     expect(result.exitCode, result.stdout).toBe(0)
-    expect(result.json.install.packages).toEqual(expect.arrayContaining(["@vite-hub/database", "drizzle-orm@1.0.0-rc.5 || ^1.0.0"]))
-    expect(result.json.install.devPackages).toEqual(expect.arrayContaining(["drizzle-kit@1.0.0-rc.5 || ^1.0.0"]))
-    expect(result.json.install.command).toContain('"drizzle-orm@1.0.0-rc.5 || ^1.0.0"')
-    expect(result.json.install.command).toContain('"drizzle-kit@1.0.0-rc.5 || ^1.0.0"')
+    expect(result.json.install.packages).toEqual(expect.arrayContaining(["@vite-hub/database", "drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"]))
+    expect(result.json.install.devPackages).toEqual(expect.arrayContaining(["drizzle-kit@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"]))
+    expect(result.json.install.command).toContain('"drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"')
+    expect(result.json.install.command).toContain('"drizzle-kit@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"')
   })
 
   it("plans nodemailer for the SMTP Email driver on Node", async () => {
@@ -353,7 +353,7 @@ describe("vitehub init", () => {
     const result = await init(["app", "--host", "node", "--features", "database", "--yes"], parent, async () => ({ exitCode: 1 }))
     expect(result.exitCode).toBe(1)
     expect(result.json.error).toMatchObject({ code: "SETUP_INSTALL_FAILED" })
-    expect(result.json.error?.message).toContain('"drizzle-orm@1.0.0-rc.5 || ^1.0.0"')
+    expect(result.json.error?.message).toContain('"drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"')
     expect(result.json.error?.fix).toContain("app files were written")
     expect(result.json.error?.fix).not.toContain("did not write")
     const files = await snapshot(join(parent, "app"))

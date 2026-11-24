@@ -1,0 +1,80 @@
+import { loadViteHubPageTools, stopViteHubPageTools } from "@vite-hub/internal/runtime/page-tools-loader"
+
+import { commentsUnansweredError } from "../client-diagnostics.ts"
+import { apiError, useCommentsOverlayBackend } from "../overlay/api.ts"
+
+import type { ViteHubPageSession } from "@vite-hub/internal/runtime/page-tools-shared"
+import type { CommentsOverlayBackend, CommentsSession } from "../overlay/api.ts"
+import type { RestTransport } from "../rest-transport.ts"
+import type { CommentThread } from "../types.ts"
+import type { EmbedFrame } from "./protocol.ts"
+
+const session: ViteHubPageSession = { tools: [{ id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "comments", param: "comment" }] }
+
+interface Answers {
+  list: CommentThread[]
+  get: CommentThread | null
+  create: CommentThread
+  reply: CommentThread
+  resolve: CommentThread
+  reopen: CommentThread
+}
+
+function refused(): Promise<never> {
+  return Promise.reject(commentsUnansweredError(405))
+}
+
+function backendOf(frame: Promise<EmbedFrame>): CommentsOverlayBackend {
+  return {
+    async session(page) {
+      try {
+        // SAFETY: the frame answers `session` with the session that it built for this page.
+        return [undefined, (await (await frame).call("session", page)).value as CommentsSession]
+      }
+      catch (error) {
+        return [apiError(error), undefined]
+      }
+    },
+    transport(onAnswer) {
+      const call = async <M extends keyof Answers>(method: M, input: unknown): Promise<Answers[M]> => {
+        const answer = await (await frame).call(method, input)
+        onAnswer({ data: answer.value, people: answer.people })
+        // SAFETY: the frame answers each method with the data of its Console route, as the Comments API does.
+        return answer.value as Answers[M]
+      }
+      const transport: RestTransport = {
+        list: query => call("list", query),
+        get: input => call("get", input),
+        create: ({ files: _files, outbox: _outbox, ...input }) => call("create", input),
+        reply: ({ files: _files, outbox: _outbox, ...input }) => call("reply", input),
+        resolve: input => call("resolve", { threadId: input.threadId }),
+        reopen: input => call("reopen", { threadId: input.threadId }),
+        edit: refused,
+        delete: refused,
+        users: async () => [],
+        upload: refused,
+        attachmentUrl: () => "",
+      }
+      return transport
+    },
+  }
+}
+
+/** Shows the page tools with Comments, which reach the Console only through the embed frame. */
+export async function mountHostedComments(frame: Promise<EmbedFrame>, open = false): Promise<void> {
+  if (open) stopViteHubPageTools()
+  useCommentsOverlayBackend(backendOf(frame))
+  await loadViteHubPageTools({
+    pill: {
+      name: "vitehub-hosted-comments-pill",
+      label: "ViteHub Comments",
+      off: "vitehub-hosted-comments-off",
+      collapsed: "vitehub-hosted-comments-collapsed",
+      dock: "vitehub-hosted-comments-dock",
+      initialDock: { edge: "right", at: 85 },
+    },
+    ...(open ? { open: "comments" } : {}),
+    session: async () => session,
+    load: () => import("../overlay/index.ts"),
+  })
+}

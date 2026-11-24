@@ -17,7 +17,7 @@ import { installConsoleSections } from "../src/console/runtime/server/sections.t
 import { installConsolePageTool } from "../src/console/runtime/server/page-tool.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
 import { generatedModules } from "../src/internal/generated-modules.ts"
-import { consoleDocumentPath, consolePageBase, consolePageLink } from "../src/page/console-link.ts"
+import { consoleDocumentPath, consolePageBase, consolePageLink, consoleScriptSource } from "../src/page/console-link.ts"
 
 import type { ConsoleAuthorize, ConsoleAuthorizeContext } from "../src/console/auth.ts"
 import type { ConsolePageUser } from "../src/console/runtime/server/page-tool.ts"
@@ -161,6 +161,19 @@ describe("the Console link", () => {
   it("reads the app base from the URL of its script", () => {
     expect(consolePageBase("/_vitehub/console/assets/page-tool.js")).toBe("")
     expect(consolePageBase("/portal/_vitehub/console/assets/page-tool.js")).toBe("/portal")
+  })
+
+  it("opens the Console that served its script, at the app base in the script query", () => {
+    const script = "https://console.example.com/page/0.4.0/0123456789abcdef/page-tool.js"
+    expect(consoleScriptSource(`${script}?base=%2Fportal`, "https://app.example.com")).toEqual({ base: "/portal", consoleOrigin: "https://console.example.com" })
+    expect(consoleScriptSource(script, "https://app.example.com")).toEqual({ base: "", consoleOrigin: "https://console.example.com" })
+    for (const base of ["portal", "//evil.example", "/portal/", "/a/../b", "/a?b"]) {
+      expect(consoleScriptSource(`${script}?base=${encodeURIComponent(base)}`, "https://app.example.com").base).toBe("")
+    }
+    expect(consoleScriptSource("https://app.example.com/portal/_vitehub/console/assets/page-tool.js?v=2", "https://app.example.com")).toEqual({ base: "/portal" })
+    expect(consoleScriptSource("https://console.example.com/page/0.4.0/0123456789abcdef/page-tool.js?base=%2Fportal", "https://console.example.com")).toEqual({ base: "/portal", consoleOrigin: "https://console.example.com" })
+    expect(consolePageLink("https://app.example.com", "/portal", [], "https://console.example.com"))
+      .toBe("https://console.example.com/open?project=https%3A%2F%2Fapp.example.com%2Fportal&path=%2F")
   })
 })
 

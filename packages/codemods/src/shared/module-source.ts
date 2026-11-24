@@ -10,6 +10,6 @@ export function moduleSource(node: Node): StringLiteral | undefined {
     return node.arguments[0]?.type === "StringLiteral" ? node.arguments[0] : undefined
   }
   if (node.type === "TSExternalModuleReference") return node.expression
-  if (node.type === "TSImportType") return node.argument
+  if (node.type === "TSImportType") return node.source
   return undefined
 }
