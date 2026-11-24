@@ -463,6 +463,8 @@ The design follows the comark-ui site on top of the ViteHub design system (`@vit
 - `app.config.ts` `ui` keys. Your values win over the design. The design wins over the Nuxt UI defaults, also when `@nuxt/ui` comes first in `modules`.
 - CSS variables in your stylesheet, such as `--vh-content-width` (prose width), `--vh-toc-width`, `--vh-panel-width`, `--vh-grain` (`none` turns the grain off), `--font-sans`, and the Nuxt UI `--ui-*` colors.
 
+If a font provider fails, the build reports the error and continues. The browser can use the fallback fonts. To fail the build instead, set `fonts.throwOnError: true` in `nuxt.config.ts`.
+
 In an app with its own `app.vue`, the theme stays on the docs pages:
 
 - The theme's CSS applies below the `vh-docs` class. The docs layouts put it on `<html>` on docs pages only.
@@ -520,7 +522,7 @@ Turn it off with `docs: { comments: false }`. The `comments` option of `vite-hub
 The docs assistant answers reader questions from your pages and links the pages that it used. It is a ViteHub Agent preset, `docsAssistant`. By default it runs on your ChatGPT plan, so you need no API key: with Codex on Node.js, and with a model-backed Driver in a Cloudflare Worker build.
 
 ```sh
-pnpm add vite-hub @vite-hub/agent @vite-hub/workflow @vite-hub/connections @vite-hub/database drizzle-orm@1.0.0-rc.5 @openai/codex
+pnpm add vite-hub @vite-hub/agent @vite-hub/workflow @vite-hub/connections @vite-hub/database drizzle-orm@1.0.0-rc.6 @openai/codex
 ```
 
 ```ts

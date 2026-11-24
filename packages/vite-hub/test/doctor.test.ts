@@ -239,7 +239,7 @@ describe("vitehub/destructure-result-tuples", () => {
     ["empty typesDir", 'typesDir: "", buildDir: ".build",', ".build", {}],
     ["production prepare", '$production: { typesDir: ".types" },', ".types", {}],
     ["referenced output", "typesDir: '.other',", ".types", {
-      "tsconfig.json": '{ "references": [{ "path": "./.types/tsconfig.server.json" }] }',
+      "tsconfig.json": '{ "references": [{ "path": "./.types/tsconfig.server.json", }], }',
       ".other/types/server-imports.mjs": "export { kv } from 'vite-hub/kv';\n",
     }],
   ])("uses Nuxt's resolved server imports: %s", async (_, options, directory, extraFiles) => {
@@ -251,7 +251,7 @@ describe("vitehub/destructure-result-tuples", () => {
       files: {
         ...extraFiles,
         "nuxt.config.ts": `export default defineNuxtConfig({ ${options} experimental: { nitroAutoImports: true } })`,
-        [`${directory}/types/server-imports.mjs`]: "export { kv } from '../../server/utils/kv';\nexport { kv as hubKV } from 'vite-hub/kv';\nexport * as storage from 'vite-hub/kv';\n",
+        [`${directory}/types/server-imports.mjs`]: "export { kv } from '../../server/utils/kv';\nexport { 'kv' as hubKV } from 'vite-hub/kv';\nexport * as storage from 'vite-hub/kv';\n",
         "server/utils/kv.ts": "export const kv = { async set() { return 'app-kv' } }\n",
         "server/api/local.get.ts": "export default async () => ({ value: await kv.set() })\n",
         "server/api/explicit.post.ts": 'import { kv } from "vite-hub/kv"\nexport default async () => { await kv.set("key", "value") }\n',

@@ -186,7 +186,20 @@ function renderDbCredentials(database: ResolvedDrizzleDatabaseConfig) {
   return []
 }
 
-function renderGeneratedDrizzleConfig(file: string, config: ResolvedDBViteConfig, databaseNames = config.databaseNames) {
+function hostAliases(alias: Record<string, string> | undefined): [string, string][] {
+  return Object.entries(alias ?? {}).filter(([, target]) => isAbsolute(target)).map(([name, target]) => [name.replace(/\/+$/, ""), target])
+}
+
+function renderJitiAlias(alias: Record<string, string> | undefined) {
+  const entries = hostAliases(alias)
+  if (!entries.length) return []
+  return [
+    `process.env["JITI_ALIAS"] = JSON.stringify({ ...JSON.parse(process.env["JITI_ALIAS"] || "{}"), ...${JSON.stringify(Object.fromEntries(entries))} })`,
+    "",
+  ]
+}
+
+function renderGeneratedDrizzleConfig(file: string, config: ResolvedDBViteConfig, alias: Record<string, string> | undefined, databaseNames = config.databaseNames) {
   if (databaseNames.length > 1) {
     // One Drizzle config has one set of credentials and one migrations folder, so each Database needs its own.
     const configs = databaseNames.map(name => relative(config.rootDir, config.generatedDrizzleConfigFilesByDatabase[name]!)).join(", ")
@@ -196,6 +209,7 @@ function renderGeneratedDrizzleConfig(file: string, config: ResolvedDBViteConfig
   const sqlite = database.dialect === "sqlite" && !(database.cloudflare?.http && database.cloudflare.databaseId)
   const defaultUrl = database.name === "default" ? "file:.vitehub/data/database/sqlite.db" : `file:.vitehub/data/database/${database.name}.sqlite.db`
   return [
+    ...renderJitiAlias(alias),
     ...(sqlite ? [
       "const dbCredentials = {",
       `  authToken: ${renderConfigValueExpression(database.connection?.authToken) ?? "undefined"} || undefined,`,
@@ -306,14 +320,17 @@ function readInheritedTsconfig(dir: string): ReturnType<typeof getTsconfig> {
 }
 
 /**
- * Drizzle Kit loads the generated schema with jiti and takes import aliases only from the `paths` of the nearest
- * `tsconfig.json`. A Nuxt 5 root `tsconfig.json` has only project references, so a Definition that imports
- * `~~/server/tables` or `#layers/...` loads in `vite dev` but not in `vitehub database generate`. This file sits beside
- * the generated schema and configs and gives Drizzle Kit the aliases of the host. `files: []` keeps TypeScript out.
+ * Drizzle Kit 1.0.0-rc.5 loads the generated schema with jiti and takes import aliases only from the `paths` of the
+ * `tsconfig.json` nearest to the schema. A Nuxt 5 root `tsconfig.json` has only project references, so a Definition
+ * that imports `~~/server/tables` or `#layers/...` loads in `vite dev` but not in `vitehub database generate`. This file
+ * sits beside the generated schema and configs and gives Drizzle Kit the aliases of the host. `files: []` keeps
+ * TypeScript out.
+ * Drizzle Kit 1.0.0-rc.6 reads the nearest `tsconfig.json` of each module instead, so the generated configs also set
+ * `JITI_ALIAS`, which jiti reads when Drizzle Kit loads the schema after the config.
  */
 async function writeGeneratedAliasTsconfig(dir: string, alias: Record<string, string> | undefined) {
   const file = join(dir, "tsconfig.json")
-  const entries = Object.entries(alias ?? {}).filter(([, target]) => isAbsolute(target))
+  const entries = hostAliases(alias)
   if (!entries.length) {
     await rm(file, { force: true })
     return
@@ -325,8 +342,7 @@ async function writeGeneratedAliasTsconfig(dir: string, alias: Record<string, st
   const paths: Record<string, string[]> = Object.fromEntries(
     Object.keys(inherited?.config.compilerOptions?.paths ?? {}).map(key => [key, matchPaths?.(key) ?? []]),
   )
-  for (const [name, target] of entries) {
-    const key = name.replace(/\/+$/, "")
+  for (const [key, target] of entries) {
     paths[key] = [target]
     // A folder alias such as `~~` or `#layers/auth` also maps the files below it.
     if (!/\.[cm]?[jt]sx?$/.test(target)) paths[`${key}/*`] = [`${target.replace(/\/+$/, "")}/*`]
@@ -357,13 +373,13 @@ export async function writeGeneratedDatabaseArtifacts(config: ResolvedDBViteConf
   }))
 
   await mkdir(dirname(config.generatedDrizzleConfigFile), { recursive: true })
-  await writeFileIfChanged(config.generatedDrizzleConfigFile, renderGeneratedDrizzleConfig(config.generatedDrizzleConfigFile, config))
+  await writeFileIfChanged(config.generatedDrizzleConfigFile, renderGeneratedDrizzleConfig(config.generatedDrizzleConfigFile, config, options.alias))
   await writeGeneratedAliasTsconfig(dirname(config.generatedDrizzleConfigFile), options.alias)
   await mkdir(dirname(generatedTypesFile), { recursive: true })
   await writeFileIfChanged(generatedTypesFile, renderGeneratedDatabaseTypes(generatedTypesFile, config, loadedContributions))
   await finishArtifactWrites(config.databaseNames.map(async (name) => {
     const file = config.generatedDrizzleConfigFilesByDatabase[name]!
     await mkdir(dirname(file), { recursive: true })
-    await writeFileIfChanged(file, renderGeneratedDrizzleConfig(file, config, [name]))
+    await writeFileIfChanged(file, renderGeneratedDrizzleConfig(file, config, options.alias, [name]))
   }))
 }
