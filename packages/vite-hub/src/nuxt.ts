@@ -340,6 +340,7 @@ const nitroRuntimeResolverNames = new Set([
   "@vite-hub/markdown-template/vite",
   "@vite-hub/realtime/vite",
   "@vite-hub/schedule/vite",
+  "@vite-hub/source/vite",
   "vite-hub/optional-owner-imports",
   "vite-hub/cloudflare-sh-syntax",
   // The durability boot plugin imports `#vitehub/durability/reporters`, which this plugin renders from the replayed plugins.
@@ -351,6 +352,7 @@ const nitroRuntimeResolverNames = new Set([
 const nitroServerTransformNames = new Set([
   "@vite-hub/i18n/vite",
   "@vite-hub/schedule/vite",
+  "@vite-hub/source/vite",
   "@vite-hub/workflow/vite",
 ])
 
@@ -469,7 +471,11 @@ async function installNitroViteImports(config: Record<string, unknown>, root: st
   const configuredPlugins: unknown = rollupConfig.plugins
   const plugins: unknown[] = Array.isArray(configuredPlugins) ? configuredPlugins : configuredPlugins ? [configuredPlugins] : []
   rollupConfig.plugins = plugins
-  if (!plugins.some(plugin => isRecord(plugin) && plugin.name === "vite-hub/nitro-raw-imports")) plugins.push(...await nitroViteImports(root))
+  if (plugins.some(plugin => isRecord(plugin) && plugin.name === "vite-hub/nitro-raw-imports")) return
+
+  const paths = isRecord(config.deps) ? config.deps.paths : undefined
+  const rolldownPath = isRecord(paths) && typeof paths.rolldown === "string" ? paths.rolldown : undefined
+  plugins.push(...await nitroViteImports(root, rolldownPath))
 }
 
 function addTypeScriptDefaults(options: Record<string, unknown>, includes: string[], excludes: string[], key: "sharedTsConfig" | "tsConfig" = "tsConfig"): void {

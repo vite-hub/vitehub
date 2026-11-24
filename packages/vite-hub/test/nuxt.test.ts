@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events"
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
-import { registerHooks } from "node:module"
+import { createRequire, registerHooks } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -25,7 +25,6 @@ import {
   VITEHUB_SERVER_DIRS,
 } from "@vite-hub/internal/build/vite"
 import { collectViteHubProviderOutputEntries } from "@vite-hub/internal/inspect"
-import { importRolldown } from "@vite-hub/internal/build/rolldown"
 import { viteHubDevPeerUpgradeListener } from "@vite-hub/internal/dev-peer"
 import { resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 import { hubBlob } from "@vite-hub/blob/vite"
@@ -1327,14 +1326,22 @@ describe("ViteHub Nuxt integration", () => {
     expect(Reflect.apply(handler(resolver?.load), {}, ["\0#vitehub/schedule/registry"])).toBe("export default { 'daily-report': {} }")
   })
 
-  it("bundles import.meta.glob() and ?raw imports of server code in Nitro-only replay", async () => {
+  it("bundles Skills imports with Nitro's Rolldown instead of the app's copy", async () => {
     const { nuxt, runNitroConfigHook } = createNuxt()
     Object.assign(nuxt.options, { experimental: { nitroViteEnvironment: false } })
-    await viteHubNuxtModule({}, nuxt)
-    const config: { rollupConfig?: { plugins?: Rolldown.RolldownPluginOption[] } } = {}
-    await runNitroConfigHook(config)
-    await runNitroConfigHook(config)
     const root = nuxt.options.rootDir
+    const appRolldown = resolve(root, "node_modules/rolldown")
+    onTestFinished(() => rm(appRolldown, { recursive: true, force: true }))
+    await mkdir(appRolldown, { recursive: true })
+    await writeFile(resolve(appRolldown, "package.json"), JSON.stringify({ name: "rolldown", exports: { "./experimental": "./experimental.mjs" } }))
+    await writeFile(resolve(appRolldown, "experimental.mjs"), "export const viteImportGlobPlugin = () => ({ name: 'different-rolldown-copy' })")
+    const nitroRolldown = createRequire(import.meta.resolve("nitro")).resolve("rolldown")
+    await viteHubNuxtModule({}, nuxt)
+    const config: { deps: { paths: { rolldown: string } }, rollupConfig?: { plugins?: Rolldown.RolldownPluginOption[] } } = {
+      deps: { paths: { rolldown: nitroRolldown } },
+    }
+    await runNitroConfigHook(config)
+    await runNitroConfigHook(config)
     await mkdir(resolve(root, "skills/release"), { recursive: true })
     await mkdir(resolve(root, "server"), { recursive: true })
     await writeFile(resolve(root, "skills/release/SKILL.md"), "---\nname: release\n---\n")
@@ -1343,12 +1350,34 @@ describe("ViteHub Nuxt integration", () => {
       "export const files = import.meta.glob('../skills/**', { query: '?raw', import: 'default', eager: true })",
       "export const raw = skillMd",
     ].join("\n"))
-    const { rolldown } = await importRolldown()
+    const { rolldown } = await import(pathToFileURL(nitroRolldown).href) as typeof Rolldown
     const bundle = await rolldown({ input: resolve(root, "server/skills.ts"), plugins: config.rollupConfig?.plugins })
+    onTestFinished(() => bundle.close())
     const { output: [chunk] } = await bundle.generate({ format: "esm" })
     const module = await import(`data:text/javascript;base64,${Buffer.from(chunk.code).toString("base64")}`)
     expect(module.files).toEqual({ "../skills/release/SKILL.md": "---\nname: release\n---\n" })
     expect(module.raw).toBe("---\nname: release\n---\n")
+  })
+
+  it("bundles glob() Sources in Nitro-only replay", async () => {
+    const id = /^\0vitehub-source-glob:/
+    mocks.vitehub.mockReturnValue([{
+      name: "@vite-hub/source/vite",
+      resolveId: { filter: { id }, handler: (source: string) => source },
+      load: { filter: { id }, handler: () => "export default {}" },
+      transform: { filter: { code: /\bvite-hub\/source["'`]/ }, handler: () => ({ code: "import __vitehubGlob0 from \"\\0vitehub-source-glob:docs\"", map: null }) },
+    }])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    Object.assign(nuxt.options, { experimental: { nitroViteEnvironment: false } })
+    await viteHubNuxtModule({}, nuxt)
+    const config: { rollupConfig?: { plugins?: Plugin[] } } = {}
+    await runNitroConfigHook(config)
+    const resolver = config.rollupConfig?.plugins?.find(plugin => plugin.name === "vite-hub/nuxt-runtime-resolver:@vite-hub/source/vite")
+    const handler = (hook: unknown) => Reflect.get(Object(hook), "handler") as Function
+    const code = "import { glob } from \"vite-hub/source\"\nexport const docs = glob(\"docs/**/*.md\")"
+    expect(await Reflect.apply(handler(resolver?.transform), {}, [code, "/server/content.ts"])).toEqual({ code: "import __vitehubGlob0 from \"\\0vitehub-source-glob:docs\"", map: null })
+    expect(Reflect.apply(handler(resolver?.resolveId), {}, ["\0vitehub-source-glob:docs"])).toBe("\0vitehub-source-glob:docs")
+    expect(Reflect.apply(handler(resolver?.load), {}, ["\0vitehub-source-glob:docs"])).toBe("export default {}")
   })
 
   it("checks direct folder Agent imports before the catalog loads in Nuxt 5's separate Nitro 3 build", async () => {

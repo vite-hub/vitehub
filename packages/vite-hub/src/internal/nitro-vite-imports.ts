@@ -24,7 +24,7 @@ export function nitroRawImports(): Plugin {
  * The Vite syntax that server code can use in Nuxt 5, for Nuxt 4.7's separate Rolldown build of Nitro: `import.meta.glob()`
  * and `?raw` imports.
  */
-export async function nitroViteImports(root: string): Promise<Rolldown.RolldownPluginOption[]> {
-  const { viteImportGlobPlugin } = await importRolldownExperimental(root)
+export async function nitroViteImports(root: string, rolldownPath?: string): Promise<Rolldown.RolldownPluginOption[]> {
+  const { viteImportGlobPlugin } = await importRolldownExperimental(root, rolldownPath)
   return [viteImportGlobPlugin({ root }), nitroRawImports()]
 }

@@ -6,7 +6,7 @@ import { createInterface } from "node:readline/promises"
 import { editViteHubConfig, insertViteHubConfig, locateViteHubConfig } from "@vite-hub/internal/config-edit"
 import { featureIds } from "@vite-hub/internal/features"
 import { basename, dirname, join, resolve } from "pathe"
-import { minVersion, Range, subset, validRange } from "semver"
+import { minVersion, Range, satisfies, subset, validRange } from "semver"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { confirmSetupChange, flattenOptions, mergeValue, planSetupAdd, readAddArgs, setupDiff, shellQuote } from "./add.ts"
@@ -38,13 +38,16 @@ const packageManagers: readonly SetupPackageManager[] = ["pnpm", "npm", "yarn", 
 
 /**
  * The packages of a new app, as `getting-started/installation.md` installs them. The Nitro and H3 versions match the
- * server integration of ViteHub. Nuxt 5 supplies Nitro 3, and its tutorials import H3 2. Valibot validates request
- * bodies in the docs' route examples.
+ * server integration of ViteHub. Nuxt 5 supplies Nitro 3, and a Nuxt 4.7 app also gets `nuxtNitroPackage`. The
+ * tutorials import H3 2. Valibot validates request bodies in the docs' route examples.
  */
 export const initPackages: Readonly<Record<InitFramework, { prod: readonly string[], dev: readonly string[] }>> = {
   nuxt: { dev: [], prod: ["vite-hub", "h3@^2.0.8", "valibot"] },
   vite: { dev: ["vite@^8", "typescript@^6", "@types/node@^24"], prod: ["vite-hub", "nitro@3.0.261103-rc", "h3@2.0.8", "valibot"] },
 }
+
+const nuxtNitroRange = "^3.0.261103-rc"
+export const nuxtNitroPackage = `nitro@${nuxtNitroRange}`
 
 /** The pinned Nuxt CLI that creates a new Nuxt app. */
 export const nuxiPackage = "nuxi@3.37.0"
@@ -291,7 +294,7 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
   const found = state.kind === "adopt" ? state.project.framework : undefined
   const framework: InitFramework = args.framework ?? (found === "nuxt" ? "nuxt" : "vite")
   if (found && found !== framework) throw setupFailure(cliErrorDiagnostics.SETUP_INIT_FRAMEWORK_MISMATCH({ dir: root, found, framework }), setupExitCodes.conflict)
-  if (state.kind === "adopt" && framework === "nuxt") await validateNuxtVersion(root)
+  const nuxtNeedsNitro = state.kind === "adopt" && framework === "nuxt" && (await checkNuxtVersion(root)).needsNitro
   const detected = state.kind === "adopt" ? state.project : detectPackageManager(root, undefined, context.env)
   const packageManager = args.pm ?? (detected.packageManagerSource === "default" ? "pnpm" : detected.packageManager)
 
@@ -323,6 +326,7 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
     dev: basePackages.dev.filter(spec => !declared(packageName(spec), true)),
     prod: basePackages.prod.filter(spec => !declared(packageName(spec), false)),
   }
+  if (nuxtNeedsNitro) install.prod.push(nuxtNitroPackage)
   const willInstall = new Set([...install.prod, ...install.dev].map(packageName))
 
   const configSource = base.get(configFile)!.after
@@ -454,28 +458,37 @@ async function scaffoldNuxt(planned: InitPlanned, context: ViteHubCliContext): P
   if (result.exitCode !== 0) {
     throw setupFailure(cliErrorDiagnostics.SETUP_INSTALL_FAILED({ command: [command, ...commandArgs].join(" "), exitCode: result.exitCode ?? result.signal, filesWritten: "possible" }), setupExitCodes.error)
   }
-  await validateNuxtVersion(planned.plan.root, true)
+  await checkNuxtVersion(planned.plan.root, true)
 }
 
-function supportsNuxt5(nuxt: JsonValue | undefined): boolean {
-  if (typeof nuxt !== "string") return false
+function nuxtReleases(nuxt: JsonValue | undefined): string | undefined {
+  if (typeof nuxt !== "string") return undefined
   const range = validRange(nuxt.replace(/^npm:nuxt(?:-nightly)?@/u, ""))
-  if (!range || !minVersion(range)) return false
-  const releases = new Range(range).set.map(comparators => comparators.map(({ operator, semver, value }) =>
+  if (!range || !minVersion(range)) return undefined
+  return new Range(range).set.map(comparators => comparators.map(({ operator, semver, value }) =>
     typeof semver !== "symbol" && semver.major === 5 && semver.prerelease.length > 0
       ? `${operator}5.${semver.minor}.${semver.patch}`
       : value).join(" ")).join(" || ")
-  return subset(releases, ">=5.0.0 <6.0.0")
 }
 
-async function validateNuxtVersion(root: string, scaffolded = false): Promise<void> {
+async function checkNuxtVersion(root: string, scaffolded = false): Promise<{ needsNitro: boolean }> {
   const manifest: JsonValue = JSON.parse(await readFile(join(root, "package.json"), "utf8"))
   const dependencies = isRecord(manifest) && isRecord(manifest.dependencies) ? manifest.dependencies : {}
   const devDependencies = isRecord(manifest) && isRecord(manifest.devDependencies) ? manifest.devDependencies : {}
-  const nuxt = dependencies.nuxt ?? devDependencies.nuxt
-  if (!supportsNuxt5(nuxt)) {
+  const releases = nuxtReleases(dependencies.nuxt ?? devDependencies.nuxt)
+  if (!releases || !subset(releases, ">=4.7.0 <6.0.0")) {
     throw setupFailure(cliErrorDiagnostics.SETUP_INIT_NUXT_VERSION({ dir: root, scaffolded }), setupExitCodes.conflict)
   }
+  if (subset(releases, ">=5.0.0 <6.0.0")) return { needsNitro: false }
+
+  const nitroDeclarations = [dependencies.nitro, devDependencies.nitro].filter(spec => spec !== undefined)
+  for (const spec of nitroDeclarations) {
+    const range = typeof spec === "string" ? validRange(spec.replace(/^npm:nitro@/u, "")) : null
+    if (!range || !minVersion(range) || !range.split("||").every(branch => satisfies(branch, nuxtNitroRange) || subset(branch, nuxtNitroRange))) {
+      throw setupFailure(cliErrorDiagnostics.SETUP_INIT_NITRO_VERSION({ dir: root, range: nuxtNitroRange, scaffolded }), setupExitCodes.conflict)
+    }
+  }
+  return { needsNitro: nitroDeclarations.length === 0 }
 }
 
 function interactive(args: SetupInitArgs): boolean {

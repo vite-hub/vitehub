@@ -63,24 +63,36 @@ const markdownTemplateRuntimeSpecifier = "@vite-hub/markdown-template"
  * Vite+, instead of installing a second bundler.
  */
 export async function importRolldown(): Promise<typeof Rolldown> {
-  return await import(pathToFileURL(resolveRolldownEntry("")).href)
-}
-
-/**
- * Rolldown's built-in Vite plugins, such as `import.meta.glob` support. A bundler accepts only built-in plugins from
- * its own copy, so pass the directory that the bundler resolved Rolldown from, such as Nitro's `rootDir`.
- */
-export async function importRolldownExperimental(root: string): Promise<{ viteImportGlobPlugin: (config: { root: string }) => Rolldown.RolldownPluginOption }> {
-  return await import(pathToFileURL(resolveRolldownEntry("/experimental", [root])).href)
-}
-
-function resolveRolldownEntry(subpath: "" | "/experimental", from: readonly string[] = []): string {
+  let entry: string
   try {
-    return createRequire(import.meta.url).resolve(`rolldown${subpath}`, { paths: [...from, dirname(fileURLToPath(import.meta.resolve("vite")))] })
+    entry = createRequire(import.meta.resolve("vite")).resolve("rolldown")
   }
   catch (error) {
     if (!(error instanceof Error) || !("code" in error) || error.code !== "MODULE_NOT_FOUND") throw error
-    return createRequire(import.meta.url).resolve(`vite/rolldown${subpath}`)
+    entry = createRequire(import.meta.url).resolve("vite/rolldown")
+  }
+  return await import(pathToFileURL(entry).href)
+}
+
+/** Loads the built-in plugins from the bundler's Rolldown package directory or entry when supplied. */
+export async function importRolldownExperimental(root: string, rolldownPath?: string): Promise<{ viteImportGlobPlugin: (config: { root: string }) => Rolldown.RolldownPluginOption }> {
+  return await import(pathToFileURL(await resolveRolldownExperimentalEntry(root, rolldownPath)).href)
+}
+
+async function resolveRolldownExperimentalEntry(root: string, rolldownPath?: string): Promise<string> {
+  if (rolldownPath) {
+    const path = await realpath(rolldownPath.startsWith("file:") ? fileURLToPath(rolldownPath) : resolve(root, rolldownPath))
+    const importer = (await stat(path)).isDirectory() ? join(path, "package.json") : path
+    return createRequire(importer).resolve("rolldown/experimental")
+  }
+
+  const require = createRequire(import.meta.url)
+  try {
+    return require.resolve("rolldown/experimental", { paths: [root, dirname(fileURLToPath(import.meta.resolve("vite")))] })
+  }
+  catch (error) {
+    if (!(error instanceof Error) || !("code" in error) || error.code !== "MODULE_NOT_FOUND") throw error
+    return require.resolve("vite/rolldown/experimental")
   }
 }
 
