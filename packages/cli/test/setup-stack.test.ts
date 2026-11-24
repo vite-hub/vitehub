@@ -84,7 +84,11 @@ describe("setup stack replay", () => {
     const result = await replay(source.json.stack!.command, destination)
     expect(result.exitCode, result.stdout).toBe(0)
     expect(result.json.install.packages).toContain("@upstash/redis")
-    expect(source.json.features.find(feature => feature.id === "kv")?.fix).toBeUndefined()
+    const feature = source.json.features.find(feature => feature.id === "kv")
+    expect(feature?.fix).toBeUndefined()
+    expect(feature?.support).toMatchObject({ level: "explicit", option: path })
+    const printed = await runSetup(["status", "--offline"], join(root, "app"))
+    expect(printed.stdout).toContain(`(set ${path})`)
     const copied = join(destination, "app")
     expect(locateViteHubConfig("vite.config.ts", await readFile(join(copied, "vite.config.ts"), "utf8"))).toMatchObject({
       ok: true,
