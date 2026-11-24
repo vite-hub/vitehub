@@ -124,7 +124,7 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
           throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "ViteHub rejected a repeated pagination cursor." })
         }
         if (!recordCursor(cursors, page.cursor!)) {
-          throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "ViteHub rejected pagination after the cursor history limit was reached." })
+          throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "ViteHub rejected a pagination cursor longer than 8 KiB." })
         }
         result.cursor = cursorHistories.store(page.cursor!, cursors, requestNamespace)
       }

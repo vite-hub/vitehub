@@ -74,6 +74,17 @@ describe("Logs source", () => {
       code: "LOGS_CURSOR_EXPIRED",
     });
   });
+  it("accepts a replay once the previous entry is evicted or cleared", async () => {
+    const buffer = createLogBuffer({ maxEntries: 2 });
+    for (const id of ["a", "b", "c", "a", "a"]) buffer.append(entry(id));
+    const page = await buffer.source.query({});
+    expect(page.entries.map((event) => event.id)).toEqual(["a", "c"]);
+    expect(page.dropped).toBe(2);
+
+    buffer.clear();
+    buffer.append(entry("c"));
+    expect(await buffer.source.query({})).toMatchObject({ entries: [entry("c")], dropped: 0 });
+  });
   it("snapshots structured fields and keeps query callers from mutating stored events", async () => {
     const buffer = createLogBuffer();
     const event = entry("a");

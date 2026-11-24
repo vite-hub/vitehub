@@ -5,7 +5,7 @@ import { hasDefinitionFiles } from "@vite-hub/internal/definition-catalog"
 import { features } from "@vite-hub/internal/features"
 
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
-import { forgetPackageChecks, installArguments, isPackageInstalled, optionalFeaturePackages } from "./optional-owners.ts"
+import { forgetPackageChecks, installCommandArguments, isPackageInstalled, optionalFeaturePackages } from "./optional-owners.ts"
 import { ownerModules } from "./owner-modules.ts"
 
 import type { Plugin } from "vite"
@@ -73,7 +73,7 @@ export function resolveDefinitionFeatures<T extends DefinitionFeatureOptions>(op
     const packages = [...new Set(missing.flatMap(missingPackages))]
     throw viteHubErrorDiagnostics.VITE_HUB_DEFINITION_PACKAGE_MISSING({
       definitions: missing.map(id => `${found.get(id)} turns ${features[id].title} on`).join(", and "),
-      install: installArguments(packages).join(" "),
+      install: installCommandArguments(packages),
       off: missing.map(id => `\`${id}: false\``).join(", "),
       packages: packages.join(", "),
     })
