@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm"
 import { withAnonymousAuthorization } from "vite-hub/auth/server"
 import { useDatabase } from "vite-hub/database"
 
+import { isRuntimeDiagnostic } from "@vite-hub/runtime"
 import { normalizeConsoleProjectUrl } from "@vite-hub/runtime/internal/console"
 import { isSitePath, isSiteStateHash, readSiteAccessPolicy, siteAccessOperation, siteAccessRoles, siteRoute } from "@vite-hub/internal/site-token"
 
@@ -71,7 +72,7 @@ async function signedLocation(input: Parameters<typeof siteTokenLocation>[0]): P
     return await siteTokenLocation(input)
   }
   catch (error) {
-    if (error instanceof RangeError) return consoleProblem(400, "CONSOLE_SITE_TOKEN_INVALID", error.message)
+    if (isRuntimeDiagnostic(error) && error.code === "INTERNAL_SITE_TOKEN_TOO_LONG") return consoleProblem(400, "CONSOLE_SITE_TOKEN_INVALID", error.message)
     throw error
   }
 }

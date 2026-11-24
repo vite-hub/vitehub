@@ -1,4 +1,5 @@
 import { decodeConsoleBase64url, encodeConsoleBase64url, isConsoleKeyName, signConsoleBytes, verifyConsoleBytes } from "./console-signature.ts"
+import { internalErrorDiagnostics } from "./error-diagnostics.ts"
 import { isRecord } from "./object.ts"
 
 import type { ConsoleSigningKey } from "./console-signature.ts"
@@ -196,15 +197,15 @@ export function siteVisitUrl(input: { console: string, app: string, state: strin
 
 /**
  * Sign a token with the private key of a link: `vst1.<key name>.<claims as base64url JSON>.<Ed25519 signature>`. The
- * signature covers `vst1.<key name>.<claims>`. `claims.state` is the hash that the app sent, not the state. It throws a
- * `RangeError` for a token longer than {@link verifySiteToken} accepts, such as one with a long path.
+ * signature covers `vst1.<key name>.<claims>`. `claims.state` is the hash that the app sent, not the state. It throws
+ * `INTERNAL_SITE_TOKEN_TOO_LONG` for a token longer than {@link verifySiteToken} accepts, such as one with a long path.
  */
 export async function signSiteToken(input: { key: ConsoleSigningKey, claims: Omit<SiteTokenClaims, "iat" | "exp">, now?: number }): Promise<string> {
   const iat = Math.floor((input.now ?? Date.now()) / 1_000)
   const claims: SiteTokenClaims = { ...input.claims, aud: appUrl(new URL(input.claims.aud)), iat, exp: iat + siteTokenLifetimeSeconds }
   const signed = `${tokenVersion}.${input.key.name}.${encodeConsoleBase64url(encoder.encode(JSON.stringify(claims)))}`
   const token = `${signed}.${await signConsoleBytes(input.key, encoder.encode(signed))}`
-  if (token.length > maximumTokenLength) throw new RangeError(`The Site access token is ${token.length} characters, and an app accepts ${maximumTokenLength}. Use a shorter path or name.`)
+  if (token.length > maximumTokenLength) throw internalErrorDiagnostics.INTERNAL_SITE_TOKEN_TOO_LONG({ length: token.length, maximum: maximumTokenLength })
   return token
 }
 

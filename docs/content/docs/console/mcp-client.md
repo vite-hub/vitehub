@@ -63,7 +63,7 @@ export default defineConfig({
 
 The section lists the server that the app announces in its [RFC 9728](https://www.rfc-editor.org/rfc/rfc9728) metadata at `/.well-known/oauth-protected-resource`, such as its own [`/mcp`](/docs/mcp), and **Connect** takes any other URL. URLs, OAuth endpoints and redirects must use HTTPS, except for this app and `localhost`.
 
-The Console reads all pages of a list of tools, resources or prompts in one MCP session. A list of more than 20 pages fails with [`CONSOLE_MCP_LIST_INCOMPLETE`](/docs/development/diagnostics/console_mcp_list_incomplete).
+The Console reads all pages of a list of tools, resources or prompts in one MCP session. A list of more than 20 pages fails with [`CONSOLE_MCP_LIST_INCOMPLETE`](/docs/development/diagnostics/console_mcp_list_incomplete), or with [`CONSOLE_MCP_LIST_TOO_LONG`](/docs/development/diagnostics/console_mcp_list_too_long) on the hosted Console.
 
 ::warning
 Every MCP request starts on the server, so a caller with the `mcp-client` section can make it send requests to any URL. Give the section only to people you trust with the server's network.
