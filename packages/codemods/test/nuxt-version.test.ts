@@ -207,8 +207,9 @@ describe("codemods that add vite-hub/nuxt before Nuxt 4.7", () => {
     [">=5.0.0-beta.1 <5.0.0", false],
     ["<=3", true],
     [">=3 <5", true],
-    ["^3 || ^5", false],
-    [">=3", false],
+    ["^3 || ^5", true],
+    [">=3", true],
+    ["^4.6.0 || ^5.0.0", true],
     ["5.0.0-beta.1", false],
     ["npm:nuxt-nightly@5x", false],
     ["latest", false],
@@ -287,6 +288,48 @@ describe("codemods that add vite-hub/nuxt on Nuxt 4.7", () => {
     const written = JSON.parse(await readFile(join(directory, "package.json"), "utf8"))
     expect(written.dependencies).toMatchObject(extra)
     expect(written.devDependencies).toEqual(manifest.devDependencies)
+  })
+
+  it.each([">=4.7.0 <6", "^4.7.0 || ^5.0.0", ">=4.7.0"])("adds nitro when %s allows Nuxt 4.7 next to Nuxt 5", async (nuxt) => {
+    const directory = await app(`nitro-range-${encodeURIComponent(nuxt)}`, { ...nuxt4App, "package.json": withDependencies({ nuxt }) })
+    const migration = await runMigration({ cwd: directory, dryRun: true })
+    const manifest = JSON.parse(migration.edits.find(edit => edit.path === "package.json")?.after ?? "{}")
+    expect(manifest.dependencies).toMatchObject({ nitro: nitroRange, nuxt })
+  })
+
+  it.each([
+    ["2.2.28", "dependencies"],
+    ["3.0.261102-rc", "dependencies"],
+    ["^3.0.0", "devDependencies"],
+    ["npm:nitro-nightly@latest", "dependencies"],
+  ])("replaces nitro \"%s\" in %s, which Nuxt 4.7 cannot build with", async (nitro, section) => {
+    for (const args of [["nuxt-safe-runtime-config"], []]) {
+      const manifest = JSON.parse(withDependencies({ nuxt: "4.7.0" }))
+      if (section === "dependencies") manifest.dependencies.nitro = nitro
+      else manifest.devDependencies = { nitro }
+      const directory = await app(`nitro-old-${encodeURIComponent(nitro)}-${args.length}`, { ...nuxt4App, "package.json": `${JSON.stringify(manifest, null, 2)}\n` })
+      const result = await cli([...args, directory])
+      expect(result.code).toBe(0)
+      expect(result.stdout).toContain(`package.json listed nitro "${nitro}"`)
+      const written = JSON.parse(await readFile(join(directory, "package.json"), "utf8"))
+      expect(written[section].nitro).toBe(nitroRange)
+      expect(section === "dependencies" ? written.devDependencies : written.dependencies.nitro).toBeUndefined()
+    }
+  })
+
+  it.each([
+    ["^2.12.0", nitroRange],
+    ["3.0.261103-rc", "catalog:"],
+  ])("reads nitro from a pnpm catalog that sets %s", async (catalogNitro, expected) => {
+    const directory = await app(`nitro-catalog-${encodeURIComponent(catalogNitro)}`, {
+      "pnpm-workspace.yaml": `catalog:\n  nitro: ${catalogNitro}\n`,
+      "apps/web/.env.example": nuxt4App[".env.example"],
+      "apps/web/nuxt.config.ts": nuxt4App["nuxt.config.ts"],
+      "apps/web/package.json": withDependencies({ nuxt: "^4.7.0", nitro: "catalog:" }),
+    })
+    const web = join(directory, "apps/web")
+    expect((await cli([web])).code).toBe(0)
+    expect((await dependencies(web)).nitro).toBe(expected)
   })
 
   it("adds nitro to the app when a pnpm catalog sets Nuxt 4.7", async () => {

@@ -36,9 +36,9 @@ When a codemod adds `vite-hub/nuxt`, the command reads the `nuxt` range in `pack
 
 | Nuxt range | What the command does |
 | --- | --- |
-| Allows Nuxt 5, such as `npm:nuxt-nightly@5x` | Nothing more. |
-| `>=4.7.0 <5`, such as `^4.7.0` | Adds `"nitro": "^3.0.261103-rc"` to `dependencies` when neither `dependencies` nor `devDependencies` lists `nitro`. With it, Nuxt 4.7 builds the server with Nitro 3. The report notes the change. |
-| Allows a version before 4.7, such as `^4.2.0` | Stops before it writes anything, also with `--dry-run` (`CODEMODS_NUXT_UNSUPPORTED`). With `--nuxt-nightly`, it sets `nuxt` to `npm:nuxt-nightly@5x` in `package.json` first, and the report notes the change. |
+| Allows only Nuxt 5, such as `npm:nuxt-nightly@5x` or `^5.0.0` | Nothing more. |
+| Allows Nuxt 4.7 and no earlier version, such as `^4.7.0` or `>=4.7.0 <6` | Makes sure that `package.json` lists `nitro` at `^3.0.261103-rc`, the range that Nuxt 4.7 builds the server with. It adds `nitro` to `dependencies` when no section lists it. It replaces a `nitro` range outside `^3.0.261103-rc`, such as `2.2.28` or `3.0.261102-rc`, also one that a pnpm `catalog:` sets. The report notes each change. |
+| Allows a version before 4.7, such as `^4.2.0` or `>=4.6.0` | Stops before it writes anything, also with `--dry-run` (`CODEMODS_NUXT_UNSUPPORTED`). With `--nuxt-nightly`, it sets `nuxt` to `npm:nuxt-nightly@5x` in `package.json` first, and the report notes the change. |
 
 The command never changes the Nuxt version without `--nuxt-nightly`. The upgrade codemods that `vitehub migrate` runs do not add `vite-hub/nuxt`, so they do not check the Nuxt version.
 

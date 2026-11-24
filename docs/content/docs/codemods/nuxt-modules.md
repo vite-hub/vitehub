@@ -12,7 +12,7 @@ These codemods move a Nuxt app from a community module to the ViteHub feature th
 npx @vite-hub/codemods nuxt-safe-runtime-config [dir] [--dry-run] [--nuxt-nightly]
 ```
 
-These codemods add `vite-hub/nuxt`, which needs Nitro 3: Nuxt 4.7 with the `nitro` package, or Nuxt 5. On Nuxt 4.7, the codemod adds `nitro` to `package.json` when the app does not list it. When `package.json` allows a Nuxt version before 4.7, the command stops, writes nothing, and exits with `1`. Upgrade with `pnpm add nuxt@^4.7.0 nitro`, or add `--nuxt-nightly` to set `"nuxt": "npm:nuxt-nightly@5x"` in `package.json` and migrate in the same run:
+These codemods add `vite-hub/nuxt`, which needs Nitro 3: Nuxt 4.7 with the `nitro` package, or Nuxt 5. On Nuxt 4.7, the codemod adds `nitro` to `package.json`, or replaces a `nitro` range that Nuxt 4.7 cannot build with. When `package.json` allows a Nuxt version before 4.7, the command stops, writes nothing, and exits with `1`. Upgrade with `pnpm add nuxt@^4.7.0 nitro`, or add `--nuxt-nightly` to set `"nuxt": "npm:nuxt-nightly@5x"` in `package.json` and migrate in the same run:
 
 ```bash [Terminal]
 npx @vite-hub/codemods nuxt-safe-runtime-config --nuxt-nightly

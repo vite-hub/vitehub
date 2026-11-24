@@ -43,7 +43,7 @@ The report has one part for each codemod that ran:
 
 Do each follow-up, then run the commands from the report. The codemods do not install packages.
 
-A codemod that adds `vite-hub/nuxt` needs Nitro 3, which runs on Nuxt 4.7 with the `nitro` package, or on Nuxt 5. On Nuxt 4.7, it adds `nitro` to `package.json` when the app does not list it, and the report notes the change. If `package.json` allows a Nuxt version before 4.7, the codemod stops before it writes anything. Upgrade with `pnpm add nuxt@^4.7.0 nitro` and run the command again. Or run it again with `--nuxt-nightly` to set `"nuxt": "npm:nuxt-nightly@5x"` in `package.json` and migrate in the same run. Nuxt 5 stops auto-importing Nitro helpers like `defineEventHandler` in server code. Set `experimental: { nitroAutoImports: true }` to keep them, or import them as the Nuxt 5 build error lists.
+A codemod that adds `vite-hub/nuxt` needs Nitro 3, which runs on Nuxt 4.7 with the `nitro` package, or on Nuxt 5. On Nuxt 4.7, it adds `nitro` to `package.json`, or replaces a `nitro` range that Nuxt 4.7 cannot build with, and the report notes the change. If `package.json` allows a Nuxt version before 4.7, the codemod stops before it writes anything. Upgrade with `pnpm add nuxt@^4.7.0 nitro` and run the command again. Or run it again with `--nuxt-nightly` to set `"nuxt": "npm:nuxt-nightly@5x"` in `package.json` and migrate in the same run. Nuxt 5 stops auto-importing Nitro helpers like `defineEventHandler` in server code. Set `experimental: { nitroAutoImports: true }` to keep them, or import them as the Nuxt 5 build error lists.
 
 ## Run one codemod
 

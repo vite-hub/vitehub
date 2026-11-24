@@ -20,8 +20,8 @@ The report lists, for each codemod, why it ran and what it did, then the files i
 
 The codemods that add `vite-hub/nuxt`, such as `nuxt-safe-runtime-config` and `nuxthub`, need Nitro 3, which runs on Nuxt 4.7 with the `nitro` package, or on Nuxt 5. The command reads the `nuxt` range in `package.json`, directly or through a pnpm `catalog:` in `pnpm-workspace.yaml`:
 
-- Nuxt 5, such as `npm:nuxt-nightly@5x`: no change.
-- Nuxt 4.7, such as `^4.7.0`: it adds `"nitro": "^3.0.261103-rc"` to `dependencies` when `package.json` does not list `nitro`, and the report notes it.
+- Only Nuxt 5, such as `npm:nuxt-nightly@5x`: no change.
+- Nuxt 4.7 and no earlier version, such as `^4.7.0` or `>=4.7.0 <6`: it adds `"nitro": "^3.0.261103-rc"` to `dependencies` when `package.json` does not list `nitro`, or replaces a `nitro` range outside it, such as `2.2.28`. The report notes the change.
 - A range that allows a version before 4.7, such as `^4.2.0`: it stops before it writes anything, also with `--dry-run`, and exits with `1`. Upgrade with `pnpm add nuxt@^4.7.0 nitro`, or add `--nuxt-nightly` to set `"nuxt": "npm:nuxt-nightly@5x"` in `package.json` and migrate in the same run.
 
 Each codemod also adds `vite-hub` and the packages of each ViteHub feature that it turns on to `package.json`, such as `@vite-hub/email` for `resend`, and `@vite-hub/schedule` and `@vite-hub/kv` for `nuxt-cron` on Node. Without them, the build stops with `VITE_HUB_R0136`. Run the install command that the report lists. The codemods do not change the Nuxt version without `--nuxt-nightly`, and do not install packages. Nuxt 5 stops auto-importing Nitro helpers such as `defineEventHandler` in server code. Set `experimental: { nitroAutoImports: true }` to keep them, or import them as the Nuxt 5 build error lists.
