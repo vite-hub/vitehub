@@ -1,5 +1,7 @@
-import type { ConsoleRpcResult } from "../../packages/vite-hub/src/console/runtime/rpc.ts"
-import type { SiteGrant, SiteInvite, SiteSession } from "../../packages/vite-hub/src/console/runtime/site-access.ts"
+import type { IncomingMessage, ServerResponse } from "node:http"
+import type { Plugin } from "vite"
+
+import type { SiteGrant, SiteInvite, SiteSession } from "../../packages/vite-hub/src/console/runtime/client/site-access.ts"
 
 const hour = 3_600_000
 const day = 24 * hour
@@ -22,38 +24,64 @@ let invites: SiteInvite[] = [
   { id: "invite-leo", name: "Leo (QA)", grants: ["comments-read", "comments-write", "comments-resolve"], path: "/", expiresAt: new Date(now + 5 * day).toISOString(), createdBy: maxi },
 ]
 let next = 0
+const route = /^\/api\/projects\/[^/]+\/site(?:\/(codes|invites|sessions)(?:\/([^/]+))?)?$/
 
 function link(origin: string, minutes: number): { url: string, expiresAt: string } {
-  return { url: `${new URL(origin).origin}/_vitehub/rpc?ticket=vt1_playground${String(next++).padStart(31, "0")}`, expiresAt: new Date(Date.now() + minutes * 60_000).toISOString() }
+  return { url: `${origin}/go/playground${String(next++).padStart(8, "0")}`, expiresAt: new Date(Date.now() + minutes * 60_000).toISOString() }
 }
 
-function missing(what: string): ConsoleRpcResult {
-  return { code: "CONSOLE_REQUEST_INVALID", message: `No ${what} has this id.`, ok: false, status: 404 }
+function send(response: ServerResponse, status: number, body: unknown): void {
+  response.statusCode = status
+  response.setHeader("cache-control", "no-store")
+  response.setHeader("content-type", "application/json")
+  response.end(JSON.stringify(body))
 }
 
-export function siteFixture(origin: string, operation: string, input: Record<string, unknown>): ConsoleRpcResult | undefined {
-  switch (operation) {
-    case "site.sessions": return { ok: true, value: { sessions } }
-    case "site.invites": return { ok: true, value: { invites } }
-    case "site.grants": return { ok: true, value: { grants } }
-    case "site.link": return { ok: true, value: input.qr ? link(origin, 10) : { url: "/", expiresAt: new Date(Date.now() + 60_000).toISOString() } }
-    case "site.invite": {
-      const days = Number(input.expiresInDays ?? 7)
-      const invite: SiteInvite = { id: `invite-${next}`, name: String(input.name ?? ""), grants: Array.isArray(input.grants) ? input.grants.map(String) : [], path: "/", expiresAt: new Date(Date.now() + days * day).toISOString(), createdBy: maxi }
-      invites = [invite, ...invites]
-      return { ok: true, value: { ...link(origin, days * 24 * 60), expiresAt: invite.expiresAt, invite } }
-    }
-    case "site.revoke-session": {
-      const session = sessions.find(session => session.id === input.id)
-      if (!session) return missing("browser")
-      sessions = sessions.filter(other => other.id !== input.id)
-      return { ok: true, value: { revoked: true, removedUser: session.kind === "guest" } }
-    }
-    case "site.revoke-invite": {
-      if (!invites.some(invite => invite.id === input.id)) return missing("invite")
-      invites = invites.filter(invite => invite.id !== input.id)
-      return { ok: true, value: { revoked: true } }
-    }
-    default: return undefined
+async function readJson(request: IncomingMessage): Promise<Record<string, unknown>> {
+  let text = ""
+  for await (const chunk of request) text += String(chunk)
+  const value: unknown = text ? JSON.parse(text) : {}
+  return value instanceof Object && !Array.isArray(value) ? Object.fromEntries(Object.entries(value)) : {}
+}
+
+async function answer(request: IncomingMessage, origin: string, collection: string | undefined, id: string | undefined): Promise<[number, unknown]> {
+  if (request.method === "GET" && !collection) return [200, { sessions, invites, grants }]
+  if (request.method === "POST" && collection === "codes" && !id) return [200, link(origin, 10)]
+  if (request.method === "POST" && collection === "invites" && !id) {
+    const input = await readJson(request)
+    const days = Number(input.expiresInDays ?? 7)
+    const invite: SiteInvite = { id: `invite-${next}`, name: String(input.name ?? ""), grants: Array.isArray(input.grants) ? input.grants.map(String) : [], path: "/", expiresAt: new Date(Date.now() + days * day).toISOString(), createdBy: maxi }
+    invites = [invite, ...invites]
+    return [200, { ...link(origin, days * 24 * 60), expiresAt: invite.expiresAt, invite }]
+  }
+  if (request.method === "DELETE" && collection === "sessions" && id) {
+    if (!sessions.some(session => session.id === id)) return [404, { message: "No browser has this id." }]
+    sessions = sessions.filter(session => session.id !== id)
+    return [200, { revoked: true }]
+  }
+  if (request.method === "DELETE" && collection === "invites" && id) {
+    if (!invites.some(invite => invite.id === id)) return [404, { message: "No invite has this id." }]
+    invites = invites.filter(invite => invite.id !== id)
+    return [200, { revoked: true }]
+  }
+  return [405, { message: "The playground does not answer this Site access request." }]
+}
+
+export function consoleMockSite(): Plugin {
+  return {
+    name: "vitehub-console-playground-site",
+    configureServer(server) {
+      server.middlewares.use((request, response, next) => {
+        const match = route.exec(request.url?.split("?")[0] ?? "")
+        if (!match) {
+          next()
+          return
+        }
+        const origin = `http://${request.headers.host ?? "localhost"}`
+        void answer(request, origin, match[1], match[2] === undefined ? undefined : decodeURIComponent(match[2]))
+          .then(([status, body]) => send(response, status, body))
+          .catch(next)
+      })
+    },
   }
 }

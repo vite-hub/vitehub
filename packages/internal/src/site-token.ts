@@ -36,8 +36,7 @@ const maximumTokenLength = 8_192
 /**
  * The app operation that tells the Console what Site access a Console member has in the app. The Console signs the call
  * as the member before each Site access action, so `console.authorize` and its `"site:read"` and `grants` limits decide.
- * An app that lists it in `project.get` verifies Site access tokens, and the Console page uses the Console for its Site
- * access. Other apps keep the `site.*` operations of the app. The answer is a {@link SiteAccessPolicy}.
+ * The app lists it in `project.get`. The answer is a {@link SiteAccessPolicy}.
  */
 export const siteAccessOperation = "site.access"
 
@@ -241,11 +240,13 @@ function parseJson(bytes: Uint8Array): unknown {
 /**
  * Check a token in the app. `keys` are the public keys of `readConsolePublicKeys()`, `origin` is the URL that the app
  * serves, with its base path, such as `https://app.example.com/portal`, and `state` is the value of its
- * state cookie. `kinds` are the kinds that the route accepts, `["site"]` by default. The token is refused
- * when it is malformed, signed with an unknown key or another key, made for another origin, expired, made for another
- * browser, of another kind, or when its path resolves outside the app URL.
+ * state cookie. `kinds` are the kinds that the route accepts, `["site"]` by default. `lifetime` is the number of
+ * seconds after `iat` that the token works, for an app that keeps the token in its session cookie. Without it, the
+ * token works until its `exp`, 60 seconds. The token is refused when it is malformed, signed with an unknown key or
+ * another key, made for another origin, expired, made for another browser, of another kind, or when its path resolves
+ * outside the app URL.
  */
-export async function verifySiteToken(input: { token: string, keys: ReadonlyMap<string, Uint8Array<ArrayBuffer>>, origin: string, state: string, kinds?: readonly SiteTokenKind[], now?: number }): Promise<SiteTokenMatch | SiteTokenFailure> {
+export async function verifySiteToken(input: { token: string, keys: ReadonlyMap<string, Uint8Array<ArrayBuffer>>, origin: string, state: string, kinds?: readonly SiteTokenKind[], lifetime?: number, now?: number }): Promise<SiteTokenMatch | SiteTokenFailure> {
   const parts = input.token.length <= maximumTokenLength ? input.token.split(".") : []
   const [version, name, payload, signature] = parts
   const bytes = parts.length === 4 && version === tokenVersion && payload ? decodeConsoleBase64url(payload) : undefined
@@ -261,7 +262,8 @@ export async function verifySiteToken(input: { token: string, keys: ReadonlyMap<
   const origin = new URL(input.origin).origin
   if (claims.aud !== origin) return failure("SITE_TOKEN_AUDIENCE", `The Site access token was made for ${claims.aud}, and this app is ${origin}.`)
   const now = Math.floor((input.now ?? Date.now()) / 1_000)
-  if (now >= claims.exp || claims.iat > now + siteTokenLifetimeSeconds) return failure("SITE_TOKEN_EXPIRED", "The Site access token expired. Open the site from the Console again.")
+  const end = input.lifetime === undefined ? claims.exp : claims.iat + input.lifetime
+  if (now >= end || claims.iat > now + siteTokenLifetimeSeconds) return failure("SITE_TOKEN_EXPIRED", "The Site access token expired. Open the site from the Console again.")
   if (!input.state || claims.state !== await siteStateHash(input.state)) {
     return failure("SITE_TOKEN_STATE", "The Site access token was made for another browser. Open the site again in this browser.")
   }

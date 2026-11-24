@@ -35,6 +35,7 @@
   "packages/database/src/nuxt.ts": 51,
   "packages/database/src/provision.ts": 5,
   "packages/database/src/runtime/agent.ts": 1,
+  "packages/database/src/runtime/d1-http.ts": 3,
   "packages/database/src/runtime/d1-limits.ts": 5,
   "packages/database/src/runtime/d1-sessions.ts": 4,
   "packages/database/src/runtime/deferred-libsql-client.ts": 3,

@@ -11,7 +11,6 @@ import { addConsolePageToolRoutes } from "../src/console/nitro.ts"
 import { consolePageToolScript, writeConsoleNitroPlugin } from "../src/console/plugin.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access-policy.ts"
 import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
-import { isAuthAdmin } from "../src/console/runtime/server/page-auth.ts"
 import { readConsoleProject } from "../src/console/runtime/server/project.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { installConsolePageTool } from "../src/console/runtime/server/page-tool.ts"
@@ -20,18 +19,18 @@ import { generatedModules } from "../src/internal/generated-modules.ts"
 import { consoleDocumentPath, consolePageBase, consolePageLink, consoleScriptSource } from "../src/page/console-link.ts"
 
 import type { ConsoleAuthorize, ConsoleAuthorizeContext } from "../src/console/auth.ts"
-import type { ConsolePageUser } from "../src/console/runtime/server/page-tool.ts"
+import type { ViteHubSiteVisitor } from "@vite-hub/internal/runtime/page-tools"
 
-const people: Record<string, ConsolePageUser> = {
-  admin: { user: { id: "u1", role: "admin" }, console: true, signOut: "/api/auth/sign-out" },
-  member: { user: { id: "u2", role: "user" }, console: false, signOut: "/api/auth/sign-out" },
+const people: Record<string, ViteHubSiteVisitor> = {
+  member: { id: "u1", name: "Ada", roles: ["console", "comments-write"], kind: "member" },
+  guest: { id: "u2", name: "Ana", roles: ["comments-write"], kind: "guest" },
 }
 
-/** Installs the Console page tool with an Auth reader that takes the person from a `person` cookie. */
+/** Installs the Console page tool with a Site access reader that takes the person from a `person` cookie. */
 function install(app: object): void {
   installConsolePageTool(app, {
     script: consolePageToolScript,
-    user: async request => people[/person=(\w+)/.exec(request.headers.get("cookie") ?? "")?.[1] ?? ""],
+    site: async request => people[/person=(\w+)/.exec(request.headers.get("cookie") ?? "")?.[1] ?? ""],
   })
 }
 
@@ -59,23 +58,23 @@ describe("who gets the Console link", () => {
     expect(await tools(app)).toEqual([{ id: "console", label: "Console", icon: "i-lucide-square-terminal", script: `/portal${consolePageToolScript}` }])
   })
 
-  it("shows it to Auth admins only without console.authorize", async () => {
+  it("shows it to Site access people with the console role only without console.authorize", async () => {
     installConsoleAccess({ mode: "token" })
     const app = {}
     install(app)
     expect(await tools(app)).toEqual([])
-    expect(await tools(app, "member")).toEqual([])
-    expect((await tools(app, "admin")).map(tool => tool.id)).toEqual(["console"])
+    expect(await tools(app, "guest")).toEqual([])
+    expect((await tools(app, "member")).map(tool => tool.id)).toEqual(["console"])
   })
 
   it("never shows it for the local policy outside a development server", async () => {
     installConsoleAccess({ mode: "local" })
     const app = {}
     install(app)
-    expect(await tools(app, "admin")).toEqual([])
+    expect(await tools(app, "member")).toEqual([])
   })
 
-  it("asks console.authorize with via: page and the Auth user", async () => {
+  it("asks console.authorize with via: page and the Site access person", async () => {
     const contexts: ConsoleAuthorizeContext[] = []
     const authorize = vi.fn<ConsoleAuthorize>((context) => {
       contexts.push(context)
@@ -86,10 +85,9 @@ describe("who gets the Console link", () => {
     const app = {}
     install(app)
     expect(await tools(app)).toEqual([])
-    // The policy decides, not the admin role.
-    expect(await tools(app, "admin")).toEqual([])
-    expect((await tools(app, "member")).map(tool => tool.id)).toEqual(["console"])
-    expect(contexts.map(context => [context.via, context.user?.id])).toEqual([["page", undefined], ["page", "u1"], ["page", "u2"]])
+    expect(await tools(app, "member")).toEqual([])
+    expect((await tools(app, "guest")).map(tool => tool.id)).toEqual(["console"])
+    expect(contexts.map(context => [context.via, context.user?.id, context.user?.role])).toEqual([["page", undefined, undefined], ["page", "u1", "console,comments-write"], ["page", "u2", "comments-write"]])
   })
 
   it.each([
@@ -105,33 +103,14 @@ describe("who gets the Console link", () => {
     expect((await tools(app)).length).toBe(shown ? 1 : 0)
   })
 
-  it("keeps it off when the Auth reader fails", async () => {
+  it("keeps it off when the Site access reader fails", async () => {
     installConsoleAccess({ mode: "token" })
     const app = {}
     const error = vi.spyOn(console, "error").mockImplementation(() => {})
-    installConsolePageTool(app, { script: consolePageToolScript, user: () => Promise.reject(new Error("no database")) })
+    installConsolePageTool(app, { script: consolePageToolScript, site: () => Promise.reject(new Error("no keys")) })
     expect(await tools(app)).toEqual([])
     expect(error).toHaveBeenCalled()
     error.mockRestore()
-  })
-})
-
-describe("the Auth admin check", () => {
-  const admin = (options?: Record<string, unknown>) => ({ id: "admin", ...(options ? { options } : {}) })
-
-  it("follows Better Auth's admin() roles and user ids", () => {
-    expect(isAuthAdmin([admin()], { id: "a", role: "admin" })).toBe(true)
-    expect(isAuthAdmin([admin()], { id: "a", role: "user,admin" })).toBe(true)
-    expect(isAuthAdmin([admin()], { id: "a", role: "user" })).toBe(false)
-    expect(isAuthAdmin([admin()], { id: "a" })).toBe(false)
-    expect(isAuthAdmin([admin({ adminRoles: ["owner"] })], { id: "a", role: "admin" })).toBe(false)
-    expect(isAuthAdmin([admin({ adminRoles: "owner, staff" })], { id: "a", role: "staff" })).toBe(true)
-    expect(isAuthAdmin([admin({ adminUserIds: ["a"] })], { id: "a", role: "user" })).toBe(true)
-  })
-
-  it("counts nobody as an admin without the admin() plugin", () => {
-    expect(isAuthAdmin([], { id: "a", role: "admin" })).toBe(false)
-    expect(isAuthAdmin(undefined, { id: "a", role: "admin" })).toBe(false)
   })
 })
 
@@ -214,18 +193,16 @@ describe("a Console app without Comments", () => {
       await write(["auth"], { base: "/portal/" })
       const withAuth = await readFile(file, "utf8")
       expect(withAuth).toContain(`import { installConsolePageTool } from ${JSON.stringify(generatedModules.consolePageTool)}`)
-      expect(withAuth).toContain(`export default function viteHubConsolePlugin(nitroApp) { installConsolePageTool(nitroApp, { base: "/portal/", script: ${JSON.stringify(consolePageToolScript)}, user: async request => (await import(${JSON.stringify(generatedModules.consolePageAuth)})).consolePageAuthUser(request) }) }`)
+      expect(withAuth).toContain(`export default function viteHubConsolePlugin(nitroApp) { installConsolePageTool(nitroApp, { base: "/portal/", script: ${JSON.stringify(consolePageToolScript)}, site: async (request, base) => (await import(${JSON.stringify(generatedModules.consoleSite)})).readConsoleSiteVisitor(request, base) }) }`)
       await write([], { base: "/" })
       const withoutAuth = await readFile(file, "utf8")
-      // Without Auth, the Console page tool reads the Site access cookie.
-      expect(withoutAuth).toContain(`installConsolePageTool(nitroApp, { base: "/", script: ${JSON.stringify(consolePageToolScript)}, site: async request => (await import(${JSON.stringify(generatedModules.consoleSiteSession)})).readConsoleSiteVisitor(request) })`)
-      expect(withoutAuth).not.toContain(generatedModules.consolePageAuth)
+      expect(withoutAuth).toContain(`installConsolePageTool(nitroApp, { base: "/", script: ${JSON.stringify(consolePageToolScript)}, site: async (request, base) => (await import(${JSON.stringify(generatedModules.consoleSite)})).readConsoleSiteVisitor(request, base) })`)
       expect(withoutAuth).toContain(`installConsoleSections(${JSON.stringify(root)}, ["site"])`)
       const registration = /installConsoleSections\([^,]+, (\[[^\n]*?\])/.exec(withoutAuth)
       expect(registration).not.toBeNull()
       installConsoleSections(root, JSON.parse(registration![1]!))
       const project = await readConsoleProject({ access: { mode: "token", sections: "all" }, surface: "console", user: null })
-      expect(project.operations).toEqual(expect.arrayContaining(["site.link", "site.sessions", "site.revoke-session"]))
+      expect(project.operations).toContain("site.access")
       await writeConsoleNitroPlugin({ file, projectRoot: root, sections: ["kv"], catalog: { agents: [], content: {} }, blobStores: [], access: { mode: "token", hiddenSections: ["site"] }, pageTool: { base: "/" } })
       expect(await readFile(file, "utf8")).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"])`)
       await write([])

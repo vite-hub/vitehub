@@ -108,7 +108,6 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/database/connect",
   "@vite-hub/database/connect/node",
   "@vite-hub/env/seal",
-  "@vite-hub/kv/runtime/database",
   // Build tools and page scripts read a preview's repository and commit; apps call useForge() from vite-hub/forge.
   "@vite-hub/forge/build",
   "@vite-hub/forge/build/node",
@@ -788,6 +787,7 @@ describe("framework package contract", () => {
       // MCP, or Env management.
       expect(handlers.map((registration) => Reflect.get(Object(registration), "route"))).toEqual([
         "/_vitehub/rpc",
+        "/_vitehub/site",
         "/_vitehub",
         "/_vitehub/**",
         "/_vitehub/page/tools",

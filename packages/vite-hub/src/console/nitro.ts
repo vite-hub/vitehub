@@ -98,6 +98,7 @@ function isConsoleRouteGuard(value: unknown): boolean {
  * Add the Console routes of the app. The ViteHub Console and the CLI `POST` signed calls to `/_vitehub/rpc`, and a
  * browser `GET`s it with a one-time ticket that an operation made, such as for impersonation or Content preview. A
  * browser that opens `/_vitehub` or `/_vitehub/<page>` goes back to that page with the pill. See `server/site-entry.ts`.
+ * `/_vitehub/site` signs the browser in with a Site access token of the Console. See `server/site.ts`.
  */
 export function addConsoleRpcHandler(
   nitro: { handlers?: Array<{ handler: string; route?: string }>; modules?: unknown[]; plugins?: string[] },
@@ -111,6 +112,7 @@ export function addConsoleRpcHandler(
     // One birpc call per POST, or one ticket per GET. The route answers other requests with 405 and leaves the paths
     // below it to the app.
     { suffix: "/_vitehub/rpc", handler: join(consoleRuntimeRoot, "server/rpc.js") },
+    { suffix: "/_vitehub/site", handler: join(consoleRuntimeRoot, "server/site.js") },
     // `GET /_vitehub` and `GET /_vitehub/<page>` go back to the page with the pill, through the Console when the browser
     // needs a Site access sign-in. The catch-all gets only paths that no other route matched.
     { suffix: "/_vitehub", handler: join(consoleRuntimeRoot, "server/site-entry.js") },

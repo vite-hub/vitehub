@@ -105,6 +105,7 @@ const consoleRoutes = [
   "route ALL /_vitehub console/server/site-entry.js",
   "route ALL /_vitehub/** console/server/site-entry.js",
   "route ALL /_vitehub/rpc console/server/rpc.js",
+  "route ALL /_vitehub/site console/server/site.js",
 ]
 
 /**

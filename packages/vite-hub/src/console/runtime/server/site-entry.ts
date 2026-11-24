@@ -1,4 +1,3 @@
-import { hostedConsoleOrigin } from "@vite-hub/runtime/internal/console"
 import { viteHubPageToolAllows } from "@vite-hub/internal/runtime/page-tools"
 import { matchesPublicOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { getStandardContext } from "@vite-hub/runtime/internal/h3"
@@ -7,9 +6,8 @@ import { configuredPublicOrigins } from "@vite-hub/runtime/internal/public-url"
 import { installedConsoleAccessPolicy } from "./access-policy.ts"
 import { consoleRequestError, consoleRoute, isConsoleDevelopmentRuntime } from "./request.ts"
 import { isConsoleLoopbackRequest } from "./loopback.ts"
-import { withPageTools } from "./site-access.ts"
-import { appOrigin, base64url, seeOther } from "./tickets.ts"
-import { siteStateCookie } from "../site-access.ts"
+import { withPageTools } from "./site.ts"
+import { appOrigin, seeOther } from "./tickets.ts"
 
 import type { ConsoleRoute } from "./request.ts"
 
@@ -22,19 +20,13 @@ import type { ConsoleRoute } from "./request.ts"
  *   the app home.
  *
  * On a development server, and for a visitor whom the Console page tool already allows, the route goes to the page at
- * once. Another visitor goes to the ViteHub Console first, which signs them in when needed and sends them back with a
- * one-time Site access link.
+ * once. Another visitor goes to `<base>/_vitehub/site?return=<page>`, which sends the browser through the ViteHub
+ * Console for a Site access token.
  *
  * Like the pill, the route answers only on the origins of `vitehub({ publicUrl })`, when it is set. Another hostname of
  * the same deployment, such as a content origin, gets 404.
- *
- * The route sets a state cookie, and the Console passes the state to `site.link`. The link then works only in the
- * browser that started here, so a link that someone else made cannot sign this browser in as them. The browser keeps
- * one state for 10 minutes, for every tab.
  */
 
-/** Seconds that the state cookie lives: long enough for a sign-in with GitHub or a passkey. */
-const siteStateLifetime = 10 * 60
 const entrySegment = /\/_vitehub(?=\/|$)/
 
 /**
@@ -68,6 +60,7 @@ export const siteEntryReservedNames: ReadonlySet<string> = new Set([
   "realtime",
   "rpc",
   "schedule",
+  "site",
   "sync",
   "warm",
   "webhook-queue",
@@ -124,9 +117,7 @@ const siteEntryRoute: ConsoleRoute = consoleRoute(async (event) => {
   const { req: request, runtime } = getStandardContext(event)
   const policy = installedConsoleAccessPolicy()
   if (!policy) throw consoleRequestError(500, "Console access is not configured. The generated Console output did not install an access policy.", "CONSOLE_ACCESS_NOT_CONFIGURED")
-  // A development Console answers only this computer, as every Console route does.
   if (!await isConsoleLoopbackRequest(request, { access: policy.mode, remoteAddress: runtime?.clientAddress })) throw consoleRequestError(403, "This development server answers the Console only on this computer.", "CONSOLE_LOOPBACK_ONLY")
-  // `/_vitehub/<page>` is a browser address, not a route: another method there is a path that nothing serves.
   if (request.method !== "GET" && request.method !== "HEAD") {
     if (/\/_vitehub\/./.test(new URL(request.url).pathname)) throw consoleRequestError(404, "Nothing serves this path. ViteHub routes below /_vitehub have their own paths.")
     throw consoleRequestError(405, "Open /_vitehub in the browser.")
@@ -137,16 +128,8 @@ const siteEntryRoute: ConsoleRoute = consoleRoute(async (event) => {
   const target = siteEntryTarget(request, origin)
   if (!target) throw consoleRequestError(404, "ViteHub serves this path itself, and nothing answered it. Open the page and follow a link to /_vitehub from it.")
   const { base, page } = target
-  // On a development server, the pill needs no sign-in. A person whom Site access signed in already has the Console tool.
   if (development || await viteHubPageToolAllows(request, "console")) return seeOther(withPageTools(`${base}${page}`))
-  // A second `/_vitehub` in this browser, such as in another tab, keeps the state, so the first tab's link still works.
-  // The links are one-time, so the state lives until it expires.
-  const current = /(?:^|;\s*)__Host-vitehub-site-state=([\w-]{43})(?:;|$)/.exec(request.headers.get("cookie") ?? "")?.[1]
-  const state = current ?? base64url(crypto.getRandomValues(new Uint8Array(32)))
-  const location = new URL("/open", hostedConsoleOrigin)
-  location.search = new URLSearchParams({ project: `${origin}${base}`, site: page, state }).toString()
-  const headers = new Headers({ "set-cookie": `${siteStateCookie}=${state}; Path=/; Max-Age=${siteStateLifetime}; HttpOnly; Secure; SameSite=Lax` })
-  return seeOther(location.href, headers)
+  return seeOther(`${base}/_vitehub/site?${new URLSearchParams({ return: page })}`)
 })
 
 export default siteEntryRoute

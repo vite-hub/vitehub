@@ -46,11 +46,6 @@
       "import": "./dist/durability.js",
       "default": "./dist/durability.js"
     },
-    "./runtime/database": {
-      "types": "./dist/runtime/database.d.ts",
-      "import": "./dist/runtime/database.js",
-      "default": "./dist/runtime/database.js"
-    },
     "./runtime/redis-driver": {
       "types": "./dist/runtime/redis-driver.d.ts",
       "import": "./dist/runtime/redis-driver.js",

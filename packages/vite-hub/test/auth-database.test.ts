@@ -130,28 +130,6 @@ describe("authDatabase()", () => {
     expect((await client.execute("select count(*) as count from jwks")).rows[0]?.count).toBe(1)
   })
 
-  it("keeps Site access roles in user.role without admin()", async () => {
-    const definition = defineAuth({ database: authDatabase(), emailAndPassword: { enabled: true } })
-    const auth = createAuthForRequest(definition, new Request(app))
-    const { createAuthConsole } = await import("@vite-hub/auth/console-runtime")
-    const api = createAuthConsole(auth)
-    expect(await api.checkHost()).toEqual([undefined, undefined])
-    const [error, guest] = await api.hostUser({ name: "Grace", roles: ["guest", "comments-write"] })
-    expect(error).toBeUndefined()
-    const [, headers] = await api.hostSession(guest!.id, new Request(`${app}/_vitehub/rpc?ticket=t`))
-    const session = await auth.api.getSession({ headers: new Headers({ cookie: headers!.getSetCookie().map(value => value.split(";")[0]).join("; ") }) })
-    expect(session?.user).toMatchObject({ id: guest!.id, role: "guest,comments-write" })
-
-    const signUp = await auth.handler(new Request(`${app}/api/auth/sign-up/email`, {
-      body: JSON.stringify({ email: "lin@example.com", name: "Lin", password: "correct-horse-battery" }),
-      headers: { "content-type": "application/json", origin: app },
-      method: "POST",
-    }))
-    expect(signUp.status, await signUp.clone().text()).toBe(200)
-    expect((await client.execute("select role from user where email = 'lin@example.com'")).rows).toEqual([{ role: null }])
-    await client.execute({ sql: "delete from user where id = ? or email = 'lin@example.com'", args: [guest!.id] })
-  })
-
   it("keeps the limiter counters of every Auth instance in the rate_limit table", async () => {
     // A Worker build: the Auth Vite plugin marks it as a build, and there is no NODE_ENV.
     vi.stubGlobal("__VITEHUB_AUTH_DEV__", false)

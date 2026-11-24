@@ -52,6 +52,14 @@ describe("Site access tokens", () => {
     expect(await verifySiteToken({ token, keys, origin, state, now: now - 120_000 })).toMatchObject({ ok: false, code: "SITE_TOKEN_EXPIRED" })
   })
 
+  it("keeps a token for `lifetime` seconds after it was signed, for a session cookie", async () => {
+    const { keys, state, token } = await visit()
+    const hours = 12 * 60 * 60
+    expect(await verifySiteToken({ token, keys, origin, state, lifetime: hours, now: now + 60_000 })).toMatchObject({ ok: true })
+    expect(await verifySiteToken({ token, keys, origin, state, lifetime: hours, now: now + hours * 1_000 - 1_000 })).toMatchObject({ ok: true })
+    expect(await verifySiteToken({ token, keys, origin, state, lifetime: hours, now: now + hours * 1_000 })).toMatchObject({ ok: false, code: "SITE_TOKEN_EXPIRED" })
+  })
+
   it("refuses a token for the state of another browser", async () => {
     const { keys, token } = await visit()
     expect(await verifySiteToken({ token, keys, origin, state: createSiteState(), now })).toMatchObject({ ok: false, code: "SITE_TOKEN_STATE" })

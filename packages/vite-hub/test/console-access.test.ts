@@ -408,6 +408,7 @@ describe("generated Console access", () => {
     const { authAccessHandlerMeta } = await import("@vite-hub/auth/runtime/server")
     expect(config.nitro.handlers.filter(handler => handler.meta)).toEqual([
       expect.objectContaining({ route, meta: { ...authAccessHandlerMeta } }),
+      expect.objectContaining({ route: route.replace(/\/rpc$/, "/site"), meta: { ...authAccessHandlerMeta } }),
       expect.objectContaining({ route: route.replace(/\/rpc$/, ""), meta: { ...authAccessHandlerMeta } }),
       expect.objectContaining({ route: route.replace(/\/rpc$/, "/**"), meta: { ...authAccessHandlerMeta } }),
       expect.objectContaining({ route: route.replace(/\/rpc$/, "/page/tools"), meta: { vitehubOwnAccess: true } }),
@@ -430,7 +431,7 @@ describe("generated Console access", () => {
     await generatedPlugin({ console: {} }, "build", config)
 
     const routes = config.nitro.handlers.map(handler => handler.route)
-    expect(routes).toEqual([`${mount}/_vitehub/rpc`, `${mount}/_vitehub`, `${mount}/_vitehub/**`, `${mount}/_vitehub/page/tools`])
+    expect(routes).toEqual([`${mount}/_vitehub/rpc`, `${mount}/_vitehub/site`, `${mount}/_vitehub`, `${mount}/_vitehub/**`, `${mount}/_vitehub/page/tools`])
   })
 
   it("imports console.authorize for open access", async () => {

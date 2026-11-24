@@ -131,7 +131,6 @@ const runtimeEntries = [
   "src/console/runtime/mcp-client.ts",
   "src/console/runtime/rpc.ts",
   "src/console/runtime/sections.ts",
-  "src/console/runtime/site-access.ts",
   "src/console/runtime/skills.ts",
   // Generated Console output imports these when the server starts. Own files keep the request code out of startup.
   "src/console/runtime/server/access-policy.ts",
@@ -159,11 +158,10 @@ const runtimeEntries = [
   "src/console/runtime/server/setup.ts",
   "src/console/runtime/server/usage.get.ts",
   "src/console/runtime/server/status.get.ts",
-  // The page tools session route, and the Auth and Site access readers that the Console page tool loads with the first
+  // The page tools session route, and the Site access route and reader that the Console page tool loads with the first
   // session request.
-  "src/console/runtime/server/page-auth.ts",
   "src/console/runtime/server/page-tools-route.ts",
-  "src/console/runtime/server/site-session.ts",
+  "src/console/runtime/server/site.ts",
 ];
 
 const skillsSource = resolve(import.meta.dirname, "../../docs/skills");
@@ -622,7 +620,6 @@ export default defineConfig({
           delete exports["./console/runtime/mcp-client"];
           delete exports["./console/runtime/rpc"];
           delete exports["./console/runtime/sections"];
-          delete exports["./console/runtime/site-access"];
           delete exports["./console/runtime/skills"];
           delete exports["./console/runtime/server/agents.get"];
           delete exports["./console/runtime/server/blob"];
@@ -648,7 +645,6 @@ export default defineConfig({
           delete exports["./console/runtime/server/access-policy"];
           delete exports["./console/runtime/server/development"];
           delete exports["./console/runtime/server/operation-contributions"];
-          delete exports["./console/runtime/server/page-auth"];
           delete exports["./console/runtime/server/page-tools-route"];
           delete exports["./console/runtime/server/page-tool"];
           delete exports["./console/runtime/server/runtime"];
@@ -656,7 +652,7 @@ export default defineConfig({
           delete exports["./console/runtime/server/sections.get"];
           delete exports["./console/runtime/server/sections"];
           delete exports["./console/runtime/server/setup"];
-          delete exports["./console/runtime/server/site-session"];
+          delete exports["./console/runtime/server/site"];
           delete exports["./console/runtime/server/usage.get"];
           delete exports["./console/runtime/server/status.get"];
           // Generated code imports `src/internal/*` entries by path. They are not public API.
