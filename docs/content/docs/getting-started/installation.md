@@ -11,9 +11,11 @@ Set up an app with ViteHub and check that it answers a request. Every later tuto
 
 ## Prerequisites
 
-- Node.js 24.15 or newer. Nuxt 5 does not install on Node.js 25, so for Nuxt use 24.15 or newer on 24.x, or 26 or newer.
+- Node.js 24.15 or newer. Nuxt 4.7 and Nuxt 5 do not install on Node.js 25, so for Nuxt use 24.15 or newer on 24.x, or 26 or newer.
 - pnpm. The examples use pnpm. Use pnpm 11.5 or newer for the Nuxt 5 nightly alias. Older versions can hang when they resolve it.
-- For Nuxt: a Nuxt 5 app on Nitro 3. Nuxt 5 is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x vue`.
+- For Nuxt: a Nuxt app on Nitro 3. Use one of these:
+  - Nuxt 4.7 or a newer 4.x release, with the `nitro` package: `pnpm add nuxt@^4.7.0 nitro vue`. Nuxt 4.7 uses Nitro 3 only when the app lists `nitro`.
+  - Nuxt 5. It is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x vue`.
 - For Nitro: a Nitro 3 app with `nitro()` in `vite.config.ts`.
 
 ## Set up the app
@@ -22,7 +24,7 @@ Pick your framework. The docs remember it and show its code on every page. Nitro
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
-In your Nuxt 5 app, install ViteHub, H3, and Valibot for request validation. The tutorials import H3 helpers explicitly.
+In your Nuxt 4.7 or Nuxt 5 app, install ViteHub, H3, and Valibot for request validation. The tutorials import H3 helpers explicitly.
 
 ```bash pm [commands/install-nuxt]
 pnpm add vite-hub h3@^2.0.8 valibot
@@ -38,6 +40,8 @@ export default defineNuxtConfig({
 ```
 
 ViteHub detects the host when the build runs on Cloudflare Workers Builds, Vercel, Netlify, or Deno Deploy. Elsewhere, such as on your computer, it builds for Node. See [Choose a host](/docs/frameworks-hosts#choose-a-host).
+
+On Nuxt 4.7, keep `nitro` in `dependencies`. Without it, Nuxt 4.7 does not run Nitro 3, and the module stops with [`VITE_HUB_B0023`](/docs/development/diagnostics/vite_hub_b0023). An older Nuxt version stops with the same error.
 
 Keep Nuxt's `tsconfig.json` so the module can add ViteHub's types. See the [Nuxt guide](/docs/frameworks-hosts/nuxt) for more options.
 :::

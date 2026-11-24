@@ -9,7 +9,8 @@ icon: i-lucide-folder-tree
 
 On Nuxt 5, server code imports ViteHub helpers from their `vite-hub/*` paths.
 Server auto-imports are off by default, as they are for the Nitro and H3
-helpers.
+helpers. On Nuxt 4.7, they are on by default. See
+[Turn server auto-imports on](#turn-server-auto-imports-on).
 
 ```ts [server/api/welcome.post.ts] fragment
 import { kv } from 'vite-hub/kv'
@@ -36,8 +37,8 @@ The response confirms that the queue accepted the job. If saving the status in K
 
 ## Migrate an app
 
-An app that used the ViteHub auto-imports before Nuxt 5 can import them with
-one codemod:
+An app that uses the ViteHub auto-imports, for example on Nuxt 4.7, can import
+them explicitly before it moves to Nuxt 5. Run one codemod:
 
 ```bash [Terminal]
 npx @vite-hub/codemods nuxt-server-imports [dir] [--dry-run]
@@ -63,7 +64,9 @@ export default defineNuxtConfig({
 With the switch on, Nuxt auto-imports the Nitro and H3 helpers, and the
 `vite-hub/nuxt` module auto-imports the server helpers in the table below.
 `nitroLegacy: true`, or a `nitroLegacy` object without `imports: false`, also
-turns them on.
+turns them on. Nuxt 4.7 turns on `nitroLegacy` by default, unless
+`future.compatibilityVersion` is 5, so a Nuxt 4.7 app gets the auto-imports
+without the switch.
 
 ```ts [server/api/welcome.post.ts] fragment
 export default defineEventHandler(async (event) => {
@@ -179,8 +182,9 @@ Import the ViteHub helper from its `vite-hub/*` path where you need it.
 
 ## Turn auto-imports off
 
-Leave `experimental.nitroAutoImports` off. Nuxt's other switches also stop the
-ViteHub server auto-imports:
+On Nuxt 5, leave `experimental.nitroAutoImports` off. On Nuxt 4.7, set
+`experimental: { nitroAutoImports: false }`. Nuxt's other switches also stop
+the ViteHub server auto-imports:
 
 - `nitro: { imports: false }` turns off all server auto-imports, also for
   `server/utils/`.

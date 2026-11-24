@@ -78,7 +78,7 @@ export default defineEventHandler((event) => {
   :::
 
   :::product-feature-item{title="Know the limits" icon="i-lucide-info" to="/docs/i18n/limits-and-errors#limits"}
-  Nitro 3 only: Vite with Nitro 3, or Nuxt 5. Each error code has a fix.
+  Nitro 3 only: Vite with Nitro 3, Nuxt 4.7 with the `nitro` package, or Nuxt 5. Each error code has a fix.
   :::
 ::
 

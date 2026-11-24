@@ -28,7 +28,7 @@ After the move, [Agents](/docs/agents) can also use KV, Blob, and Database throu
 | `handleUpload`, multipart helpers, `useUpload`, `useMultipartUpload` | Same names on `blob` and in `vite-hub/blob/vue` | Methods return `[error, value]`. Multipart works with `fs`, `cloudflare` (binding), and `vercel`. NuxtHub's `s3` driver had multipart. ViteHub's `s3` does not, and returns `BLOB_R0030`. |
 | `hosting` auto-detection | `host` | Set the host, or let ViteHub detect it from the build variables. |
 | `.data/` | `.vitehub/data/` | Local development data does not move automatically. See [Move local data](#move-local-data). |
-| Auto-imported `kv`, `blob`, `db`, `schema` | Imported from `vite-hub/*` in Nuxt server code | On Nuxt 5, server auto-imports are off by default, so the codemod imports them in each server file. Set `experimental: { nitroAutoImports: true }` to auto-import them and the helpers of every other enabled feature. See [Nuxt server auto-imports](/docs/frameworks-hosts/nuxt-server-auto-imports). Explicit imports also work. |
+| Auto-imported `kv`, `blob`, `db`, `schema` | Imported from `vite-hub/*` in Nuxt server code | The codemod imports them in each server file, so the code works on Nuxt 4.7 and on Nuxt 5. On Nuxt 4.7, server auto-imports are on by default, so these helpers and the helpers of every other enabled feature are also auto-imported. On Nuxt 5, they are off by default. Set `experimental: { nitroAutoImports: true }` to auto-import them. See [Nuxt server auto-imports](/docs/frameworks-hosts/nuxt-server-auto-imports). Explicit imports also work. |
 
 NuxtHub v0.10 removed `hubAI()`, AutoRAG, Vectorize, and `hubBrowser()`.
 ViteHub has no AI or Vectorize feature either. For browser work on Cloudflare,
@@ -36,7 +36,7 @@ see [Browser](/docs/browser).
 
 ## Replace the module
 
-Use Nuxt 5. It is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`. Use pnpm 11.5 or newer. Older versions can hang when they resolve this nightly alias. Remove `@nuxthub/core` and install ViteHub:
+Use Nuxt 4.7 with the `nitro` package, or Nuxt 5. On Nuxt 4.7, run `pnpm add nuxt@^4.7.0 nitro`. Without `nitro`, Nuxt 4.7 does not run Nitro 3, and ViteHub stops with [`VITE_HUB_B0023`](/docs/development/diagnostics/vite_hub_b0023). Nuxt 5 is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`. Use pnpm 11.5 or newer. Older versions can hang when they resolve this nightly alias. Remove `@nuxthub/core` and install ViteHub:
 
 ```bash [Terminal]
 pnpm remove @nuxthub/core

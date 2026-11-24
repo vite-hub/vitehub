@@ -1,6 +1,6 @@
 ---
 title: i18n configuration
-description: Choose the locales, add i18n to a Vue app or a Nuxt 5 app, write messages with placeholders and plurals, and keep the translations up to date.
+description: Choose the locales, add i18n to a Vue app or a Nuxt app, write messages with placeholders and plurals, and keep the translations up to date.
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
@@ -67,7 +67,7 @@ Install `@vite-hub/i18n` in the app. `vite-hub` declares it as an optional packa
 pnpm add @vite-hub/i18n
 ```
 
-i18n needs Nitro 3. Use Vite with Nitro 3, or Nuxt 5. An unsupported host stops the build with [`I18N_UNSUPPORTED_HOST`](/docs/i18n/limits-and-errors#i18n_unsupported_host).
+i18n needs Nitro 3. Use Vite with Nitro 3, Nuxt 4.7 with the `nitro` package, or Nuxt 5. An unsupported host stops the build with [`I18N_UNSUPPORTED_HOST`](/docs/i18n/limits-and-errors#i18n_unsupported_host).
 
 ## Add i18n to a Vue app
 
@@ -101,9 +101,9 @@ const { locale, locales, setLocale } = useLocale()
 
 `setLocale()` loads the catalog of the new locale, re-renders the messages, sets `<html lang>`, and saves the choice in the cookie. The next server request reads the same cookie.
 
-## Use i18n in Nuxt 5
+## Use i18n in Nuxt
 
-Set the locales as in [Choose the locales](#choose-the-locales).
+Use Nuxt 4.7 with the `nitro` package, or Nuxt 5. Set the locales as in [Choose the locales](#choose-the-locales).
 
 The `vite-hub/nuxt` module installs the Vue plugin for you, so you do not call `createI18n()`. The server renders each page in the locale of the request. The page then loads in the browser in the same locale, so the HTML does not change after load. The module also sets `<html lang>` and auto-imports `useLocale()`.
 

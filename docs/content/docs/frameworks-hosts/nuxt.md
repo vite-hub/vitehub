@@ -12,7 +12,14 @@ the same `vite-hub/*` imports as a Vite app.
 
 ## Install the module
 
-Use Nuxt 5, which runs Nitro 3. Nuxt 5 is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`. Use pnpm 11.5 or newer; older versions can hang when they resolve this nightly alias. Nuxt has its own Nitro, so install only `vite-hub` and the packages of the features you enable. See [Add feature packages](/docs/getting-started/installation#add-feature-packages).
+The module needs Nitro 3. Use one of these Nuxt versions:
+
+- **Nuxt 4.7** or a newer 4.x release, with the `nitro` package: `pnpm add nuxt@^4.7.0 nitro`. Nuxt 4.7 builds the server with Nitro 3 and H3 2 only when the app lists `nitro`.
+- **Nuxt 5**, which always runs Nitro 3. It is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`. Use pnpm 11.5 or newer; older versions can hang when they resolve this nightly alias.
+
+On Nuxt 4.7 without `nitro`, or on a Nuxt version before 4.7, module setup stops with [`VITE_HUB_B0023`](/docs/development/diagnostics/vite_hub_b0023). The message gives the command to run.
+
+Nuxt runs Nitro for you, so do not add `nitro()`. Install `vite-hub` and the packages of the features you enable. See [Add feature packages](/docs/getting-started/installation#add-feature-packages).
 
 ```bash [Terminal]
 pnpm add vite-hub
@@ -59,15 +66,20 @@ pnpm nuxt build
 
 ## Server auto-imports
 
-On Nuxt 5, server code imports ViteHub helpers such as `kv`, `db`,
-`sendQueue`, and `requireRateLimit` from their `vite-hub/*` paths. Server
-auto-imports are off by default, as they are for the Nitro and H3 helpers.
+The module follows Nuxt's server auto-imports. When Nuxt auto-imports the
+Nitro and H3 helpers, the module also auto-imports the ViteHub helpers of each
+feature that you turn on, such as `kv`, `db`, `sendQueue`, and
+`requireRateLimit`, and `nuxt typecheck` knows their types.
 
-Turn on Nuxt's own switch to auto-import them. The module then auto-imports
-the server helpers of each feature that you turn on, and `nuxt typecheck`
-knows their types.
+- **Nuxt 4.7:** server auto-imports are on by default. Nuxt 4.7 turns on its
+  `nitroLegacy` layer, which keeps them, unless `future.compatibilityVersion`
+  is 5. Set `experimental: { nitroAutoImports: false }` to turn them off.
+- **Nuxt 5:** server auto-imports are off by default. Server code imports
+  ViteHub helpers from their `vite-hub/*` paths.
 
-Install `@vite-hub/kv` for this example.
+Explicit imports from `vite-hub/*` work on both versions. On Nuxt 5, turn on
+Nuxt's own switch to auto-import the helpers. Install `@vite-hub/kv` for this
+example.
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
@@ -140,7 +152,7 @@ Definition.
 | Generated types | The module adds the `.vitehub` declarations to the Nuxt and Nitro TypeScript configs, not to `tsconfig.json`. |
 | Generated Agent files | Agent route handlers and wrappers go to `<buildDir>/vitehub/agent/**`, normally `.nuxt/vitehub/agent/**`, not `.vitehub/agent/**`. Discovery still uses `server/agents`. |
 | Database on Cloudflare | With the `cloudflare` host, `database` defaults to `driver: 'cloudflare'`: one D1 host resource that Nitro and Nuxt Content share. |
-| Server auto-imports | Off by default. With `experimental.nitroAutoImports`, server code uses the helpers of each enabled feature without an import. See [Server auto-imports](#server-auto-imports). |
+| Server auto-imports | On by default on Nuxt 4.7, off by default on Nuxt 5. When they are on, server code uses the helpers of each enabled feature without an import. See [Server auto-imports](#server-auto-imports). |
 | Database tables from modules | A Nuxt module adds tables with the same Vite plugin as a Vite app. Push the plugin to `nuxt.options.vite.plugins` during setup. See [Contribute tables from a Nuxt module](/docs/database/configure#contribute-tables-from-a-nuxt-module). |
 | Connections | As in Vite, `connections` turns on `database` and, without a Database Definition, adds the empty `default` Database. Production builds mount the management API only with `connections: { management: { actor } }`, behind your actor policy. |
 
