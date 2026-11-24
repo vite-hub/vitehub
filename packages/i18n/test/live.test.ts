@@ -785,6 +785,30 @@ describe("missing translations for Agents", () => {
     expect((await translations.missing("es"))[1]?.items).toEqual([{ id: deploy.id, source: deploy.message, origins: [] }])
   })
 
+  it("pages missing translations after the cursor when the cursor message was translated between pages", async () => {
+    const store = memoryWorkspace()
+    const messages = ["Archive", "Build", "Cancel", "Delete", "Edit", "Find"]
+    const sources = Object.fromEntries(messages.map(message => [messageId(message), { message, hash: messageSegment(message).hash, origins: [] }]))
+    installI18nServer({ hooks: { hook: () => undefined } }, {
+      config,
+      messages: {},
+      current: () => undefined,
+      workspace: { name: "translations", open: () => store.workspace, clientIds: null, interval: 0, sources },
+    })
+    const translations = useTranslations()
+    const seen: string[] = []
+    let cursor: string | undefined
+    do {
+      const [, page] = await translations.missing("es", { limit: 2, ...(cursor ? { cursor } : {}) })
+      seen.push(...page!.items.map(item => item.source))
+      const last = page!.items.at(-1)
+      if (last) await translations.save({ locale: "es", source: last.source, translation: `es: ${last.source}` })
+      cursor = page!.cursor ?? undefined
+    } while (cursor && seen.length <= messages.length)
+
+    expect([...seen].sort()).toEqual([...messages].sort())
+  })
+
   it("lists what a locale lacks, with the old translation of a changed message, and refuses broken translations", async () => {
     const store = memoryWorkspace()
     const sources = {

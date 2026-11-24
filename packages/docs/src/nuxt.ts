@@ -650,11 +650,12 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     addTemplate({ filename: "docs/manifest.d.ts", getContents: () => `import type { DocsManifest } from "@vite-hub/docs"\ndeclare const manifest: DocsManifest\nexport default manifest\n`, write: true })
     // Each panel's pages get their own module, which the app loads when a reader opens the panel. Development keeps
     // them in the manifest, since a content change there can add a panel after the templates exist.
-    const app = () => docsAppManifest(manifest, { panels: !nuxt.options.dev })
-    nuxt.options.alias["#docs/manifest"] = addTemplate({ filename: "docs/app-manifest.mjs", getContents: () => afterContentRead(() => docsAppManifestSource(app().manifest)), write: true }).dst
-    const panelFiles = app().panels.map((panel, index) => ({
+    const builtApp = nuxt.options.dev ? undefined : docsAppManifest(manifest, { panels: true })
+    const appManifest = () => builtApp?.manifest ?? docsAppManifest(manifest, { panels: false }).manifest
+    nuxt.options.alias["#docs/manifest"] = addTemplate({ filename: "docs/app-manifest.mjs", getContents: () => afterContentRead(() => docsAppManifestSource(appManifest())), write: true }).dst
+    const panelFiles = (builtApp?.panels ?? []).map((panel, index) => ({
       path: panel.path,
-      file: addTemplate({ filename: `docs/panels/${index}.mjs`, getContents: () => docsAppPanelSource(app().panels.find(candidate => candidate.path === panel.path) ?? { ...panel, pages: [] }), write: true }).dst,
+      file: addTemplate({ filename: `docs/panels/${index}.mjs`, getContents: () => docsAppPanelSource(panel), write: true }).dst,
     }))
     nuxt.options.alias["#docs/panels"] = addTemplate({
       filename: "docs/panels.mjs",
