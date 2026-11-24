@@ -108,7 +108,7 @@ The name in code drops `<prefix>PUBLIC_` from a Public Env key and `<prefix>` fr
 
 Each field reads only its own key. `VITEHUB_DATABASE_URL` mapped to `database.url` still reads `VITEHUB_DATABASE_URL`, and no other name can override it.
 
-A key can have letters, digits, and `_`, cannot start with a digit, and can have up to 256 characters. `__proto__`, `prototype`, and `constructor` are reserved. Each key can appear once.
+A key can have letters, digits, and `_`, cannot start with a digit, and can have up to 256 characters. `__proto__`, `prototype`, and `constructor` are reserved in any letter case, so `PROTOTYPE` fails too. Each key can appear once.
 
 ## Errors
 
