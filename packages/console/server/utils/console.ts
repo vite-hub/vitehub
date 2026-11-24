@@ -149,7 +149,7 @@ export function projectIdOf(request: Request, prefix: "/api/projects/" | "/p/"):
   return start === -1 ? "" : decodeURIComponent(path.slice(start + prefix.length).split("/")[0] ?? "")
 }
 
-function useConsoleProjects(teamId: string): ConsoleProjectStore | Response {
+export function useConsoleProjects(teamId: string): ConsoleProjectStore | Response {
   const secret = process.env[consoleSecretVariable]
   const problem = consoleSecretProblem(secret)
   if (problem || !secret) return consoleProblem(500, "CONSOLE_SECRET_NOT_CONFIGURED", problem ?? "")
