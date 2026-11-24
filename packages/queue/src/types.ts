@@ -63,6 +63,8 @@ export interface CloudflareQueueBatchHandlerOptions<T = unknown> {
   concurrency?: number
   onError?: (error: unknown, message: CloudflareQueueMessage<T>, batch: CloudflareQueueMessageBatch<T>) => CloudflareQueueBatchErrorAction | void | Promise<CloudflareQueueBatchErrorAction | void>
   onMessage: (message: CloudflareQueueMessage<T>, batch: CloudflareQueueMessageBatch<T>) => unknown | Promise<unknown>
+  /** The Queue Definition name in delivery error reports. Defaults to the name that `batch.queue` encodes. */
+  queue?: string
 }
 
 export type VercelQueueRetryDirective =

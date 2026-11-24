@@ -160,7 +160,10 @@ export interface FormsStore {
   /**
    * Like `insert`, but atomically reserves the id before calling `beforeInsert`. A collision skips the callback.
    * Keep the reservation out of the inbox, and release it if the callback returns false or throws.
-   * If it returns true, publish the submission. Return false for a collision or a callback veto.
+   * If it returns true, publish the submission; if that write fails, make a best-effort attempt to release the
+   * reservation before rethrowing the write error. When cleanup succeeds, a retry can store the submission and runs
+   * `beforeInsert` again. When cleanup fails, the reservation stays pending and retries collide.
+   * Return false for a collision or a callback veto.
    */
   insertWith(submission: FormSubmission, beforeInsert: () => Promise<boolean>): Promise<boolean>
   list(options?: ListFormSubmissionsOptions): Promise<FormSubmission[]>
