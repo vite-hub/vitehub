@@ -1148,11 +1148,10 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         // dependency, so the build failed when a package such as `ws` imported one of them.
         "mocked-exports/proxy": mockedExportsProxy(),
       }
-      // Pack production files into one module to stay below Cloudflare's module limit. Development imports each file
-      // through Vite: Nitro server assets read the folders from disk, and the Cloudflare dev server runs in workerd.
+      // Pack production files into one module to stay below Cloudflare's module limit.
       const stores = [...sourceDirs ? sourceDirs.map((dir, index) => ({ name: `docs-${index}`, dir })) : [{ name: "docs", dir: contentDir }], { name: "docs-agent", dir: agentDir }]
       const order = () => docsManifestPages(manifest).flatMap((page): Array<[string, string]> => [[page.source ?? "docs", page.file], ["docs-agent", `${docsContentSource(page)}/${page.file}`]])
-      nitro.virtual = { ...nitro.virtual, "#docs/files": nuxt.options.dev ? () => docsDevFilesModule(stores) : () => docsFilesModule(stores, order()) }
+      nitro.virtual = { ...nitro.virtual, "#docs/files": nuxt.options.dev ? () => docsDevFilesModule(stores, { nitroInVite: nuxt.options.experimental.nitroViteEnvironment === true }) : () => docsFilesModule(stores, order()) }
       nitro.publicAssets = [...nitro.publicAssets ?? [], { baseURL: "/_docs", dir: stylesDir, maxAge: 31_536_000 }]
       // `docs/kv.html` beside the `docs/kv/` folder, and every linked page, as static hosts expect. Development
       // prerenders nothing, and Nuxt would turn listed routes into prerender route rules there.

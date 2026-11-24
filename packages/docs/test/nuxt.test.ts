@@ -1,6 +1,9 @@
+import { execFile } from "node:child_process"
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, relative, resolve } from "node:path"
+import { pathToFileURL } from "node:url"
+import { promisify } from "node:util"
 
 import { files, github } from "@vite-hub/source"
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest"
@@ -110,7 +113,7 @@ async function setupDocs(docs: DocsModuleOptions, appBase = "/", dev = false, la
     rootDir: resolve(import.meta.dirname, "fixtures"), buildDir, serverDir: "/missing-server",
     // A Nuxt 5 nightly installs as `nuxt-nightly`.
     srcDir: "/app", appDir: "/node_modules/nuxt-nightly/dist/app", dev, build: { transpile: [] }, appConfig: {}, extensions: [".js", ".ts", ".vue"], _layers: layers,
-    experimental: { defaults: { nuxtLink: { prefetchOn: { visibility: true } as Record<string, boolean> } } },
+    experimental: { defaults: { nuxtLink: { prefetchOn: { visibility: true } as Record<string, boolean> } }, nitroViteEnvironment: true },
     app: { baseURL: appBase, head: {} }, runtimeConfig: { public: {} }, alias: {}, css: [],
     imports: { dirs: [] }, watch: [] as string[], docs,
   }
@@ -606,6 +609,29 @@ describe("docs Nuxt setup", () => {
       join(dir, "a"),
       join(dir, "b"),
     ]);
+  });
+
+  it("reads pages from disk in development when Nitro builds the server without Vite", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "docs-nitro-bundler-"));
+    roots.push(dir);
+    mkdirSync(join(dir, "guide"));
+    writeFileSync(join(dir, "guide/install.md"), "---\ntitle: Install\n---\nRun pnpm add lumen.");
+    const options = await setupDocs({ base: "/", sources: [{ source: dir, mount: "/docs" }] }, "/", true);
+    options.experimental.nitroViteEnvironment = false;
+    const nitro: { virtual?: Record<string, string | (() => string)> } = {};
+    for (const hook of hooks.get("nitro:config") ?? []) await hook(nitro as never);
+    const template = nitro.virtual?.["#docs/files"];
+    if (typeof template !== "function") throw new Error("#docs/files is not generated in development");
+    const file = join(dir, "docs-files.mjs");
+    writeFileSync(file, template());
+    const read = async () => {
+      const script = `const { default: files } = await import(${JSON.stringify(pathToFileURL(file).href)}); console.log(JSON.stringify([files.has("docs-0", "guide/install.md"), await files.read("docs-0", "guide/install.md"), await files.read("docs-0", "missing.md")]))`;
+      const { stdout } = await promisify(execFile)(process.execPath, ["--input-type=module", "-e", script]);
+      return JSON.parse(stdout);
+    };
+    await expect(read()).resolves.toEqual([true, "---\ntitle: Install\n---\nRun pnpm add lumen.", null]);
+    writeFileSync(join(dir, "guide/install.md"), "---\ntitle: Install\n---\nRun pnpm add lumen@2.");
+    await expect(read()).resolves.toEqual([true, "---\ntitle: Install\n---\nRun pnpm add lumen@2.", null]);
   });
 
   it.each([true, false])("copies and serves the pages of a github() Source (dev: %s)", async (dev) => {
