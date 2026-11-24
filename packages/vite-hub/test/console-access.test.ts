@@ -138,6 +138,7 @@ describe("Console access policies", () => {
     for (const url of ["http://console.example.com", "https://console.example.com/console", "https://console.example.com/?a=1", "https://user@console.example.com", "console.example.com", "ftp://console.example.com", 42]) {
       expect(() => resolveConsoleOptions({ url })).toThrow(expect.objectContaining({ code: "VITE_HUB_B0004", message: expect.stringContaining("console.url must be") }))
     }
+    expect(() => resolveConsoleOptions({ url: "https://admin:secret@console.example.com" })).toThrow(expect.objectContaining({ message: expect.not.stringContaining("secret") }))
   })
 
   it.each([false, true])("builds console.url into the app, with the Nitro config context %s", async (nitroContext) => {
