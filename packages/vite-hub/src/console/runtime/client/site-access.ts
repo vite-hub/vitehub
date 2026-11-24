@@ -137,7 +137,7 @@ export async function readHostedCommentsAccess(commentsProject: string): Promise
   return { sessions: listOf(body, "sessions", isSession), invites: listOf(body, "invites", isInvite), grants: listOf(body, "grants", isGrant) }
 }
 
-export async function inviteHostedCommentsGuest(commentsProject: string, input: { name: string, grants: string[], expiresInDays: number }): Promise<ConsoleTicketLink & { invite: SiteInvite }> {
+export async function inviteHostedCommentsGuest(commentsProject: string, input: { name: string, grants: string[], expiresInDays: number }): Promise<ConsoleLink & { invite: SiteInvite }> {
   const body = await siteApi("POST", "/invites", { body: input, commentsProject })
   if (!isInvite(body.invite)) throw new ConsoleRequestError(502, "The answer has no invite.")
   return { ...linkOf(body), invite: body.invite }

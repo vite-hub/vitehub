@@ -140,18 +140,6 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
       `${consoleGuide}/signed-requests`,
       "docs",
     ),
-    CONSOLE_SITE_ACCOUNT_MISMATCH: code(
-      "Impersonation uses the app session of this browser, and it belongs to another person than your Console account, or it has no session.",
-      "Sign in to the app in this browser with the email of your ViteHub Console account, then start the impersonation again from the Console. Stop an impersonation in the browser that started it.",
-      `${consoleGuide}/site-access#impersonation-and-content-preview`,
-      "docs",
-    ),
-    CONSOLE_SITE_TOKEN_REFUSED: code(
-      "The app refused the Site access token that the ViteHub Console sent.",
-      "Open the site again from the ViteHub Console, in the same browser. Check that the app has the `VITEHUB_CONSOLE_KEY_<NAME>` of its link and that `vitehub({ publicUrl })` is the URL that you open.",
-      `${consoleGuide}/site-access#how-the-app-checks-a-visit`,
-      "docs",
-    ),
     CONSOLE_LOOPBACK_ONLY: code(
       "The development Console without signed calls accepts only requests from this machine.",
       "Call it from this machine, such as with `vitehub` commands, or remove console.auth so the app takes calls that the ViteHub Console and the CLI sign.",
@@ -193,6 +181,18 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
       "Reload the Console, then try again.",
       `${consoleGuide}/limits-and-errors#fix-common-failures`,
       "reload",
+    ),
+    CONSOLE_SITE_ACCOUNT_MISMATCH: code(
+      "Impersonation uses the app session of this browser, and it belongs to another person than your Console account, or it has no session.",
+      "Sign in to the app in this browser with the email of your ViteHub Console account, then start the impersonation again from the Console. Stop an impersonation in the browser that started it.",
+      `${consoleGuide}/site-access#impersonation-and-content-preview`,
+      "docs",
+    ),
+    CONSOLE_SITE_TOKEN_REFUSED: code(
+      "The app refused the Site access token that the ViteHub Console sent.",
+      "Open the site again from the ViteHub Console, in the same browser. Check that the app has the `VITEHUB_CONSOLE_KEY_<NAME>` of its link and that `vitehub({ publicUrl })` is the URL that you open.",
+      `${consoleGuide}/site-access#how-the-app-checks-a-visit`,
+      "docs",
     ),
     CONSOLE_UNAVAILABLE: code(
       "The server did not answer. It can be restarting, offline, or rate limited.",
