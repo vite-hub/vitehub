@@ -393,6 +393,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   return {
     summary: `moved ${servers} Auth config${servers === 1 ? "" : "s"} to server/auth.ts and ${pageRules.length} auth route rule${pageRules.length === 1 ? "" : "s"} to page meta${host ? `, host "${host}"` : ""}.`,
     edits,
+    requiresNuxt5: true,
     followUps,
     notes,
     nextSteps: [
@@ -423,7 +424,6 @@ export const nuxtBetterAuth: Codemod = {
   name: "nuxt-better-auth",
   description: "Move a Nuxt app from @nuxtjs/better-auth to ViteHub Auth through vite-hub/nuxt.",
   usage: "[dir]",
-  requiresNuxt5: true,
   detect,
   run: migrate,
 }

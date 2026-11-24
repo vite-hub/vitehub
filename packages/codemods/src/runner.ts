@@ -77,8 +77,8 @@ export async function runCodemod(name: string, options: RunCodemodOptions = {}):
   }
   const cwd = resolve(options.cwd ?? process.cwd())
   const dryRun = options.dryRun ?? false
-  const upgrade = codemod.requiresNuxt5 ? await planNuxtUpgrade(cwd, [codemod.name], options.nuxtNightly ?? false) : undefined
   const planned = await codemod.run({ cwd })
+  const upgrade = planned.requiresNuxt5 ? await planNuxtUpgrade(cwd, [codemod.name], options.nuxtNightly ?? false) : undefined
   const result = upgrade ? withNuxtUpgrade(planned, upgrade) : planned
   // Check on a dry run too, so it fails where the real run would.
   for (const edit of result.edits) await checkEditPath(cwd, edit.path)

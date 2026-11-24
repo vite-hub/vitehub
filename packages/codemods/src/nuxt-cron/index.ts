@@ -274,6 +274,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   return {
     summary: `moved ${migrated} cron job${migrated === 1 ? "" : "s"} from ${jobsDirectory} to server/schedules${added ? `, host "${added}"` : ""}.`,
     edits,
+    requiresNuxt5: true,
     followUps: [...configFollowUps, ...followUps],
     notes,
     nextSteps: [
@@ -287,7 +288,6 @@ export const nuxtCron: Codemod = {
   name: moduleName,
   description: "Move nuxt-cron jobs to ViteHub Schedule Definitions through vite-hub/nuxt.",
   usage: "[dir]",
-  requiresNuxt5: true,
   detect: ({ cwd }) => detectNuxtModule(cwd, moduleName, ["cron"]),
   run: migrate,
 }

@@ -264,6 +264,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   return {
     summary: `migrated ${fields.length} Env declaration${fields.length === 1 ? "" : "s"} (${publicCount} public, ${fields.length - publicCount} server) from ${sourceLabel} to vite-hub/nuxt.`,
     edits,
+    requiresNuxt5: true,
     followUps: [...configFollowUps, ...calls.followUps, ...secretFollowUps, ...eslint, ...outOfScope.followUps],
     notes,
     nextSteps: [
@@ -310,7 +311,6 @@ export const nuxtSafeRuntimeConfig: Codemod = {
   name: moduleName,
   description: "Move a Nuxt app from nuxt-safe-runtime-config to ViteHub Env through vite-hub/nuxt.",
   usage: "[dir]",
-  requiresNuxt5: true,
   detect: ({ cwd }) => detectNuxtModule(cwd, moduleName, ["safeRuntimeConfig"]),
   run: migrate,
 }

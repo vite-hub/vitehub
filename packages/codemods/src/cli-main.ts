@@ -26,8 +26,8 @@ function helpText(): string {
     "",
     "Options:",
     "  --dry-run       Print the planned edits and write nothing.",
-    "  --nuxt-nightly  Set nuxt to npm:nuxt-nightly@5x in package.json when the app is on Nuxt 4 or older.",
-    "                  Without it, a codemod that adds vite-hub/nuxt stops on Nuxt 4 and writes nothing.",
+    "  --nuxt-nightly  Set nuxt to npm:nuxt-nightly@5x in package.json if a planned migration needs vite-hub/nuxt and the app is on a Nuxt version before 5.",
+    "                  Without it, the command stops without changing project files.",
     "  --help          Show this list.",
     "",
   ].join("\n")

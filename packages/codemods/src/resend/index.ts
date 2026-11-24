@@ -155,6 +155,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   return {
     summary: `moved ${calls.sends} emails.send() call${calls.sends === 1 ? "" : "s"} to email.send() with the ViteHub Resend driver${host ? `, host "${host}"` : ""}.`,
     edits,
+    requiresNuxt5: true,
     followUps: [...followUps, ...calls.followUps],
     notes: [
       `The API key is Secret Env read from ${sources.join(", then ")}. It resolves on each send, so builds do not need it.`,
@@ -173,7 +174,6 @@ export const resend: Codemod = {
   name: "resend",
   description: "Move nuxt-resend and Resend SDK emails.send() calls to ViteHub Email through vite-hub/nuxt.",
   usage: "[dir]",
-  requiresNuxt5: true,
   detect: async ({ cwd }) => {
     const module = await detectNuxtModule(cwd, moduleName)
     if (module) return module

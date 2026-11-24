@@ -5,7 +5,7 @@ import { basename, join, relative, resolve } from "node:path"
 import { codemods } from "./registry.ts"
 import { applyEdit, checkEditPath, editLabel } from "./runner.ts"
 import { findNuxtConfigName, readNuxtConfig } from "./shared/nuxt-config.ts"
-import { planNuxtUpgrade } from "./shared/nuxt-version.ts"
+import { planNuxtUpgrade, setNuxtNightly } from "./shared/nuxt-version.ts"
 import { codemodError, isCodemodError } from "./error-diagnostics.ts"
 
 import type { Codemod, CodemodResult, Detection, FileEdit, FollowUp } from "./types.ts"
@@ -66,7 +66,7 @@ async function readOptional(path: string): Promise<string | undefined> {
  * Detects every supported module in the project and runs its codemod. The codemods run one after another on a
  * scratch copy, so each one sees the edits of the ones before it. A codemod that fails adds an error and changes
  * nothing; the others still run. Writes the combined edits unless `dryRun` is set. Throws `CODEMODS_NUXT_UNSUPPORTED`
- * before it writes anything when a detected codemod adds `vite-hub/nuxt` to an app on a Nuxt version before 5, unless
+ * before it changes project files when a successful plan needs `vite-hub/nuxt` on a Nuxt version before 5, unless
  * `nuxtNightly` is set.
  */
 export async function runMigration(options: RunMigrationOptions = {}): Promise<Migration> {
@@ -76,9 +76,7 @@ export async function runMigration(options: RunMigrationOptions = {}): Promise<M
   const candidates = options.codemods ?? codemods
   const supported = candidates.map(codemod => codemod.name)
   const found = await detectCodemods(cwd, candidates)
-  const needsNuxt5 = found.filter(({ codemod }) => codemod.requiresNuxt5).map(({ codemod }) => codemod.name)
-  const upgrade = needsNuxt5.length ? await planNuxtUpgrade(cwd, needsNuxt5, options.nuxtNightly ?? false) : undefined
-  const notes = upgrade ? [upgrade.note] : []
+  const notes: string[] = []
   const initialDetections = new Map(found.map(({ codemod, detection }) => [codemod, detection]))
   const steps: MigrationStep[] = []
   if (!found.length) {
@@ -94,11 +92,6 @@ export async function runMigration(options: RunMigrationOptions = {}): Promise<M
     for (const entry of await readdir(cwd)) {
       if (skippedFolders.has(entry) || entry === scratchFolder || entry.startsWith(`${scratchFolder}-`)) continue
       await cp(join(cwd, entry), join(scratch, entry), { recursive: true, filter: source => !skippedFolders.has(basename(source)) })
-    }
-    if (upgrade) {
-      await checkEditPath(scratch, upgrade.edit.path)
-      await applyEdit(scratch, upgrade.edit)
-      touched.add(upgrade.edit.path)
     }
     // Messages name files in the scratch copy. Show the project paths instead.
     const unscratch = (text: string) => text.replaceAll(scratch, cwd)
@@ -128,6 +121,16 @@ export async function runMigration(options: RunMigrationOptions = {}): Promise<M
         if (!isCodemodError(error)) throw error
         steps.push({ codemod, detection, error: unscratch(error.message) })
       }
+    }
+    const needsNuxt5 = steps.filter(({ result }) => result?.requiresNuxt5).map(({ codemod }) => codemod.name)
+    const upgrade = needsNuxt5.length ? await planNuxtUpgrade(cwd, needsNuxt5, options.nuxtNightly ?? false) : undefined
+    if (upgrade) {
+      const { path } = upgrade.edit
+      await checkEditPath(scratch, path)
+      const manifest = await readFile(join(scratch, path), "utf8")
+      await applyEdit(scratch, { path, before: manifest, after: setNuxtNightly(manifest) })
+      touched.add(path)
+      notes.push(upgrade.note)
     }
     const edits: FileEdit[] = []
     for (const path of [...touched].sort()) {

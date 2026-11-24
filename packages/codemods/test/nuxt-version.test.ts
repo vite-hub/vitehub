@@ -89,6 +89,66 @@ describe("codemods that add vite-hub/nuxt on Nuxt 4", () => {
     expect(await snapshot(directory)).toEqual(before)
   })
 
+  it.each([
+    ["one codemod", ["nuxt-safe-runtime-config"]],
+    ["migration", []],
+  ])("stops on a prerelease-excluding range and upgrades only with the flag: %s", async (name, args) => {
+    const directory = await app(`exclusive-${name}`, { ...nuxt4App, "package.json": nuxt4App["package.json"].replace("^4.2.0", ">=4.0.0 <5.0.0") })
+    const before = await snapshot(directory)
+    expect(await cli([...args, directory])).toMatchObject({ code: 1, stderr: expect.stringContaining("--nuxt-nightly") })
+    expect(await snapshot(directory)).toEqual(before)
+    expect((await cli([...args, directory, "--nuxt-nightly"])).code).toBe(0)
+    expect((await dependencies(directory)).nuxt).toBe("npm:nuxt-nightly@5x")
+  })
+
+  it.each([
+    ["one codemod", ["nuxt-safe-runtime-config"]],
+    ["migration", []],
+  ])("removes the unused module without changing Nuxt: %s", async (name, args) => {
+    for (const flags of [[], ["--nuxt-nightly"]]) {
+      const directory = await app(`remove-${name}`, {
+        "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['nuxt-safe-runtime-config'] })\n",
+        "package.json": nuxt4App["package.json"],
+      })
+      const result = await cli([...args, directory, ...flags])
+      expect(result.code).toBe(0)
+      expect(result.stdout).not.toContain("npm:nuxt-nightly@5x")
+      expect(await dependencies(directory)).toEqual({ nuxt: "^4.2.0" })
+      expect(await readFile(join(directory, "nuxt.config.ts"), "utf8")).not.toContain("vite-hub/nuxt")
+    }
+  })
+
+  it("does not upgrade Nuxt when no codemod succeeds", async () => {
+    const directory = await app("failed-cron", {
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['nuxt-cron'] })\n",
+      "package.json": nuxt4App["package.json"].replace("nuxt-safe-runtime-config", "nuxt-cron"),
+    })
+    const before = await snapshot(directory)
+    const result = await cli([directory, "--nuxt-nightly"])
+    expect(result).toMatchObject({ code: 1, stdout: expect.stringContaining("has no cron jobs") })
+    expect(result.stdout).not.toContain("npm:nuxt-nightly@5x")
+    expect(await snapshot(directory)).toEqual(before)
+  })
+
+  it("does not commit earlier successful edits if a later plan needs Nuxt 5", async () => {
+    const directory = await app("earlier-step", nuxt4App)
+    const earlier = {
+      name: "earlier-step",
+      description: "An independent migration.",
+      usage: "[dir]",
+      detect: async () => ({ reason: "Always applies" }),
+      run: async () => ({
+        summary: "Adds a marker file.",
+        edits: [{ path: "marker.txt", before: undefined, after: "done" }],
+        followUps: [],
+        notes: [],
+        nextSteps: [],
+      }),
+    }
+    await expect(runMigration({ cwd: directory, codemods: [earlier, ...codemods] })).rejects.toMatchObject({ code: "CODEMODS_NUXT_UNSUPPORTED" })
+    expect(await snapshot(directory)).toEqual(nuxt4App)
+  })
+
   it("reads a pnpm catalog and replaces it with Nuxt 5 nightly", async () => {
     const files = {
       "pnpm-workspace.yaml": "catalog:\n  nuxt: ^4.2.0\n",
@@ -109,12 +169,16 @@ describe("codemods that add vite-hub/nuxt on Nuxt 4", () => {
 
   it.each([
     ["catalog:", "catalog:\n  vue: ^3.5.0\n  nuxt: ^4.2.0 # pinned\n", "^4.2.0"],
+    ["catalog:", 'catalog: { nuxt: "^4.3.0" }\n', "^4.3.0"],
+    ["catalog:legacy", 'catalogs: { legacy: { nuxt: "<5.0.0" } }\n', "<5.0.0"],
+    ["catalog:legacy", 'catalog: &legacy { nuxt: "^4.4.0" }\ncatalogs: { legacy: *legacy }\n', "^4.4.0"],
     ["catalog:default", "catalogs:\n  default:\n    nuxt: '>=4.0.0 <5'\n", ">=4.0.0 <5"],
     ["catalog:frameworks", "packages:\n  - apps/*\ncatalog:\n  nuxt: npm:nuxt-nightly@5x\ncatalogs:\n  frameworks:\n    \"nuxt\": ~4.1.0\n  tools:\n    nuxt: ^5.0.0\n", "~4.1.0"],
     ["catalog:", "catalog:\n  nuxt: npm:nuxt-nightly@5x\ncatalogs:\n  old:\n    nuxt: ^4.2.0\n", undefined],
   ])("reads nuxt \"%s\" from pnpm-workspace.yaml", async (nuxt, workspace, stopsFor) => {
     const directory = await app(`catalog-${encodeURIComponent(nuxt)}-${stopsFor ?? "5"}`, {
       "pnpm-workspace.yaml": workspace,
+      "apps/web/.env.example": nuxt4App[".env.example"],
       "apps/web/nuxt.config.ts": nuxt4App["nuxt.config.ts"],
       "apps/web/package.json": `${JSON.stringify({ dependencies: { nuxt, "nuxt-safe-runtime-config": "^0.3.2" } })}\n`,
     })
@@ -125,6 +189,8 @@ describe("codemods that add vite-hub/nuxt on Nuxt 4", () => {
 
   it.each([
     ["<5", true],
+    ["<5.0.0", true],
+    [">=5.0.0-beta.1 <5.0.0", false],
     ["<=3", true],
     [">=3 <5", true],
     ["^3 || ^5", false],
@@ -156,19 +222,17 @@ describe("codemods that add vite-hub/nuxt on Nuxt 4", () => {
     await expect(runMigration({ cwd: directory, dryRun: true, codemods: upgradeCodemods })).resolves.toMatchObject({ cwd: directory })
   })
 
-  it("marks every codemod that adds vite-hub/nuxt", async () => {
+  it("marks plans from codemods that add vite-hub/nuxt", async () => {
     const adds: string[] = []
+    const marked: string[] = []
     for (const codemod of codemods) {
       const directory = join(packageRoot, "src", codemod.name)
       const sources = await readdir(directory, { recursive: true })
-      for (const file of sources.filter(file => file.endsWith(".ts"))) {
-        if ((await readFile(join(directory, file), "utf8")).includes("useViteHubModule(")) {
-          adds.push(codemod.name)
-          break
-        }
-      }
+      const code = await Promise.all(sources.filter(file => file.endsWith(".ts")).map(file => readFile(join(directory, file), "utf8")))
+      if (code.some(source => source.includes("useViteHubModule("))) adds.push(codemod.name)
+      if (code.some(source => source.includes("requiresNuxt5: true"))) marked.push(codemod.name)
     }
     expect(adds).toHaveLength(7)
-    expect(codemods.filter(codemod => codemod.requiresNuxt5).map(codemod => codemod.name)).toEqual(adds)
+    expect(marked).toEqual(adds)
   })
 })

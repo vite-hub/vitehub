@@ -108,6 +108,7 @@ async function migrate({ cwd, dependencyRoot = cwd }: CodemodContext): Promise<C
   return {
     summary: `moved ${enabled.length ? enabled.join(", ") : "no features"} from hub to vitehub${configResult.host ? ` with host "${configResult.host}"` : ""}, rewrote ${sources.imports} import${sources.imports === 1 ? "" : "s"} and ${sources.calls} KV and Blob call${sources.calls === 1 ? "" : "s"}${schema?.moved.size ? `, and moved the schema to server/databases/default/` : ""}.`,
     edits,
+    requiresNuxt5: true,
     followUps: [...configResult.followUps, ...await findGlobalH3Overrides(cwd), ...await findNuxtHubModuleFollowUps(cwd, config, dependencyRoot), ...wrangler.followUps, ...(schema?.followUps ?? []), ...databaseCodeFollowUps, ...sources.followUps, ...dataFollowUps(run, { database, d1: wrangler.d1, kv: features.kv && !configResult.redisKV, blob: features.blob, cloudflare, kvBinding: configResult.written.kv?.binding ?? "KV" })],
     notes,
     nextSteps: [
@@ -122,7 +123,6 @@ export const nuxthub: Codemod = {
   name: "nuxthub",
   description: "Move a Nuxt app from NuxtHub 0.10 (@nuxthub/core) to ViteHub KV, Blob, Database, and cache through vite-hub/nuxt.",
   usage: "[dir]",
-  requiresNuxt5: true,
   detect: ({ cwd }) => detectNuxtModule(cwd, moduleName, ["hub"]),
   run: migrate,
 }

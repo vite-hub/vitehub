@@ -137,6 +137,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   return {
     summary: `migrated ${fields.length} variable${fields.length === 1 ? "" : "s"} from ${envFile} to vite-hub/nuxt Env (${fields.filter(field => field.section === "public").length} public, ${fields.filter(field => field.section === "server").length} server)${host ? `, host "${host}"` : ""}.`,
     edits,
+    requiresNuxt5: true,
     followUps: [...configFollowUps, ...planFollowUps, ...calls.followUps],
     notes,
     nextSteps: [
@@ -150,7 +151,6 @@ export const t3Env: Codemod = {
   name: "t3-env",
   description: `Move a Nuxt app from ${packageName} createEnv() to ViteHub Env through vite-hub/nuxt.`,
   usage: "[dir]",
-  requiresNuxt5: true,
   detect: async ({ cwd }) => {
     if ((await readDependencies(cwd)).has(packageName)) return { reason: `package.json depends on ${packageName}` }
     const modules = await findEnvModules(cwd)
