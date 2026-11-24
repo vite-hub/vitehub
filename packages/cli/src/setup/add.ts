@@ -4,14 +4,15 @@ import process from "node:process"
 import { createInterface } from "node:readline/promises"
 
 import { editViteHubConfig } from "@vite-hub/internal/config-edit"
-import { featureIds, featurePackages, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
+import { i18nLocaleListProblem, mcpPublicRouteNeedsSignedAuth } from "@vite-hub/internal/feature-inputs"
+import { featureIds, featurePackages, features, featureSupport, impliedFeatures, installSpecifier } from "@vite-hub/internal/features"
 import { createTwoFilesPatch } from "diff"
 import { dirname, join, relative, resolve } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
-import { setupExitCodes, type SetupFailure, setupFailure, writeSetupError, writeSetupJson } from "./envelope.ts"
+import { setupExitCodes, setupFailure, writeSetupError, writeSetupJson } from "./envelope.ts"
 import { readSetupProject } from "./project.ts"
-import { installArgs, installCommand, setsOption, setupStatus } from "./status.ts"
+import { formatInstallCommand, installArgs, installCommand, missingProviderOption, setupStatus, shellQuote } from "./status.ts"
 
 import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cli"
 import type { ConfigEdit, JsonValue } from "@vite-hub/internal/config-edit"
@@ -20,6 +21,8 @@ import type { FeatureId, HostSupport } from "@vite-hub/internal/features"
 import type { SetupMissing } from "./envelope.ts"
 import type { SetupProject } from "./project.ts"
 import type { SetupStatus } from "./status.ts"
+
+export { shellQuote } from "./status.ts"
 
 export interface SetupAddArgs {
   features: FeatureId[]
@@ -95,7 +98,7 @@ function installSpecifiers(packages: readonly string[]): string[] {
     const [base, ref] = specifier.split(`/${name}@`)
     return base && ref ? [{ base, ref }] : []
   })[0]
-  return packages.map(name => preview && name.startsWith("@vite-hub/") ? `${preview.base}/${name}@${preview.ref}` : name)
+  return packages.map(name => preview && name.startsWith("@vite-hub/") ? `${preview.base}/${name}@${preview.ref}` : installSpecifier(name))
 }
 
 function invalid(message: string, commandUsage = usage): Error {
@@ -110,7 +113,15 @@ export function readFeatureId(value: string, commandUsage = usage): FeatureId {
   return id
 }
 
-function optionValue(value: string): JsonValue {
+function optionValue(value: string, key: string): JsonValue {
+  if (key === "i18n.locales" && value.trimStart().startsWith("[")) {
+    try {
+      return JSON.parse(value)
+    }
+    catch {
+      throw invalid(`--option ${key} must contain a valid JSON array.`)
+    }
+  }
   if (value === "true" || value === "false" || value === "null" || /^-?\d+(?:\.\d+)?$/u.test(value)) return JSON.parse(value) as JsonValue
   return value
 }
@@ -164,15 +175,11 @@ export function readAddArgs(args: readonly string[]): SetupAddArgs {
     const id = head ?? (parsed.features.length === 1 ? parsed.features[0] : undefined)
     const keys = head ? path.slice(1) : path
     if (!id || !keys.length || keys.some(key => !key)) throw invalid(`--option ${JSON.stringify(option)} must start with one of the features, such as \`${parsed.features[0] ?? "email"}.driver=resend\`.`)
-    setPath(parsed.options[id] ??= {}, keys, optionValue(option.slice(separator + 1)))
+    setPath(parsed.options[id] ??= {}, keys, optionValue(option.slice(separator + 1), `${id}.${keys.join(".")}`))
   }
   return parsed
 }
 
-/** Quotes `value` for a POSIX shell when it needs quotes. */
-export function shellQuote(value: string): string {
-  return /^[\w@%+=:,./-]+$/u.test(value) ? value : `'${value.replaceAll("'", `'\\''`)}'`
-}
 
 /** `value` as `--option` values under `prefix`, such as `["email.driver=resend"]`. */
 export function flattenOptions(prefix: string, value: JsonValue, out: string[] = []): string[] {
@@ -288,6 +295,7 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   }
 
   const missing: SetupMissing[] = []
+  const inputFixes: string[] = []
   const defaults: Partial<Record<FeatureId, Record<string, JsonValue>>> = {}
   const requires: FeatureId[] = []
   let rerunnable = true
@@ -306,7 +314,6 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   }
   for (const id of inputFeatures) {
     const support = featureSupport(id, host)
-    const options = args.options[id]
     const current = project.config?.ok ? project.config.site.keys[id] : undefined
     const value = valueFor(id)
     if (id === "observability" && isRecord(value) && value.papercuts) {
@@ -343,11 +350,11 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     }
     const storageSelected = id === "workflow" && host !== "netlify" && selectsProvider(id, value, host)
     if (support.level === "explicit" && !storageSelected) {
-      const key = support.option.slice(id.length + 1)
-      if (!(options && key in options) && !setsOption(project, support.option)) {
+      const field = missingProviderOption(project, support.option, value)
+      if (field) {
         const choices = optionChoices[support.option]
-        missing.push({ field: support.option, ...(choices ? { choices: choices.values } : {}) })
-        if (choices) setPath(defaults[id] ??= {}, [key], choices.values[0])
+        missing.push({ field, ...(choices ? { choices: choices.values } : {}) })
+        if (choices) setPath(defaults[id] ??= {}, field.split(".").slice(1), choices.values[0])
         else rerunnable = false
       }
     }
@@ -380,9 +387,58 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   for (const id of Object.keys(args.options) as FeatureId[]) {
     if (!inputFeatures.includes(id)) throw invalid(`${id} is not requested or required by ${args.features.join(", ")}.`)
   }
+  const site = project.config?.ok ? project.config.site : undefined
+  if (inputFeatures.includes("i18n") && site?.keys.i18n?.kind !== "expression") {
+    const i18n = valueFor("i18n")
+    const locales = isRecord(i18n) ? i18n.locales : undefined
+    const problem = i18nLocaleListProblem(locales)
+    if (problem) {
+      missing.push({ field: "i18n.locales" })
+      inputFixes.push(`${problem} Pass a nonempty JSON array, such as \`--option 'i18n.locales=["en","es"]'\`.`)
+      rerunnable = false
+    }
+  }
+  const mcpOAuthSetup = "Include `mcpOAuth()` from `vite-hub/auth/mcp` in the `plugins` of `defineAuth()` in the Auth Definition"
+  let needsMcpOAuth = false
+  if (inputFeatures.includes("mcp") && site?.keys.mcp?.kind !== "expression") {
+    const configuredAuth = site?.keys.auth
+    const authStatus = status.features.find(item => item.id === "auth")
+    const discoveredAuth = authStatus?.enabled === "on" && authStatus.reason === "default"
+    const selectedAuth = args.features.includes("auth") && (!configuredAuth || configuredAuth.kind === "expression" || configuredAuth.value === false)
+    const authEnabled = !args.options.auth && (selectedAuth || (configuredAuth?.kind === "literal" && configuredAuth.value === true) || discoveredAuth)
+    const mcp = valueFor("mcp")
+    const mode = isRecord(mcp) && Object.hasOwn(mcp, "auth") ? mcp.auth : undefined
+    const publicRoute = isRecord(mcp) && typeof mcp.publicRoute === "string" ? mcp.publicRoute : undefined
+    if ((typeof mode === "boolean" || mode === "optional") && mcpPublicRouteNeedsSignedAuth(publicRoute, mode)) {
+      missing.push({ field: "mcp.publicRoute" })
+      inputFixes.push("Remove `mcp.publicRoute`, or enable Auth, set `mcp.auth=true`, and add `mcpOAuth()` to the Auth Definition.")
+      rerunnable = false
+    }
+    else if (!authEnabled && authStatus?.enabled === "unknown" && (mode === undefined || mode === true || mode === "optional")) {
+      const file = project.configFile ?? "vite.config.ts"
+      const snippet = `mcp: ${toSource(isRecord(mcp) ? mcp : true)},`
+      const fix = `Confirm Auth is enabled in the app. ${mcpOAuthSetup}. Add this key to the vitehub() options by hand:\n${snippet}`
+      const reason = "Auth cannot be determined statically"
+      throw setupFailure(cliErrorDiagnostics.SETUP_CONFIG_MANUAL({ file, fix, reason }), setupExitCodes.conflict, { data: { snippet } })
+    }
+    else if (mode === true || mode === "optional" || (mode === undefined && authEnabled)) {
+      if (authEnabled) needsMcpOAuth = true
+      else {
+        missing.push({ field: "auth" })
+        inputFixes.push(`Select the \`auth\` feature or enable Auth in the app config. ${mcpOAuthSetup}.`)
+        rerunnable = false
+      }
+    }
+    else if (mode !== false) {
+      missing.push({ choices: ["true", "optional", "false"], field: "mcp.auth" })
+      inputFixes.push("Enable Auth for signed requests and use `mcp.auth=true` or `mcp.auth=optional`, or omit `mcp.auth` to require sign-in by default. Pass `--option mcp.auth=false` only when anyone may call every tool.")
+      rerunnable = false
+    }
+  }
   if (missing.length) {
     const fields = missing.map(item => `\`${item.field}\``).join(", ")
-    throw setupFailure(cliErrorDiagnostics.SETUP_INPUT_NEEDED({ message: `[vitehub] Set ${fields} to add ${args.features.join(", ")} on the ${host} host.` }), setupExitCodes.inputNeeded, {
+    const fix = inputFixes.length ? inputFixes.join(" ") : undefined
+    throw setupFailure(cliErrorDiagnostics.SETUP_INPUT_NEEDED({ fix, message: `[vitehub] Set ${fields} to add ${args.features.join(", ")} on the ${host} host.` }), setupExitCodes.inputNeeded, {
       missing,
       ...(rerunnable ? { rerun: rerun(args, defaults, requires) } : {}),
     })
@@ -390,7 +446,6 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
 
   const edits: ConfigEdit[] = []
   let expression = false
-  const site = project.config?.ok ? project.config.site : undefined
   const addedFeatures = [...args.features, ...requires]
   for (const id of new Set([...addedFeatures, ...inputFeatures.filter(id => args.options[id])])) {
     const next = nextValue(id, status, project, args.options[id])
@@ -462,11 +517,27 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
 
   const restartRequired = addsDiscovery && !configFile
   const nextSteps: string[] = restartRequired ? ["Restart the dev server to load the new feature configuration."] : []
+  if (needsMcpOAuth) {
+    const [appServerDir, ...layers] = project.serverDirs ?? []
+    const authFiles = features.auth.enabledByDiscovery ?? []
+    const appFiles = appServerDir ? authFiles.map(name => join(appServerDir, name)) : []
+    const definition = appServerDir && [
+      ...appFiles,
+      ...authFiles.map(name => join(definitionRoot, `server.${name}`)),
+      ...layers.flatMap(dir => authFiles.map(name => join(dir, name))),
+    ].find(existsSync)
+    const target = definition ? ` in \`${relative(project.root, definition)}\`` : ""
+    if (!definition && appServerDir) nextSteps.push(`Create an Auth Definition at \`${join(serverDir, "auth.ts")}\` if the app has none.`)
+    nextSteps.push(`${mcpOAuthSetup}${target}. https://vitehub.dev/docs/mcp/configure#sign-in-with-mcp-oauth`)
+  }
   if (command && !args.install) nextSteps.push(`Install the packages: ${command}`)
   for (const id of implied) {
     const support = featureSupport(id, host)
     if (support.level === "unsupported") nextSteps.push(`${id} is turned on by ${args.features.join(", ")} but is not supported on ${host}: ${support.detail} Set \`${id}: false\` to turn it off.`)
-    else if (support.level === "explicit" && !setsOption(project, support.option) && !(args.options[id] && support.option.slice(id.length + 1) in args.options[id])) nextSteps.push(`${id} is turned on by ${args.features.join(", ")}. Set \`${support.option}\` on ${host}, or set \`${id}: false\`. ${support.detail}`)
+    else if (support.level === "explicit") {
+      const option = missingProviderOption(project, support.option, valueFor(id))
+      if (option) nextSteps.push(`${id} is turned on by ${args.features.join(", ")}. Set \`${option}\` on ${host}, or set \`${id}: false\`. ${support.detail}`)
+    }
   }
   for (const id of [...addedFeatures, ...implied]) {
     if (selectsProvider(id, valueFor(id))) continue
@@ -502,7 +573,7 @@ export async function applySetupAdd(project: SetupProject, planned: SetupAddPlan
       const commandArgs = installArgs(project.packageManager, packages, isDev)
       const result = await context.spawn(project.packageManager, commandArgs, { cwd: project.root, env: context.env, stdout: "stderr" })
       if (result.exitCode !== 0) {
-        throw setupFailure(cliErrorDiagnostics.SETUP_INSTALL_FAILED({ command: [project.packageManager, ...commandArgs].join(" "), exitCode: result.exitCode ?? result.signal }), setupExitCodes.error)
+        throw setupFailure(cliErrorDiagnostics.SETUP_INSTALL_FAILED({ command: formatInstallCommand(project.packageManager, commandArgs), exitCode: result.exitCode ?? result.signal }), setupExitCodes.error)
       }
     }
   }

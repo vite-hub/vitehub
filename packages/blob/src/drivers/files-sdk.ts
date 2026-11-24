@@ -5,6 +5,7 @@ import { importOptionalPeer } from "../internal/optional-peer.ts"
 import { blobErrorDiagnostics, blobErrors } from "../error-diagnostics.ts"
 import { bareETag } from "../internal/etag.ts"
 import isBlob from "../internal/is-blob.ts"
+import { fromProviderListCursor, toProviderListCursor, unconsumedListCursor } from "../internal/provider-list-cursor.ts"
 
 import type { BlobDriverAdapter, BlobDriverSignOptions, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, ResolvedBlobStoreConfig } from "../types.ts"
 import type { Adapter, FileInfo, Files, ListOptions, ListResult, UploadCondition } from "files-sdk"
@@ -243,17 +244,20 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
           const prefix = listOptions.prefix || ""
           // Directory buckets require a folder prefix; filter partial names within their parent.
           const providerPrefix = prefix && !prefix.endsWith("/") ? prefix.slice(0, prefix.lastIndexOf("/") + 1) : listOptions.prefix
+          const limit = listOptions.limit ?? 1000
           const result = await listPage(client, {
-            cursor: listOptions.cursor,
+            cursor: toProviderListCursor(listOptions.cursor),
             delimiter: "/",
-            limit: listOptions.limit ?? 1000,
+            limit: Math.max(limit, 1),
             prefix: providerPrefix,
           })
+          const items = result.items.filter(item => item.key.startsWith(prefix))
+          const heldBlob = limit === 0 && items.length > 0
           return {
-            blobs: result.items.filter(item => item.key.startsWith(prefix)).map(mapFileInfo),
-            cursor: result.cursor,
-            folders: (result.prefixes ?? []).filter(folder => folder.startsWith(prefix)).sort((left, right) => left.localeCompare(right)),
-            hasMore: Boolean(result.cursor),
+            blobs: limit === 0 ? [] : items.map(mapFileInfo),
+            cursor: heldBlob ? unconsumedListCursor(listOptions.cursor) : fromProviderListCursor(result.cursor),
+            folders: (result.prefixes ?? []).filter(folder => folder.startsWith(prefix)).sort(),
+            hasMore: heldBlob || Boolean(result.cursor),
           }
         }
 
@@ -268,7 +272,25 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
         let start = initialCursor.index
         let nextCursor: string | undefined
 
-        while (blobs.length < limit) {
+        if (limit === 0) {
+          const result = await listPage(client, { cursor: providerCursor, limit: 1000, prefix: listOptions.prefix })
+          if (start > 0 && start >= result.items.length) throw blobErrors.BLOB_INVALID_CURSOR()
+          let heldBlob = false
+          for (const item of result.items.slice(start)) {
+            const remainder = item.key.slice(prefix.length)
+            const firstSlash = remainder.indexOf("/")
+            if (firstSlash === -1) heldBlob = true
+            else folders.add(item.key.slice(0, prefix.length + firstSlash + 1))
+          }
+          if (result.cursor && seenProviderCursors.has(result.cursor)) {
+            throw blobErrorDiagnostics.BLOB_R0017({ message: "Blob provider listing returned a repeated pagination cursor." })
+          }
+          nextCursor = heldBlob
+            ? listOptions.cursor ?? encodeFoldedCursor({ index: 0 })
+            : result.cursor ? encodeFoldedCursor({ index: 0, providerCursor: result.cursor, providerCursorHistory: [...seenProviderCursors] }) : undefined
+        }
+
+        while (limit > 0 && blobs.length < limit) {
           const result = await listPage(client, {
             cursor: providerCursor,
             limit: 1000,
@@ -317,21 +339,23 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
         return {
           blobs,
           cursor: nextCursor,
-          folders: [...folders].sort((left, right) => left.localeCompare(right)),
+          folders: [...folders].sort(),
           hasMore: Boolean(nextCursor),
         }
       }
 
+      const limit = listOptions.limit ?? 1000
       const result = await listPage(await files(), {
-        cursor: listOptions.cursor,
-        limit: listOptions.limit ?? 1000,
+        cursor: toProviderListCursor(listOptions.cursor),
+        limit: Math.max(limit, 1),
         prefix: listOptions.prefix,
       })
+      const heldBlob = limit === 0 && result.items.length > 0
 
       return {
-        blobs: result.items.map(mapFileInfo),
-        cursor: result.cursor,
-        hasMore: Boolean(result.cursor),
+        blobs: limit === 0 ? [] : result.items.map(mapFileInfo),
+        cursor: heldBlob ? unconsumedListCursor(listOptions.cursor) : fromProviderListCursor(result.cursor),
+        hasMore: heldBlob || Boolean(result.cursor),
       }
     },
     // The provider copies the object on its side, with its content type and metadata.

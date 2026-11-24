@@ -243,7 +243,7 @@ See [Serve blob-backed assets](/docs/blob/configure#serve-blob-backed-assets) an
 
 ## How to use Vercel Blob locally
 
-With the `vercel` host, the dev server also uses Vercel Blob and needs the token. Link the app to the project and copy its variables to `.env.local`:
+When ViteHub infers Vercel Blob from the `vercel` host or env variables, `vite dev` uses the local `fs` store by default. To use a real Vercel Blob store in `vite dev`, set `remote: true` on the store, or set `driver: 'vercel'`. Then link the app to the project and copy its variables to `.env.local`:
 
 ```bash [Terminal]
 vercel link
@@ -251,7 +251,7 @@ vercel env pull
 pnpm dev
 ```
 
-Nitro loads `.env` and `.env.local` at dev server start. The store connection must include the **Development** environment, or `vercel env pull` writes no token. The dev server uses the real store, so use a separate dev store for test data.
+Nitro loads `.env` and `.env.local` at dev server start. The store connection must include the **Development** environment, or `vercel env pull` writes no credentials. When `remote: true` or `driver: 'vercel'` is set, the dev server uses the real store, so use a separate dev store for test data.
 
 While the dev server runs, read and write files from another terminal:
 

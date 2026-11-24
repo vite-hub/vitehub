@@ -437,7 +437,9 @@ export function modelUsage(usage: AgentInvocationUsage): Map<string, AgentInvoca
   const groups = new Map<string, AgentInvocationUsage[]>()
   for (const call of usage.calls?.length ? usage.calls : [usage]) {
     const model = call.model || usage.model || "Unknown model"
-    groups.set(model, [...(groups.get(model) ?? []), call])
+    const calls = groups.get(model)
+    if (calls) calls.push(call)
+    else groups.set(model, [call])
   }
   return new Map([...groups].map(([model, calls]) => [
     model,

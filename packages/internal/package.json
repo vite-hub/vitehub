@@ -93,6 +93,11 @@
       "import": "./dist/forge.js",
       "default": "./dist/forge.js"
     },
+    "./feature-inputs": {
+      "types": "./dist/feature-inputs.d.ts",
+      "import": "./dist/feature-inputs.js",
+      "default": "./dist/feature-inputs.js"
+    },
     "./features": {
       "types": "./dist/features.d.ts",
       "import": "./dist/features.js",
@@ -122,6 +127,11 @@
       "types": "./dist/integrations/hex.d.ts",
       "import": "./dist/integrations/hex.js",
       "default": "./dist/integrations/hex.js"
+    },
+    "./nuxt-server-imports": {
+      "types": "./dist/nuxt-server-imports.d.ts",
+      "import": "./dist/nuxt-server-imports.js",
+      "default": "./dist/nuxt-server-imports.js"
     },
     "./object": {
       "types": "./dist/object.d.ts",

@@ -3,7 +3,7 @@ import { posix } from "node:path"
 import { normalizeExecutionAuthority } from "@vite-hub/runtime"
 
 import { workspaceConflict, workspaceError } from "../core/errors.ts"
-import { contentToBytes, decodeFile, isExcludedWorkspacePath, normalizeSafeWorkspacePath, normalizeWorkspacePath, sha256 } from "../core/path.ts"
+import { contentToBytes, decodeFile, isExcludedWorkspacePath, matchesAny, normalizeSafeWorkspacePath, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { createSnapshotFromEntries, diffSnapshots } from "../storage/utils.ts"
 import { assertDiffInsideSessionPaths, assertPathInSessionScope, filterSessionDiff, filterSessionEntries, isMissingWorkspacePathError, scopedSearchQuery } from "./scope.ts"
 import { withWorkspaceProgress } from "./progress.ts"
@@ -1126,7 +1126,6 @@ export async function createHostedWorkspaceSession(
       assertOpen()
       const patterns = Array.isArray(pattern) ? pattern : [pattern]
       const cwd = normalizeSearchRoot(globOptions?.cwd || "")
-      const { matchesAny } = await import("../core/path.ts")
       return filterSessionEntries(await listHostEntries(host, root, "", true), sessionPaths)
         .filter((entry) => {
           if (entry.type !== "file") return false
