@@ -77,7 +77,8 @@ definition type.
 
 All managed readers expose `revision()`, `keys()`, `get()`, `items()`, `meta()`,
 and `exists()`. File readers also expose `read()` and `list()`. Built-in `file`,
-`glob`, `github`, `markdown`, and `mcpResources` loaders return `FileSource`.
+`files`, `glob`, `github`, `markdown`, and `mcpResources` (from
+`@vite-hub/source/mcp`) loaders return `FileSource`.
 Their `SourceFile` items guarantee `content`. Custom loaders that guarantee
 content receive file methods too. Record readers use `get()` and `items()`.
 

@@ -467,10 +467,10 @@ export function createDriver(options: NetlifyBlobsStoreConfig): BlobDriverAdapte
         if (startIndex > 0 && startIndex >= blobs.length) {
           throw blobErrors.BLOB_INVALID_CURSOR()
         }
-        const consumeDirectories = !directoriesConsumed && (blobs.length === 0 || selected.length < limit)
+        const consumeDirectories = !directoriesConsumed && (blobs.length === 0 || selected.length < limit || limit === 0)
         if (consumeDirectories) {
           for (const directory of page.directories ?? []) folders.add(directory)
-          directoriesConsumed = true
+          directoriesConsumed = limit > 0
         }
         for (let blobIndex = startIndex; blobIndex < blobs.length; blobIndex++) {
           if (selected.length === limit) {

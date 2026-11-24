@@ -198,7 +198,7 @@ type NuxtLike = {
     router?: { options?: { sensitive?: boolean, strict?: boolean } }
     serverDir?: string
     srcDir?: string
-    vite?: UserConfig
+    vite?: UserConfig & { vue?: Record<string, unknown> }
     vitehub?: ViteHubNuxtOptions
     vitehubCliDiscovery?: true
     watch?: string[]
@@ -1366,16 +1366,21 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
             materialize?: boolean
             projectRoot: string
             serverDirs?: string[]
+            vue?: { pluginOptions?: Record<string, unknown>, alias?: NonNullable<UserConfig["resolve"]>["alias"] }
           }) => Promise<Record<string, string>>
         }
       })
     | undefined
-  const emailTemplatePaths =
-    (await emailPlugin?.api?.prepareTypes?.({
-      materialize: true,
-      projectRoot,
-      serverDirs: resolveNuxtServerDirs(nuxt.options),
-    })) ?? {}
+  const prepareEmailTemplates = (materialize: boolean) => emailPlugin?.api?.prepareTypes?.({
+    materialize,
+    projectRoot,
+    serverDirs: resolveNuxtServerDirs(nuxt.options),
+    vue: { pluginOptions: nuxt.options.vite?.vue, alias: mergeConfig({ resolve: { alias: nuxt.options.alias } }, { resolve: nuxt.options.vite?.resolve }).resolve.alias },
+  })
+  const emailTemplatePaths = (await prepareEmailTemplates(false)) ?? {}
+  nuxt.hook?.("build:before", async () => {
+    if (!nuxt.options._prepare && !nuxt.options.vitehubCliDiscovery) await prepareEmailTemplates(true)
+  })
   const emailCleanupCandidate: unknown = replayPlugins.find(
     plugin => plugin.name === "@vite-hub/email/optional-peer-resolver",
   )
