@@ -271,6 +271,10 @@ export default defineConfig({
           to: "dist/console/runtime/components",
         },
         {
+          from: "src/console/runtime/components/console-hosted-comments-embed.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
           from: "src/console/runtime/components/console-account-sign-in.vue",
           to: "dist/console/runtime/components",
         },
@@ -746,6 +750,17 @@ export default defineConfig({
       deps: { alwaysBundle: [/./], onlyBundle: false },
       dts: false,
       entry: { "console/runtime/page-tool/page-tool": "src/page/console.ts" },
+      minify: true,
+      outExtensions: () => ({ js: ".js" }),
+      platform: "browser",
+      target: browserTarget,
+      tsconfig: "tsconfig.build.json",
+    },
+    {
+      alias: motionCoreAlias,
+      deps: { alwaysBundle: [/./], onlyBundle: false },
+      dts: false,
+      entry: { "console/runtime/page-tool/account": "src/page/account.ts" },
       minify: true,
       outExtensions: () => ({ js: ".js" }),
       platform: "browser",

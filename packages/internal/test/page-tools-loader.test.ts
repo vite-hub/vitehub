@@ -772,6 +772,19 @@ describe("loadViteHubPageTools", () => {
     expect(started.map(context => [context.open, context.linked])).toEqual([[true, false]])
   })
 
+  it("does not treat a hosted pill open action as a link or consume another pill's link", async () => {
+    page("/guide?vitehub=console")
+    const { load, started } = modules()
+    await loadViteHubPageTools({
+      load,
+      open: "comments",
+      pill: { name: "vitehub-hosted-comments-pill", label: "Hosted Comments", off: "hosted-off", collapsed: "hosted-collapsed", dock: "hosted-dock" },
+      session: async () => ({ tools: [comments] }),
+    })
+    expect(started.map(context => [context.open, context.linked])).toEqual([[true, false]])
+    expect(location.search).toBe("?vitehub=console")
+  })
+
   it("stops every tool, removes the pill and the query on exit, and keeps the hint cookie", async () => {
     page("/guide?vitehub=comments&tab=2")
     session({ tools: [comments, consoleTool] })

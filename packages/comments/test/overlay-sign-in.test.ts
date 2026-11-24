@@ -61,6 +61,15 @@ it("offers GitHub sign-in when the person explicitly requests Comments", async (
   expect(link?.getAttribute("href")).toBe(`${denied.signIn!.url}?return=${encodeURIComponent("/page?vitehub=comments")}`)
 })
 
+it("opens hosted sign-in in a new tab without changing its URL", async () => {
+  const url = "https://console.vitehub.dev/comments/project/authorize?origin=https%3A%2F%2Fexample.com"
+  const overlay = await open("?tab=2#plans", { ...denied, signIn: { provider: "console", url } })
+  const link = overlay.shadowRoot?.querySelector("a")
+  expect(link?.textContent).toBe("Sign in to ViteHub")
+  expect(link?.getAttribute("href")).toBe(url)
+  expect(link?.target).toBe("_blank")
+})
+
 it("offers account switching while keeping the denied segment hidden", async () => {
   const overlay = await open("", {
     ...denied,

@@ -154,6 +154,10 @@ export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ minimum }: { minimum: number }) => `[vitehub] VITEHUB_SECRET must be at least ${minimum} characters. Generate one with \`openssl rand -base64 32\`.`,
       fix: "Set `VITEHUB_SECRET` to the output of `openssl rand -base64 32`, which has 44 characters.",
     },
+    INTERNAL_SITE_TOKEN_TOO_LONG: {
+      why: ({ length, maximum }: { length: number, maximum: number }) => `The Site access token is ${length} characters, and an app accepts ${maximum}.`,
+      fix: "Open the app with a shorter path, or give the person and the project shorter names, so that the Site access token fits.",
+    },
     INTERNAL_SQLITE_ARGUMENT_INVALID: {
       why: ({ value }: { value: "non-finite" | "undefined" }) => value === "undefined" ? "undefined cannot be passed as argument to the database" : "Only finite numbers (not Infinity or NaN) can be passed as arguments",
       fix: "Pass query arguments as finite numbers, strings, booleans, bigints, dates, byte arrays, or null. Replace undefined with null, and check numbers with `Number.isFinite()` before the query.",

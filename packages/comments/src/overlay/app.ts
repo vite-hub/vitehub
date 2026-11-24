@@ -47,7 +47,7 @@ export const highlightNames = { open: "vh-comment", resolved: "vh-comment-resolv
 interface Toast {
   text: string
   kind: "error" | "info"
-  link?: [string, string]
+  link?: { label: string, href: string, newTab?: true }
   action?: [string, () => void]
 }
 
@@ -363,6 +363,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   /** What this person may do on the current page. The answer of `/session` for each new page replaces it. */
   const pageCan = shallowRef(session?.can)
   const canComment = computed(() => Boolean(pageCan.value?.comment))
+  const canAttach = computed(() => canComment.value && session?.attachments !== false)
   const needsName = computed(() => canComment.value && !me.value)
   /** Only people who may comment get the eye, so a reader always sees every comment. */
   const visibility = computed<CommentVisibility>({
@@ -385,7 +386,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     if (action === "resolve") return allowed.resolve
     // A guest id proves nothing, so a guest owns no message.
     const own = (entry: CommentMessage) => !user.guest && !entry.author.guest && entry.author.id === user.id
-    if (!message) return false
+    if (!message || pageCan.value?.change === false) return false
     if (action === "edit") return own(message)
     // People delete their own messages, and a thread when every message in it is theirs. Moderators, with `delete`,
     // delete anyone's.
@@ -442,7 +443,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     if (resolving.value) paused.value = next === "comment" && canComment.value
     if (resolving.value && next !== "edit" && next !== "view") return
     if (next === "mark") {
-      if (!canComment.value || marking.value) return
+      if (!canAttach.value || marking.value) return
       if (needsName.value) {
         namedMode.value = next
         namedQuote = undefined
@@ -629,7 +630,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   function denied(current: CommentsSession) {
     const back = new URL(location.href)
     back.searchParams.set(viteHubPageToolsQuery, "comments")
-    const signIn = current.signIn && `${current.signIn.url}?return=${encodeURIComponent(back.pathname + back.search + back.hash)}`
+    const signIn = current.signIn
+    const hosted = signIn?.provider === "console"
     const github = current.github
     if (github && current.signOut) {
       const url = current.signOut
@@ -638,7 +640,14 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         : `Signed in as @${github.login}, but this site does not say which GitHub repository it is built from.`
       showToast({ text, kind: "error", action: ["Use another account", () => void signOut(url)] }, true)
     }
-    else if (signIn) showToast({ text: "Sign in to comment on this page.", kind: "info", link: ["Sign in with GitHub", signIn], action: ["Close", options.exit] }, true)
+    else if (signIn) showToast({
+      text: "Sign in to comment on this page.",
+      kind: "info",
+      link: hosted
+        ? { label: "Sign in to ViteHub", href: signIn.url, newTab: true }
+        : { label: "Sign in with GitHub", href: `${signIn.url}?return=${encodeURIComponent(back.pathname + back.search + back.hash)}` },
+      action: ["Close", options.exit],
+    }, true)
     else showToast({ text: "Comments are only for the site's team. Sign in with an account that may comment.", kind: "error", action: ["Close", options.exit] }, true)
   }
 
@@ -813,7 +822,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       return () => {
         const nodes: Array<VNode | null> = []
         if (pageCan.value?.read && !resolving.value) {
-          nodes.push(h(CommentLayer, { comments: state, readOnly: !me.value, upload: canComment.value ? upload : undefined, attachmentUrl: transport.attachmentUrl }, { default: () => [] }))
+          nodes.push(h(CommentLayer, { comments: state, readOnly: !me.value, upload: canAttach.value ? upload : undefined, attachmentUrl: transport.attachmentUrl }, { default: () => [] }))
           nodes.push(h("div", { class: "cursors", ref: cursorLayer }, cursors()))
           nodes.push(h("div", { class: "outlines" }, outlines()))
           nodes.push(options.areas ? h(Teleport, { to: options.areas }, areas()) : h("div", { class: "areas" }, areas()))
@@ -853,7 +862,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
               status: panelStatus.value,
               "onUpdate:status": (value: CommentStatus) => (panelStatus.value = value),
               title: page.value,
-              upload: canComment.value ? upload : undefined,
+              upload: canAttach.value ? upload : undefined,
               // The thread opens in the list. Its spot on the page comes into view.
               onSelect: (thread: { id: string }) => {
                 const position = state.positions.value.get(thread.id)
@@ -870,7 +879,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         nodes.push(h("section", { role: "region", "aria-label": "Comments notifications" }, h("ol", { class: "toasts" }, current
           ? [h("li", { class: "toast", role: "status", "data-kind": current.kind, key: toastKey(current) }, [
               h("span", current.text),
-              current.link ? h("a", { href: current.link[1] }, current.link[0]) : null,
+              current.link ? h("a", { href: current.link.href, ...(current.link.newTab ? { target: "_blank", rel: "noopener noreferrer" } : {}) }, current.link.label) : null,
               current.action ? h(UButton, { color: "neutral", label: current.action[0], onClick: current.action[1], size: "sm", variant: "ghost" }) : null,
             ])]
           : [])))
@@ -991,7 +1000,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
             h("span", { class: "divider", "aria-hidden": "true" }),
           ])
         : null,
-      canComment.value ? h("button", { "aria-keyshortcuts": "B", "aria-pressed": "false", onClick: () => setMode("mark"), title: "Highlight the page and comment (B)", type: "button" }, [highlightIcon(), "Highlight"]) : null,
+      canAttach.value ? h("button", { "aria-keyshortcuts": "B", "aria-pressed": "false", onClick: () => setMode("mark"), title: "Highlight the page and comment (B)", type: "button" }, [highlightIcon(), "Highlight"]) : null,
       session?.content && canComment.value ? h("button", { "aria-keyshortcuts": "E", "aria-pressed": String(mode.value === "edit"), onClick: () => setMode(mode.value === "edit" ? "view" : "edit"), title: "Edit text (E)", type: "button" }, [editIcon(), "Edit"]) : null,
       avatars.length > 0 ? h("span", { "aria-label": peopleLabel, class: "people" }, avatars) : null,
       signOutUrl && github
@@ -1212,7 +1221,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         // With text selected, C comments on it and leaves the mode as it is, like Drop's selection bar.
         if (!commentOnSelection()) setMode(commentOn.value ? "view" : "comment")
       }
-      if (event.key === "b" && canComment.value) {
+      if (event.key === "b" && canAttach.value) {
         event.preventDefault()
         setMode(mode.value === "mark" ? "view" : "mark")
       }

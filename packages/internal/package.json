@@ -33,6 +33,11 @@
       "import": "./dist/console-signature.js",
       "default": "./dist/console-signature.js"
     },
+    "./site-token": {
+      "types": "./dist/site-token.d.ts",
+      "import": "./dist/site-token.js",
+      "default": "./dist/site-token.js"
+    },
     "./console": {
       "types": "./dist/console.d.ts",
       "import": "./dist/console.js",
@@ -272,6 +277,11 @@
       "types": "./dist/runtime/page-tools.d.ts",
       "import": "./dist/runtime/page-tools.js",
       "default": "./dist/runtime/page-tools.js"
+    },
+    "./runtime/page-account": {
+      "types": "./dist/runtime/page-account.d.ts",
+      "import": "./dist/runtime/page-account.js",
+      "default": "./dist/runtime/page-account.js"
     },
     "./runtime/page-pill": {
       "types": "./dist/runtime/page-pill.d.ts",
