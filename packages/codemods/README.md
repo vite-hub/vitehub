@@ -244,6 +244,8 @@ The codemod does not move local data or baseline the database. The follow-ups li
 
 ## `nuxt-safe-runtime-config`
 
+The `.env.example` migration requires `vite-hub` in the range `>=0.5.1 <1`. If the app declares a range that the codemod cannot verify or that allows an unsupported release, it stops without writing files. Update the range in `package.json`, then run the codemod again.
+
 The codemod reads one of the two schema sources of the module:
 
 - `safeRuntimeConfig.envSchema` points at a `.env.example` with `@env-spec` annotations. The codemod replaces it with `envSchema(new URL("./.env.example", import.meta.url), { prefix: "NUXT_" })` from `vite-hub/env/vite`. With the `NUXT_` prefix, `NUXT_PUBLIC_*` keys become Public Env and other `NUXT_*` keys become Server Env, with the same names and variables. Server `paths` stay the same. Public Env is flat, so a nested public path falls back to its flat name.

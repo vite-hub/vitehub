@@ -48,7 +48,6 @@ function evaluatedEnvSchema(value: unknown): ResolvedOptions["envSchema"] {
   return { file: value.file, paths }
 }
 
-/** Reads the module options statically, and runs nuxt.config only when an inline schema or a dynamic option needs it. */
 async function resolveOptions(config: NuxtConfigFile, staticOptions: StaticOptions): Promise<ResolvedOptions> {
   if (!staticOptions.inlineSchema && !staticOptions.dynamic) {
     return { envSchema: staticOptions.envSchema, schemaPath: staticOptions.schemaPath }
@@ -68,7 +67,6 @@ async function resolveOptions(config: NuxtConfigFile, staticOptions: StaticOptio
   }
 }
 
-/** Line of each object property in a schema module, by its dotted path of property keys. */
 function schemaLines(code: string): Map<string, number> {
   const lines = new Map<string, number>()
   let program: ReturnType<typeof parseProgram>
@@ -117,8 +115,6 @@ async function layerExtends(config: NuxtConfigFile): Promise<string[]> {
 async function findOutOfScopeConfigs(cwd: string, rootConfig: NuxtConfigFile): Promise<{ directories: string[], followUps: FollowUp[] }> {
   const files = await glob(["**/nuxt.config.{ts,mts,js,mjs,cjs}", "**/nitro.config.{ts,mts,js,mjs,cjs}"], { cwd, ignore: ["**/node_modules/**", "**/.nuxt/**", "**/.output/**"] })
   const nuxtDirectories = new Set(files.filter(file => posix.basename(file).startsWith("nuxt.config.")).map(file => posix.dirname(file)))
-  // Nuxt consumes immediate layers/ children automatically, and resolves each
-  // configured local extends path relative to the config that declares it.
   const layers = new Set([".", ...[...nuxtDirectories].filter(directory => posix.dirname(directory) === "layers")])
   const followUps: FollowUp[] = []
   for (const directory of layers) {
@@ -215,7 +211,11 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const edited = editNuxtConfig({ config, env, migrated })
   const outOfScope = await findOutOfScopeConfigs(cwd, config)
   const calls = await rewriteCallSites({ cwd, fields, unmigrated, excludedDirectories: outOfScope.directories })
-  const packageResult = await editPackageJson(cwd, packageJson.version, { remove: [moduleName], add: ["vite-hub"] })
+  const packageResult = await editPackageJson(cwd, packageJson.version, {
+    remove: [moduleName],
+    add: env.kind === "fields" ? ["vite-hub"] : [],
+    require: env.kind === "env-schema" ? { name: "vite-hub", range: ">=0.5.1 <1", feature: "vite-hub/env/vite" } : undefined,
+  })
 
   const envLine = (field: EnvField) => edited.lineOf(["vitehub", "env", field.section, ...field.envPath])
   const configFollowUps: FollowUp[] = planned.map(({ anchor, message }) => {
@@ -273,7 +273,6 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   }
 }
 
-/** Remove a schema-free module only when no layer can supply options or composable calls. */
 async function removeUnusedModule(cwd: string, config: NuxtConfigFile, safeProperty: ObjectProperty | undefined): Promise<CodemodResult> {
   const editor = new ConfigEditor(config)
   removeModuleEntry(editor, config, moduleName)

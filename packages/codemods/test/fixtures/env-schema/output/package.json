@@ -3,6 +3,6 @@
   "private": true,
   "dependencies": {
     "nuxt": "^4.5.2",
-    "vite-hub": "^<version>"
+    "vite-hub": ">=0.5.1 <1"
   }
 }

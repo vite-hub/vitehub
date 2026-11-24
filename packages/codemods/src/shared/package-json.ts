@@ -49,9 +49,9 @@ export interface PackageJsonChange {
    * that range. A range the codemod cannot read stays as it is.
    */
   within?: Readonly<Record<string, string>>
+  require?: { name: string, range: string, feature: string }
 }
 
-/** True when `range` allows a version that `supported` does not. A prerelease in `range` counts. */
 function outside(range: string, supported: string): boolean {
   return validRange(range) !== null && !subset(range, supported, { includePrerelease: true })
 }
@@ -63,7 +63,11 @@ function outside(range: string, supported: string): boolean {
 export async function editPackageJson(cwd: string, version: string, change: PackageJsonChange): Promise<PackageJsonResult> {
   const path = join(cwd, "package.json")
   const command = detectInstallCommand(cwd)
-  if (!existsSync(path)) return { installCommand: command }
+  const required = change.require
+  if (!existsSync(path)) {
+    if (required) throw codemodError(`Create a package.json for this app before migrating to ${required.feature}.`)
+    return { installCommand: command }
+  }
   const before = await readFile(path, "utf8")
   let manifest: unknown
   try {
@@ -89,6 +93,17 @@ export async function editPackageJson(cwd: string, version: string, change: Pack
     const map = manifest[section]
     return isDependencyMap(map) && name in map
   })
+  if (required) {
+    for (const section of [...sections, "optionalDependencies", "peerDependencies"]) {
+      const map = manifest[section]
+      if (!isRecord(map) || !(required.name in map)) continue
+      const declared = map[required.name]
+      if (typeof declared !== "string" || validRange(declared) === null || !subset(declared, required.range, { includePrerelease: true })) {
+        throw codemodError(`Migration to ${required.feature} needs ${required.name} ${required.range}. Update its range in package.json ${section}, then run the codemod again.`)
+      }
+    }
+    if (!installed(required.name)) dependencies[required.name] = required.range
+  }
   for (const name of change.add) if (!installed(name)) dependencies[name] = range
   for (const [name, supported] of Object.entries(change.within ?? {})) {
     if (!installed(name)) {
