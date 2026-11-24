@@ -4,7 +4,7 @@ import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflar
 import { deriveViteHubSecret, readViteHubSecret, viteHubSecretMinimumLength } from "@vite-hub/internal/secret"
 import { isViteHubError } from "@vite-hub/runtime"
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
-import { isStandardSchema, standardResultIssues } from "@vite-hub/internal/standard-schema"
+import { standardResultIssues } from "@vite-hub/internal/standard-schema"
 
 import {
   asyncServerEnvRequired,
@@ -14,8 +14,7 @@ import {
   missingRequiredEnv,
 } from "./core/errors.ts"
 import { SecretEnv } from "./secret.ts"
-import { formatStandardIssues, hasResultValue } from "./schema.ts"
-import type { StandardSchemaV1 } from "./schema.ts"
+import { formatStandardIssues, hasResultValue, readStandardValidate } from "./schema.ts"
 import { cloudflareEnv, processEnv, runtimeEnv, type RuntimeEnv } from "./internal/runtime-env.ts"
 import { isRecord, isRuntimeEnvEntry, isRuntimeLiteralEntry, isRuntimeProviderEntry, runtimeRegistryEntries } from "./core/registry.ts"
 import type { RuntimeEnvEntry, RuntimeProviderEntry } from "./core/registry.ts"
@@ -115,7 +114,7 @@ function missingRuntimeValueMessage(entry: RuntimeEnvEntry | RuntimeProviderEntr
   return `${path} is required and has no value. Server Env checks every declared value together, so this fails even when code reads only another value. ${fix}`
 }
 
-const boundSchemas = new WeakMap<object, StandardSchemaV1>()
+const boundSchemas = new WeakMap<object, (input: unknown) => unknown>()
 
 /**
  * Attach the schemas that `env.schemaFrom()` declarations name. The generated `#vitehub/env/server` module imports
@@ -127,17 +126,18 @@ export function bindServerEnvSchemas(registry: EnvRuntimeRegistry, modules: Read
     const reference = entry.schemaModule
     const module = Object.hasOwn(modules, reference.module) ? modules[reference.module] : undefined
     const schema = module && Object.hasOwn(module, reference.export) ? module[reference.export] : undefined
-    if (!isStandardSchema(schema)) {
+    const validate = readStandardValidate(schema, path)
+    if (!validate) {
       throw invalidEnvDeclaration(path, `${path} uses env.schemaFrom(${JSON.stringify(reference.module)}, ${JSON.stringify(reference.export)}), but that export is not a Standard Schema.`)
     }
-    boundSchemas.set(entry, schema)
+    boundSchemas.set(entry, validate)
   }
 }
 
 function parseRuntimeValue(entry: RuntimeEnvEntry | RuntimeProviderEntry, value: unknown, path: string): EnvValueParseResult {
   if (!entry.schemaModule) return parseEnvValue(entry.schema ?? stringValueSchema, value)
-  const schema = boundSchemas.get(entry)
-  if (!schema) {
+  const validate = boundSchemas.get(entry)
+  if (!validate) {
     throw invalidEnvDeclaration(path, `${path} uses env.schemaFrom(), but no schema module was loaded for it. Only env.server declarations of hubEnv() support env.schemaFrom().`)
   }
   let input = value
@@ -148,7 +148,7 @@ function parseRuntimeValue(entry: RuntimeEnvEntry | RuntimeProviderEntry, value:
   }
   let result: unknown
   try {
-    result = schema["~standard"].validate(input)
+    result = validate(input)
   }
   catch (error) {
     return { message: `The schema threw: ${error instanceof Error ? error.message : String(error)}`, success: false }

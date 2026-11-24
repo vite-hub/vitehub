@@ -1,6 +1,7 @@
 import { isRecordOrFunction } from "@vite-hub/internal/object"
-import { isStandardSchema, standardResultIssues } from "@vite-hub/internal/standard-schema"
+import { standardResultIssues } from "@vite-hub/internal/standard-schema"
 
+import { invalidEnvDeclaration } from "./core/errors.ts"
 import { envErrorDiagnostics } from "./error-diagnostics.ts"
 export interface StandardSchemaResultSuccess<T = unknown> {
   issues?: undefined
@@ -40,8 +41,9 @@ export function parseSchema(schema: unknown, value: unknown, label: string): unk
   if (isSchemaModuleReference(schema)) {
     throw envErrorDiagnostics.ENV_R0029({ message: `[vitehub] ${label} uses env.schemaFrom(), which only env.server supports. Pass the schema object itself.` })
   }
-  if (isStandardSchema(schema)) {
-    const result: unknown = schema["~standard"].validate(value)
+  const validate = readStandardValidate(schema, label)
+  if (validate) {
+    const result = validate(value)
     if (isPromiseLike(result)) {
       throw envErrorDiagnostics.ENV_R0014({ message: `[vitehub] ${label} uses an async schema. Env validation currently requires sync schemas.` })
     }
@@ -75,6 +77,20 @@ export function parseSchema(schema: unknown, value: unknown, label: string): unk
   return value
 }
 
+export function readStandardValidate(schema: unknown, label: string): ((input: unknown) => unknown) | undefined {
+  if (!isRecordOrFunction(schema)) return undefined
+  try {
+    const standard: unknown = Reflect.get(schema, "~standard")
+    if (!isRecordOrFunction(standard)) return undefined
+    const validate: unknown = Reflect.get(standard, "validate")
+    if (typeof validate !== "function") return undefined
+    return (input: unknown): unknown => Reflect.apply(validate, standard, [input])
+  }
+  catch (error) {
+    throw invalidEnvDeclaration(label, `${label} has a schema that threw while ViteHub read its \`~standard\` validator.`, error)
+  }
+}
+
 function isSchemaModuleReference(schema: unknown): boolean {
   return typeof schema === "object" && schema !== null && !Array.isArray(schema) && (schema as { kind?: unknown }).kind === "schema-module"
 }
@@ -89,12 +105,17 @@ export function hasResultValue(result: unknown): result is { value: unknown } {
 
 export function formatStandardIssues(issues: readonly unknown[]): string {
   return issues.map((issue) => {
+    if (typeof issue === "string") return issue
     const message = isRecordOrFunction(issue) && typeof issue.message === "string" ? issue.message : "Invalid value."
     const segments = isRecordOrFunction(issue) && Array.isArray(issue.path)
-      ? issue.path.map(segment => isRecordOrFunction(segment) ? segment.key : segment).filter(segment => typeof segment === "string" || typeof segment === "number")
+      ? Array.from(issue.path, issuePathKey).filter(segment => typeof segment === "string" || typeof segment === "number")
       : []
     return segments.length ? `${segments.join(".")}: ${message}` : message
   }).join("; ")
+}
+
+function issuePathKey(segment: unknown): unknown {
+  return isRecordOrFunction(segment) ? segment.key : segment
 }
 
 function isZodLike(schema: unknown): schema is ZodLikeSchema {
