@@ -462,7 +462,7 @@ export default defineConfig({
 
 After the upload, deploy requests each path on the deployed URL. A path must answer with a `2xx` status, after redirects. Deploy tries each path 4 times in 7 seconds, because a new version can take a few seconds to reach every location.
 
-On Cloudflare, the deployed URL is the `workers.dev` URL. Without a `workers.dev` URL (`workers_dev: false`, or `routes` without `workers_dev`), it is the first custom domain, such as `https://example.com`. A Worker that has only route patterns, such as `example.com/*`, has no URL to request: deploy skips the checks, sends nothing to IndexNow, prints a warning, and exits with `0`. `--json` then has no `url` and no `checks`.
+On Cloudflare, the deployed URL is the `workers.dev` URL. Without a `workers.dev` URL (`workers_dev: false`, or `routes` without `workers_dev`), it is the first custom domain, such as `https://example.com`, and then the first route with one host and the path `/*`, such as `example.com/*` or `https://example.com/*`. A Worker whose routes all have a wildcard host or a narrower path, such as `*.example.com/*` or `example.com/api/*`, has no URL to request: deploy skips the checks and IndexNow, prints a warning, and exits with `0`. `--json` then has no `url`, `checks`, or `indexNow`.
 
 ```txt [vitehub deploy]
 Deployed my-app to cloudflare: https://my-app.example.workers.dev

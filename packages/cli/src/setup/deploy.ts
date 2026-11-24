@@ -61,7 +61,7 @@ omitted secret cannot inherit from another stage. With --yes, a missing VITEHUB_
 After the upload, deploy requests the paths of \`deploy.check\` in vitehub(), and the health route with \`health\`, on
 the deployed URL. When one does not answer with a 2xx status, deploy exits with 1 and prints the command that rolls
 production back to the deployment it replaced. --no-check skips the checks. When the host reports no URL, such as a
-Worker with only route patterns, deploy skips the checks with a warning. With \`deploy.indexNow\`, a production
+Worker whose routes have a wildcard host or a narrower path, deploy skips the checks and IndexNow with a warning. With \`deploy.indexNow\`, a production
 deploy that passed its checks then sends the URLs of /sitemap.xml to IndexNow. --no-index-now skips it.
 `
 
@@ -89,7 +89,7 @@ export interface SetupDeployArgs {
 /** What `vitehub deploy --json` prints, after `schemaVersion: 1`. */
 export interface SetupDeployOutput {
   host: DeployHost
-  /** The URL that serves the new version. Missing when the host reports none, such as a Worker with only route patterns. */
+  /** The URL that serves the new version. Missing when the host reports none, such as a Worker with only `*.example.com/*` routes. */
   url?: string
   deploymentId?: string
   version?: string
@@ -322,8 +322,7 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
   const previous = checkPaths.length && !args.preview && !args.temporary ? await previousDeployment(project.root, link, credentials, context, run) : undefined
   const result = await adapter.deploy()
   if (!link && !args.temporary) await recordLink(project.root, host, result, projectName)
-  const unchecked = checkPaths.length > 0 && !result.url
-  if (unchecked) context.stderr.write(`Deploy checks skipped: ${host} reported no URL to request, such as a workers.dev URL or a custom domain, so nothing is sent to IndexNow. The deploy is done.\n`)
+  if (checkPaths.length && !result.url) context.stderr.write(`Deploy checks skipped: ${host} reported no URL to request, such as a workers.dev URL, a custom domain, or a \`<host>/*\` route. The deploy is done.\n`)
   const checks = checkPaths.length && result.url ? await runDeployChecks(result.url, checkPaths, deployContext.fetch) : undefined
 
   const deployed: SetupDeployOutput = {
@@ -340,7 +339,9 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
   if (checks?.some(check => !check.ok)) throw checkFailed(deployed, host, previous, projectName, link, result, args.preview)
   if (!args.json) writeDeployed(deployed, projectName, context)
   const pushed = checkouts ? await pushCheckouts(checkouts, deployed, args, context) : deployed
-  const indexNow = output.deploy.indexNow && args.indexNow && !args.preview && !args.temporary && !unchecked ? await submitIndexNow(output.deploy.indexNow, deployContext.fetch) : undefined
+  const indexNowConfig = args.indexNow && !args.preview && !args.temporary ? output.deploy.indexNow : undefined
+  if (indexNowConfig && !result.url) context.stderr.write(`IndexNow: nothing was sent, because ${host} reported no URL for this deploy.\n`)
+  const indexNow = indexNowConfig && result.url ? await submitIndexNow(indexNowConfig, deployContext.fetch) : undefined
   if (indexNow && !args.json) context.stderr.write("submitted" in indexNow ? `IndexNow: sent ${indexNow.submitted} URLs (${indexNow.status}).\n` : `IndexNow: nothing was sent. ${indexNow.error} The deploy is done.\n`)
   const final = indexNow ? { ...pushed, indexNow } : pushed
   if (args.json) writeSetupJson(context, final)

@@ -141,21 +141,30 @@ async function readWranglerOutput(file: string): Promise<WranglerOutputEntry[]> 
 }
 
 /**
- * Wrangler 4.157 writes the `workers.dev` target as an `https://` URL and a custom domain as a bare host, such as
- * `example.com (custom domain)`. Route patterns, triggers, and a custom domain with `production: disabled` have no URL
- * to request.
+ * Wrangler 4.157 writes the `workers.dev` target as an `https://` URL, a custom domain as a bare host, such as
+ * `example.com (custom domain)`, and a route as its pattern. A route with one host and the path `/*` serves every path
+ * of that host. A wildcard host, a narrower path, triggers, and a custom domain with `production: disabled` have no
+ * URL to request.
  */
 export function wranglerTargetUrl(targets: unknown): string | undefined {
-  for (const target of Array.isArray(targets) ? targets : []) {
-    if (typeof target !== "string") continue
-    if (workersDevTarget.test(target)) return target
-    const domain = customDomainTarget.exec(target)?.[1]
-    if (domain && !target.includes("production: disabled") && URL.canParse(`https://${domain}`)) return `https://${domain}`
-  }
+  const texts = Array.isArray(targets) ? targets.filter(target => typeof target === "string") : []
+  return [...texts.map(directTargetUrl), ...texts.map(routeTargetUrl)].find(url => url !== undefined && URL.canParse(url))
 }
 
 const workersDevTarget = /^https:\/\/[^\s*/]+\.workers\.dev\/?$/u
 const customDomainTarget = /^([^\s*/:]+) \(custom domain[ )]/u
+const catchAllRouteTarget = /^(?:https:\/\/)?([^\s*/:]+)\/\*(?: \(zone (?:id|name): [^)]+\))?$/u
+
+function directTargetUrl(target: string): string | undefined {
+  if (workersDevTarget.test(target)) return target
+  const domain = customDomainTarget.exec(target)?.[1]
+  return domain && !target.includes("production: disabled") ? `https://${domain}` : undefined
+}
+
+function routeTargetUrl(target: string): string | undefined {
+  const host = catchAllRouteTarget.exec(target)?.[1]
+  return host ? `https://${host}` : undefined
+}
 
 const durationUnits: Record<string, number> = { second: 1_000, minute: 60_000, hour: 3_600_000, day: 86_400_000 }
 
