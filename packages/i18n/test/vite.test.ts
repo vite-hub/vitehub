@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -24,6 +24,40 @@ describe("hubI18n", () => {
       expect(source).toContain('import { definePlugin } from "nitro"')
       expect(source).toContain('import { useRequest } from "nitro/context"')
       expect(source).toContain("return useRequest()")
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("compiles server macros in Nitro's own bundler, which has no Vite environment", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-i18n-nitro-"))
+    try {
+      const plugin = hubI18n({ locales: ["en", "es"], projectRoot: root })
+      const config = plugin.config as { handler: (config: object, env: { command: string }) => Promise<unknown> }
+      await config.handler({ root, nitro: {} }, { command: "build" })
+      const route = join(root, "server/api/pay.ts")
+      const code = "import { getLocale, t as translate, plural } from 'vite-hub/i18n'\nexport default () => ({ locale: getLocale(), message: translate`Payment received`, items: plural(2, { one: '# item', other: '# items' }) })\n"
+      await mkdir(join(root, "server/api"), { recursive: true })
+      await writeFile(route, code)
+      const transform = plugin.transform as { handler: (this: object, code: string, id: string, options: { ssr: boolean }) => Promise<{ code: string } | undefined> }
+      const result = await transform.handler.call({}, code, route, { ssr: true })
+      expect(result?.code).toContain('"@vite-hub/i18n/runtime"')
+      expect(result?.code).toContain('message: "Payment received"')
+      expect(result?.code).toContain("# items")
+      expect(result?.code).not.toContain("translate`Payment received`")
+      expect(result?.code).not.toContain("plural(2")
+
+      const runtimeOnly = `
+        import { getLocale } from 'vite-hub/i18n'
+        function decorate(target: typeof Route) { return target }
+        @decorate
+        class Route {
+          t() { return getLocale() }
+        }
+        export default () => new Route().t()
+      `
+      await expect(transform.handler.call({}, runtimeOnly, route, { ssr: true })).resolves.toBeUndefined()
     }
     finally {
       await rm(root, { recursive: true, force: true })

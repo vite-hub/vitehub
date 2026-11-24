@@ -338,6 +338,7 @@ const nitroRuntimeResolverNames = new Set([
   "@vite-hub/kv/vite",
   "@vite-hub/markdown-template/vite",
   "@vite-hub/realtime/vite",
+  "@vite-hub/schedule/vite",
   "vite-hub/optional-owner-imports",
   "vite-hub/cloudflare-sh-syntax",
   // The durability boot plugin imports `#vitehub/durability/reporters`, which this plugin renders from the replayed plugins.
@@ -346,11 +347,16 @@ const nitroRuntimeResolverNames = new Set([
   "vite-hub/unavailable-services",
 ])
 
+const nitroServerTransformNames = new Set([
+  "@vite-hub/i18n/vite",
+  "@vite-hub/schedule/vite",
+  "@vite-hub/workflow/vite",
+])
+
 const nitroConfigResolvedNames = new Set([
   ...nitroRuntimeResolverNames,
   "@vite-hub/content/vite",
   "@vite-hub/sandbox/task/vite",
-  "@vite-hub/schedule/vite",
   "@vite-hub/workflow/vite",
   "vite-hub/agent-invocations",
 ])
@@ -403,10 +409,10 @@ function nitroRuntimeResolver(plugin: Plugin, config: Record<string, unknown>, a
   const transformWorkspaceAgent = (plugin as Plugin & {
     vitehub?: { agent?: { transformWorkspaceAgent?: (code: string, id: string, options: typeof agentOptions) => Promise<string | undefined> } }
   }).vitehub?.agent?.transformWorkspaceAgent
-  const workflowTransform = plugin.name === "@vite-hub/workflow/vite"
+  const serverTransform = nitroServerTransformNames.has(plugin.name)
     ? typeof plugin.transform === "function" ? plugin.transform : plugin.transform?.handler
     : undefined
-  if (!resolveId && !load && !transformWorkspaceAgent && !workflowTransform) return
+  if (!resolveId && !load && !transformWorkspaceAgent && !serverTransform) return
 
   const replayResolveId: HookHandler<NonNullable<Plugin["resolveId"]>> | undefined = resolveId && function (id, importer, options) {
     // Nitro's development alias must reach its resolver instead of being externalized by a replayed hook.
@@ -418,18 +424,18 @@ function nitroRuntimeResolver(plugin: Plugin, config: Record<string, unknown>, a
     // All replayed loads run on Nitro's server, including Rollup calls without Vite options.
     return load.call(this, id, { ...options, ssr: true })
   }
-  const replayWorkflowTransform: HookHandler<NonNullable<Plugin["transform"]>> | undefined = workflowTransform && function (code, id, options) {
+  const replayServerTransform: HookHandler<NonNullable<Plugin["transform"]>> | undefined = serverTransform && function (code, id, options) {
     // The separate Nitro pipeline has no Vite environment; explicitly mark its server transform.
-    return workflowTransform.call(this, code, id, { moduleType: "js", ...options, ssr: true })
+    return serverTransform.call(this, code, id, { moduleType: "js", ...options, ssr: true })
   }
   return {
     name: `vite-hub/nuxt-runtime-resolver:${plugin.name}`,
     // SAFETY: the filter comes from the same hook of the replayed plugin, so it has that hook's filter type.
     ...(replayResolveId ? { resolveId: withHookFilter(plugin.resolveId, replayResolveId) as Plugin["resolveId"] } : {}),
     ...(replayLoad ? { load: withHookFilter(plugin.load, replayLoad) as Plugin["load"] } : {}),
-    ...(replayWorkflowTransform ? {
-      // SAFETY: the filter belongs to the same Workflow transform hook.
-      transform: withHookFilter(plugin.transform, replayWorkflowTransform) as Plugin["transform"],
+    ...(replayServerTransform ? {
+      // SAFETY: the filter belongs to the same transform hook of the replayed plugin.
+      transform: withHookFilter(plugin.transform, replayServerTransform) as Plugin["transform"],
     } : {}),
     ...(transformWorkspaceAgent ? {
       transform: {
