@@ -908,7 +908,7 @@ describe("@vite-hub/source GitHub source", () => {
           status: "ahead",
           total_commits: 2,
           commits: [{ sha: "c1" }, { sha: "c2" }],
-          files: [modified("docs/hello.md"), modified("docs/drafts/ignore.md"), modified("docs/image.png"), modified("other/outside.md")],
+          files: [modified("docs/hello.md"), modified("docs/drafts/ignore.md"), modified("docs/image.png"), modified("docs/.vitehub/config.json"), modified("other/outside.md")],
         })
       }
       if (requestUrl.includes("/commits/c1?")) return jsonResponse({ files: [modified("docs/hello.md"), modified("docs/drafts/moved.md", "docs/kept.md")] })
@@ -931,6 +931,7 @@ describe("@vite-hub/source GitHub source", () => {
         { filename: "docs/b.md", previous_filename: "docs/drafts/b.md", status: "renamed" },
         { filename: "docs/drafts/c.md", previous_filename: "docs/c.md", status: "renamed" },
         { filename: "docs/gone.md", status: "removed" },
+        { filename: "docs/.vitehub/config.json", status: "modified" },
         { filename: "other/d.md", status: "added" },
       ])
     }))
