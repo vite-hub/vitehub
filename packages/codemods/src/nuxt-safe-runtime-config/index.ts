@@ -2,7 +2,7 @@ import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { isAbsolute, join, posix, relative, resolve } from "node:path"
 
-import { findProperty, keyName, line, parseProgram, walk } from "@vite-hub/internal/ast"
+import { detectStyle, findProperty, keyName, line, parseProgram, walk } from "@vite-hub/internal/ast"
 import { isRecord } from "@vite-hub/internal/object"
 import { glob } from "tinyglobby"
 
@@ -18,11 +18,12 @@ import { planFromEnvFile, readEnvFileKeys } from "./env-file.ts"
 import { pathLabel } from "./fields.ts"
 import { loadSchemaModule, moduleName, readRuntimeConfig, readStaticOptions } from "./nuxt-config.ts"
 import { planFromJsonSchema, schemaIssues, schemaToJsonSchema } from "./schema.ts"
+import { planSchemaModule, renderSchemaModule } from "./schema-module.ts"
 
 import type { ObjectProperty } from "@babel/types"
 import type { NuxtConfigFile } from "../shared/nuxt-config.ts"
 import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from "../types.ts"
-import type { EnvSource } from "./config-edit.ts"
+import type { EnvSource, SchemaModuleReference } from "./config-edit.ts"
 import type { EnvField, PlannedFollowUp } from "./fields.ts"
 import type { StaticOptions } from "./nuxt-config.ts"
 
@@ -179,6 +180,8 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   let schemaFile: string | undefined
   let lines = new Map<string, number>()
   let sourceLabel: string
+  let schemaModule: SchemaModuleReference | undefined
+  let generated: { path: string, code: string, importedSources: string[] } | undefined
 
   if (options.envSchema) {
     const file = options.envSchema.file
@@ -209,26 +212,46 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     }
     const validateAtRuntime = options.validateAtRuntime ?? false
     const validateAtBuild = options.validateAtBuild ?? !validateAtRuntime
+    const onError = options.onError ?? "throw"
+    const enforced = onError === "throw" && (validateAtBuild || validateAtRuntime)
+    const moduleTarget = enforced
+      ? planSchemaModule({ cwd, config, schemaPath: options.schemaPath, options: [moduleEntry?.inlineOptions, safeProperty?.value] })
+      : { reason: onError === "throw" ? "The module did not validate runtimeConfig, so the codemod wrote no schema module." : `The module only reported validation failures (onError: '${onError}'), but Env stops the app when a schema fails, so the codemod wrote no schema module.` }
+    const target = "target" in moduleTarget ? moduleTarget.target : undefined
     const plan = await planFromJsonSchema({
       schema,
+      schemaExports: Boolean(target),
       jsonSchema: await schemaToJsonSchema(schema, cwd),
       issues: schemaIssues(schema),
       runtimeConfig: runtime.values,
       validateAtBuild,
       validateAtRuntime,
-      rejectInvalidDefaults: (options.onError ?? "throw") === "throw",
+      rejectInvalidDefaults: onError === "throw",
     })
     fields = plan.fields
     unmigrated = plan.unmigrated
+    if ("reason" in moduleTarget && plan.needsSchemaModule) {
+      const retry = enforced ? " Move the $schema to its own module, then run the codemod again." : ""
+      planned.push({ message: `${moduleTarget.reason} The fields below that have rules keep follow-ups.${retry}`, anchor: { schema: "" } })
+    }
     planned.push(...plan.followUps)
     env = { kind: "fields", fields }
     sourceLabel = schemaFile ? `$schema (${schemaFile})` : "$schema"
     notes.push("Each declaration reads its NUXT_* name with env.source(). Env reads the canonical name VITEHUB_<PATH> first, for example VITEHUB_API_SECRET before NUXT_API_SECRET.")
-    if (schemaFile) notes.push(`The codemod did not delete ${schemaFile}. Delete it, and its schema library if nothing else uses it.`)
+    if (target && fields.some(field => field.schema)) {
+      const rendered = renderSchemaModule(target, fields, detectStyle(config.code, config.program))
+      schemaModule = { runtimePath: target.runtimePath, importPath: target.importPath, exports: rendered.exports }
+      generated = { path: target.path, code: rendered.code, importedSources: rendered.importedSources }
+      notes.push(`${target.path} exports the $schema of each field that has a rule or transform. Server Env runs it with env.schemaFrom() when the server reads the value. Public Env runs it during the build.`)
+      if (schemaFile) notes.push(`${target.path} imports ${schemaFile}. Keep ${schemaFile} and its schema library.`)
+    }
+    else if (schemaFile) {
+      notes.push(`The codemod did not delete ${schemaFile}. Delete it, and its schema library if nothing else uses it.`)
+    }
   }
 
   const migrated = new Set(fields.map(field => pathLabel(field)))
-  const edited = editNuxtConfig({ config, env, migrated })
+  const edited = editNuxtConfig({ config, env, migrated, schemaModule })
   const outOfScope = await findOutOfScopeConfigs(cwd, config)
   const calls = await rewriteCallSites({ cwd, fields, unmigrated, excludedDirectories: outOfScope.directories })
   const packageResult = await editPackageJson(cwd, packageJson.version, { remove: [moduleName], add: env.kind === "env-schema" ? ["vite-hub", "@vite-hub/env"] : ["vite-hub"] })
@@ -254,26 +277,28 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     const reads = calls.secretReads.filter(read => read.field === field)
     const accessor = `useServerEnv().${field.envPath.join(".")}`
     if (!reads.length) {
-      secretFollowUps.push({ file: config.fileName, line: envLine(field), message: `${accessor} is secret, a SecretEnv<string>. No rewritten file reads it. Call .unseal() where code needs the raw value.` })
+      secretFollowUps.push({ file: config.fileName, line: envLine(field), message: `${accessor} is secret, a ${secretType(field)}. No rewritten file reads it. Call .unseal() where code needs the raw value.` })
     }
     for (const read of reads) {
-      secretFollowUps.push({ file: read.file, line: read.line, message: `${accessor} is secret, a SecretEnv<string>. Call .unseal() where this code needs the raw value.` })
+      secretFollowUps.push({ file: read.file, line: read.line, message: `${accessor} is secret, a ${secretType(field)}. Call .unseal() where this code needs the raw value.` })
     }
   }
 
   const eslint = await findEslintReferences(cwd)
 
   const edits: FileEdit[] = [{ path: config.fileName, before: config.code, after: edited.code }]
+  if (generated) edits.push({ path: generated.path, before: undefined, after: generated.code })
   if (packageResult.edit) edits.push(packageResult.edit)
   edits.push(...calls.edits)
 
-  for (const source of edited.removedImports.filter(entry => /^[@a-z]/i.test(entry) && !entry.startsWith("nuxt"))) {
+  const moved = new Set(generated?.importedSources)
+  for (const source of edited.removedImports.filter(entry => /^[@a-z]/i.test(entry) && !entry.startsWith("nuxt") && !moved.has(entry))) {
     notes.push(`${config.fileName} no longer imports ${source}. Remove it from package.json if nothing else uses it.`)
   }
   const publicCount = fields.filter(field => field.section === "public").length
   notes.push(
     "Public Env values are fixed at build time. Nuxt applied NUXT_PUBLIC_* overrides when the server started; now set them when you build. Server Env values are read when the server runs.",
-    "Shelve and the standalone Nitro module (nuxt-safe-runtime-config/nitro) are out of scope for this codemod.",
+    "The standalone Nitro module (nuxt-safe-runtime-config/nitro) is out of scope for this codemod.",
   )
   if (!eslint.length) notes.push("No ESLint config references nuxt-safe-runtime-config/eslint.")
 
@@ -287,6 +312,10 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
       "Run `npx nuxi prepare` to generate the Env types, then type-check the app.",
     ],
   }
+}
+
+function secretType(field: EnvField): string {
+  return field.schema ? "SecretEnv of the schema output" : "SecretEnv<string>"
 }
 
 /** Remove a schema-free module only when no layer can supply options or composable calls. */

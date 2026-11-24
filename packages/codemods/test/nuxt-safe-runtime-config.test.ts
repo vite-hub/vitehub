@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs"
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -5,7 +6,7 @@ import { fileURLToPath } from "node:url"
 import { runInNewContext } from "node:vm"
 
 import { env, SecretEnv } from "@vite-hub/env"
-import { resolveServerEnv } from "@vite-hub/env/server"
+import { bindServerEnvSchemas, resolveServerEnv } from "@vite-hub/env/server"
 import { createRuntimeEnvRegistry, envSchema } from "@vite-hub/env/vite"
 import { end, parseProgram, start } from "@vite-hub/internal/ast"
 import * as v from "valibot"
@@ -15,23 +16,31 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { formatReport, runCodemod } from "../src/index.ts"
 import { planFromEnvFile, readEnvFileKeys } from "../src/nuxt-safe-runtime-config/env-file.ts"
+import { fieldAccess, runSteps } from "../src/nuxt-safe-runtime-config/field-schema.ts"
 import { looksSecret, nuxtVariableName } from "../src/nuxt-safe-runtime-config/fields.ts"
 import { planFromJsonSchema, schemaIssues, schemaToJsonSchema } from "../src/nuxt-safe-runtime-config/schema.ts"
+import valibotModuleSchema from "./fixtures/valibot-schema-module/input/schema.ts"
 import { withVersionPlaceholder } from "./fixture-version.ts"
 
 const fixtures = fileURLToPath(new URL("./fixtures/", import.meta.url))
+
+function isStandardSchema(value: unknown): value is { "~standard": { validate: (input: unknown) => unknown } } {
+  return typeof value === "object" && value !== null && "~standard" in value
+}
 
 describe.each([
   ["valibot-schema", "an inline Valibot $schema"],
   ["valibot-schema-module", "a Valibot $schema module with rules on the defaults"],
   ["zod-schema-module", "a Zod $schema module in a Nuxt 3 layout"],
   ["env-schema", "an envSchema .env.example in module options"],
+  ["valibot-transform", "a Valibot $schema module with transforms and checks"],
 ])("nuxt-safe-runtime-config with %s", (name, label) => {
   it(`migrates ${label}`, async () => {
     const input = join(fixtures, name, "input")
     const run = await runCodemod("nuxt-safe-runtime-config", { cwd: input, dryRun: true })
     for (const edit of run.result.edits) {
-      expect(edit.before).toBe(await readFile(join(input, edit.path), "utf8"))
+      if (edit.before === undefined) expect(existsSync(join(input, edit.path))).toBe(false)
+      else expect(edit.before).toBe(await readFile(join(input, edit.path), "utf8"))
       await expect(withVersionPlaceholder(edit.after)).toMatchFileSnapshot(join(fixtures, name, "output", edit.path))
     }
     await expect(formatReport(run)).toMatchFileSnapshot(join(fixtures, name, "output", "report.txt"))
@@ -123,7 +132,7 @@ describe("defaults that the field schema rejects", () => {
   function migratedServerEnv(code: string) {
     const exported = parseProgram(code).program.body.find(node => node.type === "ExportDefaultDeclaration")
     if (exported?.type !== "ExportDefaultDeclaration") throw new Error("Missing migrated config")
-    const config: { vitehub: { env: { server: Parameters<typeof createRuntimeEnvRegistry>[0] } } } = runInNewContext(code.slice(start(exported.declaration), end(exported.declaration)), { defineNuxtConfig: (options: unknown) => options, env })
+    const config: { vitehub: { env: { server: Parameters<typeof createRuntimeEnvRegistry>[0] } } } = runInNewContext(code.slice(start(exported.declaration), end(exported.declaration)), { defineNuxtConfig: (options: unknown) => options, env, publicApiBase: v.string() })
     return { ...config.vitehub.env.server }
   }
 
@@ -149,8 +158,11 @@ describe("defaults that the field schema rejects", () => {
       safeRuntimeConfig: { $schema: './schema', validateAtRuntime: true },
       runtimeConfig: { retryCount: process.env.COUNT ?? '3', featureEnabled: 'false', port: '3000' },
     })`, "v.object({ retryCount: v.number(), featureEnabled: v.boolean(), port: v.pipe(v.string(), v.transform(Number), v.number()) })")
+    expect(code).toContain("port: env({ default: '3000', schema: env.schemaFrom('./server/env.schema.ts', 'port'), source: env.source('NUXT_PORT') })")
     for (const name of ["COUNT", "NUXT_RETRY_COUNT", "VITEHUB_RETRY_COUNT", "NUXT_FEATURE_ENABLED", "VITEHUB_FEATURE_ENABLED", "NUXT_PORT", "VITEHUB_PORT"]) vi.stubEnv(name, undefined)
-    expect(resolveServerEnv(createRuntimeEnvRegistry(migratedServerEnv(code), { prefix: false }))).toMatchObject({ retryCount: 3, featureEnabled: false, port: 3000 })
+    const registry = createRuntimeEnvRegistry(migratedServerEnv(code), { path: "env.server", prefix: false, schemaModules: true })
+    bindServerEnvSchemas(registry, { "./server/env.schema.ts": { port: v.pipe(v.string(), v.transform(Number), v.number()) } })
+    expect(resolveServerEnv(registry)).toMatchObject({ retryCount: 3, featureEnabled: false, port: 3000 })
   })
 
   it.each([
@@ -165,23 +177,34 @@ describe("defaults that the field schema rejects", () => {
     expect(code).toContain("region: env({ default: 'x', source: env.source('NUXT_REGION') })")
     expect(code).toContain("apiSecret: env({ secret: true, source: env.source('NUXT_API_SECRET') })")
     expect(report).not.toContain("which its $schema rejects")
+    expect(report).toContain("Env stops the app when a schema fails, so the codemod wrote no schema module.")
   })
 
   it("requires a variable whose empty default failed the schema at boot", async () => {
-    const run = await runCodemod("nuxt-safe-runtime-config", { cwd: join(fixtures, "valibot-schema-module/input"), dryRun: true })
+    const input = join(fixtures, "valibot-schema-module/input")
+    const run = await runCodemod("nuxt-safe-runtime-config", { cwd: input, dryRun: true })
     const code = run.result.edits.find(edit => edit.path === "nuxt.config.ts")?.after ?? ""
-    expect(code).toContain("apiSecret: env({ secret: true, source: env.source('NUXT_API_SECRET') })")
+    expect(code).toContain("apiSecret: env({ schema: env.schemaFrom('./server/env.schema.ts', 'apiSecret'), secret: true, source: env.source('NUXT_API_SECRET') })")
     expect(code).toContain("webhookSecret: env({ default: '', secret: true, source: env.source('NUXT_WEBHOOK_SECRET') })")
     const server = migratedServerEnv(code)
+    const registry = () => {
+      const created = createRuntimeEnvRegistry(server, { path: "env.server", prefix: false, schemaModules: true })
+      bindServerEnvSchemas(created, { "./server/env.schema.ts": valibotModuleSchema.entries })
+      return created
+    }
 
     vi.stubEnv("NUXT_API_SECRET", undefined)
     vi.stubEnv("VITEHUB_API_SECRET", undefined)
     vi.stubEnv("NUXT_WEBHOOK_SECRET", undefined)
     vi.stubEnv("VITEHUB_WEBHOOK_SECRET", undefined)
-    expect(() => resolveServerEnv(createRuntimeEnvRegistry(server, { prefix: false }))).toThrow(expect.objectContaining({ code: "ENV_REQUIRED_MISSING", message: expect.stringContaining("NUXT_API_SECRET") }))
+    vi.stubEnv("NUXT_ALLOWED_ORIGINS", undefined)
+    vi.stubEnv("VITEHUB_ALLOWED_ORIGINS", undefined)
+    vi.stubEnv("NUXT_PORT", undefined)
+    vi.stubEnv("VITEHUB_PORT", undefined)
+    expect(() => resolveServerEnv(registry())).toThrow(expect.objectContaining({ code: "ENV_REQUIRED_MISSING", message: expect.stringContaining("NUXT_API_SECRET") }))
 
     vi.stubEnv("NUXT_API_SECRET", "0123456789abcdef")
-    const resolved = resolveServerEnv(createRuntimeEnvRegistry(server, { prefix: false }))
+    const resolved = resolveServerEnv(registry())
     expect(resolved.apiSecret).toBeInstanceOf(SecretEnv)
     expect(resolved.webhookSecret instanceof SecretEnv ? resolved.webhookSecret.unseal() : resolved.webhookSecret).toBe("")
   })
@@ -239,6 +262,19 @@ describe("defaults that the field schema rejects", () => {
     const plan = await planned(schema, "group.region", "none")
     expect(plan.fields[0]).toMatchObject({ configPath: ["group", "region"], required: true })
     expect(plan.fields[0]).not.toHaveProperty("default")
+  })
+
+  it.each([
+    ["Valibot", v.object({ group: v.lazy(() => v.object({ region: v.pipe(v.string(), v.check(value => value !== "none")) })) }), [".entries", ".group", ".getter()", ".entries", ".region"]],
+    ["Zod", z.object({ group: z.lazy(() => z.object({ region: z.string().refine(value => value !== "none") })) }), [".shape", ".group", ".unwrap()", ".shape", ".region"]],
+  ])("exports a field within a lazy %s object", async (_label, schema, expected) => {
+    const access = fieldAccess(schema, ["group", "region"])
+    expect(access?.steps.map(step => step.kind === "call" ? `.${step.name}()` : `.${step.name}`)).toEqual(expected)
+    const exported = runSteps(schema, access?.steps ?? [])
+    if (!isStandardSchema(exported)) throw new Error("The steps did not return a schema")
+    expect(await exported["~standard"].validate("none")).toHaveProperty("issues")
+    expect(await exported["~standard"].validate("eu")).toMatchObject({ value: "eu" })
+    expect(await exported["~standard"].validate("eu")).not.toHaveProperty("issues")
   })
 
   it.each([

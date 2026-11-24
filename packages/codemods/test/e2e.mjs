@@ -16,6 +16,7 @@ const codemods = join(packageRoot, "dist/cli.js")
 const secret = "e2e-synthetic-secret-value"
 const variables = {
   NUXT_API_SECRET: secret,
+  NUXT_ALLOWED_ORIGINS: "https://a.example.com,https://b.example.com",
   NUXT_MAX_RETRIES: "7",
   NUXT_FEATURE_ENABLED: "true",
   NUXT_PUBLIC_API_BASE: "https://override.example.com",
@@ -38,10 +39,10 @@ function run(command, args, options) {
   return result.stdout
 }
 
-async function serve(directory, port) {
+async function serve(directory, port, overrides = {}) {
   const child = spawn(process.execPath, [join(directory, ".output/server/index.mjs")], {
     cwd: directory,
-    env: cleanEnvironment({ ...variables, PORT: String(port), HOST: "127.0.0.1" }),
+    env: cleanEnvironment({ ...variables, ...overrides, PORT: String(port), HOST: "127.0.0.1" }),
     stdio: ["ignore", "pipe", "pipe"],
   })
   let output = ""
@@ -67,6 +68,16 @@ async function serve(directory, port) {
   }
 }
 
+async function rejectsShortSecret(directory, port) {
+  try {
+    const result = await serve(directory, port, { NUXT_API_SECRET: "short" })
+    return result.status >= 500
+  }
+  catch (error) {
+    return String(error).includes("Server exited early")
+  }
+}
+
 async function outputText(directory) {
   const entries = await readdir(directory, { recursive: true, withFileTypes: true })
   const files = entries.filter(entry => entry.isFile()).map(entry => join(entry.parentPath, entry.name))
@@ -79,6 +90,7 @@ await rm(join(lab, ".output"), { recursive: true, force: true })
 console.log("1. Build and start the app with nuxt-safe-runtime-config.")
 run(process.execPath, [nuxt, "build"], { cwd: lab, env: cleanEnvironment({ NUXT_PUBLIC_API_BASE: variables.NUXT_PUBLIC_API_BASE }) })
 const before = await serve(lab, 4391)
+ok(await rejectsShortSecret(lab, 4393), "The original app rejects a secret shorter than its schema allows")
 
 console.log("2. Copy the app and run the codemod.")
 for (const entry of await readdir(lab)) {
@@ -87,13 +99,14 @@ for (const entry of await readdir(lab)) {
 }
 const report = run(process.execPath, [codemods, "nuxt-safe-runtime-config", migrated], { cwd: packageRoot })
 console.log(report)
-ok(report.includes("server/api/config.get.ts:7 useServerEnv().apiSecret is secret"), "The report lists the secret read")
+ok(report.includes("server/api/config.get.ts:8 useServerEnv().apiSecret is secret"), "The report lists the secret read")
+ok(report.includes("server/env.schema.ts (new)"), "The codemod writes the schema module")
 
 console.log("3. Type-check the migrated app. The secret read that the report lists fails until it is unsealed.")
 const unsealed = spawnSync(process.execPath, [nuxt, "typecheck"], { cwd: migrated, encoding: "utf8", env: cleanEnvironment() })
 const typeErrors = `${unsealed.stdout}${unsealed.stderr}`
 ok(unsealed.status !== 0, "The migrated app must not type-check before the secret follow-up")
-ok(typeErrors.includes("server/api/config.get.ts(10,36): error TS2339: Property 'length' does not exist on type 'SecretEnv<string>'."), typeErrors)
+ok(typeErrors.includes("server/api/config.get.ts(11,36): error TS2339: Property 'length' does not exist on type 'SecretEnv<string>'."), typeErrors)
 console.log(typeErrors.split("\n").filter(text => text.includes("error TS")).join("\n"))
 
 console.log("4. Apply the reported follow-up: unseal the secret where the route needs its length.")
@@ -106,13 +119,14 @@ run(process.execPath, [nuxt, "typecheck"], { cwd: migrated, env: cleanEnvironmen
 console.log("5. Build and start the migrated app with vite-hub/nuxt. Public Env is read during the build.")
 run(process.execPath, [nuxt, "build"], { cwd: migrated, env: cleanEnvironment({ NUXT_PUBLIC_API_BASE: variables.NUXT_PUBLIC_API_BASE }) })
 const after = await serve(migrated, 4392)
+ok(await rejectsShortSecret(migrated, 4394), "The migrated app rejects a secret shorter than its schema allows")
 
 console.log("before:", JSON.stringify(before.config))
 console.log("after: ", JSON.stringify(after.config))
 equal(before.status, 200)
 equal(after.status, 200)
 deepStrictEqual(after.config, before.config)
-deepStrictEqual(before.config, { apiBase: "https://override.example.com", featureEnabled: true, maxRetries: 7, secretLength: secret.length })
+deepStrictEqual(before.config, { allowedOrigins: ["https://a.example.com", "https://b.example.com"], apiBase: "https://override.example.com", featureEnabled: true, maxRetries: 7, secretLength: secret.length })
 ok(before.page.includes("API base: https://override.example.com"), "The original page renders the public value")
 ok(after.page.includes("API base: https://override.example.com"), "The migrated page renders the Public Env value")
 ok(!(await outputText(join(migrated, ".output"))).includes(secret), "The migrated build output does not contain the secret")
