@@ -47,7 +47,7 @@ function readAuthDatabaseImports(module: ScannedModule): Set<string> {
 
 /** The plugin factories whose tables `authDatabase()` adds, by the module that exports them. */
 const authSchemaPluginImports: Readonly<Record<string, Readonly<Record<string, AuthSchemaPlugin>>>> = {
-  "better-auth/plugins": { anonymous: "anonymous", lastLoginMethod: "lastLoginMethod", phoneNumber: "phoneNumber", twoFactor: "twoFactor", username: "username" },
+  "better-auth/plugins": { admin: "admin", anonymous: "anonymous", lastLoginMethod: "lastLoginMethod", phoneNumber: "phoneNumber", twoFactor: "twoFactor", username: "username" },
   "@better-auth/api-key": { apiKey: "apiKey" },
   "@better-auth/stripe": { stripe: "stripe" },
 }

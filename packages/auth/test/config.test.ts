@@ -680,11 +680,11 @@ describe("resolveAuthViteConfig", () => {
     const rootDir = await createTempProject()
     await writeAuthSource(rootDir, "server/auth.ts", [
       "import { apiKey } from '@better-auth/api-key'",
-      "import { twoFactor as secondFactor, username } from 'better-auth/plugins'",
+      "import { admin, twoFactor as secondFactor, username } from 'better-auth/plugins'",
       "import type { lastLoginMethod } from 'better-auth/plugins'",
       "import { defineAuth } from 'vite-hub/auth'",
       "import { authDatabase } from 'vite-hub/auth/database'",
-      "const plugins = [apiKey(), secondFactor()]",
+      "const plugins = [admin(), apiKey(), secondFactor()]",
       "export default defineAuth(() => ({",
       "  database: authDatabase(),",
       "  plugins,",
@@ -699,7 +699,7 @@ describe("resolveAuthViteConfig", () => {
     expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toEqual({
       database: "default",
       schema: {
-        plugins: ["apiKey", "twoFactor"],
+        plugins: ["admin", "apiKey", "twoFactor"],
         additionalFields: {
           user: { login: { type: "string" }, language: { type: "string", defaultValue: "en" }, credits: { type: "number", required: true } },
           session: { device: { type: "string", index: true } },
@@ -780,7 +780,7 @@ describe("resolveAuthViteConfig", () => {
   it("rejects a field that a table has with another type, and a renamed column", async () => {
     const rootDir = await createTempProject()
     for (const [fields, message] of [
-      ["{ role: { type: 'number' } }", /user.additionalFields declares user.role as number/],
+      ["{ email: { type: 'number' } }", /user.additionalFields declares user.email as number/],
       ["{ login: { type: 'string', fieldName: 'github_login' } }", /fieldName cannot rename the column/],
     ] as const) {
       await writeAuthSource(rootDir, "server/auth.ts", [

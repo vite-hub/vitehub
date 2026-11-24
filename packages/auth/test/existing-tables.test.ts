@@ -112,7 +112,7 @@ export const budget = sqliteTable("budget", {
 })
 `
 
-const options: AuthSchemaOptions = { additionalFields: { user: { language: { type: "string" } } } }
+const options: AuthSchemaOptions = { plugins: ["admin"], additionalFields: { user: { language: { type: "string" } } } }
 
 /** The schema of the app after the move: the Auth tables and the same `budget` table, with foreign keys to Auth's tables. */
 function authSchema(existing: unknown) {

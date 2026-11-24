@@ -33,7 +33,7 @@ function assertAuthDatabaseSchema(options: BetterAuthOptions, schema: Readonly<R
 
 /**
  * The Better Auth `database` adapter for the app Database `name` (default `"default"`). Pass it inline as the
- * `database` of `defineAuth()`. Auth then adds the Better Auth tables, with the fields of `admin()`, the
+ * `database` of `defineAuth()`. Auth then adds the Better Auth tables, the fields of `admin()` when the Definition calls it, the
  * Console MCP OAuth tables, the table of Better Auth's limiter, the `additionalFields` of the Definition, and the tables of
  * the plugins that it calls, such as `twoFactor()` and `apiKey()`, to that Database. The adapter uses the Database of each
  * request: SQLite, libSQL, Cloudflare D1, or Postgres.

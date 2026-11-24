@@ -100,34 +100,51 @@ describe("authDatabase()", () => {
   })
 
   it("runs Better Auth, admin(), and MCP OAuth on the contributed tables", async () => {
-    const definition = defineAuth({
-      database: authDatabase(),
-      emailAndPassword: { enabled: true },
-      plugins: [admin(), ...mcpOAuth({ resource, loginPage: "/oauth" })],
-    })
-    const auth = createAuthForRequest(definition, new Request(app))
-    const post = (path: string, body: unknown) => auth.handler(new Request(`${app}/api/auth${path}`, {
-      body: JSON.stringify(body),
-      headers: { "content-type": "application/json", origin: app },
-      method: "POST",
-    }))
+    const schema = createAuthSqliteSchema({ plugins: ["admin"] })
+    const adminClient = createClient({ url: `file:${join(directory, "admin.db")}` })
+    try {
+      for (const statement of await generateMigration(await generateDrizzleJson({}), await generateDrizzleJson({ ...schema }))) await adminClient.execute(statement)
+      state.databases.admin = { db: drizzle({ client: adminClient, relations: defineRelations(schema, (): Record<string, never> => ({})) }), schema: { ...schema } }
+      const definition = defineAuth({
+        database: authDatabase("admin"),
+        emailAndPassword: { enabled: true },
+        plugins: [admin(), ...mcpOAuth({ resource, loginPage: "/oauth" })],
+      })
+      const auth = createAuthForRequest(definition, new Request(app))
+      const post = (path: string, body: unknown) => auth.handler(new Request(`${app}/api/auth${path}`, {
+        body: JSON.stringify(body),
+        headers: { "content-type": "application/json", origin: app },
+        method: "POST",
+      }))
 
-    const signUp = await post("/sign-up/email", { email: "ada@example.com", name: "Ada", password: "correct-horse-battery" })
-    expect(signUp.status, await signUp.clone().text()).toBe(200)
-    const users = await client.execute("select email, role, email_verified from user")
-    expect(users.rows).toEqual([expect.objectContaining({ email: "ada@example.com", role: "user", email_verified: 0 })])
+      const signUp = await post("/sign-up/email", { email: "ada@example.com", name: "Ada", password: "correct-horse-battery" })
+      expect(signUp.status, await signUp.clone().text()).toBe(200)
+      const users = await adminClient.execute("select email, role, email_verified from user")
+      expect(users.rows).toEqual([expect.objectContaining({ email: "ada@example.com", role: "user", email_verified: 0 })])
 
-    const registration = await post("/oauth2/register", { client_name: "Claude Code", redirect_uris: ["http://localhost:53682/callback"], token_endpoint_auth_method: "none" })
-    expect(registration.status, await registration.clone().text()).toBe(201)
-    expect((await client.execute("select name from oauth_client")).rows).toEqual([expect.objectContaining({ name: "Claude Code" })])
-    const { client_id: clientId } = await registration.json() as { client_id: string }
-    const stored = await auth.handler(new Request(`${app}/api/auth/oauth2/public-client?client_id=${clientId}`, { headers: { cookie: signUp.headers.getSetCookie().map(value => value.split(";")[0]).join("; ") } }))
-    expect(stored.status, await stored.clone().text()).toBe(200)
-    expect(await stored.json()).toMatchObject({ client_id: clientId, client_name: "Claude Code" })
+      const registration = await post("/oauth2/register", { client_name: "Claude Code", redirect_uris: ["http://localhost:53682/callback"], token_endpoint_auth_method: "none" })
+      expect(registration.status, await registration.clone().text()).toBe(201)
+      expect((await adminClient.execute("select name from oauth_client")).rows).toEqual([expect.objectContaining({ name: "Claude Code" })])
+      const { client_id: clientId } = await registration.json() as { client_id: string }
+      const stored = await auth.handler(new Request(`${app}/api/auth/oauth2/public-client?client_id=${clientId}`, { headers: { cookie: signUp.headers.getSetCookie().map(value => value.split(";")[0]).join("; ") } }))
+      expect(stored.status, await stored.clone().text()).toBe(200)
+      expect(await stored.json()).toMatchObject({ client_id: clientId, client_name: "Claude Code" })
 
-    const keys = await auth.handler(new Request(`${app}/api/auth/jwks`))
-    expect(keys.status).toBe(200)
-    expect((await client.execute("select count(*) as count from jwks")).rows[0]?.count).toBe(1)
+      const keys = await auth.handler(new Request(`${app}/api/auth/jwks`))
+      expect(keys.status).toBe(200)
+      expect((await adminClient.execute("select count(*) as count from jwks")).rows[0]?.count).toBe(1)
+    }
+    finally {
+      delete state.databases.admin
+      adminClient.close()
+    }
+  })
+
+  it("adds no user.role and no admin() column for an Auth Definition without admin()", async () => {
+    const columns = async (table: string) => (await client.execute(`select name from pragma_table_info('${table}')`)).rows.map(row => String(row.name))
+    const adminColumns = ["role", "banned", "ban_reason", "ban_expires", "impersonated_by"]
+    expect([...await columns("user"), ...await columns("session")].filter(name => adminColumns.includes(name))).toEqual([])
+    expect(() => authDatabase()({ plugins: [admin()] })).toThrow(/`user` table of the "default" Database has no `role` column/)
   })
 
   it("keeps the limiter counters of every Auth instance in the rate_limit table", async () => {
