@@ -48,7 +48,7 @@ The migration copies the value shape of the schema, not its parser. The report a
 
 ## resend
 
-The codemod moves `emails.send()` calls to ViteHub [Email](/docs/email). It rewrites the calls on `useResend()` clients of `nuxt-resend`, and on `new Resend()` clients in server code, to `email.send()` from `vite-hub/email/server`:
+The codemod moves `emails.send()` calls to ViteHub [Email](/docs/email). It rewrites the calls on `useResend()` clients of `nuxt-resend`, and on `new Resend()` clients in server code, to `email.send()` from `vite-hub/email`:
 
 - `reply_to` becomes `replyTo`.
 - `const { data, error } = await ...send()` becomes `const [error, data] = await email.send()`.

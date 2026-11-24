@@ -95,7 +95,7 @@ describe("KV Vite output", () => {
           return Response.json({ result: "OK" })
         }
         assert.equal(command, "get")
-        return Response.json({ result: Buffer.from(data.get(key)).toString("base64") })
+        return Response.json({ result: data.get(key) })
       }
       const driver = createDriver({ driver: "upstash", base: "vitehub:kv:default", url: "https://example.com", token: "test", enableAutoPipelining: false })
       await driver.setItem("proof", "bundled")

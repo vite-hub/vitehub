@@ -12,7 +12,7 @@ A codemod is a program that edits your source files for you. `@vite-hub/codemods
 npx @vite-hub/codemods --dry-run
 ```
 
-The command finds every module in the app that a codemod supports and runs those codemods, one after another. `--dry-run` prints the edits as diffs and writes nothing. The package requires Node.js 24.15 or newer.
+The command finds every module in the app that a codemod supports and runs those codemods, one after another. `--dry-run` prints the edits as diffs and writes nothing. The package requires Node.js 22.12 or newer. The migrated app needs Node.js 24.15 or newer for `vite-hub`.
 
 ## Move from a Nuxt module
 

@@ -60,22 +60,20 @@ export const consoleSchema = { consoleProjects, consoleApiKeys, deviceCode: cons
 /** A Drizzle SQLite Database: libSQL, D1, or the Database of a ViteHub app. */
 export type ConsoleDatabase = SQLiteAsyncDatabase<"async", unknown, AnyRelations>
 
-/** A linked project as the Console page sees it. It never holds the private key. */
-export interface ConsoleProject {
+interface ConsoleProjectDetails {
   id: string
   teamId: string
   url: string
   label: string | null
-  /** The Ed25519 public key of the link, base64url. The project keeps it in the variable `keyVariable`. */
-  publicKey: string
-  /**
-   * The variable of the project that holds `publicKey`, such as `VITEHUB_CONSOLE_KEY_CONSOLE_3F9A12BC`. Each linked
-   * project has its own, so two teams can link one app, and unlinking one leaves the other.
-   */
-  keyVariable: string
   createdBy: string
   createdAt: number
 }
+
+/** A project as the Console sees it. A site registered for Hosted Comments has no signing key. */
+export type ConsoleProject = ConsoleProjectDetails & ({ publicKey: string, keyVariable: string } | { publicKey: null, keyVariable: null })
+
+export type LinkedConsoleProject = ConsoleProjectDetails & { publicKey: string, keyVariable: string }
+type ProjectInput = Pick<ConsoleProjectDetails, "url" | "createdBy"> & { label?: string }
 
 /** The key name of a project: `CONSOLE_` and the first 8 hex digits of its id. The app reads `VITEHUB_CONSOLE_KEY_<name>`. */
 export function projectKeyName(id: string): string {
@@ -83,7 +81,15 @@ export function projectKeyName(id: string): string {
 }
 
 function toProject(row: typeof consoleProjects.$inferSelect): ConsoleProject {
-  return { id: row.id, teamId: row.teamId, url: row.url, label: row.label, publicKey: row.publicKey, keyVariable: `VITEHUB_CONSOLE_KEY_${projectKeyName(row.id)}`, createdBy: row.createdBy, createdAt: row.createdAt }
+  return row.publicKey ? linkedProject(row) : { ...projectDetails(row), publicKey: null, keyVariable: null }
+}
+
+function linkedProject(row: typeof consoleProjects.$inferSelect): LinkedConsoleProject {
+  return { ...projectDetails(row), publicKey: row.publicKey, keyVariable: `VITEHUB_CONSOLE_KEY_${projectKeyName(row.id)}` }
+}
+
+function projectDetails({ id, teamId, url, label, createdBy, createdAt }: typeof consoleProjects.$inferSelect): ConsoleProjectDetails {
+  return { id, teamId, url, label, createdBy, createdAt }
 }
 
 /** The linked projects of a team, the oldest first. Listing needs no secret: it never opens a private key. */
@@ -104,11 +110,12 @@ export interface ConsoleProjectStore {
   list(): Promise<ConsoleProject[]>
   get(id: string): Promise<ConsoleProject | undefined>
   /** Link a project with a new key pair. Returns `undefined` when the team already linked the URL. */
-  create(input: { url: string, label?: string, createdBy: string }): Promise<ConsoleProject | undefined>
+  create(input: ProjectInput): Promise<LinkedConsoleProject | undefined>
+  registerSite(input: ProjectInput): Promise<ConsoleProject | undefined>
   /** Change the label of a project. An empty label removes it. Returns `undefined` when the team has no such project. */
   rename(id: string, label: string | null): Promise<ConsoleProject | undefined>
   /** The project and its signing key, or `undefined` when there is no such project or the secret cannot open its key. */
-  target(id: string): Promise<{ project: ConsoleProject, key: ConsoleSigningKey } | undefined>
+  target(id: string): Promise<{ project: LinkedConsoleProject, key: ConsoleSigningKey } | undefined>
   remove(id: string): Promise<boolean>
 }
 
@@ -123,6 +130,7 @@ export function scopeConsoleProjectStore(store: ConsoleProjectStore, projectIds:
     list: async () => (await store.list()).filter(project => allowed.has(project.id)),
     get: async id => allowed.has(id) ? store.get(id) : undefined,
     create: async () => undefined,
+    registerSite: async () => undefined,
     rename: async (id, label) => allowed.has(id) ? store.rename(id, label) : undefined,
     target: async id => allowed.has(id) ? store.target(id) : undefined,
     remove: async id => allowed.has(id) && store.remove(id),
@@ -133,29 +141,30 @@ export function createConsoleProjectStore(database: ConsoleDatabase | (() => Con
   const db = typeof database === "function" ? database : () => database
   const inTeam = eq(consoleProjects.teamId, teamId)
   const row = async (id: string) => (await db().select().from(consoleProjects).where(and(inTeam, eq(consoleProjects.id, id))).limit(1))[0]
+  const details = ({ createdBy, label, url }: ProjectInput): ConsoleProjectDetails => ({
+    id: crypto.randomUUID(), teamId, url, label: label?.trim() || null, createdBy, createdAt: Date.now(),
+  })
+  const insert = async (values: typeof consoleProjects.$inferInsert) =>
+    (await db().insert(consoleProjects).values(values).onConflictDoNothing({ target: [consoleProjects.teamId, consoleProjects.url] }).returning())[0]
   return {
     list: () => listConsoleProjects(db(), teamId),
     async get(id) {
       const found = await row(id)
       return found ? toProject(found) : undefined
     },
-    async create({ url, label, createdBy }) {
-      const [existing] = await db().select({ id: consoleProjects.id }).from(consoleProjects).where(and(inTeam, eq(consoleProjects.url, url))).limit(1)
-      if (existing) return undefined
-      const id = crypto.randomUUID()
+    async create(input) {
+      const project = details(input)
       const pair = await createConsoleKeyPair()
-      const values = {
-        id,
-        teamId,
-        url,
-        label: label?.trim() || null,
-        keySealed: await sealProjectKey(secret, id, pair.privateKey),
+      const created = await insert({
+        ...project,
+        keySealed: await sealProjectKey(secret, project.id, pair.privateKey),
         publicKey: pair.publicKey,
-        createdBy,
-        createdAt: Date.now(),
-      }
-      await db().insert(consoleProjects).values(values)
-      return toProject(values)
+      })
+      return created ? linkedProject(created) : undefined
+    },
+    async registerSite(input) {
+      const created = await insert({ ...details(input), keySealed: "", publicKey: "" })
+      return created ? toProject(created) : undefined
     },
     async rename(id, label) {
       const [renamed] = await db().update(consoleProjects).set({ label: label?.trim() || null }).where(and(inTeam, eq(consoleProjects.id, id))).returning()
@@ -163,9 +172,9 @@ export function createConsoleProjectStore(database: ConsoleDatabase | (() => Con
     },
     async target(id) {
       const found = await row(id)
-      if (!found) return undefined
+      if (!found?.publicKey) return undefined
       const privateKey = await openProjectKey(secret, found.id, found.keySealed)
-      return privateKey ? { project: toProject(found), key: { name: projectKeyName(found.id), privateKey } } : undefined
+      return privateKey ? { project: linkedProject(found), key: { name: projectKeyName(found.id), privateKey } } : undefined
     },
     async remove(id) {
       const removed = await db().delete(consoleProjects).where(and(inTeam, eq(consoleProjects.id, id))).returning({ id: consoleProjects.id })

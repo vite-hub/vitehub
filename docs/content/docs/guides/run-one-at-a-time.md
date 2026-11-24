@@ -50,7 +50,7 @@ export default defineEventHandler(async () => {
 })
 ```
 
-- `ttl` is required, in seconds. Pick a value longer than the work. A lock does not renew, so when the work runs longer than `ttl`, another runner can take the key while the first one still runs.
+- `ttl` is required: a duration such as `'1m'`, or a number of seconds. Pick a value longer than the work. A lock does not renew, so when the work runs longer than `ttl`, another runner can take the key while the first one still runs.
 - `wait` is optional, in seconds. Without it, a held lock returns `{ acquired: false }` at once. With it, `run()` tries again until the lock is free or `wait` ends.
 - The `redis`, `upstash`, and `database` KV drivers support locks. Cloudflare KV, Deno KV, and `fs-lite` return `KV_UNSUPPORTED_OPERATION` and do not call your function. On Cloudflare, give the KV store the `upstash` driver (see [KV configuration](/docs/kv/configure)), or use a lease.
 
@@ -98,7 +98,7 @@ export default defineEventHandler(async () => {
 - `acquire()` returns `[error, lease]`. `lease` is `null` when another runner holds the key. Leases are not reentrant: the same `owner` also gets `null`.
 - `renew({ ttl? })` moves the end of the lease and returns `[error, renewed]`. `renewed` is `false` when the lease expired and another runner took it. Then stop the work, as the `AbortController` above does. Work that already ran stays done.
 - `get(key)` returns `[error, lease]` with the live lease, its `owner` and `expiresAt`, or `null`. Use it to show who runs a job.
-- `owner` is a label for inspection, such as the server name. `acquire()` does not compare it.
+- `owner` is a label for inspection, such as the server name. The default is `VITEHUB_INSTANCE_ID`, or `<hostname>:<pid>:<random>` when it is not set. `acquire()` does not compare it.
 - Expiry uses the clock of the Database, not the clocks of the servers.
 - `useLeases({ database: 'jobs' })` keeps the leases in another Database of the app.
 

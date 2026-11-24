@@ -132,10 +132,10 @@ Start the dev server with `pnpm dev` and open the page. Click **Project name** a
 ::tutorial-step{title="Let an Agent work the page"}
 ## Let an Agent work the page
 
-Install the Agent and Realtime packages, plus `ai` for the model:
+Install the Agent, Channels, and Realtime packages, plus `ai` for the model:
 
 ```bash [commands/install-agent]
-pnpm add @vite-hub/agent @vite-hub/realtime ai
+pnpm add @vite-hub/agent @vite-hub/channels @vite-hub/realtime ai
 ```
 
 Turn them on in `nuxt.config.ts` or `vite.config.ts`. This Node setup keeps rooms in memory in one process:

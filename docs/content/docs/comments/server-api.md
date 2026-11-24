@@ -24,7 +24,7 @@ icon: i-lucide-code-2
 
 ## `comments()` options
 
-`comments()` turns Comments on in a Vite app without `vite-hub`. It uses `server/comments.ts` if present. It adds [Nitro](https://nitro.build) unless the app adds `nitro()`. With `vitehub()`, it does nothing, because `vitehub()` runs Comments.
+`comments()` turns Comments on in a Vite app without `vite-hub`. It uses `server/comments.ts` if present. It adds [Nitro](https://nitro.build) unless the app adds `nitro()`. Do not add it next to `vitehub()`: the build throws `COMMENTS_B0003`, because `vitehub()` runs Comments.
 
 | Option | Default | Behavior |
 | --- | --- | --- |
@@ -34,7 +34,7 @@ icon: i-lucide-code-2
 
 | Option | Default | Behavior |
 | --- | --- | --- |
-| `authorize({ user, actor?, action, thread?, subject?, console?, development? })` | GitHub users who can push to the repository, and users of other sign-ins, may do everything. Guests only on the dev server. | Return `true` to allow. `action` is `read`, `write`, `resolve`, or `delete`. `development` is `true` on the dev server, and `console` is `true` for Console callers. See [Decide who can comment](/docs/comments/configure#decide-who-can-comment). |
+| `authorize({ user, actor?, action, thread?, subject?, console?, development? })` | See the [default access policy](/docs/comments/configure#decide-who-can-comment). | Return `true` to allow. `action` is `read`, `write`, `resolve`, or `delete`. `development` is `true` on the dev server, and `console` is `true` for Console callers. |
 | `identify({ event })` | On pages, the ViteHub Auth session, else [Sign in with GitHub](/docs/comments/configure#sign-in-with-github). Through the Console, the CLI, and MCP, the Console caller. | Return the request's user, with a string `id`, or `null`. `identify` and `authorize` then decide on every surface, instead of Console access. See [Use your own login](/docs/comments/configure#use-your-own-login). |
 | `database` | `default`, else the only Database | In a ViteHub app, the Database name as a string literal. Any other value fails the build with `COMMENTS_B0004`. `comments()` takes its own [`database`](#comments-options). See [Choose the Database](/docs/comments/configure#choose-the-database). |
 | `subjects` | `page` and `content` | More subject kinds, from `defineCommentSubject({ kind, scope, emptyBody?, link? })`. |
@@ -43,6 +43,10 @@ icon: i-lucide-code-2
 | `onMention({ users, message, thread, link? })` | None | Runs once per message that mentions people for the first time. See [Notify mentioned people](/docs/comments/configure#notify-mentioned-people). |
 | `onComment({ thread, message, mentions })` | None | Runs after a new thread or reply saves, before the response. Errors are logged, not returned. |
 | `storeAttachment(file, { user, subject? })` | The app's Blob store | Stores an uploaded file and returns its key. See [Attach files](/docs/comments/configure#attach-files). |
+| `readAttachment(key, { user, thread })` | Reads Comments uploads from the app's Blob store only when `storeAttachment` is unset. With a custom `storeAttachment`, a missing `readAttachment` returns `501` (`COMMENTS_R0021`). | Returns a `Blob` with its media type, or `null` when gone, after Comments checks that `user` may read `thread`. See [Attach files](/docs/comments/configure#attach-files). |
+| `rateLimit` | None | `{ limit, window }`, such as `{ limit: 5, window: '1m' }`. Limits writes and uploads per guest address; returns `COMMENTS_GUEST_RATE_LIMITED` (`429`). |
+| `page({ url, event })` | `{ kind: 'page', id: url.pathname }` | Maps a page URL to the subject and optional `revision` that the overlay comments on. |
+| `send` | None | `true` or `{ payload?, address?, grant?, hosts?, prompt? }`. Turns on **Send** in the comment pill to hand waiting threads to a member's agent. Requires a ViteHub app with Webhooks and a SQLite-compatible Comments Database. See [Send comments to your agent](/docs/comments/send). |
 | `forge` | None | `{ provider: 'github', repository?, pullRequest?(thread), token?(author), title?, apiUrl? }`. Posts threads to the preview's pull request. See [Post comments to the pull request](/docs/comments/configure#post-comments-to-the-pull-request). |
 
 ## Runtime methods
@@ -94,12 +98,16 @@ A route of your own can do work for a comment before it calls `create` or `reply
 For example, a route can return the saved reply before doing any additional work:
 
 ```ts [server/api/feedback/[id]/replies.post.ts] fragment
-import { defineEventHandler, getRouterParam, readBody } from 'h3'
+import { defineEventHandler, getRouterParam, HTTPError, readBody } from 'h3'
 import { comments } from '../../../comments'
 
 export default defineEventHandler(async (event) => {
   const threadId = getRouterParam(event, 'id')!
-  const { body, requestId } = await readBody<{ body: string, requestId: string }>(event)
+  const payload = await readBody<{ body?: string, requestId?: string }>(event)
+  if (typeof payload?.body !== 'string' || typeof payload.requestId !== 'string' || !payload.requestId) {
+    throw new HTTPError({ status: 400, message: 'Body and requestId are required.' })
+  }
+  const { body, requestId } = payload
   const [findError, earlier] = await comments.findReply(threadId, requestId)
   if (findError) throw findError
   if (earlier) return earlier

@@ -459,7 +459,7 @@ Unavailable
 
   it("rejects unsafe URLs in authored HTML tags", async () => {
     await expect(renderMarkdownTemplate("[status](<http://[::1]/>)"))
-      .resolves.toBe("[status](http://%5B::1%5D/)")
+      .resolves.toBe("[status](http://[::1]/)")
     await expect(renderMarkdownTemplate('<a href="https://example.com/a b">Open</a>'))
       .resolves.toContain("https://example.com/a%20b")
     await expect(renderMarkdownTemplate('<a href="https://example.com/?a=1&amp;b=2">Open</a>'))
@@ -805,6 +805,11 @@ Unavailable
     await expect(renderMarkdownTemplate(":insert")).rejects.toThrow('Use :insert{:markdown="data.summary"}')
   })
 
+  it.each(["\n", "\r\n", "\r"])("rejects an unclosed if block with %j line endings", async (ending) => {
+    const template = ['::if{:condition="data.enabled"}', "Yes"].join(ending)
+    await expect(renderMarkdownTemplate(template)).rejects.toMatchObject({ code: "MARKDOWN_TEMPLATE_R0029" })
+  })
+
   it("rejects unsafe expressions and malformed branch chains", async () => {
     await expect(renderMarkdownTemplate("::if{:value=\"data.name\" eq=\"call()\"}\nYes\n::", {
       data: { name: "call()" },
@@ -815,8 +820,6 @@ Unavailable
       data: { private: { enabled: true } },
       validateConditionPath: path => path.startsWith("public."),
     })).rejects.toThrow("Unsafe Markdown template condition")
-    await expect(renderMarkdownTemplate("::if{:condition=\"data.enabled\"}\nYes"))
-      .rejects.toThrow("missing a closing")
     await expect(renderMarkdownTemplate("::if{:condition=\"data.enabled\"}\nYes\n::else{condition=\"admin\"}\nNo\n::\n::"))
       .rejects.toThrow("else block does not accept a condition")
     await expect(renderMarkdownTemplate("::if{:condition=\"data.enabled\"}\nYes\n::else\nNo\n::else-if{:condition=\"data.admin\"}\nAdmin\n::\n::\n::"))

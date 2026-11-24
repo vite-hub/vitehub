@@ -11,7 +11,7 @@ navigation.kind: Guides
 A process host runs background Agent work, such as a pull-request Agent, inside one long-lived Node process. It gives a process capacity limit, an Invocation journal (a record of each run), recovery for work a stopped process left behind, provider session storage, and a graceful drain that finishes running work before the process stops. For work that must continue on another host or across a durable wait, use a [Workflow](/docs/workflows).
 
 ::warning
-The host works inside one process only. Its `dataDir` must belong to one running process host. It is not a distributed lease or a coordination service for more than one replica.
+`createProcessAgentHost()` works inside one process only. Its `dataDir` must belong to one running process host. To run a host on one server of many, use a [preset process host with a Database](#run-one-host-across-servers).
 ::
 
 ## Create a host
@@ -182,6 +182,20 @@ ViteHub handles stop signals only where the Nitro server does: the `node`, `node
 - `agent: { shutdown: false }` skips draining inline Chat Invocations.
 - `process.__vitehubShutdown` shows the registered drains, the signal, and each drain's result.
 - Logs have `shutdown.draining`, `shutdown.drained`, and `shutdown.exited` events.
+
+## Run one host across servers
+
+A discovered Agent with a process host, such as the [Babysitter](/docs/presets/babysitter), gets a generated host on the Node server preset. With a ViteHub Database named `default`, only one server at a time runs the host of each Agent. That server holds the Lease `agent-process-host:<agent>` in the [Leases](/docs/guides/run-one-at-a-time) table. The other servers wait.
+
+- Each server checks the Lease every 5 seconds. The holder renews it, and it lasts 25 seconds. During graceful shutdown the holder forwards new deliveries and renews the Lease until its host drains. If the holder crashes, another server starts the host within about 30 seconds.
+- The holder stops its host when it cannot renew the Lease before the Lease ends. It counts this time on its own monotonic clock, and the Lease ends on the Database clock, so the server clocks do not need to agree.
+- The new holder fails the inline Invocations that the old holder left running, as a restarted host does. It does not run them again. An inline Invocation runs at most once.
+- A server that waits keeps each webhook delivery for the host in Agent State and answers `202`. The holder hands the deliveries to its host at its next Lease check. Use shared Agent State, such as remote libSQL, so that the holder can read them.
+- `VITEHUB_INSTANCE_ID` names the server in the Lease. `GET /_vitehub/host/health` reports `role: "holder"` or `role: "standby"` with the `holder` for each Agent.
+
+Without a Database, every server runs its own host, and the server logs a warning. The `agent-process-host` line of the boot Durability report shows which mode the server uses.
+
+When a network partition separates the holder from the Database, it stops its host when the Lease ends, but a pass that runs then drains first. The new holder can start while that pass finishes.
 
 ## Report readiness after warm-up
 

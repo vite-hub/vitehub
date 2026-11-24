@@ -69,7 +69,7 @@ it.each(["build", "serve"] as const)("puts discovered Agent Workflows in the Nod
   await (hook.handler as unknown as ConfigHook)({ plugins, root: projectRoot }, { command, mode: command === "build" ? "production" : "development" })
   await (plugin.configResolved as (config: unknown) => Promise<void>)({ plugins, root: projectRoot })
 
-  const registryFile = join(projectRoot, workflowDevGeneratedDir, "dev-registry.mjs")
+  const registryFile = join(projectRoot, workflowDevGeneratedDir, command === "build" ? "build-registry.mjs" : "dev-registry.mjs")
   const { default: registry } = await import(/* @vite-ignore */ `${pathToFileURL(registryFile).href}?t=${command}`) as { default: WorkflowDefinitionRegistry }
   expect(await readFile(registryFile, "utf8")).toContain("// Agent runtime setup installed")
   expect(Object.keys(registry).sort(), await readFile(registryFile, "utf8")).toEqual(["helper", "vitehub-agent-invocation-recovery-helper"])

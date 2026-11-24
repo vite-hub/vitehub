@@ -1,6 +1,6 @@
 import { addTemplate, defineNuxtModule } from "nuxt/kit";
-import { capabilityReferences } from "./capability-references";
-import { createDocsRedirectRouteRules } from "./redirects";
+import { capabilityReferences } from "./capability-references.ts";
+import { createDocsRedirectRouteRules } from "./redirects.ts";
 
 // ViteHub's own docs pieces on top of @vite-hub/docs: redirects of moved pages and the Agent Capability tool contracts.
 export default defineNuxtModule({

@@ -1,3 +1,4 @@
+import { getInstanceId } from "./instance.ts"
 import { defineErrors } from "./result.ts"
 
 import type { Result } from "./result.ts"
@@ -49,7 +50,7 @@ export interface Lease extends LeaseRecord {
 export interface LeaseAcquireOptions {
   /** Seconds until the lease ends when the holder does not renew or release it. Fractions are allowed. */
   ttl: number
-  /** A label for the holder, such as an instance name. Acquire does not compare it. */
+  /** A label for the holder. The default is `getInstanceId()`. Acquire does not compare it. */
   owner?: string
 }
 
@@ -113,7 +114,7 @@ function createLeaseStore(backend: LeaseBackend): LeaseStore {
       const ttlMs = toTtlMs(options?.ttl)
       if (ttlMs === undefined) return [leaseErrorDiagnostics.RUNTIME_LEASE_INVALID_TTL(), undefined]
       const id = crypto.randomUUID()
-      const owner = options.owner
+      const owner = options.owner ?? getInstanceId()
       return attempt("acquire", key, async () => {
         const expiresAt = await backend.acquire(key, id, owner, ttlMs)
         if (expiresAt === undefined) return null

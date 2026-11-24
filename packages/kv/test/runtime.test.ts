@@ -868,10 +868,10 @@ describe("kv runtime", () => {
   })
 
   it("bounds selective Deno KV pages and resumes from the provider cursor", async () => {
-    const list = vi.fn((_selector: { prefix: [] }, options: { cursor?: string; limit?: number } = {}) => {
+    const list = vi.fn((_selector: unknown, options: { cursor?: string; limit?: number } = {}) => {
       const iterator = (async function* () {
         if (!options.cursor) {
-          yield { key: ["other"], value: null }
+          yield { key: ["match-0", "part"], value: null }
         }
         else {
           for (const key of ["match-1", "match-2", "match-3"].slice(0, options.limit)) {
@@ -899,7 +899,7 @@ describe("kv runtime", () => {
       keys: ["match-1", "match-2"],
       cursor: expect.any(String),
     })
-    expect(list).toHaveBeenNthCalledWith(1, { prefix: [] }, { cursor: undefined, limit: 2 })
+    expect(list).toHaveBeenNthCalledWith(1, { prefix: [], start: ["match"] }, { cursor: undefined, limit: 2 })
     expect(list).toHaveBeenNthCalledWith(2, { prefix: [] }, { cursor: "deno-next", limit: 2 })
     expect(list).toHaveBeenCalledTimes(2)
   })
@@ -992,25 +992,29 @@ describe("kv runtime", () => {
     expect(list).toHaveBeenNthCalledWith(3, { prefix: [] }, { cursor: "second", limit: 1 })
   })
 
-  it("fails closed at the Deno cursor history limit without discarding earlier cursors", async () => {
-    let page = 0
+  it("pages a Deno listing past 1,024 pages and still rejects a recent repeated cursor", async () => {
     let returnedCursor: string | undefined
+    let page = 0
     const list = vi.fn(() => {
-      const iterator = (async function* () {})()
-      return Object.assign(iterator, { cursor: returnedCursor ?? String(++page) })
+      const iterator = (async function* () { yield { key: [`key-${page}`], value: null } })()
+      return Object.assign(iterator, { cursor: returnedCursor ?? (page < 1_100 ? String(++page) : "") })
     })
     ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = {
       openKv: async () => ({ delete: vi.fn(), get: vi.fn(), list, set: vi.fn() }),
     }
     const { default: createDenoKVDriver } = await import("../src/runtime/deno-kv.ts")
     const driver = createDenoKVDriver()
+    let pages = 0
     let cursor: string | undefined
-    for (let index = 0; index < 1_024; index++) {
+    do {
       cursor = (await driver.listKeys({ cursor, limit: 1 })).cursor
-    }
+      pages++
+    } while (cursor)
+    expect(pages).toBe(1_101)
 
-    await expect(driver.listKeys({ cursor, limit: 1 })).rejects.toThrow("cursor history limit")
+    page = 0
+    const first = await driver.listKeys({ limit: 1 })
     returnedCursor = "1"
-    await expect(driver.listKeys({ cursor, limit: 1 })).rejects.toThrow("repeated pagination cursor")
+    await expect(driver.listKeys({ cursor: first.cursor, limit: 1 })).rejects.toThrow("repeated pagination cursor")
   })
 })

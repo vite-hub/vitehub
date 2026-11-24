@@ -19,10 +19,10 @@
   <a href="https://vitehub.dev/docs">Docs</a>
 </p>
 
-[![npm version](https://img.shields.io/npm/v/vite-hub)](https://npmx.dev/package/vite-hub)
-[![npm downloads](https://img.shields.io/npm/dm/vite-hub)](https://npmx.dev/package/vite-hub)
-[![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
-[![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs)
+[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=vite-hub)](https://npmx.dev/package/vite-hub)
+[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=vite-hub&period=month)](https://npmx.dev/package/vite-hub)
+[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
 
 ## Server Primitives
 

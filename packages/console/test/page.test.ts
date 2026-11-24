@@ -1,7 +1,7 @@
 import { scriptNonce } from "@vite-hub/internal/runtime/page-tools"
 import { describe, expect, it } from "vitest"
 
-import { consoleAccountPath, consolePageBoot, consolePagePolicy, renderConsolePage } from "../src/page.ts"
+import { consoleAccountPath, consolePageBoot, consolePagePolicy, consolePageServes, renderConsolePage } from "../src/page.ts"
 
 const session = "__Secure-better-auth.session_token=abc"
 const visit = (path: string, cookie?: string) => new Request(`https://console.example.com${path}`, cookie ? { headers: { cookie } } : {})
@@ -48,6 +48,13 @@ describe("renderConsolePage", () => {
     }
     expect(renderConsolePage(page, visit("/"))).not.toContain('rel="preload"')
     expect(renderConsolePage(page, visit("/invite/abc", session))).not.toContain('rel="preload"')
+  })
+})
+
+describe("consolePageServes", () => {
+  it("serves the page on the Skills screen, and leaves routes and skill files to their own 404", () => {
+    for (const path of ["/", "/skills", "/skills/", "/team", "/skillset", "/pages"]) expect(consolePageServes(path), path).toBe(true)
+    for (const path of ["/api", "/api/account", "/p/abc", "/assets/x.js", "/mcp", "/page", "/.well-known/skills/index.json", "/skills/latest/index.json", "/skills/0.5.0/.well-known/skills/index.json"]) expect(consolePageServes(path), path).toBe(false)
   })
 })
 
