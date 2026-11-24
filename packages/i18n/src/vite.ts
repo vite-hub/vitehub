@@ -280,7 +280,7 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
       filter: { id: { include: [sourceRe], exclude: [nodeModulesRe, otherFormQueryRe] } },
       async handler(code, id, options) {
         if (!lingui || nodeModulesRe.test(id) || otherFormQueryRe.test(id) || !sourceRe.test(id)) return
-        if (!this.environment) return options?.ssr ? transformMacros(code, id, lingui, importBase, "all") : undefined
+        if (!this.environment) return options?.ssr ? transformMacros(code, id, lingui, importBase, "all", { macroImportsOnly: true }) : undefined
         const server = this.environment.config.consumer === "server"
         if (isBuild) {
           const file = id.split("?")[0]!
