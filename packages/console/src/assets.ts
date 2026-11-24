@@ -4,6 +4,11 @@ export interface ConsoleAssets {
   page: Record<string, { hash: string, source: string }>
   /** The skills below `.well-known/skills`, by path, such as `index.json` and `vitehub/SKILL.md`. */
   skills: Record<string, string>
+  /**
+   * The hosted Comments embed of `@vite-hub/comments`, by path: `hosted-comments.js`, the script that a static site
+   * loads, and `hosted-comments/<file>`, the Console frame script and the chunks.
+   */
+  hostedComments: Record<string, string>
   /** The version of `vite-hub` that the files come from. */
   version: string
 }
@@ -92,4 +97,20 @@ export function serveConsolePageAsset(request: Request, assets: ConsoleAssets): 
     },
     status: 307,
   })
+}
+
+/** The paths of the hosted Comments embed whose name stays the same across versions, so they are cached for a short time. */
+export const hostedCommentsStablePaths = ["hosted-comments.js", "hosted-comments/frame.js"]
+
+/**
+ * Serve the hosted Comments embed: `/hosted-comments.js` and `/hosted-comments/<file>`. Any site may load them as
+ * module scripts. The two stable names are cached for a short time, and the hashed chunks for a year.
+ */
+export function serveHostedComments(request: Request, assets: ConsoleAssets): Response {
+  const refused = readOnly(request)
+  if (refused) return refused
+  const path = new URL(request.url).pathname.slice(1)
+  const source = Object.hasOwn(assets.hostedComments, path) ? assets.hostedComments[path] : undefined
+  if (source === undefined) return notFound("The Console has no such hosted Comments file.")
+  return new Response(body(request, source), { headers: { ...scriptHeaders, "cache-control": hostedCommentsStablePaths.includes(path) ? shortCache : immutable } })
 }

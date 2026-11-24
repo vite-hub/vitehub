@@ -3,7 +3,7 @@ import { computed, defineAsyncComponent, inject, onMounted, ref } from "vue";
 
 import type { DropdownMenuItem } from "@nuxt/ui";
 import { consoleAccountViewsKey } from "../client/account-views";
-import { canManageConsoleProjects, forgetConsoleProject, openConsoleProject, switchConsoleProject, useConsoleProjects } from "../client/project-session";
+import { canManageConsoleProjects, openConsoleProject, switchConsoleProject, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost, consoleProjectName } from "../client/projects";
 import ConsoleCodeText from "./console-code-text.vue";
 import ConsoleMark from "./console-mark.vue";
@@ -13,6 +13,7 @@ import Icon from "./console-icon.vue";
 // paint before it mounts.
 const views = inject(consoleAccountViewsKey, {});
 const ConsoleAccountLink = defineAsyncComponent(() => import("./console-account-link.vue"));
+const ConsoleAccountUnlink = defineAsyncComponent(() => import("./console-account-unlink.vue"));
 const ConsoleAccountShell = views.shell ?? defineAsyncComponent(() => import("./console-account-shell.vue"));
 const ConsoleAccountSignIn = views.signIn ?? defineAsyncComponent(() => import("./console-account-sign-in.vue"));
 
@@ -23,6 +24,7 @@ const ConsoleAccountSignIn = views.signIn ?? defineAsyncComponent(() => import("
 const projects = useConsoleProjects();
 const gate = projects.gate;
 const busy = ref(false);
+const unlinking = ref(false);
 
 const current = computed(() => projects.current.value);
 // A signed-in person of an `account` Console sees the sidebar of the team on every page before a project opens.
@@ -30,11 +32,12 @@ const current = computed(() => projects.current.value);
 const accountShell = computed(() => projects.mode === "account" && Boolean(projects.account.value) && (["home", "empty", "setup", "problem"].includes(gate.value.kind) || (gate.value.kind === "opening" && projects.openingView === "shell")));
 const host = computed(() => current.value ? consoleProjectHost(current.value) : "");
 const others = computed(() => projects.projects.value.filter(project => project.id !== current.value?.id));
+const canUnlink = computed(() => projects.mode === "account" && current.value?.id && projects.account.value && canManageConsoleProjects(projects.account.value));
 const switchItems = computed<DropdownMenuItem[][]>(() => [
   others.value.map(project => ({ label: consoleProjectName(project), description: consoleProjectHost(project), onSelect: () => switchConsoleProject(project.id) })),
   [
     { icon: "i-lucide-link", label: "Link an app", onSelect: () => { projects.linkOpen.value = true; } },
-    ...(current.value?.id ? [{ color: "error" as const, icon: "i-lucide-trash-2", label: "Unlink this project", onSelect: () => void forgetConsoleProject(current.value!.id) }] : []),
+    ...(canUnlink.value ? [{ color: "error" as const, icon: "i-lucide-trash-2", label: "Unlink this project", onSelect: () => { unlinking.value = true; } }] : []),
   ],
 ].filter(group => group.length));
 
@@ -131,6 +134,7 @@ onMounted(() => {
       </div>
     </div>
     <ConsoleAccountLink v-if="projects.mode === 'account'" v-model:open="projects.linkOpen.value" :url="gate.kind === 'site-refused' ? gate.url : undefined" />
+    <ConsoleAccountUnlink v-if="canUnlink && current?.id" v-model:open="unlinking" :project-id="current.id" :name="consoleProjectName(current)" />
   </main>
 </template>
 

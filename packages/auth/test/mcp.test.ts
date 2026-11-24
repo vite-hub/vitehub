@@ -192,7 +192,7 @@ describe("mcpOAuth", () => {
     expect((await verifyMcpRequest(mcpRequest(accessToken), { auth: auth.auth }))[0]?.code).toBe("AUTH_MCP_TOKEN_INVALID")
   })
 
-  it.each(["signed out", "expired session"])("keeps an offline_access grant after %s, refreshed tokens included", async (reason) => {
+  it.each(["signed out", "expired session"])("keeps an offline_access grant after %s, refreshed tokens included, without the ended session", async (reason) => {
     const auth = await setup()
     const { accessToken, clientId, cookie, refreshToken } = await signInAgent(auth)
     if (reason === "signed out") expect((await auth.post("/sign-out", {}, { cookie })).status).toBe(200)
@@ -205,10 +205,8 @@ describe("mcpOAuth", () => {
     })
     expect(refreshed.status, await refreshed.clone().text()).toBe(200)
     const { access_token } = v.parse(v.object({ access_token: v.string() }), await refreshed.json())
-    // Sign-out deletes the session and unlinks the refresh token. An expired session stays, and Better Auth's refresh grant
-    // copies its id into every new token.
     const { sid } = v.parse(v.object({ sid: v.nullish(v.string()) }), JSON.parse(Buffer.from(access_token.split(".")[1] ?? "", "base64url").toString()))
-    expect(typeof sid).toBe(reason === "expired session" ? "string" : "object")
+    expect(sid).toBeUndefined()
     const [error, caller] = await verifyMcpRequest(mcpRequest(access_token), { auth: auth.auth })
     expect(error).toBeUndefined()
     expect(caller).toMatchObject({ clientId, user: { email: "ada@example.com" } })

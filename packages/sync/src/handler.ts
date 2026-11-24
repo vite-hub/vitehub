@@ -1,4 +1,4 @@
-import { and, asc, eq, getTableColumns, gt, lt, max, ne, sql } from "drizzle-orm"
+import { and, asc, eq, gt, lt, max, ne, sql } from "drizzle-orm"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { isRuntimeDiagnostic } from "@vite-hub/runtime"
 import * as v from "valibot"
@@ -304,7 +304,7 @@ function floorQuery(db: SyncDatabase, table: string) {
 /** The rows of the scope after `after`, by key, at most one page and one row more. */
 function pageQuery(scoped: Scoped, after: SyncKey | undefined) {
   const keyColumn = column(scoped.table, scoped.table.key)
-  return scoped.db.select().from(scoped.table.table)
+  return scoped.db.select(rowColumns(scoped.table)).from(scoped.table.table)
     .where(and(scopeSql(scoped.table, scoped.scope.values), after === undefined ? undefined : gt(keyColumn, after)))
     .orderBy(asc(keyColumn))
     .limit(pageSize + 1)
@@ -330,7 +330,7 @@ function snapshotPart(scoped: Scoped, paged = false): Part<SyncPullResponse> {
       return { ...answer(state, last), ...page, more: page.after !== null }
     })
   }
-  return part([floorQuery(db, name), headQuery(db, name), db.select().from(table).where(scopeSql(scoped.table, scope.values))], ([state, last, rows]) => (
+  return part([floorQuery(db, name), headQuery(db, name), db.select(rowColumns(scoped.table)).from(table).where(scopeSql(scoped.table, scope.values))], ([state, last, rows]) => (
     { ...answer(state, last), rows, more: false }
   ))
 }
@@ -375,7 +375,7 @@ function pullPart(scoped: Scoped, held: Held): Part<SyncPullResponse | undefined
       .limit(pageSize + 1),
     // A join, not `key IN (...)`: the statement has a fixed number of parameters, so D1's limit of 100 never applies.
     // The first `pageSize` puts in scope cover every put in scope of the page above.
-    db.select({ row: getTableColumns(table), seq: sql<number>`${syncChanges.seq}`.as("vitehub_sync_seq") })
+    db.select({ row: rowColumns(scoped.table), seq: sql<number>`${syncChanges.seq}`.as("vitehub_sync_seq") })
       .from(table)
       .innerJoin(syncChanges, and(eq(syncChanges.tableName, name), eq(syncChanges.key, keyColumn)))
       .where(and(gt(syncChanges.seq, cursor), eq(syncChanges.op, "put"), where))
@@ -446,6 +446,11 @@ function storedSql(target: SQLiteColumn): SQL {
   return sql`${target}`
 }
 
+function rowColumns(table: SyncTable): Record<string, SQLiteColumn | SQL> {
+  return Object.fromEntries(Object.entries(table.columns).map(([name, target]) =>
+    [name, target.columnType.startsWith("SQLiteNumeric") ? sql`cast(${target} as text)`.mapWith(target) : target]))
+}
+
 /** A JSON value of a column as an exit stores it. See `storedSql()`. */
 function storedValue(table: SyncTable, name: string, value: unknown): unknown {
   if (value === null || value === undefined) return null
@@ -493,7 +498,7 @@ type Reads = Map<string, { scoped: Scoped, key: SyncKey, scopedOnly: boolean, js
 async function readRow(scoped: Scoped, key: SyncKey, scopedOnly: boolean, reads?: Reads): Promise<Record<string, unknown> | undefined> {
   const { db, table } = scoped
   spend(scoped)
-  const [found] = await db.select({ row: getTableColumns(table.table), json: sql<string>`${rowObjectSql(table)}` }).from(table.table)
+  const [found] = await db.select({ row: rowColumns(table), json: sql<string>`${rowObjectSql(table)}` }).from(table.table)
     .where(and(eq(column(table, table.key), key), scopedOnly ? scopeSql(table, scoped.scope.values) : undefined))
     .limit(1)
   const read = `${scoped.name}:${scoped.scope.id}:${scopedOnly ? "scoped" : "any"}:${key}`

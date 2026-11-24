@@ -1,3 +1,4 @@
+import { writeFile } from "node:fs/promises"
 import { join } from "node:path"
 
 import viteHubUI from "@vite-hub/ui/vite"
@@ -30,7 +31,7 @@ const visit = (fileName) => {
 }
 visit(entry.fileName)
 const initialFiles = [...initial].map(fileName => files.get(fileName))
-process.stdout.write(JSON.stringify({
+await writeFile(join(root, "bundle-report.json"), JSON.stringify({
   files: output.length,
   initialBytes: initialFiles.reduce((total, file) => total + bytes(file), 0),
   initialFiles: initialFiles.length,

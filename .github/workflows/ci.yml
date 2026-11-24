@@ -406,7 +406,7 @@ jobs:
             exit 0
           fi
           files="$(git diff --name-only "$BASE_REF"...HEAD)"
-          if grep -qE '^(patches/@ui-sdk__|packages/kit/(src/styles/|test/browser/|vite\.config\.ts)|packages/ui/test/browser/parity|\.github/scripts/check-ui-sdk\.mjs)' <<<"$files" \
+          if grep -qE '^(patches/@ui-sdk__|packages/kit/(src/styles/|test/browser/|vite\.config\.ts)|packages/ui/test/browser/(parity|ui-sdk-keyboard)|\.github/scripts/check-ui-sdk\.mjs)' <<<"$files" \
             || git diff "$BASE_REF"...HEAD -- pnpm-lock.yaml pnpm-workspace.yaml | grep -E '^[-+].*@ui-sdk/' > /dev/null; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
@@ -427,6 +427,10 @@ jobs:
         run: ./packages/ui/node_modules/.bin/playwright-core install --with-deps --only-shell chromium
       - if: ${{ steps.changed.outputs.run == 'true' }}
         run: vp run --filter @vite-hub/ui test:parity
+      - name: Check iframe keyboard focus
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        working-directory: packages/ui
+        run: node --test --test-name-pattern='iframe exit' test/browser/ui-sdk-keyboard.browser.mjs
       - if: ${{ steps.changed.outputs.run == 'true' }}
         run: vp run --filter @vite-hub/kit test:styles
 
@@ -450,7 +454,7 @@ jobs:
           --health-timeout 5s
           --health-retries 30
       redis:
-        image: redis:7
+        image: redis:8
         ports:
           - 6379:6379
         options: >-
@@ -983,9 +987,16 @@ jobs:
             echo "run=false" >> "$GITHUB_OUTPUT"
           fi
       - if: ${{ steps.changed.outputs.run == 'true' }}
-        uses: ./.github/actions/setup
+        uses: voidzero-dev/setup-vp@cab1ab9eaff52d4857875f4f2c016e36af8f2c76 # v1.22.0
         with:
-          prepare-docs: "false"
+          node-version: "24"
+          cache: false
+          run-install: false
+      - name: Install pull request dependencies
+        if: ${{ steps.changed.outputs.run == 'true' }}
+        env:
+          VITEHUB_SKIP_DOCS_PREPARE: "1"
+        run: vp install --frozen-lockfile
       - name: Install Chromium
         if: ${{ steps.changed.outputs.run == 'true' }}
         run: ./packages/vite-hub/node_modules/.bin/playwright-core install --with-deps --only-shell chromium
@@ -1001,6 +1012,7 @@ jobs:
         if: ${{ steps.changed.outputs.run == 'true' }}
         env:
           BASE_SHA: ${{ steps.changed.outputs.base-sha }}
+          VITEHUB_SKIP_DOCS_PREPARE: "1"
         run: |
           oracle=packages/vite-hub/test/console-pixels.browser.mjs
           cp "$oracle" "$RUNNER_TEMP/console-pixels.browser.mjs"
@@ -1008,7 +1020,10 @@ jobs:
           git diff --quiet HEAD "$BASE_SHA" -- pnpm-lock.yaml pnpm-workspace.yaml patches || install=true
           git checkout --quiet --detach "$BASE_SHA"
           cp "$RUNNER_TEMP/console-pixels.browser.mjs" "$oracle"
-          if [ "$install" = "true" ]; then vp install --frozen-lockfile; fi
+          if [ "$install" = "true" ]; then
+            vp install --frozen-lockfile
+            ./packages/vite-hub/node_modules/.bin/playwright-core install --only-shell chromium
+          fi
           for task in vite-hub#build @vite-hub/kit#build @vite-hub/ui#build; do vp run --cache -t "$task"; done
           node "$oracle" capture "$RUNNER_TEMP/console-pixels/base"
       - name: Compare
@@ -1233,7 +1248,7 @@ jobs:
     timeout-minutes: 60
     services:
       redis:
-        image: redis:7-alpine
+        image: redis:8-alpine
         ports:
           - 6379:6379
       srh:

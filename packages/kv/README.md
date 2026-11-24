@@ -15,7 +15,7 @@
 pnpm add @vite-hub/kv
 ```
 
-Add `@upstash/redis` when you use the Upstash driver. The `redis` driver uses `ioredis`, which KV installs.
+Add `@upstash/redis` when you use the Upstash driver. The `redis` driver uses `ioredis`, which KV installs, and needs Redis 6 or later.
 
 ## Minimal API
 
