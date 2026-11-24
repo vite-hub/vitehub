@@ -7,7 +7,8 @@ import { Chat, Message } from "chat"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineChatCapability } from "../src/chat-trigger.ts"
-import { defineAgent } from "../src/index.ts"
+import { agentWorkflow, defineAgent, runAgent, startAgentInvocation } from "../src/index.ts"
+import { setAgentWorkflowRuntimeLoaders } from "../src/internal/workflow-runtime-loaders.ts"
 import { agentInvocationId, defineAgentInvocations } from "../src/invocations.ts"
 import { createLibsqlAgentInvocationStore } from "../src/invocations/sqlite.ts"
 import { createChannelWebhookRouteHandler, drainInlineChatInvocations } from "../src/server/internal.ts"
@@ -67,6 +68,10 @@ function telegramMessage(id: number, chatId: number, text: string): Message {
 
 const cleanups: (() => Promise<void>)[] = []
 afterEach(async () => {
+  setAgentWorkflowRuntimeLoaders({
+    state: () => import("@vite-hub/workflow/runtime/state"),
+    workflow: () => import("@vite-hub/workflow"),
+  })
   vi.restoreAllMocks()
   // Release a run that a failed assertion left blocked, so it cannot hold the thread lock for later tests.
   await drainInlineChatInvocations({ timeoutMs: 0 })
@@ -84,7 +89,7 @@ async function sharedFiles() {
  * One server process: its own State client, journal client, Chat adapter, and Agent, like a Node instance on a shared database.
  * `prompts` collects the input of every Driver run of every process in the test.
  */
-async function startProcess(files: Awaited<ReturnType<typeof sharedFiles>>, prompts: string[], options: { blockFirstRun?: boolean; storeTimeoutMs?: number } = {}) {
+async function startProcess(files: Awaited<ReturnType<typeof sharedFiles>>, prompts: string[], options: { blockFirstRun?: boolean; storeTimeoutMs?: number; workflow?: boolean } = {}) {
   const state = createLibsqlAgentState({ url: files.state })
   const store = createLibsqlAgentInvocationStore({ url: files.journal })
   // A recovery that finds a claim it cannot take waits one claim lease (30 s) for the owner to renew it.
@@ -113,6 +118,7 @@ async function startProcess(files: Awaited<ReturnType<typeof sharedFiles>>, prom
     },
     invocations: defineAgentInvocations({ store: journal, storeTimeoutMs: options.storeTimeoutMs }),
     name: "support",
+    runtime: options.workflow ? agentWorkflow("support") : false,
   })
   // SAFETY: The test Agent supplies the route contract through defineAgent.
   const handler = createChannelWebhookRouteHandler(agent as never)
@@ -136,7 +142,7 @@ async function startProcess(files: Awaited<ReturnType<typeof sharedFiles>>, prom
       expect(response.status).toBe(200)
     },
     /** Starts the webhook queue like the server plugin does when this process starts, with its recovery. */
-    boot(options: { recoverySweep?: { leases: LeaseStore, intervalMs?: number, withoutQueue?: boolean }, discoveredAgentNames?: string[] } = {}) {
+    boot(options: { recoverySweep?: { leases: LeaseStore, intervalMs?: number, withoutQueue?: boolean }, discoveredJournalNames?: string[] } = {}) {
       stops.push(handler.resume({ ...routeOptions, ...options, recoverInterruptedBefore: Date.now() }))
     },
   }
@@ -296,21 +302,51 @@ describe("recovery at boot on processes that share one journal and one State", (
     expect(sweeps.filter(list => list.mock.calls.length > 0)).toHaveLength(1)
   })
 
-  it("fails an interrupted Invocation of an inline Agent, and leaves its live runs and other discovered Agents alone", async () => {
+  it.each([false, true])("recovers named and unnamed inline runs without taking Workflow custody (Workflow route: %s)", async (workflow) => {
     const files = await sharedFiles()
     const prompts: string[] = []
-    const restarted = await startProcess(files, prompts)
+    const restarted = await startProcess(files, prompts, { workflow })
+    const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
+    setAgentWorkflowRuntimeLoaders({
+      state: async () => ({
+        ...await import("@vite-hub/workflow/runtime/state"),
+        getWorkflowRuntimeConfig: () => ({ driver: "openworkflow" as const }),
+        getWorkflowRuntimeRegistry: () => ({}),
+      }),
+      workflow: async () => ({
+        ...await import("@vite-hub/workflow"),
+        createWorkflow: ((name: string) => ({
+          name,
+          start: async () => [undefined, { id: name, provider: "openworkflow", status: "queued" }],
+        })) as never,
+      }),
+    })
+    const invocations = defineAgentInvocations({ store: restarted.store })
+    const driver = { run: () => "done" }
+    await runAgent(defineAgent({ driver, invocations, name: "inline-probe", runtime: false }), { prompt: "summarize" }, { runtimeContext: runtime })
+    const inlineRun = (await restarted.store.list({ agentName: "inline-probe" })).invocations[0]!
+    expect(inlineRun).toMatchObject({ status: "completed", executionMode: "inline" })
     const startedAt = new Date(Date.now() - 60_000).toISOString()
-    const running = async (runId: string, agentName: string, claim: { id: string, leaseMs: number }) => {
+    const running = async (runId: string, agentName: string | undefined, claim: { id: string, leaseMs: number }) => {
       const id = await agentInvocationId(runId, agentName)
-      await restarted.store.create({ agentName, createdAt: startedAt, id, observations: [], startedAt, status: "running", traceId: runId, updatedAt: startedAt })
+      await restarted.store.create({ agentName, createdAt: startedAt, executionMode: inlineRun.executionMode, id, observations: [], startedAt, status: "running", traceId: runId, updatedAt: startedAt })
       expect(await restarted.store.claim(id, claim.id, claim.leaseMs)).toBe(true)
       return id
     }
     const stoppedInlineRun = await running("stopped-summary", "summaries", { id: "stopped-process", leaseMs: 1 })
+    const stoppedUnnamedRun = await running("stopped-unnamed", undefined, { id: "stopped-process", leaseMs: 1 })
     const inlineRunInOtherProcess = await running("live-summary", "summaries", { id: "other-process", leaseMs: 60_000 })
     const otherRouteAgentRun = await running("other-route", "billing", { id: "stopped-process", leaseMs: 1 })
     const queuedInlineRun = await running("queued-summary", "summaries", { id: "stopped-process", leaseMs: 1 })
+    const legacyRun = await agentInvocationId("legacy-run", "legacy")
+    await restarted.store.create({ agentName: "legacy", createdAt: startedAt, id: legacyRun, observations: [], startedAt, status: "running", traceId: "legacy-run", updatedAt: startedAt })
+    const workflowIds = await Promise.all(["billing", "undiscovered"].map(async (name) => {
+      const agent = defineAgent({ driver, invocations, name, runtime: agentWorkflow(name === "billing" ? "finance" : name) })
+      const started = await startAgentInvocation(agent, runtime, { prompt: "summarize" })
+      const id = await agentInvocationId(started.id, name)
+      expect(await restarted.store.getSummary(id)).toMatchObject({ status: "pending" })
+      return id
+    }))
     await restarted.state.enqueueWebhookDelivery({
       concurrencyGroup: "billing:default",
       concurrencyLimit: 1,
@@ -324,11 +360,14 @@ describe("recovery at boot on processes that share one journal and one State", (
     })
     await new Promise(resolve => setTimeout(resolve, 10))
 
-    restarted.boot({ discoveredAgentNames: ["support", "billing"] })
+    restarted.boot({ discoveredJournalNames: ["support", "billing"] })
 
     await vi.waitFor(async () => expect(await restarted.store.getSummary(stoppedInlineRun)).toMatchObject({ status: "failed" }), { timeout: 5_000 })
+    expect(await restarted.store.getSummary(stoppedUnnamedRun)).toMatchObject({ status: "failed" })
+    for (const id of workflowIds) expect(await restarted.store.getSummary(id)).toMatchObject({ status: "pending", executionMode: "workflow" })
     expect(await restarted.store.getSummary(inlineRunInOtherProcess)).toMatchObject({ status: "running" })
     expect(await restarted.store.getSummary(otherRouteAgentRun)).toMatchObject({ status: "running" })
     expect(await restarted.store.getSummary(queuedInlineRun)).toMatchObject({ status: "running" })
+    expect(await restarted.store.getSummary(legacyRun)).toMatchObject({ status: "running" })
   })
 })

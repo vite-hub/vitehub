@@ -265,7 +265,7 @@ interface AgentChannelWebhookResumeOptions extends AgentChannelWebhookRouteOptio
    * Invocations that a persisted queued delivery will run again stay active.
    */
   recoverInterruptedBefore?: number
-  discoveredAgentNames?: readonly string[]
+  discoveredJournalNames?: readonly string[]
   /**
    * After the queue resumes, sweep this Agent's journal every `intervalMs` (15 seconds by default) while this instance
    * holds the Lease `agent-recovery:<agent>` in `leases`. A sweep fails the pending or running invocations that no live
@@ -9407,41 +9407,41 @@ async function recoverInterruptedWebhookAgentInvocations(
   context: ViteAgentRouteRuntimeContext,
   before: number,
   queues: { owns: (scope: string) => boolean, state: AgentWebhookQueueStateAdapter }[],
-  options: { waitForBlocked?: boolean, canRecover?: () => boolean, discoveredAgentNames?: readonly string[] } = {},
+  options: { waitForBlocked?: boolean, canRecover?: () => boolean, discoveredJournalNames?: readonly string[] } = {},
 ): Promise<void> {
-  // Durable Workflows own their invocations and may not hold a journal claim while suspended.
-  if (options.canRecover?.() === false || !isRecord(agent) || !agent.invocations || await hasActiveWorkflowRuntime(agent, context)) return
+  if (options.canRecover?.() === false || !isRecord(agent) || !agent.invocations) return
   const agentName = firstString(agent.name, context.agentIdentity?.name)
   if (!agentName) return
-  // A persisted delivery with a run ID runs again under the same invocation record.
+  const workflowRoute = await hasActiveWorkflowRuntime(agent, context)
+  const { discoveredJournalNames, ...recoveryOptions } = options
+  if (workflowRoute && !discoveredJournalNames) return
+  const discovered = discoveredJournalNames && new Set(discoveredJournalNames)
   const resumed = new Set<string>()
-  const resumedInAnyScope = new Set<string>()
-  const { discoveredAgentNames, ...recoveryOptions } = options
   for (const { owns, state } of queues) {
     if (options.canRecover?.() === false) return
     for (const scope of await state.webhookDeliveryScopes()) {
       if (options.canRecover?.() === false) return
-      const owned = owns(scope)
-      if (!owned && !discoveredAgentNames) continue
+      if (!discovered && !owns(scope)) continue
       for (const delivery of await state.webhookDeliveries(scope)) {
         if (options.canRecover?.() === false) return
         const run = delivery.invocation?.run
         if (isRecord(run) && typeof run.runId === "string" && run.runId) {
-          const id = await agentInvocationId(run.runId, delivery.invocation?.agentName || agentName)
-          resumedInAnyScope.add(id)
-          if (owned) resumed.add(id)
+          const deliveryAgentName = delivery.invocation?.agentName
+          resumed.add(await agentInvocationId(run.runId, deliveryAgentName || agentName))
+          if (discovered && !deliveryAgentName) resumed.add(await agentInvocationId(run.runId, undefined))
         }
       }
     }
   }
-  const discovered = discoveredAgentNames && new Set([...discoveredAgentNames, agentName])
   // SAFETY: Agent Definitions own this field; recovery validates it through the journal boundary.
   await recoverInterruptedAgentInvocations(agent.invocations as AgentInvocations, {
     ...recoveryOptions,
     before,
-    recover: invocation => invocation.agentName === agentName
-      ? !resumed.has(invocation.id)
-      : Boolean(discovered && invocation.agentName && !discovered.has(invocation.agentName) && !resumedInAnyScope.has(invocation.id)),
+    recover: invocation => {
+      if (invocation.executionMode === "workflow" || invocation.workflow || resumed.has(invocation.id)) return false
+      if (invocation.agentName === agentName) return !workflowRoute || invocation.executionMode === "inline"
+      return Boolean(discovered && invocation.executionMode === "inline" && (!invocation.agentName || !discovered.has(invocation.agentName)))
+    },
   })
 }
 
@@ -10725,7 +10725,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       }
     })
   }
-  handler.resume = ({ discoveredAgentNames, recoverInterruptedBefore, recoverySweep, ...handlerOptions }: AgentChannelWebhookResumeOptions = {}) => {
+  handler.resume = ({ discoveredJournalNames, recoverInterruptedBefore, recoverySweep, ...handlerOptions }: AgentChannelWebhookResumeOptions = {}) => {
     const createQueueContext = async () => createRuntimeContext(
       new Request("http://vitehub.local/_vitehub/webhook-queue"),
       undefined,
@@ -10743,7 +10743,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       sweep = startAgentRecoverySweep({
         ...recoverySweep,
         agentName,
-        sweep: canRecover => recoverInterruptedWebhookAgentInvocations(agent, context, Date.now() - agentRecoverySweepGraceMs, queues, { waitForBlocked: false, canRecover, discoveredAgentNames }),
+        sweep: canRecover => recoverInterruptedWebhookAgentInvocations(agent, context, Date.now() - agentRecoverySweepGraceMs, queues, { waitForBlocked: false, canRecover, discoveredJournalNames }),
       })
     }
     if (recoverySweep?.withoutQueue) {
@@ -10790,7 +10790,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       ]
       if (recoveryBefore !== undefined) {
         // Recover before the queue claims work, so recovery cannot race a resumed delivery.
-        await recoverInterruptedWebhookAgentInvocations(agent, context, recoveryBefore, recoveryQueues, { discoveredAgentNames })
+        await recoverInterruptedWebhookAgentInvocations(agent, context, recoveryBefore, recoveryQueues, { discoveredJournalNames })
           .catch(error => console.error("[vitehub] Interrupted Agent invocation recovery failed.", error))
         resumeInterruptedChatInvocations(agent, context, handlerOptions, recoveryBefore)
           .catch(error => console.error("[vitehub] Interrupted chat invocation resume failed.", error))
