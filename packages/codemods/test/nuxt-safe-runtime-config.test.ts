@@ -319,7 +319,7 @@ describe("defaults that the field schema rejects", () => {
     [{ type: "string", format: "email" }, ""],
     [{ type: "number", minimum: 1 }, 0],
     [{ type: "integer" }, 1.5],
-    [{ type: "number", multipleOf: 0.1 }, 0.35],
+    [{ type: "number", multipleOf: 2 }, 3],
   ])("falls back to the JSON Schema rules %j without a field schema", async (node, value) => {
     const plan = await planFromJsonSchema({
       jsonSchema: { type: "object", required: ["value"], properties: { value: node } },
@@ -330,7 +330,7 @@ describe("defaults that the field schema rejects", () => {
     expect(plan.fields[0]?.required).toBe(true)
   })
 
-  it.each([[0.3, 0.1], [-3e-8, 1e-8]])("keeps %s as a decimal multiple of %s", async (value, multipleOf) => {
+  it.each([[0.3, 0.1], [-3e-8, 1e-8], [0.35, 0.1], [3, 0.5]])("keeps %s with multipleOf %s because the fallback cannot prove a rejection", async (value, multipleOf) => {
     const plan = await planFromJsonSchema({
       jsonSchema: { type: "object", required: ["value"], properties: { value: { type: "number", multipleOf } } },
       issues: new Map(),

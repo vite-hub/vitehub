@@ -199,17 +199,8 @@ function stringRejection(node: JsonObject, value: string): string | undefined {
   return undefined
 }
 
-function decimalParts(value: number) {
-  const [mantissa = "", exponent = "0"] = String(value).split("e")
-  const [whole = "", fraction = ""] = mantissa.split(".")
-  return { digits: BigInt(whole + fraction), scale: Number(exponent) - fraction.length }
-}
-
-function isDecimalMultiple(value: number, divisor: number): boolean {
-  const left = decimalParts(value)
-  const right = decimalParts(divisor)
-  const scale = Math.min(left.scale, right.scale)
-  return (left.digits * 10n ** BigInt(left.scale - scale)) % (right.digits * 10n ** BigInt(right.scale - scale)) === 0n
+function provesNotMultiple(value: number, divisor: number): boolean {
+  return Number.isSafeInteger(value) && Number.isSafeInteger(divisor) && divisor > 0 && value % divisor !== 0
 }
 
 function numberRejection(node: JsonObject, value: number): string | undefined {
@@ -218,7 +209,7 @@ function numberRejection(node: JsonObject, value: number): string | undefined {
   if (typeof node.maximum === "number" && value > node.maximum) return `maximum ${node.maximum}`
   if (typeof node.exclusiveMinimum === "number" && value <= node.exclusiveMinimum) return `exclusive minimum ${node.exclusiveMinimum}`
   if (typeof node.exclusiveMaximum === "number" && value >= node.exclusiveMaximum) return `exclusive maximum ${node.exclusiveMaximum}`
-  if (typeof node.multipleOf === "number" && node.multipleOf > 0 && Number.isFinite(node.multipleOf) && Number.isFinite(value) && !isDecimalMultiple(value, node.multipleOf)) return `multiple of ${node.multipleOf}`
+  if (typeof node.multipleOf === "number" && provesNotMultiple(value, node.multipleOf)) return `multiple of ${node.multipleOf}`
   return undefined
 }
 
