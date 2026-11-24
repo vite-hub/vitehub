@@ -21,6 +21,7 @@ export interface ConsoleSearchPage {
 const defaultSearchLimit = 12
 const maxSearchLimit = 24
 const maxSearchLength = 256
+const invalidCursorCodes = new Set(["AGENT_R0621", "AGENT_R0635", "AGENT_R0920"])
 
 function searchableStrings(value: unknown, values: string[], ancestors = new WeakSet<object>()): void {
   if (Object.prototype.toString.call(value) === "[object String]") {
@@ -86,7 +87,7 @@ export async function searchConsoleInvocations(input: { cursor?: string, limit?:
   if (input.cursor !== undefined) listQuery.cursor = input.cursor
   if (search) listQuery.search = search
   const page = await invocations.list(listQuery).catch((error: unknown) => {
-    if (error instanceof Error && "code" in error && error.code === "AGENT_R0621") throw searchRequestError("Console search cursor must be the nextCursor of the last page.")
+    if (error instanceof Error && "code" in error && invalidCursorCodes.has(String(error.code))) throw searchRequestError("Console search cursor must be the nextCursor of the last page.")
     throw error
   })
   const items = await Promise.all(page.invocations.map(async (summary) => {

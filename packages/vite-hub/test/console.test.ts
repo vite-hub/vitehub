@@ -3036,6 +3036,10 @@ describe("Agent invocation console", () => {
     await expect(searchConsoleInvocations({ limit: 2 ** 53 })).rejects.toMatchObject({ code: "VITE_HUB_R0052", status: 400 })
     await expect(searchConsoleInvocations({ cursor: "" })).rejects.toMatchObject({ code: "VITE_HUB_R0052", status: 400 })
     await expect(searchConsoleInvocations({ cursor: "not-a-cursor" })).rejects.toMatchObject({ code: "VITE_HUB_R0052", status: 400 })
+    for (const code of ["AGENT_R0635", "AGENT_R0920"]) {
+      installConsoleInvocations(process.cwd(), defineAgentInvocations({ store: { ...store, list: () => { throw Object.assign(new Error("[vitehub] Agent Invocation cursor is invalid."), { code }) } } }))
+      await expect(searchConsoleInvocations({ cursor: "IjIi" })).rejects.toMatchObject({ code: "VITE_HUB_R0052", status: 400 })
+    }
   })
 
   it("accepts persisted Agent names up to the metadata limit", async () => {
