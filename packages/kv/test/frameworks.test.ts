@@ -205,12 +205,11 @@ describe("hubKV", () => {
   it("mounts the default store at `kv` and named stores at `kv-<name>` in Nitro storage", async () => {
     const { hubKV, kvStorageDriver } = await import("../src/vite.ts")
     const plugin = hubKV({ stores: { default: { driver: "fs-lite" }, sessions: { driver: "fs-lite" } } })
-    const config: { nitro: Record<string, unknown> } = { nitro: {} }
-    const configure = testHook(plugin.config, (_value: typeof config): void | Promise<void> => undefined)
+    const options: { kv?: Record<string, unknown> } = {}
 
-    await configure(config)
+    plugin.nitro.setup({ options })
 
-    expect(config.nitro.kv).toEqual({
+    expect(options.kv).toEqual({
       "kv": { driver: kvStorageDriver },
       "kv-sessions": { driver: kvStorageDriver, store: "sessions" },
     })
@@ -221,9 +220,9 @@ describe("hubKV", () => {
     const { hubKV } = await import("../src/vite.ts")
     const names = ["default", "a", "a/b", "a:b", "a\\b", "?", "%", "", "%3F"]
     const stores = Object.fromEntries(names.map(name => [name, { driver: "fs-lite" as const }]))
-    const config = { nitro: {} as { kv?: Record<string, { store?: string }> } }
-    await testHook(hubKV({ stores }).config, (_value: typeof config): void | Promise<void> => undefined)(config)
-    const mounts = config.nitro.kv!
+    const options: { kv?: Record<string, { store?: string }> } = {}
+    hubKV({ stores }).nitro.setup({ options })
+    const mounts = options.kv!
     expect(Object.keys(mounts)).toEqual(["kv", "kv-a", "kv-a%2Fb", "kv-a%3Ab", "kv-a%5Cb", "kv-%3F", "kv-%25", "kv-%", "kv-%253F"])
     const storage = createStorage()
     for (const [mount, options] of Object.entries(mounts)) {
@@ -238,25 +237,21 @@ describe("hubKV", () => {
   })
 
   it("keeps a `kv` mount that the app set, in `kv` or the deprecated `storage` option", async () => {
-    const { hubKV, kvStorageDriver } = await import("../src/vite.ts")
+    const { hubKV } = await import("../src/vite.ts")
     const appMount = { driver: "redis", url: "redis://localhost" }
-    const own = { nitro: { kv: { kv: appMount } } }
-    const legacy = { nitro: { storage: { kv: appMount } } as Record<string, unknown> }
-    for (const config of [own, legacy]) {
-      const configure = testHook(hubKV({ driver: "fs-lite" }).config, (_value: typeof config): void | Promise<void> => undefined)
-      await configure(config)
-    }
+    const own = { kv: { kv: appMount } }
+    const legacy: { kv?: Record<string, unknown>, storage: Record<string, unknown> } = { storage: { kv: appMount } }
+    for (const options of [own, legacy]) hubKV({ driver: "fs-lite" }).nitro.setup({ options })
 
-    expect(own.nitro.kv).toEqual({ kv: appMount })
-    expect(legacy.nitro.kv).toBeUndefined()
-    expect(Object.values(own.nitro.kv)).not.toContainEqual({ driver: kvStorageDriver })
+    expect(own.kv).toEqual({ kv: appMount })
+    expect(legacy.kv).toBeUndefined()
   })
 
   it("adds no storage mount when KV is disabled", async () => {
     const { hubKV } = await import("../src/vite.ts")
-    const config: { nitro: Record<string, unknown> } = { nitro: {} }
-    await testHook(hubKV(false).config, (_value: typeof config): void | Promise<void> => undefined)(config)
-    expect(config.nitro.kv).toBeUndefined()
+    const options: { kv?: Record<string, unknown> } = {}
+    hubKV(false).nitro.setup({ options })
+    expect(options.kv).toBeUndefined()
   })
 
   it("does not register the Cloudflare request env middleware for a local store", async () => {
