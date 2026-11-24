@@ -6,6 +6,7 @@ import { siteStateHash, signSiteToken } from "@vite-hub/internal/site-token"
 
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
+import { consoleOperationRegistry, installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import { installConsolePill } from "../src/console/runtime/server/pill.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import siteAccessRoute from "../src/console/runtime/server/site.ts"
@@ -328,9 +329,16 @@ describe("site.access", () => {
     expect((await call("site.access")).value).toEqual({ write: false, roles: [{ id: "comments-read", label: "Read comments" }] })
   })
 
-  it("answers 404 and is not listed in an app without Comments", async () => {
+  it("is not registered in an app without Comments, so Agent operations() and the RPC do not have it", async () => {
     installConsoleSections("console-site", ["logs"])
-    expect(Reflect.get(Object((await call("project.get")).value), "operations")).not.toContain("site.access")
-    expect((await call("site.access")).status).toBe(404)
+    installConsoleOperations([], { site: false })
+    try {
+      expect(consoleOperationRegistry().list().map(operation => operation.name)).not.toContain("site.access")
+      expect(Reflect.get(Object((await call("project.get")).value), "operations")).not.toContain("site.access")
+      expect((await call("site.access")).status).toBe(404)
+    }
+    finally {
+      installConsoleOperations([])
+    }
   })
 })
