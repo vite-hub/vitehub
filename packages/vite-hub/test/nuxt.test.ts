@@ -1324,6 +1324,27 @@ describe("ViteHub Nuxt integration", () => {
     expect(Reflect.apply(handler(resolver?.load), {}, ["\0#vitehub/schedule/registry"])).toBe("export default { 'daily-report': {} }")
   })
 
+  it("bundles glob() Sources in Nitro-only replay", async () => {
+    const id = /^\0vitehub-source-glob:/
+    mocks.vitehub.mockReturnValue([{
+      name: "@vite-hub/source/vite",
+      resolveId: { filter: { id }, handler: (source: string) => source },
+      load: { filter: { id }, handler: () => "export default {}" },
+      transform: { filter: { code: /\bvite-hub\/source["'`]/ }, handler: () => ({ code: "import __vitehubGlob0 from \"\\0vitehub-source-glob:docs\"", map: null }) },
+    }])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    Object.assign(nuxt.options, { experimental: { nitroViteEnvironment: false } })
+    await viteHubNuxtModule({}, nuxt)
+    const config: { rollupConfig?: { plugins?: Plugin[] } } = {}
+    await runNitroConfigHook(config)
+    const resolver = config.rollupConfig?.plugins?.find(plugin => plugin.name === "vite-hub/nuxt-runtime-resolver:@vite-hub/source/vite")
+    const handler = (hook: unknown) => Reflect.get(Object(hook), "handler") as Function
+    const code = "import { glob } from \"vite-hub/source\"\nexport const docs = glob(\"docs/**/*.md\")"
+    expect(await Reflect.apply(handler(resolver?.transform), {}, [code, "/server/content.ts"])).toEqual({ code: "import __vitehubGlob0 from \"\\0vitehub-source-glob:docs\"", map: null })
+    expect(Reflect.apply(handler(resolver?.resolveId), {}, ["\0vitehub-source-glob:docs"])).toBe("\0vitehub-source-glob:docs")
+    expect(Reflect.apply(handler(resolver?.load), {}, ["\0vitehub-source-glob:docs"])).toBe("export default {}")
+  })
+
   it("checks direct folder Agent imports before the catalog loads in Nuxt 5's separate Nitro 3 build", async () => {
     const root = await mkdtemp(resolve(import.meta.dirname, ".nuxt-agent-workspace-"))
     try {
