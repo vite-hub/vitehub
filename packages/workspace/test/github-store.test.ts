@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { createTarGz } from "../../source/test/sources/fixtures/github.ts";
 import { createFakeGitHub, fakeSha } from "./fake-github.ts";
 import { checkGlobCwd, globCwdPaths } from "./glob-cwd-checks.ts";
 import { runInNewContext } from "node:vm";
@@ -264,6 +265,32 @@ describe("GitHub workspace store", () => {
     const second = await materializer.materializeRevision();
     expect(second.archive).toEqual(archiveBytes);
     expect(requests.filter(request => request.path === `/repos/onmax/repo/tarball/${fakeSha("base-sha")}`)).toHaveLength(1);
+  });
+
+  it("keeps the Session archive when history preloads an older revision", async () => {
+    const root = ".vitehub/workspaces/docs";
+    const paths = Array.from({ length: 9 }, (_, index) => `files/${index}.txt`);
+    const files = Object.fromEntries(paths.map(path => [`${root}/${path}`, path]));
+    const older = fake.commit("main", files);
+    const head = fake.commit("main", { [`${root}/head.txt`]: "new" });
+    const olderTarball = `/repos/onmax/repo/tarball/${older}`;
+    const olderArchive = createTarGz(
+      Object.fromEntries(Object.entries(files).map(([path, content]) => [path, textBytes(content)])),
+      "onmax-repo/",
+    );
+    fake.respond(request => request.path === olderTarball ? new Response(olderArchive) : undefined);
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore({ driver: "github", repo: "onmax/repo", token: "token" }, "docs");
+    const materializer = await loadRevisionMaterializer(store);
+
+    await expect(materializer.materializeRevision()).resolves.toMatchObject({ archive: archiveBytes, revision: head });
+    const history = await store.history!.open(older);
+    await history.preload!(paths);
+    await expect(materializer.materializeRevision()).resolves.toMatchObject({ archive: archiveBytes, revision: head });
+
+    const headTarball = `/repos/onmax/repo/tarball/${head}`;
+    expect(requests.map(request => request.path).filter(path => path.startsWith("/repos/onmax/repo/tarball/")))
+      .toEqual([headTarball, olderTarball]);
   });
 
   it("lets callers cancel revision resolution while the GitHub request continues", async () => {
