@@ -276,7 +276,7 @@ describe("Console MCP client", () => {
     expect(Array.from(Object(tools.items), item => Object(item).name)).toEqual(["echo", "whoami", ...Array.from({ length: 18 }, (_, index) => `tool-${index + 3}`)])
     expect(Object.keys(tools)).toEqual(["connection", "items"])
     toolPages = 21
-    expect(await call(scope, "mcp-client.items", { id: connection.id, kind: "tools" })).toEqual({ error: expect.objectContaining({ code: "CONSOLE_MCP_LIST_INCOMPLETE", status: 502 }) })
+    expect(await call(scope, "mcp-client.items", { id: connection.id, kind: "tools" })).toEqual({ error: expect.objectContaining({ code: "CONSOLE_MCP_LIST_TOO_LONG", status: 502 }) })
     expect(sessions.size).toBe(0)
     expect(await call(scope, "mcp-client.items", { cursor: "next", id: connection.id, kind: "tools" })).toEqual({ error: expect.objectContaining({ code: "CONSOLE_REQUEST_INVALID" }) })
   })
