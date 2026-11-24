@@ -3,7 +3,7 @@ import { getViteHubErrorShape, isRuntimeDiagnostic } from "@vite-hub/runtime"
 import { workspaceNotFoundError } from "./errors.ts"
 import type { ValidatedWorkspaceName, Workspace, WorkspaceDefinition, WorkspaceDefinitionInput } from "./types.ts"
 import { createWorkspace } from "./workspace.ts"
-import { resetWorkspaceRuntimeRegistry, setWorkspaceRuntimeRegistry, workspaceRuntimeRegistryState, type WorkspaceRegistry } from "../runtime/registry.ts"
+import { resetWorkspaceRuntimeRegistry, setWorkspaceRuntimeRegistry, workspaceRuntimeRegistryState, type WorkspaceRegistry, type WorkspaceRegistryLoader } from "../runtime/registry.ts"
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 export type { WorkspaceRegistry, WorkspaceRegistryModule } from "../runtime/registry.ts"
@@ -14,7 +14,7 @@ interface WorkspaceRegistryState {
   loadingDefinitions: Map<string, {
     consumers: number
     generation: number
-    load: WorkspaceRegistry[string]
+    load: WorkspaceRegistryLoader
     promise: Promise<WorkspaceDefinition>
   }>
   loadGenerations: Map<string, number>

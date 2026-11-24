@@ -30,7 +30,7 @@ async function renderTemplate(message: TemplateSend): Promise<Result<EmailMessag
   }
   let rendered
   try {
-    rendered = await renderEmailTemplate(entry.source, data)
+    rendered = await renderEmailTemplate(entry.source, data, entry.name)
   }
   catch (cause) {
     return [emailErrorDiagnostics.EMAIL_TEMPLATE_RENDER_FAILED({ cause, template }), undefined]
