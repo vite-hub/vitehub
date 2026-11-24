@@ -488,7 +488,7 @@ describe("account Console", () => {
     expect(state.gate.value).toEqual({ kind: "ready" })
     // The early answer opened the app, and the sections came with it.
     const sections = await import("../src/console/runtime/client/sections.ts")
-    expect((await sections.loadConsoleNavigation(sections.consoleSectionsPath))?.sections).toEqual(["kv"])
+    expect((await sections.loadConsoleNavigation(sections.consoleSectionsPath))?.sections).toEqual(["kv", "mcp-client"])
     expect(sent.filter(call => !call.startsWith("account"))).toEqual(["project.get /p/p-1/_vitehub/rpc"])
   })
 
@@ -508,7 +508,7 @@ describe("account Console", () => {
     await module.openConsoleProject()
     expect(module.useConsoleProjects().gate.value).toEqual({ kind: "ready" })
     const sections = await import("../src/console/runtime/client/sections.ts")
-    expect((await sections.loadConsoleNavigation(sections.consoleSectionsPath))?.sections).toEqual(["logs"])
+    expect((await sections.loadConsoleNavigation(sections.consoleSectionsPath))?.sections).toEqual(["mcp-client", "logs"])
     expect(sent).toEqual(["project.get /p/p-1/_vitehub/rpc", "sections.list /p/p-1/_vitehub/rpc"])
     // The app that opened is the app of the team that the next visit opens.
     expect(stored.get("vitehub-console:account-project:t")).toBe("p-1")

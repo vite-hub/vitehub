@@ -557,12 +557,6 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ subject }: { subject: "The payload" | "This value" }) => `${subject} is not valid JSON.`,
       fix: "Correct the JSON in the editor. Put strings and keys in double quotes, and remove a comma after the last item of an object or array.",
     },
-    VITE_HUB_CONSOLE_MCP_LIST_INCOMPLETE: {
-      why: ({ reason }: { reason: "repeated-cursor" | "too-many-pages" }) => reason === "repeated-cursor"
-        ? "The server returned a repeated pagination cursor. It could not finish the list."
-        : "The server returned more than 1,000 pages. It could not finish the list.",
-      fix: "Check the pagination of the MCP server: each page must return a new `nextCursor`, and a list must end within 1,000 pages.",
-    },
     VITE_HUB_CONSOLE_NUMBER_REQUIRED: {
       why: "Enter a number.",
       fix: "Enter a number in the field before you save it.",

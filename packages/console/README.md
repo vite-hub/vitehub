@@ -93,6 +93,33 @@ The account tools act on the team that the person opened last in the Console, el
 - `run_operation` runs an operation that changes data. It has `destructiveHint: true`, so an MCP client can ask the person first.
 - `run_operation` refuses a destructive call with `409` until the Agent sends `confirm: true`. The Console then signs `confirmed: true` in the caller, so a header cannot add or remove the confirmation. The tool tells the Agent to ask the person first.
 
+## MCP client
+
+The **MCP** section of an app opened in the Console connects to MCP servers from the Console server, not from the app. The page sends each call to `POST /p/<id>/mcp-client` with the same `mcp-client.*` operation names as the app's own section. Each connection belongs to one person on one project. The Console seals it with `VITEHUB_CONSOLE_SECRET`, bound to that person, project, and id, in `console_mcp_connections`. OAuth client registrations are in `console_mcp_clients`, below a SHA-256 of the server and redirect URL. The OAuth callback is `<console origin>/mcp-client/callback`, so register that URL when a server needs a fixed callback. API keys cannot use the connections.
+
+The Console refuses private MCP addresses, such as `localhost` and `10.0.0.8`, as it does for project links. To use an MCP server that only listens on your computer:
+
+- Run a self-hosted Console on the same computer or network with `VITEHUB_CONSOLE_ALLOW_PRIVATE=true`. It then also accepts `http:` for private addresses.
+- Or put the server behind an HTTPS tunnel and connect to the tunnel URL.
+
+## Skills and page tools for apps
+
+The Console serves the public ViteHub skill of its `vite-hub` version, in the same well-known format as an app at `<base>/_vitehub/.well-known/skills`. The build copies the files from the built `vite-hub` package, so build `vite-hub` first.
+
+```sh
+npx skills add https://console.vitehub.dev               # the Console's version
+npx skills add https://console.vitehub.dev/skills/0.4.0  # one version; another version answers 404
+```
+
+The Console also serves the Console segment of the page tools pill (`page-tool.js`) and the account item (`account.js`). `/page/<version>/<file>` moves with `307` to `/page/<version>/<hash>/<file>`, which never changes and has `cache-control: public, max-age=31536000, immutable`. The move keeps the query. The files are public, with `access-control-allow-origin: *`, so a page loads them as cross-origin modules without cookies.
+
+The contract with an app's page tools loader:
+
+- The app decides who sees the pill. Its session route `<base>/_vitehub/page/tools` reads the app's own `__Host-vitehub-site` token and gives the Console tool only to a token with the `console` role. The Console never reads a cookie for these files: browsers block third-party cookies.
+- The `script` of the Console tool is `<console origin>/page/<vite-hub version>/page-tool.js?base=<app base>`. The segment reads the app base from `base` and opens the Console that served it.
+- The account item is `<console origin>/page/<vite-hub version>/account.js`. Its default export is `mountViteHubPageAccount` from `@vite-hub/internal/runtime/page-account`.
+- An app with a Content Security Policy adds the Console origin to `script-src`, for example `script-src 'self' https://console.vitehub.dev`. A policy with `'strict-dynamic'` ignores origins, so the app must then serve the same files itself.
+
 ## Configure
 
 | Variable | Use |
@@ -135,6 +162,10 @@ The `/api/projects` routes and the forward need a session or an API key. They ac
 | `/p/<id>/_vitehub/**` | The forward to the project's data routes. |
 | `POST /mcp`, `POST /mcp/account` | The ViteHub MCP. `/mcp` needs no session; `/mcp/account` needs an OAuth access token instead of a session. |
 | `GET /oauth` | The sign-in and consent page of MCP clients. It needs no session. |
+| `POST /p/<id>/mcp-client` | With a session: one `mcp-client.*` operation of the MCP section, run by the Console server. |
+| `GET /mcp-client/callback` | The OAuth callback of the MCP section. The page completes the sign-in. |
+| `GET /.well-known/skills/**`, `GET /skills/<version>/.well-known/skills/**` | The public ViteHub skill. `latest` names the Console's version. No session. |
+| `GET /page/<version>/<file>` | `page-tool.js` and `account.js` for the page tools pill of apps. No session. |
 | `GET /api/sign-in-methods` | `{ "github": true }` when GitHub sign-in is configured. |
 | `GET /api/whoami` | With an API key: the person, the team, the roles, the projects of the key, and its expiry. `vitehub whoami` calls it. |
 | `GET /api/api-keys`, `POST /api/api-keys` | With a session: list the person's API keys, or make one with `{ "name": "CI", "teamId": "<team>", "projectIds": ["<project>"], "days": 90 }`. Only `name` is required. The answer of `POST` holds the key once, in `key`. |
