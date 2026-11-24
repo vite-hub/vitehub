@@ -138,6 +138,25 @@ it("turns on the document editor code when discovery finds server/content.ts", a
   }
 })
 
+it("keeps the document editor code in development, where server/content.ts can appear after the first transform", async () => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-console-documents-dev-"))
+  try {
+    await writeFile(join(root, "package.json"), "{}\n")
+    const plugin = consoleVitePlugin({ console: {}, sections: [] })
+    const configHook = plugin.config
+    const configHandler = typeof configHook === "function" ? configHook : configHook?.handler
+    const transformHook = plugin.transform
+    const transform = typeof transformHook === "function" ? transformHook : transformHook?.handler
+    if (!configHandler || !transform) throw new Error("Expected the Console config and transform hooks.")
+    await Reflect.apply(configHandler, {}, [{ root }, { command: "serve", mode: "development" }])
+    // SAFETY: The operation transform reads only its source argument.
+    expect(await transform.call({} as never, "import.meta.viteHubConsoleDocuments", "operations.ts")).toMatchObject({ code: "true" })
+  }
+  finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
+
 it("registers the media library only with a document editor and Blob", () => {
   const media = consoleOperationModules.find(entry => entry.export === "mediaConsoleOperations")
   expect(media?.enabled({ documents: true, sections: [], site: false })).toBe(false)

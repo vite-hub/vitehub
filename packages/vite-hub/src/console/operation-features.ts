@@ -20,7 +20,8 @@ export function transformConsoleOperationFeatures(code: string, sections: readon
 
 /**
  * Nuxt's Nitro bundles the Console independently of the app's Vite plugins. `documents` reads the document editors of the
- * written Console app module, because discovery finds them after the plugin is installed.
+ * written Console app module, because discovery finds them after the plugin is installed. A development server keeps the
+ * document code whenever an owner contributes an editor, because it caches the transform and an editor can appear later.
  */
 export function consoleOperationFeatures(sections: readonly string[], documents: () => boolean | undefined = () => undefined): Plugin {
   return {

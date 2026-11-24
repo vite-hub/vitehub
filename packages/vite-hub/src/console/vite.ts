@@ -20,6 +20,7 @@ import { serializeConsoleRefresh } from "./refresh.ts"
 import { addConsoleRpcHandler } from "./nitro.ts"
 import { resolveConsoleSiteAccess, type ConsoleSiteComments } from "./site-access.ts"
 import { consoleOperationFeaturesFilter, transformConsoleOperationFeatures } from "./operation-features.ts"
+import { consoleDocumentEditorSectionIds } from "./contributions.ts"
 import { consoleDevAccessNotice } from "./dev-access-notice.ts"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -360,7 +361,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       filter: consoleOperationFeaturesFilter,
       handler(code) {
         const catalog = projectRoot ? consoleBuildCatalogs.get(projectRoot) : undefined
-        const documents = catalog ? consoleAppModuleHasDocumentEditors({ ...consoleAppModuleOptions(), catalog }) : undefined
+        const documents = development ? consoleDocumentEditorSectionIds.length > 0 : catalog ? consoleAppModuleHasDocumentEditors({ ...consoleAppModuleOptions(), catalog }) : undefined
         const transformed = transformConsoleOperationFeatures(code, options.operationSections ?? sections, documents)
         return transformed === undefined ? undefined : { code: transformed, map: null }
       },

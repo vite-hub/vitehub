@@ -1639,7 +1639,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       serverDirs: resolveNuxtServerDirs(nuxt.options),
     })
     normalizeGeneratedNitroPlugins(config, projectRoot)
-    installNitroBuildPlugins(config, [join(projectRoot, ".vitehub"), join(nuxt.options.buildDir, "vitehub")], nuxt.options.dev === true && plan.host === "cloudflare", consoleSections, !nuxt.options.dev, () => consoleDocumentEditors)
+    installNitroBuildPlugins(config, [join(projectRoot, ".vitehub"), join(nuxt.options.buildDir, "vitehub")], nuxt.options.dev === true && plan.host === "cloudflare", consoleSections, !nuxt.options.dev, () => nuxt.options.dev ? consoleDocumentEditorSectionIds.length > 0 : consoleDocumentEditors)
     if (nuxt.options.dev && plan.host === "cloudflare") {
       await writeCloudflareDevShims(nuxt.options.buildDir, (config.alias ??= {}) as Record<string, string>)
     }
