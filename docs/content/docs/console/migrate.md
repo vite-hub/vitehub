@@ -102,40 +102,48 @@ Site access now lives in the ViteHub Console. The app keeps no Site access user,
 - with app Auth, a guest user for each guest, with the email `guest-<uuid>@guests.invalid`, its sessions, and an `account` row with `provider_id = 'vitehub-site-guest'`,
 - with app Auth, the `console` and `comments-*` roles that Site access added to the `user.role` of members.
 
-Guests and members sign in again through the Console. Routes that check the app's Auth session do not let them in. Run this SQL once on each app Database. It is safe to run again, and a statement that finds nothing changes nothing. Without app Auth, run only the first statement.
+The SQL finds guests by the `vitehub-site-guest` account, not by the email, so it does not delete other users with such an email. Guests and members sign in again through the Console. Routes that check the app's Auth session do not let them in. Run this SQL once on each app Database. It is safe to run again, and a statement that finds nothing changes nothing. Without app Auth, run only the first statement.
 
 ::tabs
 :::tabs-item{label="SQLite and D1"}
 ```sql [site-access-cleanup.sql]
 DROP TABLE IF EXISTS "vitehub_console_site";
-DELETE FROM "session" WHERE "user_id" IN (SELECT "id" FROM "user" WHERE "email" GLOB 'guest-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]@guests.invalid');
-DELETE FROM "account" WHERE "provider_id" = 'vitehub-site-guest' OR "user_id" IN (SELECT "id" FROM "user" WHERE "email" GLOB 'guest-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]@guests.invalid');
-DELETE FROM "user" WHERE "email" GLOB 'guest-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]@guests.invalid';
-WITH RECURSIVE "token"("user_id", "n", "value", "rest") AS (
+DELETE FROM "session" WHERE "user_id" IN (SELECT "user_id" FROM "account" WHERE "provider_id" = 'vitehub-site-guest');
+DELETE FROM "account" WHERE "provider_id" <> 'vitehub-site-guest' AND "user_id" IN (SELECT "user_id" FROM "account" WHERE "provider_id" = 'vitehub-site-guest');
+DELETE FROM "user" WHERE "id" IN (SELECT "user_id" FROM "account" WHERE "provider_id" = 'vitehub-site-guest');
+DELETE FROM "account" WHERE "provider_id" = 'vitehub-site-guest';
+WITH RECURSIVE "piece"("user_id", "n", "raw", "rest") AS (
   SELECT "id", 0, NULL, "role" || ',' FROM "user" WHERE "role" IS NOT NULL
   UNION ALL
-  SELECT "user_id", "n" + 1, trim(substr("rest", 1, instr("rest", ',') - 1)), substr("rest", instr("rest", ',') + 1) FROM "token" WHERE "rest" <> ''
+  SELECT "user_id", "n" + 1, substr("rest", 1, instr("rest", ',') - 1), substr("rest", instr("rest", ',') + 1) FROM "piece" WHERE "rest" <> ''
+), "token"("user_id", "n", "raw", "name") AS (
+  SELECT "user_id", "n", "raw", trim("raw", char(9, 10, 11, 12, 13, 32, 160, 5760, 8192, 8193, 8194, 8195, 8196, 8197, 8198, 8199, 8200, 8201, 8202, 8232, 8233, 8239, 8287, 12288, 65279)) FROM "piece" WHERE "raw" IS NOT NULL
 )
 UPDATE "user" SET "role" = (
-  SELECT NULLIF(group_concat("value", ','), '') FROM (
-    SELECT "value" FROM "token" WHERE "user_id" = "user"."id" AND "value" <> '' AND "value" NOT IN ('console', 'comments-read', 'comments-write', 'comments-resolve', 'comments-delete') ORDER BY "n"
+  SELECT group_concat("raw", ',') FROM (
+    SELECT "raw" FROM "token" WHERE "user_id" = "user"."id" AND "name" <> '' AND "name" NOT IN ('console', 'comments-read', 'comments-write', 'comments-resolve', 'comments-delete') ORDER BY "n"
   )
 )
-WHERE "id" IN (SELECT "user_id" FROM "token" WHERE "value" IN ('console', 'comments-read', 'comments-write', 'comments-resolve', 'comments-delete'));
+WHERE "id" IN (SELECT "user_id" FROM "token" WHERE "name" IN ('console', 'comments-read', 'comments-write', 'comments-resolve', 'comments-delete'));
 ```
 :::
 
 :::tabs-item{label="Postgres"}
 ```sql [site-access-cleanup.sql]
 DROP TABLE IF EXISTS "vitehub_console_site";
-DELETE FROM "session" WHERE "user_id" IN (SELECT "id" FROM "user" WHERE "email" ~ '^guest-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}@guests\.invalid$');
-DELETE FROM "account" WHERE "provider_id" = 'vitehub-site-guest' OR "user_id" IN (SELECT "id" FROM "user" WHERE "email" ~ '^guest-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}@guests\.invalid$');
-DELETE FROM "user" WHERE "email" ~ '^guest-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}@guests\.invalid$';
+DELETE FROM "session" WHERE "user_id" IN (SELECT "user_id" FROM "account" WHERE "provider_id" = 'vitehub-site-guest');
+WITH "guest_account" AS (
+  DELETE FROM "account" WHERE "user_id" IN (SELECT "user_id" FROM "account" WHERE "provider_id" = 'vitehub-site-guest') RETURNING "user_id"
+)
+DELETE FROM "user" WHERE "id" IN (SELECT "user_id" FROM "guest_account");
 UPDATE "user" SET "role" = NULLIF(array_to_string(array(
-  SELECT trim("value") FROM unnest(string_to_array("role", ',')) WITH ORDINALITY AS "token"("value", "n")
-  WHERE trim("value") <> '' AND trim("value") NOT IN ('console', 'comments-read', 'comments-write', 'comments-resolve', 'comments-delete') ORDER BY "n"
+  SELECT "raw" FROM unnest(string_to_array("role", ',')) WITH ORDINALITY AS "token"("raw", "n"), btrim("raw", E'\t\n\u000B\f\r \u00A0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF') AS "name"
+  WHERE "name" <> '' AND "name" NOT IN ('console', 'comments-read', 'comments-write', 'comments-resolve', 'comments-delete') ORDER BY "n"
 ), ','), '')
-WHERE EXISTS (SELECT 1 FROM unnest(string_to_array("role", ',')) AS "token"("value") WHERE trim("value") IN ('console', 'comments-read', 'comments-write', 'comments-resolve', 'comments-delete'));
+WHERE EXISTS (
+  SELECT 1 FROM unnest(string_to_array("role", ',')) AS "token"("raw"), btrim("raw", E'\t\n\u000B\f\r \u00A0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF') AS "name"
+  WHERE "name" IN ('console', 'comments-read', 'comments-write', 'comments-resolve', 'comments-delete')
+);
 ```
 :::
 ::
@@ -147,7 +155,7 @@ cat site-access-cleanup.sql | pnpm vitehub database sql
 cat site-access-cleanup.sql | pnpm vitehub database sql --remote --stage production
 ```
 
-The SQL keeps the other roles of a member, such as `admin` or `user`, and sets `role` to `NULL` when no role stays. A member that Site access made from an email keeps the user row, without the Site access roles. Delete these users in the Auth section of the Console if you do not need them. D1 does not accept `BEGIN` and `COMMIT`, so the SQL has no transaction. `vitehub database sql` stops at the first error, and you can run the SQL again after you fix it.
+The SQL keeps the other roles of a member, such as `admin` or `user`, as they are written, and sets `role` to `NULL` when no role stays. A member that Site access made from an email keeps the user row, without the Site access roles. Delete these users in the Auth section of the Console if you do not need them. D1 does not accept `BEGIN` and `COMMIT`, so the SQL has no transaction. `vitehub database sql` stops at the first error, and you can run the SQL again after you fix it.
 
 ## Drop the usage tables
 

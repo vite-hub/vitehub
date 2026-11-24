@@ -41,17 +41,26 @@ function appDatabase(): DatabaseSync {
   user.run("super", "Jo", "jo@example.com", 1, "super admin,  console")
   user.run("padded", "Kim", "kim@example.com", 1, " console ")
   user.run("twice", "Lu", "lu@example.com", 1, "console,console")
+  user.run("padded-admin", "Max", "max@example.com", 1, "user,  admin, console")
+  user.run("tabbed", "Nia", "nia@example.com", 1, "user,\tconsole\t")
+  user.run("uuid-v1", "Oli", "guest-6ba7b810-9dad-11d1-80b4-00c04fd430c8@guests.invalid", 1, "user")
+  user.run("uuid-v4", "Pat", "guest-3f2c1e9a-7b4d-4c8e-9f1a-2b3c4d5e6f70@guests.invalid", 1, "user")
   user.run("guest-old", "Old guest", "guest-6f1c9a52-0d7e-4c6b-9a8f-1b2c3d4e5f60@guests.invalid", 0, "guest,comments-read")
   user.run("guest-new", "New guest", "guest-0b7f2d4e-8a1c-4e3f-9b6d-2c5a7e9f1d30@guests.invalid", 0, "guest,console")
   session.run("s-admin", "t1", "admin")
   session.run("s-plain", "t2", "plain")
   session.run("s-customer", "t5", "customer")
+  session.run("s-uuid-v1", "t6", "uuid-v1")
+  session.run("s-uuid-v4", "t7", "uuid-v4")
   session.run("s-guest-old", "t3", "guest-old")
   session.run("s-guest-new", "t4", "guest-new")
   account.run("a-admin", "gh-1", "github", "admin")
   account.run("a-plain", "plain", "credential", "plain")
   account.run("a-customer", "customer", "credential", "customer")
   account.run("a-guest-new", "guest-new", "vitehub-site-guest", "guest-new")
+  account.run("a-guest-old", "guest-old", "vitehub-site-guest", "guest-old")
+  account.run("a-uuid-v1", "uuid-v1", "credential", "uuid-v1")
+  account.run("a-uuid-v4", "uuid-v4", "credential", "uuid-v4")
   return db
 }
 
@@ -72,15 +81,19 @@ const expected = {
     { id: "member", role: null },
     { id: "own-roles", role: "user,consoleadmin,comments" },
     { id: "padded", role: null },
+    { id: "padded-admin", role: "user,  admin" },
     { id: "plain", role: null },
     { id: "regional", role: "regional manager" },
     { id: "spaced", role: "admin" },
     { id: "super", role: "super admin" },
+    { id: "tabbed", role: "user" },
     { id: "twice", role: null },
+    { id: "uuid-v1", role: "user" },
+    { id: "uuid-v4", role: "user" },
     { id: "writer", role: "user" },
   ],
-  sessions: ["s-admin", "s-customer", "s-plain"],
-  accounts: ["a-admin", "a-customer", "a-plain"],
+  sessions: ["s-admin", "s-customer", "s-plain", "s-uuid-v1", "s-uuid-v4"],
+  accounts: ["a-admin", "a-customer", "a-plain", "a-uuid-v1", "a-uuid-v4"],
   tables: ["account", "session", "user"],
 }
 
