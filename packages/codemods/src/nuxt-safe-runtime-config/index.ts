@@ -16,6 +16,7 @@ import { rewriteCallSites } from "./call-sites.ts"
 import { editNuxtConfig } from "./config-edit.ts"
 import { planFromEnvFile, readEnvFileKeys } from "./env-file.ts"
 import { pathLabel } from "./fields.ts"
+import { assertNotNitro2 } from "./nitro-config.ts"
 import { loadSchemaModule, moduleName, readRuntimeConfig, readStaticOptions } from "./nuxt-config.ts"
 import { planFromJsonSchema, schemaIssues, schemaToJsonSchema } from "./schema.ts"
 import { planSchemaModule, renderSchemaModule } from "./schema-module.ts"
@@ -161,6 +162,7 @@ async function findOutOfScopeConfigs(cwd: string, rootConfig: NuxtConfigFile): P
 }
 
 async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
+  await assertNotNitro2(cwd, moduleName)
   const config = await readNuxtConfig(cwd)
   const moduleEntry = findModuleEntry(config, moduleName)
   const safeProperty = findProperty(config.root, "safeRuntimeConfig")
