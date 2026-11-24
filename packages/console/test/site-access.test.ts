@@ -126,6 +126,28 @@ describe("Site access in the Console", () => {
     expect(app.calls).toEqual([])
   })
 
+  it("lets only owners and admins invite and remove hosted Comments guests", async () => {
+    const { client, project, api } = await setup()
+    const created = await api("POST", "/invites", { name: "Grace", grants: ["comments-write"], expiresInDays: 1 }, "comments-access")
+    expect(created.status).toBe(201)
+    await client.execute({ sql: "insert into member (id, organization_id, user_id, role, created_at) values (?, ?, ?, ?, ?)", args: ["m2", "t-ada", "u-bob", "member", Date.now()] })
+    const { key } = (await createConsoleApiKey(state.db as ConsoleDatabase, { userId: "u-bob", teamId: "t-ada", name: "Bob" }))!
+    const asBob = async (method: string, path: string, body?: unknown) => {
+      const request = new Request(`${consoleOrigin}/api/projects/${project.id}/comments-access${path}`, { method, headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
+      return (path ? commentsApi : commentsOverview).fetch(request)
+    }
+    expect((await asBob("GET", "")).status).toBe(200)
+    const invite = (created.body.invite as { id: string }).id
+    for (const [method, path, body] of [["POST", "/invites", { name: "Eve", grants: ["comments-resolve", "comments-write"], expiresInDays: 30 }], ["DELETE", `/invites/${invite}`], ["DELETE", "/sessions/any"]] as const) {
+      const response = await asBob(method, path, body)
+      expect(response.status, `${method} ${path}`).toBe(403)
+      expect(await response.json()).toMatchObject({ code: "CONSOLE_SITE_FORBIDDEN" })
+    }
+    expect((await api("GET", "", undefined, "comments-access")).body.invites).toMatchObject([{ id: invite }])
+    await client.execute({ sql: "update member set role = 'admin' where id = 'm2'", args: [] })
+    expect((await asBob("DELETE", `/invites/${invite}`)).status).toBe(200)
+  })
+
   it("opens a guest invite once, and signs tokens with the roles of the invite", async () => {
     const { client, project, api } = await setup()
     const created = await api("POST", "/invites", { name: "Grace", grants: ["comments-write"], expiresInDays: 7, path: "/docs" })

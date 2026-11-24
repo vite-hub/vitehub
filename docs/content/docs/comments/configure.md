@@ -91,11 +91,11 @@ Hosted Comments works on any site that can load a script. The Console signs revi
   data-vitehub-comments="PROJECT_ID"></script>
 ```
 
-Use the project ID from the Console. If your site sets a Content Security Policy, allow the Console origin in `script-src` and `frame-src`.
+Use the project ID from the Console. If your site sets a Content Security Policy, allow the Console origin in `script-src` and `frame-src`, and allow inline styles in `style-src`: the embed adds its styles inside its shadow root.
 
 Open the site with `?vitehub` and choose **Comments** to sign in. Team members can start threads, reply, and resolve them. Hosted Comments starts with its own thread history. Confirming an unlink permanently deletes that project's hosted threads and replies.
 
-Use **Guest access** below the script to create a one-time invite. You can revoke an invite or a guest's access from the same menu.
+Owners and admins of the team use **Guest access** below the script to create a one-time invite. They can revoke an invite or a guest's access from the same menu.
 
 ## Decide who can comment
 

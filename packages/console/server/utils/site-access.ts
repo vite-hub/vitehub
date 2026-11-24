@@ -21,7 +21,7 @@ import {
   sitePassSetCookie,
   siteTokenLocation,
 } from "../../src/site-access.ts"
-import { callProjectOperation, consoleCallerUser, consoleJson, consoleProblem, consoleTeamCaller, projectNotFound, useConsoleProjects } from "./console.ts"
+import { callProjectOperation, canManageProjects, consoleCallerUser, consoleJson, consoleProblem, consoleTeamCaller, projectNotFound, useConsoleProjects } from "./console.ts"
 
 import type { SiteAccessPolicy } from "@vite-hub/internal/site-token"
 import type { ConsoleSiteGrantRow, ConsoleSitePerson } from "../../src/site-access.ts"
@@ -197,6 +197,7 @@ export async function consoleSiteRoute(request: Request, caller: ConsoleTeamCall
   if (hosted && (route === "POST codes" || route === "POST token")) return consoleProblem(404, "NOT_FOUND", "Not found.")
   const project = await caller.projects.get(decodeURIComponent(rawId!))
   if (!project) return projectNotFound()
+  if (hosted && route !== "GET " && !canManageProjects(caller)) return consoleProblem(403, "CONSOLE_SITE_FORBIDDEN", "Only owners and admins of the team invite and remove Comments guests.")
   const policy: SiteAccessPolicy | Response = hosted ? { write: true, roles: hostedCommentGuestRoles } : await sitePolicy(caller, project.id, route !== "GET ")
   if (policy instanceof Response) return policy
   const db = useDatabase("default").db

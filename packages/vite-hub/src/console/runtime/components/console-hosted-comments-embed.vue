@@ -2,12 +2,13 @@
 import { CodeBlock, CodeBlockActions, CodeBlockContent, CodeBlockCopyButton, CodeBlockHeader, CodeBlockTitle } from "@vite-hub/ui";
 import { computed, ref } from "vue";
 
-import { useConsoleProjects } from "../client/project-session";
+import { canManageConsoleProjects, useConsoleProjects } from "../client/project-session";
 import { grantSummary, inviteHostedCommentsGuest, readHostedCommentsAccess, revokeHostedCommentsAccess } from "../client/site-access";
 import { useConsoleToast } from "../client/toast";
 
 const props = defineProps<{ projectId: string }>();
-const { pageOrigin } = useConsoleProjects();
+const { account, pageOrigin } = useConsoleProjects();
+const manage = computed(() => account.value ? canManageConsoleProjects(account.value) : false);
 const toast = useConsoleToast();
 const code = computed(() => `<script type="module" src="${pageOrigin}/hosted-comments.js" data-vitehub-comments="${props.projectId}"><${"/script"}>`);
 const access = ref<Awaited<ReturnType<typeof readHostedCommentsAccess>>>();
@@ -68,7 +69,8 @@ function opened(event: Event): void {
     </CodeBlock>
     <details class="grid gap-3" @toggle="opened">
       <summary class="cursor-pointer text-sm font-medium text-highlighted">Guest access</summary>
-      <form class="mt-3 grid gap-3" @submit.prevent="invite">
+      <p v-if="!manage" class="mt-3 text-sm text-muted">Owners and admins of the team invite and remove guests.</p>
+      <form v-else class="mt-3 grid gap-3" @submit.prevent="invite">
         <div class="flex flex-wrap items-end gap-2">
           <UFormField label="Guest name" required>
             <UInput v-model="name" maxlength="64" required />
@@ -92,11 +94,11 @@ function opened(event: Event): void {
       <ul v-if="access" class="mt-3 divide-y divide-default">
         <li v-for="item in access.invites" :key="item.id" class="flex items-center justify-between gap-2 py-2 text-sm">
           <span>{{ item.name }} · Open invite · {{ grantSummary("guest", item.grants, access.grants) }}</span>
-          <UButton label="Revoke" :aria-label="`Revoke the invite for ${item.name}`" color="neutral" variant="ghost" size="xs" :disabled="busy" @click="run(() => revokeHostedCommentsAccess(projectId, 'invites', item.id))" />
+          <UButton v-if="manage" label="Revoke" :aria-label="`Revoke the invite for ${item.name}`" color="neutral" variant="ghost" size="xs" :disabled="busy" @click="run(() => revokeHostedCommentsAccess(projectId, 'invites', item.id))" />
         </li>
         <li v-for="item in access.sessions" :key="item.id" class="flex items-center justify-between gap-2 py-2 text-sm">
           <span>{{ item.person.name }} · {{ item.device }} · {{ grantSummary("guest", item.grants, access.grants) }}</span>
-          <UButton label="Revoke" :aria-label="`Revoke access for ${item.person.name}`" color="neutral" variant="ghost" size="xs" :disabled="busy" @click="run(() => revokeHostedCommentsAccess(projectId, 'sessions', item.id))" />
+          <UButton v-if="manage" label="Revoke" :aria-label="`Revoke access for ${item.person.name}`" color="neutral" variant="ghost" size="xs" :disabled="busy" @click="run(() => revokeHostedCommentsAccess(projectId, 'sessions', item.id))" />
         </li>
       </ul>
     </details>
