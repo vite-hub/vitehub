@@ -214,9 +214,16 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
     status: () => currentStatus,
     saveStatus: () => synced ? readRealtimeStatus(document) : undefined,
     setLocal(field, value) {
-      if (value === null) delete localState[field]
-      else localState[field] = value
-      provider.awareness.setLocalStateField(field, value)
+      if (value !== null) {
+        localState[field] = value
+        provider.awareness.setLocalStateField(field, value)
+        return
+      }
+      delete localState[field]
+      const state = provider.awareness.getLocalState()
+      if (!state || !Object.hasOwn(state, field)) return
+      const { [field]: _removed, ...rest } = state
+      provider.awareness.setLocalState(rest)
     },
     notify(change) {
       if (!changes) return
