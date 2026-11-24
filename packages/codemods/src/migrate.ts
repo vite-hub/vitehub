@@ -8,6 +8,7 @@ import { codemods } from "./registry.ts"
 import { applyEdit, checkEditPath, editLabel } from "./runner.ts"
 import { readDependencies } from "./shared/detect.ts"
 import { findNuxtConfigName, readNuxtConfig } from "./shared/nuxt-config.ts"
+import { nodeVersionNote } from "./shared/node-version.ts"
 import { codemodError, isCodemodError } from "./error-diagnostics.ts"
 
 import type { Codemod, CodemodResult, Detection, FileEdit, FollowUp } from "./types.ts"
@@ -132,6 +133,8 @@ export async function runMigration(options: RunMigrationOptions = {}): Promise<M
     else if (!existsSync(join(cwd, "package.json"))) throw codemodError(`Cannot find package.json or nuxt.config in ${cwd}. Pass the app directory as the first argument.`)
     return { cwd, dryRun, steps, edits: [], warnings, supported }
   }
+  const nodeNote = nodeVersionNote()
+  if (nodeNote) warnings.push(nodeNote)
   const touched = new Set<string>()
   const scratch = await mkdtemp(join(cwd, `${scratchFolder}-`))
   try {
