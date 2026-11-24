@@ -70,9 +70,8 @@ describe("Plugin order with the Nitro Vite plugin", () => {
       await withBuiltServer(root, async (fetchServer) => {
         const page = await fetchServer("/_vitehub", { redirect: "manual" })
         expect(page.status).toBe(303)
-        const entry = new URL(page.headers.get("location")!, publicUrl)
-        expect(`${entry.pathname}?${entry.searchParams}`).toBe("/_vitehub/site?return=%2F")
-        const site = await fetchServer(`${entry.pathname}${entry.search}`, { redirect: "manual" })
+        expect(page.headers.get("location")).toBe("/_vitehub/site?return=%2F")
+        const site = await fetchServer("/_vitehub/site?return=%2F", { redirect: "manual" })
         expect(site.status).toBe(303)
         const target = new URL(site.headers.get("location")!)
         expect(`${target.origin}${target.pathname}`).toBe("https://console.vitehub.dev/visit")
