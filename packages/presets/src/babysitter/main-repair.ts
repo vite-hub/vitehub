@@ -131,7 +131,8 @@ export async function repairBaseBranch(
       event("waiting", { head, reason: runs.length ? "ci-running" : "no-ci-run" });
       return { state: "waiting", head, reason: runs.length ? "ci-running" : "no-ci-run" };
     }
-    const stale = await openRepairs();
+    const tipPassed = runs.every(run => run.conclusion === "success");
+    const stale = tipPassed ? (await openRepairs()).filter(pull => /^[0-9a-f]{8}$/.test(pull.head.ref.slice(branchPrefix.length))) : [];
     for (const pull of stale) {
       await github.write(`repos/${repository}/issues/${pull.number}/comments`, { body: `${base} is green at ${head}, so this repair is no longer needed. Closed by the Babysitter.` });
       await github.write(`repos/${repository}/pulls/${pull.number}`, { state: "closed" }, "PATCH");

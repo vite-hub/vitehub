@@ -99,13 +99,22 @@ describe("Babysitter main repair", () => {
   it("closes a repair PR that is still open once the default branch is green", async () => {
     const { outcome, writes } = await check({
       runs: [run(1, "ci", tip, "success"), run(2, "pkg.pr.new", tip, "success")],
-      openPulls: [pull(40, `${prefix}bbbbbbbb`), pull(41, "feature")],
+      openPulls: [pull(40, `${prefix}bbbbbbbb`), pull(41, "feature"), pull(42, `${prefix}sidebar`)],
     });
     expect(outcome).toEqual({ state: "green", head: tip, closed: [40] });
     expect(writes).toEqual([
       { path: `repos/${repository}/issues/40/comments`, body: { body: expect.stringContaining(`main is green at ${tip}`) } },
       { path: `repos/${repository}/pulls/40`, body: { state: "closed" }, method: "PATCH" },
     ]);
+  });
+
+  it("keeps the repair PR open when the tip's watched run was cancelled", async () => {
+    const { outcome, writes } = await check({
+      runs: [run(1, "ci", tip, "cancelled"), run(2, "ci", older, "success", "2026-11-13T10:00:00Z")],
+      openPulls: [pull(40, `${prefix}bbbbbbbb`)],
+    });
+    expect(outcome).toEqual({ state: "green", head: tip });
+    expect(writes).toEqual([]);
   });
 
   it("falls back to the newest finished run of each workflow after the last merged repair", async () => {
