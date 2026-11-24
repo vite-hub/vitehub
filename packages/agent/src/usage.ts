@@ -1,6 +1,7 @@
 import * as v from "valibot"
 
-import { invariant, invariantError } from "@vite-hub/internal/invariant"
+import { invariantError } from "@vite-hub/internal/invariant"
+import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 import { isRuntimeRecord } from "./internal/runtime-type.ts"
 import { agentUsageCostParts, agentUsageFractionDigits, agentUsageMetrics, agentUsageStatement } from "./invocations/usage-sql.ts"
@@ -892,7 +893,7 @@ export async function readAgentUsage(
   settings: { table?: string } = {},
 ): Promise<AgentUsageSummary> {
   const table = settings.table ?? "vitehub_agent_invocations"
-  invariant(/^[A-Za-z_]\w*$/.test(table), "the Agent journal table is an SQL identifier")
+  if (!/^[A-Za-z_]\w*$/.test(table)) throw agentDiagnostics.AGENT_INVOCATIONS_TABLE_PREFIX_INVALID()
   const ids = options.search === undefined ? undefined : await searchedUsageIds(client, table, options, period)
   const { rows } = await client.execute(agentUsageStatement(table, options, period, ids))
   let totals = emptyUsageTotal()
