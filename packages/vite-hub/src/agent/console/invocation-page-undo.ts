@@ -1,8 +1,9 @@
 import { invocationPageChanges } from "@vite-hub/agent"
 
-import { consoleHttpError } from "./http-error.ts"
-import { getConsoleInvocations } from "./invocations.ts"
-import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
+import { consoleState } from "../../console/internal.ts"
+import { consoleHttpError } from "../../console/runtime/server/http-error.ts"
+import { getConsoleInvocations } from "../../console/runtime/server/invocations.ts"
+import { viteHubErrorDiagnostics } from "../../error-diagnostics.ts"
 
 import type { OperationContext } from "@vite-hub/internal/operations"
 
@@ -32,8 +33,9 @@ export async function undoConsolePageChange(input: { change: string, id: string 
   if (!record) throw consoleHttpError(404, viteHubErrorDiagnostics.VITE_HUB_R0054({ message: "Invocation not found" }))
   const change = invocationPageChanges(record.observations).pageChanges.find(item => item.id === input.change)
   if (!change) throw actionError(404, `This Invocation has no page change ${JSON.stringify(input.change)}. Read the change ids with \`vitehub agent invocations get ${input.id}\`.`)
-  const { agentRealtime } = await import("@vite-hub/realtime/agent")
-  if (!agentRealtime.available()) throw actionError(409, "This app has no Realtime, so it cannot reach the page.")
+  const loadRealtime = consoleState().agentRealtime
+  const agentRealtime = loadRealtime ? (await loadRealtime()).agentRealtime : undefined
+  if (!agentRealtime?.available()) throw actionError(409, "This app has no Realtime, so it cannot reach the page.")
   const [error, answer] = await agentRealtime.request("agent-pages", change.page, { method: "undo", input: { change: change.id } }, { timeout: 30_000, user: change.user === "anonymous" ? null : change.user })
   const page = answer && typeof answer === "object" ? answer : {}
   const restored = !error && "ok" in page && page.ok === true

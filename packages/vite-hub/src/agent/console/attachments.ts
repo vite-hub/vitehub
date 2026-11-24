@@ -1,7 +1,7 @@
 import * as v from "valibot"
 import { createMessage } from "@vite-hub/agent"
-import { getConsoleBlob } from "./blob.ts"
-import { consoleHttpError } from "./http-error.ts"
+import { getConsoleBlob } from "../../console/runtime/server/blob.ts"
+import { consoleHttpError } from "../../console/runtime/server/http-error.ts"
 import { isConsoleAttachmentPendingCleanup, consoleAttachmentPrefix as prefix, legacyConsoleAttachmentPrefix, retryConsoleAttachmentCleanup, rollbackConsoleAttachments } from "./attachment-cleanup.ts"
 import type { ImagePart } from "@vite-hub/agent"
 
@@ -9,7 +9,7 @@ const uploadSchema = v.object({ files: v.pipe(v.array(v.object({ url: v.string()
 const attachmentIdsSchema = v.pipe(v.array(v.object({ id: v.pipe(v.string(), v.uuid()), name: v.pipe(v.string(), v.maxLength(255)) })), v.maxLength(10))
 
 const maximumBytes = 10 * 1024 * 1024
-export { consoleAttachmentRequestBytes } from "./limits.ts"
+export { consoleAttachmentRequestBytes } from "../../console/runtime/server/limits.ts"
 const imageTypes = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"])
 
 function error(statusCode: number, message: string): Error {

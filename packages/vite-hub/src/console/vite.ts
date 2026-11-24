@@ -15,6 +15,7 @@ import { insertConsoleSection, type ConsoleSectionId } from "./runtime/sections.
 
 import { discoverConsoleBuildCatalog } from "./build.ts"
 import { consoleRuntimeRoot, writeConsoleAppModule, type ConsoleAccessBuild, type ConsoleAppModuleOptions } from "./app-module.ts"
+import { loadConsoleOperations } from "./operation-modules.ts"
 import { serializeConsoleRefresh } from "./refresh.ts"
 import { addConsoleRpcHandler } from "./nitro.ts"
 import { resolveConsoleSiteAccess, type ConsoleSiteComments } from "./site-access.ts"
@@ -298,6 +299,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       development,
       invoke,
       name: options.name,
+      operationSections: options.operationSections,
       runtimeCapabilityImports: options.runtimeCapabilityImports,
       sections,
       ...(development ? {} : { target: { ...(options.host ? { host: options.host } : {}), framework: { name: "nitro" as const, ...(nitroVersion ? { version: nitroVersion } : {}) } } }),
@@ -522,8 +524,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
 export function consoleOperationContributions(sections: () => readonly string[]): OperationContributionEntry[] {
   return [{
     export: "consoleOperations",
-    // An app without a Database gets no `vitehub database` commands.
-    load: async () => (await import("./runtime/server/operations.ts")).consoleOperations.filter(operation => sections().includes("databases") || !operation.name.startsWith("databases.")),
+    load: async () => (await loadConsoleOperations()).filter(operation => sections().includes("databases") || !operation.name.startsWith("databases.")),
     module: "vite-hub/console/server",
     runtime: false,
   }]

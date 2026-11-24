@@ -6,7 +6,7 @@ import { resolveDefaultAgentInvocations } from "@vite-hub/agent/invocations/app"
 
 import type { Value } from "@libsql/client"
 import type { DefaultAgentInvocationsD1Database } from "@vite-hub/agent/internal/default-invocations-core"
-import type { ConsoleUsageClient, createConsoleUsageIndex } from "./usage-index.ts"
+import type { ConsoleUsageClient, createConsoleUsageIndex } from "../../../agent/console/usage-index.ts"
 import type { AgentInvocations } from "@vite-hub/agent"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
@@ -35,7 +35,7 @@ function createUsageIndex(invocations: AgentInvocations): ConsoleUsageIndex | un
   if (!database) return undefined
   if (database.driver === "libsql") {
     let index: Promise<ConsoleUsageIndex> | undefined
-    const open = () => index ??= Promise.all([database.open(), import("./usage-index.ts")]).then(([client, { createConsoleUsageIndex }]) => createConsoleUsageIndex(client)).catch((error: unknown) => {
+    const open = () => index ??= Promise.all([database.open(), import("../../../agent/console/usage-index.ts")]).then(([client, { createConsoleUsageIndex }]) => createConsoleUsageIndex(client)).catch((error: unknown) => {
       // Let the next read try again.
       index = undefined
       throw error
@@ -53,7 +53,7 @@ function createUsageIndex(invocations: AgentInvocations): ConsoleUsageIndex | un
   const indexes = new WeakMap<DefaultAgentInvocationsD1Database, ConsoleUsageIndex>()
   const open = async () => {
     const binding = await database.open()
-    const { createConsoleUsageIndex } = await import("./usage-index.ts")
+    const { createConsoleUsageIndex } = await import("../../../agent/console/usage-index.ts")
     let index = indexes.get(binding)
     if (!index) {
       index = createConsoleUsageIndex(d1UsageClient(binding), { requestScoped: true })

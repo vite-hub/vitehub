@@ -43,7 +43,7 @@ it("paginates Console usage in Cloudflare without Node compatibility", async () 
         type: "ESModule",
         path: resolve(root, "worker.mjs"),
         contents: `
-          import { usageCursor, usageQueryWindow } from "./src/console/runtime/server/usage.ts";
+          import { usageCursor, usageQueryWindow } from "./src/agent/console/usage.ts";
           export default {
             async fetch(request) {
               const query = await request.json();
@@ -56,10 +56,10 @@ it("paginates Console usage in Cloudflare without Node compatibility", async () 
           };
         `,
       },
-      await sourceModule("src/console/runtime/server/usage.ts"),
+      await sourceModule("src/agent/console/usage.ts"),
       await sourceModule("src/error-diagnostics.ts"),
       ...await consoleHttpErrorModules(),
-      { type: "ESModule", path: resolve(root, "src/console/runtime/server/valibot"), contents: await readFile(new URL(import.meta.resolve("valibot")), "utf8") },
+      { type: "ESModule", path: resolve(root, "src/agent/console/valibot"), contents: await readFile(new URL(import.meta.resolve("valibot")), "utf8") },
       { type: "ESModule", path: resolve(root, "src/nostics"), contents: await readFile(new URL(import.meta.resolve("nostics")), "utf8") },
     ],
   });
@@ -93,7 +93,7 @@ it("queries a cached usage index across concurrent D1 Worker requests", async ()
         type: "ESModule",
         path: resolve(root, "worker.mjs"),
         contents: `
-          import { createConsoleUsageIndex } from "./src/console/runtime/server/usage-index.ts";
+          import { createConsoleUsageIndex } from "./src/agent/console/usage-index.ts";
           let index;
           export default {
             async fetch(request, env) {
@@ -107,10 +107,10 @@ it("queries a cached usage index across concurrent D1 Worker requests", async ()
           };
         `,
       },
-      await sourceModule("src/console/runtime/server/usage-index.ts"),
+      await sourceModule("src/agent/console/usage-index.ts"),
       {
         type: "ESModule",
-        path: resolve(root, "src/console/runtime/server/@vite-hub/internal/invariant"),
+        path: resolve(root, "src/agent/console/@vite-hub/internal/invariant"),
         contents: (await build({
           bundle: true,
           format: "esm",
@@ -119,12 +119,12 @@ it("queries a cached usage index across concurrent D1 Worker requests", async ()
           write: false,
         })).outputFiles[0]!.text,
       },
-      await sourceModule("src/console/runtime/server/usage.ts"),
+      await sourceModule("src/agent/console/usage.ts"),
       await sourceModule("src/error-diagnostics.ts"),
       ...await consoleHttpErrorModules(),
       {
         type: "ESModule",
-        path: resolve(root, "src/console/runtime/server/valibot"),
+        path: resolve(root, "src/agent/console/valibot"),
         contents: await readFile(new URL(import.meta.resolve("valibot")), "utf8"),
       },
       {

@@ -2,10 +2,10 @@ import type { AuthConsole, AuthConsoleErrorCode, AuthConsoleHostOptions, AuthCon
 import type { OperationContext } from "@vite-hub/internal/operations";
 import type { Result, ResultError } from "@vite-hub/runtime";
 import { getAuthConsoleForRequest } from "@vite-hub/auth/server";
-import { consoleImpersonation, consolePerson, type ConsoleAccess } from "./access.ts";
-import { consoleRequestError, type ConsoleRequestEvent } from "./request.ts";
-import { getConsoleSections } from "./sections.ts";
-import type { ConsoleTicket } from "./tickets.ts";
+import { consoleImpersonation, consolePerson, type ConsoleAccess } from "../../console/runtime/server/access.ts";
+import { consoleRequestError, type ConsoleRequestEvent } from "../../console/runtime/server/request.ts";
+import { getConsoleSections } from "../../console/runtime/server/sections.ts";
+import type { ConsoleTicket } from "../../console/runtime/server/tickets.ts";
 
 const statuses: Record<AuthConsoleErrorCode, number> = {
   AUTH_CONSOLE_INVALID_REQUEST: 400,
@@ -79,7 +79,7 @@ export async function runAuthConsoleAction(context: AuthOperationContext, mutati
  */
 export async function issueImpersonationTicket(context: AuthOperationContext, userId?: string): Promise<ConsoleTicket> {
   if (!consoleImpersonation()) throw consoleRequestError(404, "Impersonation is off. Set console.impersonation to true to enable it.");
-  const { issueConsoleTicket } = await import("./tickets.ts");
+  const { issueConsoleTicket } = await import("../../console/runtime/server/tickets.ts");
   if (userId === undefined) return await issueConsoleTicket(context, "auth.stop-impersonating", {});
   const { api, request } = await operationAuthConsole(context);
   const [describeError, description] = await api.describe(request);

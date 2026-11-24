@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { consoleRequestError, consoleRoute } from "../src/console/runtime/server/request.ts"
-import statusRoute from "../src/console/runtime/server/status.get.ts"
+import statusRoute from "../src/agent/console/status.get.ts"
 
 afterEach(() => {
   installConsoleAccess({ mode: "open" })

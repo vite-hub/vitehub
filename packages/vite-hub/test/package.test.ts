@@ -612,7 +612,7 @@ describe("framework package contract", () => {
     );
     expect(consoleSessionCss).toContain("padding: 0.75rem 0 1.5rem;");
     expect(consolePage).not.toContain("/api/health");
-    expect(existsSync(`${packageRoot}/dist/console/runtime/server/status.get.js`)).toBe(true);
+    expect(existsSync(`${packageRoot}/dist/agent/console/status.get.js`)).toBe(true);
     expect(consolePage).toContain("agentInvocationTitle");
     expect(consoleSessionNavbar).toContain("<UDashboardNavbar");
     expect(consoleSessionNavbar).toContain('class="md:hidden"');

@@ -8,6 +8,7 @@ import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
 import { installConsoleEnv } from "../src/console/runtime/server/env.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
+import { installViteHubConsoleOperations } from "./support/console-operations.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 
 const projectRoot = "/console-empty-sections-test"
@@ -27,6 +28,10 @@ function call(operation: string) {
     method: "POST",
   }))
 }
+
+beforeEach(async () => {
+  await installViteHubConsoleOperations()
+})
 
 it("hides empty sections through RPC while keeping their readers available", async () => {
   const sections = await call("sections.list")

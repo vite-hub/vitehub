@@ -1,18 +1,18 @@
 import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import * as v from "valibot";
-import { getLogSource } from "../../../logs/host.ts";
+import { getLogSource } from "../host.ts";
 import {
   isLogCursorExpiredError,
   logPageSchema,
   logSourceInfoSchema,
   parseLogQuery,
-} from "../../../logs/source.ts";
-import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts";
-import { assertConsoleRequest, consoleRequestURL, consoleRoute } from "./request.ts";
-import { consoleHttpError } from "./http-error.ts";
-import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts";
-import type { ConsoleRequestEvent, ConsoleRoute } from "./request.ts";
-import type { LogPage, LogSourceInfo } from "../../../logs/source.ts";
+} from "../source.ts";
+import { withConsoleAccess, type ConsoleAccessRoute } from "../../console/runtime/server/access.ts";
+import { assertConsoleRequest, consoleRequestURL, consoleRoute } from "../../console/runtime/server/request.ts";
+import { consoleHttpError } from "../../console/runtime/server/http-error.ts";
+import { viteHubErrorDiagnostics } from "../../error-diagnostics.ts";
+import type { ConsoleRequestEvent, ConsoleRoute } from "../../console/runtime/server/request.ts";
+import type { LogPage, LogSourceInfo } from "../source.ts";
 
 /** A Logs failure that names its own code, which the route answers with. */
 function isLogsDiagnostic(error: unknown): error is Error & { code: string } {

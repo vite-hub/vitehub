@@ -1,13 +1,13 @@
-import { getConsoleAgentDefinition, getConsoleAgents } from "./agents.ts";
-import { getConsoleInvocations, getConsoleUsageIndex } from "./invocations.ts";
-import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts";
-import { assertConsoleRequest, consoleRequestURL, consoleRoute } from "./request.ts";
-import { consoleHttpError } from "./http-error.ts";
+import { getConsoleAgentDefinition, getConsoleAgents } from "../../console/runtime/server/agents.ts";
+import { getConsoleInvocations, getConsoleUsageIndex } from "../../console/runtime/server/invocations.ts";
+import { withConsoleAccess, type ConsoleAccessRoute } from "../../console/runtime/server/access.ts";
+import { assertConsoleRequest, consoleRequestURL, consoleRoute } from "../../console/runtime/server/request.ts";
+import { consoleHttpError } from "../../console/runtime/server/http-error.ts";
 import { createUsageSummary, parseConsoleUsageStatus, parseConsoleUsageWindow } from "./usage.ts";
 
-import type { ConsoleRequestEvent, ConsoleRoute } from "./request.ts";
+import type { ConsoleRequestEvent, ConsoleRoute } from "../../console/runtime/server/request.ts";
 import type { AgentInvocations } from "@vite-hub/agent";
-import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts";
+import { viteHubErrorDiagnostics } from "../../error-diagnostics.ts";
 
 const caches = new WeakMap<
   AgentInvocations,

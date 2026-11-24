@@ -1,6 +1,6 @@
 import { useWorkspaceFiles, type ReadonlyWorkspaceFiles } from "@vite-hub/workspace/files"
-import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
-import { assertConsoleRequest, consoleRequestURL } from "./request.ts"
+import { withConsoleAccess, type ConsoleAccessRoute } from "../../console/runtime/server/access.ts"
+import { assertConsoleRequest, consoleRequestURL } from "../../console/runtime/server/request.ts"
 import {
   failure,
   historyMetadata,
@@ -10,8 +10,8 @@ import {
   stringValue,
   type WorkspaceDescriptor,
   type WorkspaceFileResponse,
-} from "./workspace-history.ts"
-import type { ConsoleRequestEvent } from "./request.ts"
+} from "../../console/runtime/server/workspace-history.ts"
+import type { ConsoleRequestEvent } from "../../console/runtime/server/request.ts"
 
 /** The ref that other refs are compared with. */
 const baseRef = "main"

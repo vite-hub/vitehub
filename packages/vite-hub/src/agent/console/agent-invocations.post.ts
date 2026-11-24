@@ -5,16 +5,16 @@ import { createExecutionContext } from "@vite-hub/runtime"
 import { createRuntimeWaitUntilController } from "@vite-hub/runtime/internal/context"
 import * as v from "valibot"
 
-import { decodeAgentRouteParam, encodeAgentRouteParam } from "../console-route.ts"
-import { agentConsole } from "./agent-console.ts"
-import { consoleAgentInvokerProfiles, getConsoleAgentCapabilities, getConsoleAgentDefinition } from "./agents.ts"
-import { consoleAccessInvoker, consoleRequest, withConsoleAccess, type ConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
-import { assertConsoleRequest, consoleRequestJSON, consoleRequestURL, setConsoleResponseStatus } from "./request.ts"
-import { consoleHttpError } from "./http-error.ts"
+import { decodeAgentRouteParam, encodeAgentRouteParam } from "../../console/runtime/console-route.ts"
+import { agentConsole } from "../../console/runtime/server/agent-console.ts"
+import { consoleAgentInvokerProfiles, getConsoleAgentCapabilities, getConsoleAgentDefinition } from "../../console/runtime/server/agents.ts"
+import { consoleAccessInvoker, consoleRequest, withConsoleAccess, type ConsoleAccess, type ConsoleAccessRoute } from "../../console/runtime/server/access.ts"
+import { assertConsoleRequest, consoleRequestJSON, consoleRequestURL, setConsoleResponseStatus } from "../../console/runtime/server/request.ts"
+import { consoleHttpError } from "../../console/runtime/server/http-error.ts"
 
 import type { Message } from "@vite-hub/agent"
-import type { ConsoleRequestEvent } from "./request.ts"
-import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
+import type { ConsoleRequestEvent } from "../../console/runtime/server/request.ts"
+import { viteHubErrorDiagnostics } from "../../error-diagnostics.ts"
 
 const allowedInputKeys = new Set(["prompt", "invokerProfileId", "messages", "attachments", "files"])
 const recordSchema = v.record(v.string(), v.unknown())

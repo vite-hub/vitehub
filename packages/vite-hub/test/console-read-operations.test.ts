@@ -1,7 +1,7 @@
 import { createClient } from "@libsql/client"
 import { drizzle } from "drizzle-orm/libsql"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { operationCliPath } from "@vite-hub/internal/operations"
 
 import { consoleState } from "../src/console/internal.ts"
@@ -9,7 +9,10 @@ import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import { installConsoleDatabase } from "../src/console/runtime/server/database.ts"
-import { consoleOperations } from "../src/console/runtime/server/operations.ts"
+import { consoleOperationModules } from "../src/console/operation-modules.ts"
+import { agentConsoleOperations } from "../src/agent/console/operations.ts"
+import { databaseConsoleOperations } from "../src/database/console/operations.ts"
+import { installViteHubConsoleOperations } from "./support/console-operations.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
@@ -51,13 +54,29 @@ afterEach(() => {
   installConsoleOperations([])
 })
 
+beforeEach(async () => {
+  await installViteHubConsoleOperations()
+})
+
 describe("database operations", () => {
   it("puts the table commands under `vitehub database`", () => {
-    const paths = consoleOperations.filter(operation => operation.name.startsWith("databases.")).map(operation => ({ name: operation.name, ...operationCliPath(operation) }))
+    const paths = databaseConsoleOperations.filter(operation => operation.name.startsWith("databases.")).map(operation => ({ name: operation.name, ...operationCliPath(operation) }))
     expect(paths).toEqual([
       { command: "rows", name: "databases.browse", namespace: "database" },
       { command: "tables", name: "databases.tables", namespace: "database" },
     ])
+  })
+
+  it("serves the operations of the Database module that an app with only the databases section registers", async () => {
+    const enabled = consoleOperationModules.filter(entry => entry.enabled({ documents: false, sections: ["databases"], site: false }))
+    expect(enabled.map(entry => entry.export)).toEqual(["databaseConsoleOperations"])
+    installConsoleOperations([{ operations: (await Promise.all(enabled.map(entry => entry.load()))).flat(), plugin: "vite-hub" }])
+    await install()
+
+    const tables = await call("databases.tables")
+    expect(tables.status).toBe(200)
+    await expect(operationRpcResponseResult(tables)).resolves.toMatchObject({ ok: true, value: { database: "default" } })
+    expect((await call("agents.list")).status).toBe(404)
   })
 
   it("lists the tables with their columns and relationships, and no rows", async () => {
@@ -116,7 +135,7 @@ describe("database operations", () => {
 
 describe("usage operation", () => {
   it("reads the Usage section, and is `vitehub agent usage`", () => {
-    const usage = consoleOperations.find(operation => operation.name === "usage.get")
+    const usage = agentConsoleOperations.find(operation => operation.name === "usage.get")
     expect(usage).toMatchObject({ kind: "read", section: "usage" })
     expect(usage && operationCliPath(usage)).toEqual({ command: "usage", namespace: "agent" })
     expect((usage?.cli || undefined)?.default).toBeUndefined()

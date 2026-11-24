@@ -182,8 +182,8 @@ export async function authConsole(request: Request, event: ConsoleRequestEvent |
 }
 
 /** The Auth failure as a Console error, without loading Auth in a build that has none. */
-export async function authFailure(error: Parameters<typeof import("./auth.ts").authConsoleFailure>[0]): Promise<unknown> {
-  const auth = import.meta.viteHubConsoleAuth === false ? undefined : await import("./auth.ts")
+export async function authFailure(error: Parameters<typeof import("../../../auth/console/auth.ts").authConsoleFailure>[0]): Promise<unknown> {
+  const auth = import.meta.viteHubConsoleAuth === false ? undefined : await import("../../../auth/console/auth.ts")
   return auth ? auth.authConsoleFailure(error) : error
 }
 

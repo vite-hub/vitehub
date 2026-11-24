@@ -1,10 +1,11 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fixture } from "../../auth/test/fixtures/console.ts";
 import { consoleEventsFixture } from "../../auth/test/fixtures/console-events.ts";
 import { authConsoleActionOperations, authConsoleReadOperations } from "../src/console/runtime/auth-operations.ts";
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts";
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts";
 import { changeAuthConsole, readAuthConsole } from "../src/console/runtime/client/auth-management.ts";
+import { installViteHubConsoleOperations } from "./support/console-operations.ts";
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts";
 import { operationRpcBody, operationRpcFetch, operationRpcRequest, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
@@ -45,6 +46,10 @@ async function value(response: Promise<Response>): Promise<unknown> {
   expect(body).toMatchObject({ ok: true });
   return Reflect.get(Object(body), "value");
 }
+
+beforeEach(async () => {
+  await installViteHubConsoleOperations();
+});
 
 describe("Auth Console operations", () => {
   it("rejects read and write access outside the auth section before opening Better Auth", async () => {

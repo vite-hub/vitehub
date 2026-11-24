@@ -1,6 +1,6 @@
-import { getConsoleInvocations } from "./invocations.ts"
-import { consoleHttpError } from "./http-error.ts"
-import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
+import { getConsoleInvocations } from "../../console/runtime/server/invocations.ts"
+import { consoleHttpError } from "../../console/runtime/server/http-error.ts"
+import { viteHubErrorDiagnostics } from "../../error-diagnostics.ts"
 
 /** The capabilities and the triggering people of the recorded invocations, for the `invocations.capabilities` operation. */
 export async function listConsoleInvocationCapabilities(input: { agent?: string }): Promise<{

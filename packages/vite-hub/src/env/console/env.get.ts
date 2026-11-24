@@ -1,11 +1,11 @@
-import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
-import { assertConsoleRequest } from "./request.ts"
-import { consoleHttpError } from "./http-error.ts"
-import { getConsoleSections } from "./sections.ts"
-import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
-import { getConsoleEnv } from "./env.ts"
+import { withConsoleAccess, type ConsoleAccessRoute } from "../../console/runtime/server/access.ts"
+import { assertConsoleRequest } from "../../console/runtime/server/request.ts"
+import { consoleHttpError } from "../../console/runtime/server/http-error.ts"
+import { getConsoleSections } from "../../console/runtime/server/sections.ts"
+import { viteHubErrorDiagnostics } from "../../error-diagnostics.ts"
+import { getConsoleEnv } from "../../console/runtime/server/env.ts"
 import type { ServerEnvDescription } from "@vite-hub/env"
-import type { ConsoleRequestEvent } from "./request.ts"
+import type { ConsoleRequestEvent } from "../../console/runtime/server/request.ts"
 
 /** Returns declaration metadata. The `env.inspect` operation of Env returns the status of each value. */
 async function consoleEnvHandler(event: ConsoleRequestEvent): Promise<ServerEnvDescription> {

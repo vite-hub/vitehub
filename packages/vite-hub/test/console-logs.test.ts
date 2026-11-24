@@ -1,8 +1,9 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createLogBuffer } from "../src/logs/memory.ts";
 import { installLogSource } from "../src/logs/host.ts";
-import logsRoute, { consoleLogsHandler } from "../src/console/runtime/server/logs.get.ts";
+import logsRoute, { consoleLogsHandler } from "../src/logs/console/logs.get.ts";
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts";
+import { installViteHubConsoleOperations } from "./support/console-operations.ts";
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts";
 import type { LogPage, LogSource } from "../src/logs/source.ts";
 import { consoleEvent } from "./console-event.ts";
@@ -11,6 +12,10 @@ import { operationRpcBody, operationRpcResponseResult } from "../../internal/tes
 
 const request = (query = "") => consoleEvent({ url: `http://localhost/_vitehub/api/logs${query}` });
 afterEach(() => installConsoleAccess({ mode: "open" }));
+beforeEach(async () => {
+  await installViteHubConsoleOperations();
+});
+
 describe("Console Logs", () => {
   it("checks section access before querying a source", async () => {
     const buffer = createLogBuffer();

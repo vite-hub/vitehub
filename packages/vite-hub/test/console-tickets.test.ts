@@ -7,6 +7,7 @@ import { installConsoleDocuments } from "../src/console/runtime/server/documents
 import consoleRpcRoute from "../src/console/runtime/server/rpc.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { consoleTicketLifetime, setConsoleTicketStore } from "../src/console/runtime/server/tickets.ts"
+import { installViteHubConsoleOperations } from "./support/console-operations.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 import { consoleTestKey, signedRpcRequest } from "./support/console-signature.ts"
 import { operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
@@ -97,6 +98,10 @@ afterEach(() => {
   Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.tickets"))
   vi.unstubAllEnvs()
   vi.useRealTimers()
+})
+
+beforeEach(async () => {
+  await installViteHubConsoleOperations()
 })
 
 describe("one-time links", () => {

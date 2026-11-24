@@ -1,5 +1,5 @@
-import { getConsoleInvocations } from "./invocations.ts"
-import { consoleHttpError } from "./http-error.ts"
+import { getConsoleInvocations } from "../../console/runtime/server/invocations.ts"
+import { consoleHttpError } from "../../console/runtime/server/http-error.ts"
 import { invocationUsage } from "./usage.ts"
 
 import type {
@@ -9,7 +9,7 @@ import type {
   AgentInvocationSummary,
   AgentInvocations,
 } from "@vite-hub/agent"
-import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
+import { viteHubErrorDiagnostics } from "../../error-diagnostics.ts"
 
 type ConsoleInvocationSummary = AgentInvocationSummary & {
   usage?: ReturnType<typeof invocationUsage>

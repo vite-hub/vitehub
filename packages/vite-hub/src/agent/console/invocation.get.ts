@@ -3,17 +3,17 @@ import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { agentInvocationRerunInput } from "@vite-hub/agent"
 import * as v from "valibot"
 
-import { consoleAgentInvokerProfiles, getConsoleAgentDefinition } from "./agents.ts"
-import { getConsoleInvocations } from "./invocations.ts"
-import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
-import { assertConsoleRequest, consoleRequestError, consoleRequestJSON, consoleRequestURL } from "./request.ts"
-import { consoleHttpError } from "./http-error.ts"
+import { consoleAgentInvokerProfiles, getConsoleAgentDefinition } from "../../console/runtime/server/agents.ts"
+import { getConsoleInvocations } from "../../console/runtime/server/invocations.ts"
+import { withConsoleAccess, type ConsoleAccessRoute } from "../../console/runtime/server/access.ts"
+import { assertConsoleRequest, consoleRequestError, consoleRequestJSON, consoleRequestURL } from "../../console/runtime/server/request.ts"
+import { consoleHttpError } from "../../console/runtime/server/http-error.ts"
 import { invocationUsage } from "./usage.ts"
 
-import type { ConsoleRequestEvent } from "./request.ts"
+import type { ConsoleRequestEvent } from "../../console/runtime/server/request.ts"
 import type { AgentInvocationCancelResult, AgentInvocationDeleteOutcome, AgentInvocationRecord, AgentInvocationRerunUnavailableReason, AgentInvocationSummary } from "@vite-hub/agent"
 import type { TraceEventLogEntry } from "@vite-hub/runtime"
-import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
+import { viteHubErrorDiagnostics } from "../../error-diagnostics.ts"
 
 type ConsoleInvocationRerun =
   | { available: true, invokerProfileId?: string, prompt: string }

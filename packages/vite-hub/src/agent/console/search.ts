@@ -1,6 +1,6 @@
 import { defineCollection } from "@vite-hub/source"
 
-import { getConsoleInvocations } from "./invocations.ts"
+import { getConsoleInvocations } from "../../console/runtime/server/invocations.ts"
 
 import type { AgentInvocationRecord, AgentInvocationSummary } from "@vite-hub/agent"
 import type { StandardSchemaV1 } from "@standard-schema/spec"

@@ -1,10 +1,10 @@
 import { agentHostWorkspaceRoute, getAgentHostWorkspaceInspector } from "@vite-hub/agent/server"
 import { useWorkspaceFiles } from "@vite-hub/workspace/files"
 import * as v from "valibot"
-import { getConsoleAgentDefinition } from "./agents.ts"
-import { getConsoleInvocations } from "./invocations.ts"
-import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
-import { assertConsoleRequest, consoleRequestURL } from "./request.ts"
+import { getConsoleAgentDefinition } from "../../console/runtime/server/agents.ts"
+import { getConsoleInvocations } from "../../console/runtime/server/invocations.ts"
+import { withConsoleAccess, type ConsoleAccessRoute } from "../../console/runtime/server/access.ts"
+import { assertConsoleRequest, consoleRequestURL } from "../../console/runtime/server/request.ts"
 import {
   failure,
   historyMetadata,
@@ -14,8 +14,8 @@ import {
   stringValue,
   type WorkspaceDescriptor,
   type WorkspaceFileResponse,
-} from "./workspace-history.ts"
-import type { ConsoleRequestEvent } from "./request.ts"
+} from "../../console/runtime/server/workspace-history.ts"
+import type { ConsoleRequestEvent } from "../../console/runtime/server/request.ts"
 
 const configurationSchema = v.object({
   workspace: v.object({ name: v.string(), ref: v.optional(v.string()), revision: v.optional(v.string()) }),

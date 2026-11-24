@@ -9,6 +9,8 @@ import { readViteHubPageSession } from "@vite-hub/internal/runtime/page-tools-sh
 
 import { writeConsoleAppModule } from "../src/console/app-module.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access-policy.ts"
+import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
+import { siteAccessOperations } from "../src/console/runtime/server/site-access-operation.ts"
 import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
 import { readConsoleProject } from "../src/console/runtime/server/project.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
@@ -130,6 +132,8 @@ describe("a Console app without Comments", () => {
       const registration = /installConsoleSections\([^,]+, (\[[^\n]*?\])/.exec(generated)
       expect(registration?.[1]).toBe('["kv","site"]')
       installConsoleSections(root, JSON.parse(registration![1]!))
+      expect(generated).toContain("siteAccessOperations")
+      installConsoleOperations([{ operations: siteAccessOperations, plugin: "vite-hub" }])
       const project = await readConsoleProject({ access: { mode: "token", sections: "all" }, surface: "console", user: null })
       expect(project.operations).toContain("site.access")
       await writeConsoleAppModule({ file, projectRoot: root, sections: ["kv"], catalog: { agents: [], content: {} }, blobStores: [], access: { mode: "token", hiddenSections: ["site"] }, site: true })

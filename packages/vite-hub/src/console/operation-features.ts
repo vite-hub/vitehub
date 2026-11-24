@@ -7,15 +7,13 @@ export const consoleOperationFeaturesFilter = { code: "import.meta.viteHubConsol
 
 /**
  * Remove disabled operation loaders before server bundlers follow their optional imports. The document editor and media
- * library code stays only when an installed owner package, such as `@vite-hub/content`, contributes a document editor.
+ * library code stays only when the app configures a document editor section that an owner package, such as
+ * `@vite-hub/content`, contributes.
  */
-export function transformConsoleOperationFeatures(code: string, sections: readonly string[], documents = consoleDocumentEditorSectionIds.length > 0): string | undefined {
+export function transformConsoleOperationFeatures(code: string, sections: readonly string[], documents = consoleDocumentEditorSectionIds.some(section => sections.includes(section))): string | undefined {
   const transformed = code
-    .replaceAll("import.meta.viteHubConsoleOperationSections", JSON.stringify(sections))
     .replaceAll("import.meta.viteHubConsoleAgents", String(sections.includes("agents")))
     .replaceAll("import.meta.viteHubConsoleAuth", String(sections.includes("auth")))
-    .replaceAll("import.meta.viteHubConsoleDatabase", String(sections.includes("databases")))
-    .replaceAll("import.meta.viteHubConsoleWorkspaces", String(sections.includes("workspaces")))
     .replaceAll("import.meta.viteHubConsoleDocuments", String(documents))
   return transformed === code ? undefined : transformed
 }

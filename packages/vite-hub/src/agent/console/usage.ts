@@ -4,8 +4,8 @@ import type {
   AgentInvocations,
 } from "@vite-hub/agent";
 import * as v from "valibot";
-import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts";
-import { consoleHttpError } from "./http-error.ts";
+import { viteHubErrorDiagnostics } from "../../error-diagnostics.ts";
+import { consoleHttpError } from "../../console/runtime/server/http-error.ts";
 
 export interface ConsoleUsageCost {
   display: string;

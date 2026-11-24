@@ -1,10 +1,11 @@
+import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { basename, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { runInNewContext } from "node:vm"
 
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { defineConsoleAuthorize } from "../src/console/auth.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
@@ -14,6 +15,7 @@ import { bindConsoleAccess, consoleRealtimeAccess, installConsoleAccess, withCon
 import { consoleOperationRegistry, handleConsoleRpcRequest } from "../src/console/runtime/server/rpc.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { consoleVitePlugin, resolveConsoleAccessBuild, resolveConsoleOptions, resolveConsoleUrl } from "../src/console/vite.ts"
+import { installViteHubConsoleOperations } from "./support/console-operations.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 import { handleConsoleRpcRequest as handleGuardedRpcRequest } from "./support/console-rpc.ts"
 
@@ -57,20 +59,29 @@ afterEach(() => {
   Reflect.deleteProperty(globalThis, policyKey)
 })
 
+beforeEach(async () => {
+  await installViteHubConsoleOperations()
+})
+
 describe("Console data route contract", () => {
   it("guards every Console data route with withConsoleAccess()", async () => {
-    const files = (await readdir(serverRoot)).filter(file => file.endsWith(".ts")).sort()
+    const sourceRoot = fileURLToPath(new URL("../src/", import.meta.url))
+    const ownerRoots = (await readdir(sourceRoot, { withFileTypes: true }))
+      .filter(entry => entry.isDirectory())
+      .map(entry => join(sourceRoot, entry.name, "console"))
+    const roots = [serverRoot, ...ownerRoots.filter(root => existsSync(root))]
+    const files = (await Promise.all(roots.map(async root => (await readdir(root)).filter(file => file.endsWith(".ts")).map(file => join(root, file))))).flat().sort()
     const routes: string[] = []
     for (const file of files) {
-      if (!/^export default /m.test(await readFile(join(serverRoot, file), "utf8"))) continue
+      if (!/^export default /m.test(await readFile(file, "utf8"))) continue
       routes.push(file)
     }
-    expect(routes).toContain("invocation-workspace.get.ts")
-    expect(routes).toContain("rpc.ts")
+    expect(routes.map(file => basename(file))).toContain("invocation-workspace.get.ts")
+    expect(routes.map(file => basename(file))).toContain("rpc.ts")
 
     for (const file of routes) {
       Reflect.deleteProperty(globalThis, policyKey)
-      const route: unknown = (await import(join(serverRoot, file))).default
+      const route: unknown = (await import(file)).default
       // HTTP routes are Fetchables. Operation handlers are functions of a request event.
       const fetchRoute: unknown = route instanceof Object ? Reflect.get(route, "fetch") : undefined
       const result: unknown = fetchRoute instanceof Function

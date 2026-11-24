@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createAuthConsole } from "../../auth/src/console-runtime.ts"
 import { consoleEventsFixture } from "../../auth/test/fixtures/console-events.ts"
 import { writeConsoleAppModule } from "../src/console/app-module.ts"
@@ -9,6 +9,7 @@ import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import consoleRpcRoute from "../src/console/runtime/server/rpc.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { assertConsoleAccess, resolveConsoleAccessBuild, resolveConsoleOptions } from "../src/console/vite.ts"
+import { installViteHubConsoleOperations } from "./support/console-operations.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 import { consoleTestKey, signedRpcRequest } from "./support/console-signature.ts"
 import { operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
@@ -72,6 +73,10 @@ async function link(response: Response): Promise<string> {
 async function open(url: string, cookie = ""): Promise<Response> {
   return await consoleRpcRoute.fetch(new Request(url, { headers: cookie ? { cookie } : {} }))
 }
+
+beforeEach(async () => {
+  await installViteHubConsoleOperations()
+})
 
 describe("console.impersonation configuration", () => {
   it("accepts only a boolean, needs app Auth, and reaches the generated access policy", async () => {

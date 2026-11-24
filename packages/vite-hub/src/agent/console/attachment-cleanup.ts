@@ -3,7 +3,7 @@ import { vitehubOwnedPrefix } from "@vite-hub/internal/owned-paths"
 import { invariant } from "@vite-hub/internal/invariant"
 import type { BlobStorage } from "@vite-hub/blob"
 
-import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
+import { viteHubErrorDiagnostics } from "../../error-diagnostics.ts"
 
 const consolePrefix = `${vitehubOwnedPrefix}console/`
 export const consoleAttachmentPrefix = `${consolePrefix}attachments/`

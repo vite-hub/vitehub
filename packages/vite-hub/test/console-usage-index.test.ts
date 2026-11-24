@@ -2,9 +2,9 @@ import { createClient } from "@libsql/client";
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server";
 import type { AgentInvocationRecord } from "@vite-hub/agent";
 import { afterEach, describe, expect, it } from "vitest";
-import { createConsoleUsageIndex } from "../src/console/runtime/server/usage-index.ts";
+import { createConsoleUsageIndex } from "../src/agent/console/usage-index.ts";
 import type { Client } from "@libsql/client";
-import { createUsageSummary } from "../src/console/runtime/server/usage.ts";
+import { createUsageSummary } from "../src/agent/console/usage.ts";
 const clients: Client[] = [];
 afterEach(() => {
   for (const client of clients.splice(0)) client.close();

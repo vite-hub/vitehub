@@ -9,6 +9,7 @@ import { installConsoleDevelopment } from "../src/console/runtime/server/develop
 import { consoleOperationRegistry, installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import { installConsolePill } from "../src/console/runtime/server/pill.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
+import { siteAccessOperations } from "../src/console/runtime/server/site-access-operation.ts"
 import siteAccessRoute from "../src/console/runtime/server/site.ts"
 import { consoleEntryRoute, siteEntryPage, siteEntryRoute } from "../src/console/runtime/server/site-entry.ts"
 import { consoleRoutes } from "../src/console/runtime/server/routes.ts"
@@ -310,6 +311,14 @@ describe("the /_vitehub/** route", () => {
 })
 
 describe("site.access", () => {
+  beforeEach(() => {
+    installConsoleOperations([{ operations: siteAccessOperations, plugin: "vite-hub" }])
+  })
+
+  afterEach(() => {
+    installConsoleOperations([])
+  })
+
   async function call(name: string, user: ConsoleCallerUser = ada) {
     const response = await handleConsoleRpcRequest(await signedRpcRequest({ caller: { user, via: "console" }, input: {}, key: key.key, operation: name, url: `${origin}/_vitehub/rpc` }))
     const body: unknown = await operationRpcResponseResult(response)
@@ -331,14 +340,9 @@ describe("site.access", () => {
 
   it("is not registered in an app without Comments, so Agent operations() and the RPC do not have it", async () => {
     installConsoleSections("console-site", ["logs"])
-    installConsoleOperations([], { site: false })
-    try {
-      expect(consoleOperationRegistry().list().map(operation => operation.name)).not.toContain("site.access")
-      expect(Reflect.get(Object((await call("project.get")).value), "operations")).not.toContain("site.access")
-      expect((await call("site.access")).status).toBe(404)
-    }
-    finally {
-      installConsoleOperations([])
-    }
+    installConsoleOperations([])
+    expect(consoleOperationRegistry().list().map(operation => operation.name)).not.toContain("site.access")
+    expect(Reflect.get(Object((await call("project.get")).value), "operations")).not.toContain("site.access")
+    expect((await call("site.access")).status).toBe(404)
   })
 })

@@ -1,7 +1,7 @@
 import { inspectAgentSkillFiles } from "@vite-hub/agent/server/internal"
-import { getConsoleAgentDefinition, getConsoleAgents } from "./agents.ts"
-import { consoleRequestError } from "./request.ts"
-import type { ConsoleSkillFile, ConsoleSkills } from "../skills.ts"
+import { getConsoleAgentDefinition, getConsoleAgents } from "../../console/runtime/server/agents.ts"
+import { consoleRequestError } from "../../console/runtime/server/request.ts"
+import type { ConsoleSkillFile, ConsoleSkills } from "../../console/runtime/skills.ts"
 
 const maxFileBytes = 512 * 1024
 

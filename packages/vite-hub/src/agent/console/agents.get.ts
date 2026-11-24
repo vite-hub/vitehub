@@ -1,5 +1,5 @@
-import { consoleAgentInvokerProfiles, getConsoleAgentDefinition, getConsoleAgents } from "./agents.ts"
-import { getConsoleInvocations } from "./invocations.ts"
+import { consoleAgentInvokerProfiles, getConsoleAgentDefinition, getConsoleAgents } from "../../console/runtime/server/agents.ts"
+import { getConsoleInvocations } from "../../console/runtime/server/invocations.ts"
 
 interface ConsoleAgentsResult {
   /** Agents registered in this application. */

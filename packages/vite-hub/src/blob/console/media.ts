@@ -1,8 +1,8 @@
-import { consoleAccessAllows, type ConsoleAccess } from "./access.ts"
-import { getConsoleBlob } from "./blob.ts"
-import { consoleActionError, consoleDocumentActionContext, loadConsoleDocumentActions, runConsoleDocumentAction, type ConsoleMediaAccess } from "./documents.ts"
-import { consoleRequestError } from "./request.ts"
-import { getConsoleSections } from "./sections.ts"
+import { consoleAccessAllows, type ConsoleAccess } from "../../console/runtime/server/access.ts"
+import { getConsoleBlob } from "../../console/runtime/server/blob.ts"
+import { consoleActionError, consoleDocumentActionContext, loadConsoleDocumentActions, runConsoleDocumentAction, type ConsoleMediaAccess } from "../../console/runtime/server/documents.ts"
+import { consoleRequestError } from "../../console/runtime/server/request.ts"
+import { getConsoleSections } from "../../console/runtime/server/sections.ts"
 import { isRecordOrFunction as isRecord } from "@vite-hub/internal/object"
 
 import type { BlobErrorCode, BlobStorage, MediaFocalPoint, MediaRecord, MediaUpdate } from "@vite-hub/blob"
@@ -20,7 +20,7 @@ export const consoleMediaActionNames = ["createFolder", "get", "info", "list", "
 export type ConsoleMediaActionName = (typeof consoleMediaActionNames)[number]
 
 /** Largest JSON request of a media action, and largest file of one upload. */
-import { maximumConsoleMediaRequestBytes, maximumConsoleMediaUploadBytes } from "./limits.ts"
+import { maximumConsoleMediaRequestBytes, maximumConsoleMediaUploadBytes } from "../../console/runtime/server/limits.ts"
 export { maximumConsoleMediaRequestBytes, maximumConsoleMediaUploadBytes }
 
 const listLimit = 200

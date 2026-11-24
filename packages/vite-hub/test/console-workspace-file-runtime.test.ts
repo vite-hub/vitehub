@@ -2,7 +2,7 @@ import { expect, it } from "vitest"
 import { readBuiltWorkspaceImports } from "../../internal/test-utils/built-workspace-imports.js"
 
 it.each([
-  ["Console", "../dist/console/runtime/server/invocation-workspace.get.js"],
+  ["Console", "../dist/agent/console/invocation-workspace.get.js"],
   ["framework", "../dist/workspace/files.js"],
 ])("keeps built %s file access off the Workspace Agent tool graph", async (_name, entry) => {
   const graph = await readBuiltWorkspaceImports(new URL(entry, import.meta.url))

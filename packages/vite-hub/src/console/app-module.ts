@@ -11,6 +11,7 @@ import { consoleBuildOf } from "./build-info.ts"
 import { resolveConsoleProjectName } from "./project.ts"
 import { describeConsoleContributedSections, describeConsoleDocumentEditors, describeConsoleRuntimeReaders } from "./contributions.ts"
 import { withConsoleDocumentEditorSections } from "./build.ts"
+import { consoleOperationModules } from "./operation-modules.ts"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 import { requireOptionalOwner } from "../internal/optional-owners.ts"
 import { generatedModules } from "../internal/generated-modules.ts"
@@ -98,6 +99,8 @@ export interface ConsoleAppModuleOptions {
   /** The `name` option of `vitehub()`. `project.get` reports it, or the `package.json` name without it. */
   name?: string
   sections: readonly ConsoleSectionId[]
+  /** The sections whose operations the app serves, when they differ from `sections`, such as the development RPC without Console options. */
+  operationSections?: readonly ConsoleSectionId[]
   /** Visible navigation, when it differs from the sections whose operations need runtime state. */
   navigationSections?: readonly ConsoleSectionId[]
   /** The discovered Agents, Schedules, operations, and section content. */
@@ -121,6 +124,7 @@ function renderConsoleAppModule(
     projectRoot,
     name,
     sections: configuredSections,
+    operationSections = configuredSections,
     navigationSections,
     catalog,
     blobStores,
@@ -164,8 +168,13 @@ function renderConsoleAppModule(
   })
   const runtimeReaders = describeConsoleRuntimeReaders(sections).filter(reader => catalog.sectionOverrides?.[reader.section]?.view.kind !== "operation-view")
   const definitionsEnabled = databaseEnabled || contributedSections.length > 0
+  const ownOperations = consoleOperationModules
+    .filter(entry => entry.enabled({ documents: documentEditors.length > 0, sections: operationSections, site: sections.includes("site") }))
+    .map((entry, index) => ({ binding: `vitehubConsoleOwnOperations${index}`, entry }))
+  const agentRealtime = ownOperations.some(({ entry }) => entry.module === generatedModules.consoleAgentOperations) ? runtimeCapabilityImports?.realtime : undefined
   const runtimeImports = [
     { bindings: "installConsoleOperations", module: generatedModules.consoleOperations },
+    ...ownOperations.map(({ binding, entry }) => ({ bindings: `${entry.export}: ${binding}${agentRealtime && entry.module === generatedModules.consoleAgentOperations ? ", installConsoleAgentRealtime" : ""}`, module: entry.module })),
     ...operations.map((operation, index) => ({ bindings: `${operation.export}: vitehubConsoleOperations${index}`, module: operation.module })),
     ...(blobEnabled ? [{ bindings: "installConsoleBlob", module: generatedModules.consoleBlob }, { bindings: "blob: vitehubConsoleBlob", module: "vite-hub/blob" }] : []),
     ...(definitionsEnabled ? [{ bindings: `installConsoleDefinitions${schedulesEnabled ? ", installConsoleSchedules" : ""}`, module: generatedModules.consoleDefinitions }] : []),
@@ -181,7 +190,8 @@ function renderConsoleAppModule(
   const runtimeInstall = [
     ...(blobEnabled ? [`installConsoleBlob(${JSON.stringify(projectRoot)}, vitehubConsoleBlob, ${JSON.stringify(blobStores)})`] : []),
     ...(sections.includes("env") ? [`installConsoleEnv(${JSON.stringify(projectRoot)}, describeServerEnv())`] : []),
-    `installConsoleOperations([${operations.map((operation, index) => `{ operations: vitehubConsoleOperations${index}, plugin: ${JSON.stringify(operation.plugin)} }`).join(", ")}], { invoke: ${invoke}, site: ${sections.includes("site")} })`,
+    ...(agentRealtime ? [`installConsoleAgentRealtime(() => import(${JSON.stringify(agentRealtime)}))`] : []),
+    `installConsoleOperations([${[...ownOperations.map(({ binding }) => `{ operations: ${binding}, plugin: "vite-hub" }`), ...operations.map((operation, index) => `{ operations: vitehubConsoleOperations${index}, plugin: ${JSON.stringify(operation.plugin)} }`)].join(", ")}], { invoke: ${invoke} })`,
     ...(definitionsEnabled ? [`installConsoleDefinitions(${JSON.stringify(projectRoot)}, ${JSON.stringify(catalog.content)}, ${JSON.stringify(contributedSections)}${runtimeReaders.length ? `, { ${runtimeReaders.map((reader, index) => `${JSON.stringify(reader.section)}: vitehubConsoleRuntimeReader${index}`).join(", ")} }` : ""})`] : []),
     ...(schedulesEnabled ? [`installConsoleSchedules(${JSON.stringify(projectRoot)}, {${runnableSchedules}})`] : []),
     ...(databaseEnabled ? [`installConsoleDatabase(${JSON.stringify(projectRoot)}, vitehubConsoleDatabases, ${JSON.stringify(catalog.content.databases?.kind === "definition-catalog" ? catalog.content.databases.definitions.map(definition => definition.name) : [])})`] : []),

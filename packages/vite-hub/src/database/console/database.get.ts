@@ -1,13 +1,13 @@
-import type { ConsoleDatabaseEntry, ConsoleDatabaseInspection } from "../../internal.ts"
+import type { ConsoleDatabaseEntry, ConsoleDatabaseInspection } from "../../console/internal.ts"
 import { asc, count, desc, getTableColumns, is, or, sql } from "drizzle-orm"
 import { getTableConfig as getPgTableConfig, PgTable } from "drizzle-orm/pg-core"
 import { getTableConfig as getSQLiteTableConfig, SQLiteTable } from "drizzle-orm/sqlite-core"
 
-import { consoleHttpError } from "./http-error.ts"
-import { getConsoleDatabase } from "./database.ts"
+import { consoleHttpError } from "../../console/runtime/server/http-error.ts"
+import { getConsoleDatabase } from "../../console/runtime/server/database.ts"
 
 import type { Column, SQL } from "drizzle-orm"
-import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
+import { viteHubErrorDiagnostics } from "../../error-diagnostics.ts"
 
 const defaultLimit = 50
 const maximumLimit = 100
