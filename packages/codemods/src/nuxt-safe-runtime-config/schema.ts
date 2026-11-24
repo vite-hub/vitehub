@@ -11,7 +11,7 @@ import { flatPublicName, looksSecret, nuxtVariableName, pathLabel } from "./fiel
 
 import type { BaseIssue, BaseSchema } from "valibot"
 import type { FieldAccess } from "./field-schema.ts"
-import type { EnvField, EnvFieldKind, LiteralValue, PlannedFollowUp } from "./fields.ts"
+import type { EnvField, EnvFieldKind, Framework, LiteralValue, PlannedFollowUp } from "./fields.ts"
 import type { RuntimeConfigValue } from "./nuxt-config.ts"
 
 type JsonObject = Record<string, unknown>
@@ -334,6 +334,7 @@ interface PlanInput {
   validateAtBuild?: boolean
   validateAtRuntime?: boolean
   rejectInvalidDefaults?: boolean
+  framework?: Framework
 }
 
 function resolveReference(root: JsonObject, node: unknown): JsonObject {
@@ -490,6 +491,8 @@ export async function planFromJsonSchema(input: PlanInput): Promise<SchemaPlan> 
     throw codemodError("The $schema must describe the runtimeConfig object, for example `v.object({ ... })`.")
   }
   const plan: SchemaPlan = { fields: [], unmigrated: [], followUps: [], needsSchemaModule: false }
+  const framework = input.framework ?? "nuxt"
+  const frameworkName = framework === "nitro" ? "Nitro" : "Nuxt"
   const follow = (message: string, anchor?: PlannedFollowUp["anchor"]) => plan.followUps.push({ message, anchor })
 
   for (const issue of input.issues.get("") ?? []) {
@@ -545,7 +548,7 @@ export async function planFromJsonSchema(input: PlanInput): Promise<SchemaPlan> 
       section,
       configPath,
       envPath: section === "public" ? [flatPublicName(configPath)] : configPath,
-      variable: nuxtVariableName(section, configPath),
+      variable: nuxtVariableName(section, configPath, framework),
       kind,
       ...(kind === "enum" && leaf.kind === "enum" ? { values: leaf.values } : {}),
       required: required && !leaf.nullable,
@@ -576,7 +579,7 @@ export async function planFromJsonSchema(input: PlanInput): Promise<SchemaPlan> 
     }
     else if (runtimeValue?.processEnv) {
       field.extraVariables = [runtimeValue.processEnv.name]
-      follow(`runtimeConfig.${label} read process.env.${runtimeValue.processEnv.name} when Nuxt loaded the config. Env now reads ${field.variable === runtimeValue.processEnv.name ? field.variable : `${field.variable}, then ${runtimeValue.processEnv.name}`}, ${section === "public" ? "during the build" : "when the server runs"}. Env treats an empty variable as unset.`, { env: field })
+      follow(`runtimeConfig.${label} read process.env.${runtimeValue.processEnv.name} when ${frameworkName} loaded the config. Env now reads ${field.variable === runtimeValue.processEnv.name ? field.variable : `${field.variable}, then ${runtimeValue.processEnv.name}`}, ${section === "public" ? "during the build" : "when the server runs"}. Env treats an empty variable as unset.`, { env: field })
     }
     else if (runtimeValue?.expression && kind === "json") {
       follow(`runtimeConfig.${label} has the value ${runtimeValue.expression}. The codemod keeps only string, number, and boolean defaults. Set ${field.variable}, or add default: ${runtimeValue.expression} to the env.json() options by hand.`, { env: field })
@@ -622,7 +625,7 @@ export async function planFromJsonSchema(input: PlanInput): Promise<SchemaPlan> 
 
   const rootRequired = requiredOf(root)
   for (const [key, node] of Object.entries(properties)) {
-    if (key === "public") {
+    if (key === "public" && framework === "nuxt") {
       const publicNode = describeLeaf(input.jsonSchema, isRecord(node) ? node : {})
       const publicProperties = publicNode.node.properties
       if (!isRecord(publicProperties)) {
@@ -638,7 +641,7 @@ export async function planFromJsonSchema(input: PlanInput): Promise<SchemaPlan> 
     }
     if (key === "app" || key === "nitro") {
       plan.unmigrated.push(key)
-      follow(`${key} is a reserved Nuxt runtimeConfig key. The codemod left it and its schema rules alone.`, { runtimeConfig: key })
+      follow(`${key} is a reserved ${frameworkName} runtimeConfig key. The codemod left it and its schema rules alone.`, { runtimeConfig: key })
       continue
     }
     await visit("server", [key], node, rootRequired.has(key))

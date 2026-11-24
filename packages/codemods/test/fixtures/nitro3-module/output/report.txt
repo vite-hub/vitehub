@@ -1,0 +1,28 @@
+nuxt-safe-runtime-config: migrated 3 Env declarations (0 public, 3 server) from $schema (schema.ts) to vitehub() in vite.config.ts.
+Dry run: no files were written.
+
+Files to change (6):
+  nitro.config.ts
+  vite.config.ts (new)
+  server/env.schema.ts (new)
+  package.json
+  routes/greeting.ts
+  routes/health.ts
+
+Manual follow-ups (3):
+  1. vite.config.ts:11 apiSecret had the value "", which its $schema rejects: Invalid length: Expected >=16 but received 0. The module treats this validation failure as fatal, so the codemod kept no default and Env requires NITRO_API_SECRET.
+  2. vite.config.ts:8 ViteHub needs a host, so the codemod set host: "node" in vitehub(). Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.
+  3. routes/health.ts:5 useServerEnv().apiSecret is secret, a SecretEnv of the schema output. Call .unseal() where this code needs the raw value.
+
+Notes:
+  - Each declaration reads its NITRO_* name with env.source(). Env reads the canonical name VITEHUB_<PATH> first, for example VITEHUB_API_SECRET before NITRO_API_SECRET.
+  - server/env.schema.ts exports the $schema of each field that has a rule or transform. Server Env runs it with env.schemaFrom() when the server reads the value.
+  - server/env.schema.ts imports schema.ts. Keep schema.ts and its schema library.
+  - Nitro also read runtimeConfig overrides with the "_" prefix and the NITRO_ENV_PREFIX prefix. Env reads only the names in env.source().
+  - Start and build the app with `vite dev` and `vite build`. `nitro dev` does not run Vite plugins, so it does not load vitehub(). The codemod changed the package.json scripts that ran `nitro dev` or `nitro build`.
+  - nitro() from nitro/vite still reads nitro.config.ts, so the other Nitro options stay there.
+  - No ESLint config references nuxt-safe-runtime-config/eslint.
+
+Next steps:
+  - Run `pnpm install` to install vite-hub and vite, and remove nuxt-safe-runtime-config.
+  - Run `npx vite build` to generate the Env types, then type-check the app.

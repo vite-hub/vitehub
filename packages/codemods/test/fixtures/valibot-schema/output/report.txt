@@ -25,7 +25,6 @@ Notes:
   - Each declaration reads its NUXT_* name with env.source(). Env reads the canonical name VITEHUB_<PATH> first, for example VITEHUB_API_SECRET before NUXT_API_SECRET.
   - server/env.schema.ts exports the $schema of each field that has a rule or transform. Server Env runs it with env.schemaFrom() when the server reads the value. Public Env runs it during the build.
   - Public Env values are fixed at build time. Nuxt applied NUXT_PUBLIC_* overrides when the server started; now set them when you build. Server Env values are read when the server runs.
-  - The standalone Nitro module (nuxt-safe-runtime-config/nitro) is out of scope for this codemod.
 
 Next steps:
   - Run `pnpm install` to install vite-hub and remove nuxt-safe-runtime-config.

@@ -35,6 +35,7 @@ describe.each([
   ["zod3-schema-module", "a Zod 3 $schema module"],
   ["env-schema", "an envSchema .env.example in module options"],
   ["valibot-transform", "a Valibot $schema module with transforms and checks"],
+  ["nitro3-module", "a Nitro 3 app with a Valibot $schema module"],
 ])("nuxt-safe-runtime-config with %s", (name, label) => {
   it(`migrates ${label}`, async () => {
     const input = join(fixtures, name, "input")
@@ -67,6 +68,56 @@ describe("nuxt-safe-runtime-config on a Nitro 2 app", () => {
       expect(report).toContain("Not migrated: nitro.config.ts belongs to a Nitro 2 app")
       expect((await readdir(cwd)).sort()).toEqual(["nitro.config.ts", "package.json"])
       expect(await Promise.all(["nitro.config.ts", "package.json"].map(file => readFile(join(cwd, file), "utf8")))).toEqual(before)
+    }
+    finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+})
+
+describe("nuxt-safe-runtime-config on a Nitro 3 app with a vite.config", () => {
+  it("adds vitehub() before nitro() in the existing plugins", async () => {
+    const cwd = await mkdtemp(join(fixtures, ".nitro3-"))
+    try {
+      await cp(join(fixtures, "nitro3-module/input"), cwd, { recursive: true })
+      await writeFile(join(cwd, "vite.config.ts"), "import { nitro } from 'nitro/vite'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [\n    nitro(),\n  ],\n})\n")
+      const run = await runCodemod("nuxt-safe-runtime-config", { cwd, dryRun: true })
+      expect(run.result.edits.find(edit => edit.path === "vite.config.ts")?.after).toBe([
+        "import { nitro } from 'nitro/vite'",
+        "import { defineConfig } from 'vite'",
+        "import { vitehub } from 'vite-hub'",
+        "import { env } from 'vite-hub/env'",
+        "",
+        "export default defineConfig({",
+        "  plugins: [",
+        "    vitehub({",
+        "      host: 'node',",
+        "      env: {",
+        "        server: {",
+        "          apiSecret: env({ schema: env.schemaFrom('./server/env.schema.ts', 'apiSecret'), secret: true, source: env.source('NITRO_API_SECRET') }),",
+        "          greeting: env({ default: 'hello', schema: env.schemaFrom('./server/env.schema.ts', 'greeting'), source: env.source('NITRO_GREETING') }),",
+        "          port: env({ default: '3000', schema: env.schemaFrom('./server/env.schema.ts', 'port'), source: env.source('NITRO_PORT') }),",
+        "        },",
+        "      },",
+        "    }),",
+        "    nitro(),",
+        "  ],",
+        "})",
+        "",
+      ].join("\n"))
+      expect(run.result.followUps.find(entry => entry.message.includes("host: \"node\""))).toMatchObject({ file: "vite.config.ts", line: 9 })
+    }
+    finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
+  it("stops when the vite.config already uses vitehub()", async () => {
+    const cwd = await mkdtemp(join(fixtures, ".nitro3-"))
+    try {
+      await cp(join(fixtures, "nitro3-module/input"), cwd, { recursive: true })
+      await writeFile(join(cwd, "vite.config.ts"), "import { nitro } from 'nitro/vite'\nimport { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({ plugins: [vitehub(), nitro()] })\n")
+      await expect(runCodemod("nuxt-safe-runtime-config", { cwd, dryRun: true })).rejects.toThrow("vite.config.ts already uses vitehub()")
     }
     finally {
       await rm(cwd, { recursive: true, force: true })

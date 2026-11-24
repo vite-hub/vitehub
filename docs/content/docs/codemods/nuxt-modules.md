@@ -1,6 +1,6 @@
 ---
 title: Move from a Nuxt module
-description: Migrate a Nuxt app from nuxt-safe-runtime-config, @t3-oss/env-nuxt, nuxt-resend, nuxt-cron, Docus, Nuxt Content, and @nuxtjs/better-auth to ViteHub.
+description: Migrate a Nuxt or Nitro 3 app from nuxt-safe-runtime-config, @t3-oss/env-nuxt, nuxt-resend, nuxt-cron, Docus, Nuxt Content, and @nuxtjs/better-auth to ViteHub.
 navigation.title: Move from a Nuxt module
 navigation.order: 4
 icon: i-lucide-package
@@ -54,6 +54,37 @@ The codemod stops without writing files when:
 - the app is a Nitro app without `nuxt.config` that runs on Nitro 2 (`nitropack`). ViteHub supports Nitro 3 only, so keep `nuxt-safe-runtime-config/nitro`. The error code is `CODEMODS_NITRO_UNSUPPORTED`.
 
 The report lists what Env cannot express and what the codemod could not rewrite: rules that no schema module keeps, unions of input types, array and object defaults, non-empty secret defaults, secret reads that need `.unseal()`, `useRuntimeConfig()` reads of migrated keys, template reads, and the ESLint rules of the module. Public Env values are fixed when you build, while Nuxt applied `NUXT_PUBLIC_*` overrides when the server started.
+
+### Nitro 3 apps
+
+A Nitro app without `nuxt.config` that lists `nuxt-safe-runtime-config/nitro` in `modules`, or sets `safeRuntimeConfig`, gets the same `$schema` migration with these differences:
+
+- The codemod writes `vite.config.ts` with `vitehub({ host, env })` before `nitro()` from `nitro/vite`, as in [Get started](/docs/env/get-started). In an existing `vite.config`, it adds `vitehub()` to `plugins`. `nitro()` still reads `nitro.config`, so the other Nitro options stay there.
+- Nitro has no Public Env. All fields, including keys under `public`, become Server Env. Each declaration reads its `NITRO_*` variable with `env.source()`. Env does not read the `_` prefix or a `NITRO_ENV_PREFIX` prefix.
+- A string `preset` becomes `host`. With no `preset`, the host is `node`.
+- `useRuntimeConfig()` from `nitro/runtime-config` becomes `useServerEnv()` from `vite-hub/env` when the code reads only migrated keys.
+- `package.json` gets `vite-hub` and `vite`, and its `nitro dev` and `nitro build` scripts become `vite dev` and `vite build`. `nitro dev` does not run Vite plugins.
+
+```diff [vite.config.ts]
++import { nitro } from 'nitro/vite'
++import { defineConfig } from 'vite'
++import { vitehub } from 'vite-hub'
++import { env } from 'vite-hub/env'
++
++export default defineConfig({
++  plugins: [vitehub({
++    host: 'node',
++    env: {
++      server: {
++        greeting: env({ default: 'hello', schema: env.schemaFrom('./server/env.schema.ts', 'greeting'), source: env.source('NITRO_GREETING') }),
++      },
++    },
++  }), nitro()],
++})
+```
+
+The codemod stops on an `envSchema` option in a Nitro app, and when `vite.config` already calls `vitehub()`.
+
 
 ## t3-env
 
