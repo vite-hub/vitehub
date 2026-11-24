@@ -141,9 +141,9 @@ async function readWranglerOutput(file: string): Promise<WranglerOutputEntry[]> 
 }
 
 /**
- * The first target of `wrangler deploy` that serves production on a URL. Wrangler 4.157 writes a `workers.dev` target
- * with `https://`, and a custom domain without it, such as `example.com (custom domain)`. A route pattern, a cron
- * schedule, a queue consumer, and a custom domain with `production: disabled` have no URL to request.
+ * Wrangler 4.157 writes the `workers.dev` target as an `https://` URL and a custom domain as a bare host, such as
+ * `example.com (custom domain)`. Route patterns, triggers, and a custom domain with `production: disabled` have no URL
+ * to request.
  */
 export function wranglerTargetUrl(targets: unknown): string | undefined {
   for (const target of Array.isArray(targets) ? targets : []) {

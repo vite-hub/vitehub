@@ -69,7 +69,6 @@ export interface DeployContext {
 }
 
 export interface DeployResult {
-  /** The URL that serves the new version. Missing when the host reports none, such as a Worker with only route patterns. */
   url?: string
   deploymentId?: string
   version?: string
