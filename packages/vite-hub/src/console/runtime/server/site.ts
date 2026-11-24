@@ -1,4 +1,5 @@
 import { readConsolePublicKeys } from "@vite-hub/internal/console-signature"
+import { viteHubPageGrants } from "@vite-hub/internal/runtime/page-tools"
 import { matchesPublicOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { viteHubPageToolsQuery, viteHubPageToolsResetCookie, viteHubSessionMarkerCookie } from "@vite-hub/internal/runtime/page-tools-shared"
 import { createSiteState, isSitePath, siteRoute, siteStateHash, siteVisitUrl, verifySiteToken } from "@vite-hub/internal/site-token"
@@ -69,7 +70,14 @@ async function readVisitor(request: Request, base: string): Promise<ViteHubSiteV
   const result = await verifySiteToken({ token: value.slice(stateLength + 1), keys, origin: app, state: value.slice(0, stateLength), lifetime: siteSessionLifetime })
   if (!result.ok) return undefined
   const { sub, name, email, image, roles } = result.claims
-  return { id: sub, name, ...(email ? { email } : {}), ...(image ? { image } : {}), roles, kind: roles.includes("console") ? "member" : "guest" }
+  const member = roles.includes("console")
+  return { id: sub, name, ...(email ? { email } : {}), ...(image ? { image } : {}), roles: member ? memberRoles(request, roles) : roles, kind: member ? "member" : "guest" }
+}
+
+function memberRoles(request: Request, signed: string[]): string[] {
+  const policy = installedConsoleAccessPolicy()
+  if (!policy || ("authorize" in policy && policy.authorize)) return signed
+  return [...new Set([...signed, ...viteHubPageGrants(request).map(grant => grant.id)])]
 }
 
 /**
