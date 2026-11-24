@@ -140,6 +140,22 @@ async function readWranglerOutput(file: string): Promise<WranglerOutputEntry[]> 
   })
 }
 
+/**
+ * The first target of `wrangler deploy` that serves production on a URL. Wrangler 4.157 writes a `workers.dev` target
+ * with `https://`, and a custom domain without it, such as `example.com (custom domain)`. A route pattern, a cron
+ * schedule, a queue consumer, and a custom domain with `production: disabled` have no URL to request.
+ */
+export function wranglerTargetUrl(targets: readonly string[]): string | undefined {
+  for (const target of targets) {
+    if (target.startsWith("https://")) {
+      if (URL.canParse(target)) return target
+      continue
+    }
+    const domain = /^([^\s*/]+) \(custom domain[ )]/u.exec(target)?.[1]
+    if (domain && !target.includes("production: disabled") && URL.canParse(`https://${domain}`)) return `https://${domain}`
+  }
+}
+
 const durationUnits: Record<string, number> = { second: 1_000, minute: 60_000, hour: 3_600_000, day: 86_400_000 }
 
 function claimExpiry(text: string): string | undefined {
@@ -218,14 +234,15 @@ export async function cloudflareAdapter(context: DeployContext): Promise<DeployA
           const entry = (await readWranglerOutput(outputFile)).findLast(item => item.type === (context.preview ? "version-upload" : "deploy"))
           const text = `${result.stdout}\n${result.stderr}`
           const targets = Array.isArray(entry?.targets) ? entry.targets.filter(target => typeof target === "string") : []
-          const url = (context.preview ? optionalString(entry?.preview_url) : targets[0]) ?? findUrl(text, /\.workers\.dev$/u)
-          if (!url) throw hostCliFailed("wrangler deploy printed no URL", result, context.secrets)
+          const url = entry
+            ? (context.preview ? optionalString(entry.preview_url) : wranglerTargetUrl(targets))
+            : findUrl(text, /\.workers\.dev$/u)
           const version = optionalString(entry?.version_id)
           const claimUrl = /Claim URL:\s*(https:\/\/\S+)/u.exec(text)?.[1]
           const expiresAt = claimExpiry(text)
           const name = optionalString(entry?.worker_name)
           return {
-            url,
+            ...(url ? { url } : {}),
             ...(version ? { version } : {}),
             ...(claimUrl ? { claim: { url: claimUrl, ...(expiresAt ? { expiresAt } : {}) } } : {}),
             ...(name ? { project: { name, ...(accountId ? { accountId } : {}) } } : {}),

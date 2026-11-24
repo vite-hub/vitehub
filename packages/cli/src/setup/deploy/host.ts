@@ -69,7 +69,8 @@ export interface DeployContext {
 }
 
 export interface DeployResult {
-  url: string
+  /** The URL that serves the new version. Missing when the host reports none, such as a Worker with only route patterns. */
+  url?: string
   deploymentId?: string
   version?: string
   /** The claim link of a temporary deploy. */

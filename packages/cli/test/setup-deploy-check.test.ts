@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { rollbackFor, runDeployChecks, submitIndexNow } from "../src/setup/deploy/after.ts"
+import { wranglerTargetUrl } from "../src/setup/deploy/cloudflare.ts"
 import { builtProject, fakeHosts } from "./setup-deploy-helpers.ts"
 import { runSetup } from "./setup-helpers.ts"
 
@@ -56,6 +57,10 @@ function routedFetch(local: string, origins: readonly string[]): typeof fetch {
     if (!fixture) throw new Error(`unexpected request to ${url.href}`)
     return new Response(await readFile(join(import.meta.dirname, "fixtures/host-api", fixture), "utf8"), { headers: { "content-type": "application/json" } })
   }
+}
+
+function wranglerConfig(config: object): Record<string, string> {
+  return { ".output/server/wrangler.json": JSON.stringify({ main: "index.mjs", name: "my-app", ...config }) }
 }
 
 function manifest(deploy: object): Record<string, string> {
@@ -145,6 +150,23 @@ describe("IndexNow", () => {
   })
 })
 
+describe("the URL of a Wrangler deploy", () => {
+  it.each([
+    { targets: ["https://my-app.example.workers.dev"], url: "https://my-app.example.workers.dev" },
+    { targets: ["example.com (custom domain)", "www.example.com (custom domain)", "schedule: */5 * * * *"], url: "https://example.com" },
+    { targets: ["https://my-app.example.workers.dev", "example.com (custom domain)"], url: "https://my-app.example.workers.dev" },
+    { targets: ["example.com (custom domain - zone id: 023e105f4ecef8ad9ca31a8372d0c353)"], url: "https://example.com" },
+    { targets: ["example.com (custom domain - zone name: example.com)"], url: "https://example.com" },
+    { targets: ["preview.example.com (custom domain) [production: disabled, previews: enabled]", "example.com (custom domain) [production: enabled, previews: disabled]"], url: "https://example.com" },
+    { targets: ["example.com/*", "example.com/api/* (zone name: example.com)", "example.com (custom domain)"], url: "https://example.com" },
+    { targets: ["example.com/*", "*.example.com/* (zone name: example.com)", "...and 3 more routes"], url: undefined },
+    { targets: ["schedule: */5 * * * *", "Consumer for orders", "Producer for orders", "workflow: checkout", "event triggers: 1"], url: undefined },
+    { targets: [], url: undefined },
+  ])("finds $url in $targets", ({ targets, url }) => {
+    expect(wranglerTargetUrl(targets)).toBe(url)
+  })
+})
+
 describe("vitehub deploy with deploy.check", () => {
   it("checks the deployed URL and sends the sitemap to IndexNow after a production deploy", async () => {
     const site = await localSite((request, response) => {
@@ -194,6 +216,36 @@ describe("vitehub deploy with deploy.check", () => {
     const skipped = await runSetup<DeployJson>(["deploy", "--no-build", "--no-provision", "--no-check", "--no-index-now", "--yes", "--json"], root, hosts.env, { fetch: routedFetch(site.origin, ["https://my-app.example.workers.dev"]) })
     expect(skipped.exitCode, skipped.stdout).toBe(0)
     expect(skipped.json.checks).toBeUndefined()
+  }, 30_000)
+
+  it("checks the first custom domain of a Worker without workers.dev", async () => {
+    const site = await localSite((_request, response) => response.writeHead(200).end("ok"))
+    const routes = [{ custom_domain: true, pattern: "example.com" }, { custom_domain: true, pattern: "www.example.com" }]
+    const root = await builtProject("cloudflare", { ...manifest({ check: ["/_vitehub/health"] }), ...wranglerConfig({ routes, triggers: { crons: ["*/5 * * * *"] }, workers_dev: false }), ".vitehub/link.json": JSON.stringify(cloudflareLink) })
+    const hosts = await fakeHosts(cloudflareEnv)
+    const result = await runSetup<DeployJson>(["deploy", "--no-build", "--no-provision", "--yes", "--json"], root, hosts.env, { fetch: routedFetch(site.origin, ["https://example.com"]) })
+
+    expect(result.exitCode, result.stdout + result.stderr).toBe(0)
+    expect(result.json.url).toBe("https://example.com")
+    expect(result.json.checks).toEqual([{ ok: true, path: "/_vitehub/health", status: 200, url: "https://example.com/_vitehub/health" }])
+    expect(site.requests.map(request => request.path)).toEqual(["/_vitehub/health"])
+  }, 30_000)
+
+  it("skips the checks with a warning when the Worker has only route patterns", async () => {
+    const root = await builtProject("cloudflare", { ...manifest({ check: ["/_vitehub/health"] }), ...wranglerConfig({ routes: [{ pattern: "example.com/*", zone_name: "example.com" }], triggers: { crons: ["*/5 * * * *"] } }), ".vitehub/link.json": JSON.stringify(cloudflareLink) })
+    const hosts = await fakeHosts(cloudflareEnv)
+    const fetchImpl: typeof fetch = async input => { throw new Error(`unexpected request to ${String(input)}`) }
+    const result = await runSetup<DeployJson>(["deploy", "--no-build", "--no-provision", "--yes", "--json"], root, hosts.env, { fetch: fetchImpl })
+
+    expect(result.exitCode, result.stdout + result.stderr).toBe(0)
+    expect(result.json.url).toBeUndefined()
+    expect(result.json.checks).toBeUndefined()
+    expect(result.json.version).toBe("version-1")
+    expect(result.stderr).toContain("Deploy checks skipped: cloudflare reported no URL to request, such as a workers.dev URL or a custom domain. The deploy is done.\n")
+
+    const text = await runSetup(["deploy", "--no-build", "--no-provision", "--yes"], root, hosts.env, { fetch: fetchImpl })
+    expect(text.exitCode, text.stderr).toBe(0)
+    expect(text.stdout).toBe("Deployed my-app to cloudflare.\nVersion: version-2\n")
   }, 30_000)
 
   it("says that production did not change when a preview fails its check", async () => {

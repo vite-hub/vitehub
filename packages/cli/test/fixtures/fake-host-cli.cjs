@@ -103,8 +103,18 @@ function wrangler() {
   process.stdout.write(`Uploaded ${config.name}\n${preview ? "Worker Version Preview URL: https://v1-" + config.name + ".example.workers.dev" : url}\nCurrent Version ID: version-${state.deploys}\n`)
   const entry = preview
     ? { type: "version-upload", version: 1, worker_name: config.name, version_id: `version-${state.deploys}`, preview_url: `https://v1-${config.name}.example.workers.dev` }
-    : { type: "deploy", version: 1, worker_name: config.name, version_id: `version-${state.deploys}`, targets: [url] }
+    : { type: "deploy", version: 1, worker_name: config.name, version_id: `version-${state.deploys}`, targets: wranglerTargets(config, url) }
   if (process.env.WRANGLER_OUTPUT_FILE_PATH) appendFileSync(process.env.WRANGLER_OUTPUT_FILE_PATH, `${JSON.stringify(entry)}\n`)
+}
+
+function wranglerTargets(config, url) {
+  const routes = config.routes ?? []
+  const customDomain = route => typeof route !== "string" && route.custom_domain === true
+  const patterns = routes.filter(route => !customDomain(route)).map(route => typeof route === "string" ? route : `${route.pattern}${route.zone_name ? ` (zone name: ${route.zone_name})` : ""}`)
+  const domains = routes.filter(customDomain).map(route => `${route.pattern} (custom domain)`)
+  const crons = (config.triggers?.crons ?? []).map(cron => `schedule: ${cron}`)
+  const workersDev = config.workers_dev ?? routes.length === 0
+  return [...(workersDev ? [url] : []), ...patterns, ...domains, ...crons]
 }
 
 function vercel() {
