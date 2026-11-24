@@ -84,7 +84,7 @@ async function setup() {
     const response = await (path ? endpoints.item : endpoints.list).fetch(request)
     return { status: response.status, body: await response.json() as Record<string, unknown> }
   }
-  const open = async (body: unknown) => await siteApi.fetch(new Request(`${consoleOrigin}/api/projects/${project.id}/site/open`, { method: "POST", headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" }, body: JSON.stringify(body) }))
+  const open = async (body: unknown, headers: Record<string, string> = {}) => await siteApi.fetch(new Request(`${consoleOrigin}/api/projects/${project.id}/site/open`, { method: "POST", headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json", ...headers }, body: JSON.stringify(body) }))
   return { client, project, api, open }
 }
 
@@ -398,6 +398,20 @@ describe("Impersonation and Content preview in the Console", () => {
     expect(app.calls).toEqual([{ operation: "auth.impersonate", user: "u-ada" }, { operation: "auth.impersonate", user: "u-ada" }])
 
     expect((await intentVisit(body.url, "")).response.status).toBe(410)
+  })
+
+  it("opens an action only from a JSON request of the Console origin, and /visit uses the intent only with GET", async () => {
+    const { open } = await setup()
+    app.answer = { ok: true, value: { path: "/" } }
+    expect((await open(start, { "content-type": "text/plain" })).status).toBe(415)
+    expect((await open(start, { "sec-fetch-site": "same-site" })).status).toBe(403)
+    expect(app.calls).toEqual([])
+    const opened = await open(start, { "sec-fetch-site": "same-origin" })
+    expect(opened.status).toBe(201)
+    state.user = { id: "u-ada" }
+    const link = new URL((await opened.json() as { url: string }).url)
+    const query = new URLSearchParams({ app: "https://app.example.com/portal", state: await siteStateHash(createSiteState()), return: "/", project: link.searchParams.get("project")!, intent: link.searchParams.get("intent")! })
+    expect((await visit.fetch(new Request(`${consoleOrigin}/visit?${query}`, { method: "HEAD", headers: { cookie: cookieOf(opened) } }))).status).toBe(405)
   })
 
   it("answers the path of a document preview from the app", async () => {

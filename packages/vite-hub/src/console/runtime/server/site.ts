@@ -51,6 +51,7 @@ async function signIn(event: ConsoleRequestEvent, request: Request, app: string,
   const result = await verifySiteToken({ token, keys, origin: app, state, kinds })
   if (!result.ok) return siteProblemPage(401, "CONSOLE_SITE_TOKEN_REFUSED", `${result.message} (${result.code})`)
   if (result.claims.kind !== "site") {
+    if (request.method !== "GET") throw consoleRequestError(405, `Open ${siteRoute} in the browser.`)
     const headers = new Headers({ "set-cookie": cookie(siteStateCookie, "", 0) })
     return (await import("./site-actions.ts")).openSiteAction({ match: result, request, event, app, headers })
   }

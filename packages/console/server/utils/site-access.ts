@@ -146,6 +146,9 @@ async function siteActionPath(caller: ConsoleTeamCaller, projectId: string, kind
 }
 
 async function openSiteIntent(request: Request, caller: ConsoleTeamCaller, project: { id: string, teamId: string, url: string }): Promise<Response> {
+  if (!request.headers.get("content-type")?.startsWith("application/json")) return consoleProblem(415, "CONSOLE_SITE_ACTION_INVALID", siteActionShapes)
+  const fetchSite = request.headers.get("sec-fetch-site")
+  if (fetchSite !== null && fetchSite !== "same-origin") return consoleProblem(403, "CONSOLE_SITE_FORBIDDEN", "Open the site from a page of the Console.")
   const body: unknown = await request.json().catch(() => undefined)
   const kind = field(body, "kind")
   const target = readSiteTokenTarget(field(body, "target"))
@@ -193,6 +196,7 @@ export const siteVisitRoute = withAnonymousAuthorization(() => true, async (requ
   const only = query.get("project")
   const intent = query.get("intent")
   if (!app || !isSiteStateHash(state) || !isSitePath(path) || (intent !== null && !isSiteIntent(intent))) return linkProblem(400, "This Site access link is malformed. Open the site again.")
+  if (intent !== null && request.method !== "GET") return new Response(null, { headers: { allow: "GET" }, status: 405 })
   if (intent !== null) return intentVisit(request, authorization.user, { app, state, only, id: intent })
   const db = useDatabase("default").db
   const projects = (await db.select({ id: consoleProjects.id, teamId: consoleProjects.teamId }).from(consoleProjects).where(eq(consoleProjects.url, app)))

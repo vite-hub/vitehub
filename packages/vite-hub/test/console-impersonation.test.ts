@@ -131,6 +131,8 @@ describe("impersonation with signed Site access tokens", () => {
 
     const visit = await browser(app.operator.cookie)
     const start = await visit.token({ key: key.key, kind: "impersonate", target: { action: "start", userId: app.member.id } })
+    const head = await siteActionRoute.fetch(new Request(`${origin}/_vitehub/site?${new URLSearchParams({ token: start })}`, { method: "HEAD", headers: { cookie: visit.cookie } }))
+    expect(head.status).toBe(405)
     const started = await visit.open(start)
     expect(started.status).toBe(303)
     expect(started.headers.get("location")).toBe(`${origin}/`)

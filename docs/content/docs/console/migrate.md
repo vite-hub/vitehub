@@ -23,7 +23,7 @@ Apps no longer sign people in to the Console. `console: { auth: 'app' }`, Consol
 
 App Auth access routes such as `/_vitehub/**` or `/**` no longer cover `POST /_vitehub/rpc` and `GET /_vitehub/site`, because a signed call has no app session, a Console token carries its own proof, and the route checks its own access. An app route file on the same path, such as `server/routes/_vitehub/rpc.post.ts`, fails the build.
 
-Live Content editing, the Content page preview, Env management and the Connections connect flow needed the app session, so they are not in the Console.
+Live Content editing, the preview pane of a Content page, Env management and the Connections connect flow needed the app session, so they are not in the Console. **Preview** opens the page in a new tab of the app instead, see [Impersonation and Content preview](/docs/console/site-access#impersonation-and-content-preview).
 
 ## Move from the MCP of the app
 
