@@ -215,7 +215,7 @@ export type RealtimeDefinitionAccess = RealtimeDefinitionIdentity & (
 
 interface RealtimeDocumentFields {
   document: RealtimeWorkspaceDocumentOptions | RealtimeDocumentAdapter
-  editor?: RealtimeEditor | ((context: RealtimeDocumentContext) => RealtimeEditor)
+  editor?: RealtimeEditor | ((context: RealtimeDocumentContext) => RealtimeEditor | Promise<RealtimeEditor>)
   history?: {
     checkpoint: true | { message?: string }
   }
