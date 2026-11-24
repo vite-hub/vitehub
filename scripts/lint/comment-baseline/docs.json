@@ -102,7 +102,6 @@
   "docs/server/databases/default.ts": 2,
   "docs/server/middleware/canonical-url.ts": 2,
   "docs/server/middleware/static-assets.ts": 15,
-  "docs/test/agent-readiness.test.ts": 3,
   "docs/test/agent-resources.test.ts": 1,
   "docs/test/artifact.test.ts": 8,
   "docs/test/browser/hero-figures.browser.mjs": 12,
