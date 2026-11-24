@@ -24,7 +24,7 @@ let invites: SiteInvite[] = [
   { id: "invite-leo", name: "Leo (QA)", grants: ["comments-read", "comments-write", "comments-resolve"], path: "/", expiresAt: new Date(now + 5 * day).toISOString(), createdBy: maxi },
 ]
 let next = 0
-const route = /^\/api\/projects\/[^/]+\/site(?:\/(codes|invites|sessions)(?:\/([^/]+))?)?$/
+const route = /^\/api\/projects\/[^/]*\/site(?:\/(codes|invites|sessions)(?:\/([^/]+))?)?$/
 
 function link(origin: string, minutes: number): { url: string, expiresAt: string } {
   return { url: `${origin}/go/playground${String(next++).padStart(8, "0")}`, expiresAt: new Date(Date.now() + minutes * 60_000).toISOString() }
