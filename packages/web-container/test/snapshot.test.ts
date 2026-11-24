@@ -157,6 +157,33 @@ describe("snapshots", () => {
     expect(fetchPart).toHaveBeenCalledOnce()
   })
 
+  it.each([false, true])("keeps a concurrent successful load after a damaged download (partial cache: %s)", async (partialCache) => {
+    const data = new Uint8Array(randomBytes(1000))
+    const [packed] = packSnapshot(data)
+    const prefix = packed!.subarray(0, 50)
+    const suffix = packed!.subarray(50)
+    const firstUrl = "https://docs.test/a.0.bin"
+    const secondUrl = "https://docs.test/a.1.bin"
+    const urls = [firstUrl, secondUrl]
+    memoryCache(partialCache ? [[firstUrl, new Response(prefix)]] : [])
+    const { promise: downloading, resolve: started } = Promise.withResolvers<void>()
+    const { promise: damaged, resolve: finishDamaged } = Promise.withResolvers<Response>()
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === firstUrl) return new Response(prefix)
+      started()
+      return damaged
+    }))
+    const options = { cache: "app", sha256: createHash("sha256").update(packed!).digest("hex") }
+    const failed = expect(fetchSnapshot(urls, options)).rejects.toMatchObject({ code: "WEB_CONTAINER_SNAPSHOT_DAMAGED" })
+    await downloading
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(url === firstUrl ? prefix : suffix)))
+    expect(await fetchSnapshot(urls, options)).toEqual(data)
+    finishDamaged(new Response("damaged"))
+    await failed
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 503 })))
+    expect(await fetchSnapshot(urls, options)).toEqual(data)
+  })
+
   it.each(["match", "keys", "delete", "put"] as const)("loads the snapshot when Cache Storage %s() throws", async (method) => {
     const data = new Uint8Array(randomBytes(1000))
     const [part] = packSnapshot(data)

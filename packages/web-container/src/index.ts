@@ -299,41 +299,48 @@ export interface FetchSnapshotOptions {
  * inflates the gzip stream. Pass the result, or the promise, to `bootWebContainer({ snapshot })`.
  */
 export async function fetchSnapshot(urls: readonly string[], options: FetchSnapshotOptions = {}): Promise<Uint8Array> {
+  const { cache: cacheName, sha256 } = options
   const storage: unknown = Reflect.get(globalThis, "caches")
-  const cache = options.cache && isCacheStorage(storage) ? await storage.open(options.cache).catch(() => undefined) : undefined
+  const cache = cacheName && isCacheStorage(storage) ? await storage.open(cacheName).catch(() => undefined) : undefined
   const parts = await Promise.all(urls.map(async (url) => {
-    const cached = cache && await readCachedPart(cache, url)
+    const cached = cache && await readCachedPart(cache, url).catch(() => undefined)
     if (cached) return { url, blob: cached, downloaded: false }
     const response = await fetch(url)
     if (!response.ok) throw webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_PART_FAILED({ status: response.status, url })
     return { url, blob: await response.blob(), downloaded: true }
   }))
-  const joined = new Blob(parts.map(part => part.blob))
   let data: Uint8Array
   try {
-    if (options.sha256) {
-      const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", await joined.arrayBuffer()))
-      const hex = [...digest].map(byte => byte.toString(16).padStart(2, "0")).join("")
-      if (hex !== options.sha256.toLowerCase()) throw webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_DAMAGED({ detail: `The snapshot has SHA-256 ${hex}, not ${options.sha256}.`, url: urls[0]! })
-    }
-    data = new Uint8Array(await new Response(joined.stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer())
+    data = await inflateSnapshot(parts.map(part => part.blob), urls[0]!, sha256)
   }
   catch (cause) {
-    await Promise.all(urls.map(url => cache?.delete(new Request(url)).catch(() => false)))
+    const cacheHits = parts.filter(part => !part.downloaded)
+    if (cache && cacheName && cacheHits.length) {
+      await withSnapshotCacheLock(cacheName, async () => {
+        const current = await Promise.all(urls.map(url => readCachedPart(cache, url)))
+        if (current.every(part => part !== undefined) && await inflateSnapshot(current, urls[0]!, sha256).catch(() => undefined)) return
+        await Promise.all(cacheHits.map(async part => await cache.delete(new Request(part.url)).catch(() => false)))
+      })
+    }
     if (webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_DAMAGED.is(cause)) throw cause
     throw webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_DAMAGED({ cause, detail: cause instanceof Error ? cause.message : String(cause), url: urls[0]! })
   }
-  if (cache && options.cache) await replaceCachedPartsAfterLoad(options.cache, cache, parts)
+  if (cache && cacheName) await replaceCachedPartsAfterLoad(cacheName, cache, parts)
   return data
 }
 
+async function inflateSnapshot(parts: Blob[], url: string, sha256?: string): Promise<Uint8Array> {
+  const joined = new Blob(parts)
+  if (sha256) {
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", await joined.arrayBuffer()))
+    const hex = [...digest].map(byte => byte.toString(16).padStart(2, "0")).join("")
+    if (hex !== sha256.toLowerCase()) throw webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_DAMAGED({ detail: `The snapshot has SHA-256 ${hex}, not ${sha256}.`, url })
+  }
+  return new Uint8Array(await new Response(joined.stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer())
+}
+
 async function readCachedPart(cache: SnapshotCache, url: string): Promise<Blob | undefined> {
-  try {
-    return await (await cache.match(url))?.blob()
-  }
-  catch {
-    return undefined
-  }
+  return await (await cache.match(url))?.blob()
 }
 
 async function hasCachedPart(cache: SnapshotCache, url: string): Promise<boolean> {
@@ -346,7 +353,7 @@ async function hasCachedPart(cache: SnapshotCache, url: string): Promise<boolean
 }
 
 async function replaceCachedPartsAfterLoad(name: string, cache: SnapshotCache, parts: ReadonlyArray<{ url: string, blob: Blob, downloaded: boolean }>): Promise<void> {
-  const replace = async () => {
+  await withSnapshotCacheLock(name, async () => {
     let stored = true
     for (const part of parts) {
       if (!part.downloaded && await hasCachedPart(cache, part.url)) continue
@@ -361,10 +368,13 @@ async function replaceCachedPartsAfterLoad(name: string, cache: SnapshotCache, p
     const keep = new Set(parts.map(part => new Request(part.url).url))
     const stale = (await cache.keys()).filter(request => !keep.has(request.url))
     await Promise.all(stale.map(async request => await cache.delete(request).catch(() => false)))
-  }
+  })
+}
+
+async function withSnapshotCacheLock(name: string, update: () => Promise<void>): Promise<void> {
   const navigator: unknown = Reflect.get(globalThis, "navigator")
   const locks: unknown = typeof navigator === "object" && navigator !== null ? Reflect.get(navigator, "locks") : undefined
-  await (isLockManager(locks) ? locks.request(`vitehub-web-container-snapshot:${name}`, replace) : replace()).catch(() => {})
+  await (isLockManager(locks) ? locks.request(`vitehub-web-container-snapshot:${name}`, update) : update()).catch(() => {})
 }
 
 function isLockManager(value: unknown): value is { request: (name: string, callback: () => Promise<void>) => Promise<void> } {
