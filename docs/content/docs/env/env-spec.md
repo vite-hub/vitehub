@@ -44,7 +44,7 @@ Put annotations in the comment lines directly above a key, with no empty line be
 | Annotation | Effect |
 | --- | --- |
 | `@type=<type>` | Sets the type. Without it, the type is `string`. See [Types](#types). |
-| `@required`, `@optional` | The host must set the value, or it can be missing. Fields are required by default. |
+| `@required`, `@optional` | A required field needs a host value when it has no default. An optional field can be missing. Fields are required by default. |
 | `@sensitive`, `@public` | The value is a secret, or it is not. Fields are sensitive by default. |
 | `@example="<text>"` | Shows a sample value. It never becomes the default. |
 
@@ -74,12 +74,13 @@ The text after `=` is the default.
 
 - `KEY=` has no default.
 - `KEY=value` is a real default. The reader checks it against the type when the config loads, and the build fails if it does not match.
-- `KEY=""` is an empty string. Only an optional `string` field without a `minLength` accepts it. For other optional types, it means no default.
-- A `string` default keeps its exact text, so `CODE=00123` keeps its zeroes.
+- `KEY=""` is an empty string. A required field rejects it. An optional `string` field accepts it when it has no `minLength` or `minLength=0`. For other optional types, it means no default.
+- The reader trims unquoted text: `KEY=  text  ` gives `text`. Quotes keep the exact text, with its spaces.
+- A `string` default keeps its digits, so `CODE=00123` keeps its zeroes.
 - A `number` default is a decimal number, such as `3`, `2.5`, or `1e3`. `0xff`, `NaN`, and `Infinity` fail.
 - Put a JSON default in single quotes: `ROLES='["read","write"]'`.
 
-The reader rejects `$OTHER`, `${OTHER}`, `$(command)`, function calls such as `fetchSecret(name)`, and unquoted `[` or `{`. Put sample values in `@example`, not in the assignment.
+The reader rejects `$OTHER`, `${OTHER}`, `$(command)`, function calls such as `fetchSecret(name)`, and unquoted `[` or `{`. Double quotes do not change this: `KEY="${OTHER}"` fails. Single quotes keep the text as it is, so `KEY='${OTHER}'` is the literal text `${OTHER}`. Put sample values in `@example`, not in the assignment.
 
 ## Host values
 
@@ -87,7 +88,7 @@ Env checks the value that the host sets against the same type.
 
 - An empty value, such as `VITEHUB_LOG_LEVEL=` on the host, is missing. The default applies. Without a default, a required field fails and an optional field is `undefined`.
 - A value that does not match the type fails. It does not fall back to the default.
-- `array` and `object` values are JSON text.
+- A string value for an `array` or `object` field is JSON text. A host value that is already an array or object, such as a Cloudflare JSON variable, is used as it is.
 
 ## Names and sections
 
@@ -98,12 +99,12 @@ The default prefix is `VITEHUB_`. Change it with `envSchema(file, { prefix: "APP
 | `<prefix>PUBLIC_*`, not sensitive | Public Env, readable in browser code | When you build |
 | Every other key | Server Env, for server code only | When the server runs |
 
-- A key that starts with `<prefix>PUBLIC_` must be `@public` or `@sensitive=false`. A sensitive public key fails.
+- A key that starts with `<prefix>PUBLIC_` goes to the browser when it is not sensitive. The file default `@defaultSensitive=false` is enough, so the key does not need its own `@public`. Without that default, mark the key `@public` or `@sensitive=false`. A sensitive public key fails.
 - `@public` on another key only clears the secret flag. The value stays in Server Env.
-- A sensitive Server Env value is a `SecretEnv`. Read the raw string with `.unseal()`.
+- A sensitive Server Env value is a `SecretEnv<T>`. `.unseal()` returns the parsed value of type `T`, such as a `number` for `@type=number`.
 - With `prefix: ""`, `PUBLIC_*` keys go to Public Env.
 
-The name in code drops the prefix and `PUBLIC_`, and uses camel case: `VITEHUB_ORDER_RETRIES` becomes `orderRetries`. To put a Server Env value in a group, map its exact key with `paths`: `{ paths: { VITEHUB_DATABASE_URL: "database.url" } }`. Public Env names stay flat. A path fails when a part is not a safe identifier, when its first part is `public`, `define`, or `server`, or when it overlaps another path. A `paths` key that the file does not declare fails too.
+The name in code drops `<prefix>PUBLIC_` from a Public Env key and `<prefix>` from a Server Env key, and uses camel case: `VITEHUB_ORDER_RETRIES` becomes `orderRetries`. With the default prefix, `PUBLIC_SHOP_NAME` does not start with `VITEHUB_PUBLIC_`, so it stays in Server Env as `publicShopName`. To put a Server Env value in a group, map its exact key with `paths`: `{ paths: { VITEHUB_DATABASE_URL: "database.url" } }`. Public Env names stay flat. A path fails when a part is not a safe identifier, when its first part is `public`, `define`, or `server`, or when it overlaps another path. A `paths` key that the file does not declare fails too.
 
 Each field reads only its own key. `VITEHUB_DATABASE_URL` mapped to `database.url` still reads `VITEHUB_DATABASE_URL`, and no other name can override it.
 
@@ -111,4 +112,4 @@ A key can have letters, digits, and `_`, cannot start with a digit, and can have
 
 ## Errors
 
-A schema file that the profile does not accept fails when the config loads, with `ENV_DECLARATION_INVALID`. The message names the file, the line, the key, and the reason.
+A schema file that the profile does not accept fails when the config loads, with `ENV_DECLARATION_INVALID`. Its message only says `[vitehub] Env declaration is invalid.`, so read the error `cause`. The cause names the file, the line, and the reason, and the key when the reader can find it. A syntax error such as `VALUE="unclosed` has no key.
