@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { basename, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -426,9 +426,36 @@ describe("generated Console access", () => {
   ] as const)("registers one Console route below %s (Site access: %s)", async (base, siteAccess, file) => {
     const mount = base.replace(/\/$/, "")
     const config: { base: string, nitro: { handlers: Array<{ handler: string, middleware?: boolean, route: string }>, publicAssets?: Array<{ baseURL?: string }> } } = { base, nitro: { handlers: [] } }
-    await generatedPlugin({ console: {}, siteAccess }, "build", config)
+    await generatedPlugin({ console: {}, comments: siteAccess }, "build", config)
 
     expect(config.nitro.handlers.map(handler => [handler.route, basename(handler.handler)])).toEqual([[`${mount}/_vitehub/**`, file]])
+  })
+
+  it.each([
+    [undefined, true, "entry-site-access.js"],
+    [{ overlay: false } as const, true, "entry.js"],
+    [undefined, false, "entry.js"],
+  ] as const)("reads Site access from the Comments pill: comments %o, server/comments.ts %s", async (comments, commentsFile, file) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-site-access-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      if (commentsFile) {
+        await mkdir(join(root, "server"))
+        await writeFile(join(root, "server/comments.ts"), "export default {}\n")
+      }
+      const config: { nitro: { handlers: Array<{ handler: string, route: string }> }, root: string } = { nitro: { handlers: [] }, root }
+      const plugin = consoleVitePlugin({ comments, console: {}, sections: ["agents"] })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a Console config hook.")
+      await Reflect.apply("handler" in configHook ? configHook.handler : configHook, {}, [config, { command: "build", mode: "production" }])
+
+      expect(config.nitro.handlers.map(handler => basename(handler.handler))).toEqual([file])
+      const sections = /installConsoleSections\([^,]+, (\[[^\]]*\])\)/.exec(await readFile(join(root, ".vitehub/nitro/console/app.mjs"), "utf8"))?.[1]
+      expect(JSON.parse(sections ?? "[]").includes("site")).toBe(file === "entry-site-access.js")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("imports console.authorize for open access", async () => {

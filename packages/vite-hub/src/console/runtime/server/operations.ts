@@ -8,6 +8,7 @@ import { loadConsoleMedia } from "./blob.ts"
 import { consoleAttachmentRequestBytes, consoleDocumentActionNames, consoleMediaUploadRequestBytes, maximumConsoleDocumentRequestBytes, maximumConsoleMediaRequestBytes, maximumConsoleRpcRequestBytes } from "./limits.ts"
 import { consoleRequestError } from "./request.ts"
 import { loadConsoleRuntime } from "./runtime.ts"
+import { getConsoleSections } from "./sections.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 import { authConsoleActionOperations, authConsoleImpersonationOperations, authConsoleReadOperations } from "../auth-operations.ts"
 
@@ -549,6 +550,7 @@ const siteAccessGet = defineConsoleOperation({
   kind: "read",
   name: "site.access",
   run: (_input, context): SiteAccessPolicy => {
+    if (!getConsoleSections().includes("site")) throw consoleRequestError(404, "This app has no Site access. Add server/comments.ts, or set comments in vitehub() without overlay: false.")
     const roles = viteHubPageGrants()
     const grants = readConsoleAccessGrants(context.access)
     if (grants) {

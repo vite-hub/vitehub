@@ -1739,10 +1739,13 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
   if (options.webContainer) plugins.push(requireOptionalOwner(ownerModules.webContainerVite, "webContainer").webContainerVitePlugin(options.webContainer))
   plugins.push(staleChunkReloadVitePlugin())
 
+  // Without a `console` option, `vite dev` serves the operation RPC and the development Setup page.
+  // `console: false` turns the RPC off.
+  const devOperationsOnly = options.console === undefined
   const runtimeCapabilityImports = {
     blob: blobEnabled ? "vite-hub/blob" : false,
     connections: options.connections ? generatedModules.connectionsAgent : false,
-    console: configuredConsole ? generatedModules.consoleAgent : false,
+    console: configuredConsole || devOperationsOnly ? generatedModules.consoleAgent : false,
     db: options.database ? "@vite-hub/database/runtime/registry" : false,
     i18n: options.i18n ? "vite-hub/i18n/server" : false,
     // The `page()` Capability reaches the page through Realtime.
@@ -1754,9 +1757,6 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
 
   plugins.push(setupDevPlugin())
   plugins.push(operationsCheckPlugin())
-  // Without a `console` option, `vite dev` serves the operation RPC and the development Setup page.
-  // `console: false` turns the RPC off.
-  const devOperationsOnly = options.console === undefined
   if (configuredConsole || devOperationsOnly) {
     const invocationRootState = {}
     const consolePlugin = consoleVitePlugin({
@@ -1766,7 +1766,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
       blobStores: blobStoreNames,
       console: configuredConsole || undefined,
       rpcOnly: devOperationsOnly,
-      siteAccess: Boolean(options.comments),
+      comments: options.comments,
       runtimeCapabilityImports,
       databaseDiscoveryRoot: options.database && options.database !== true ? options.database.projectRoot : undefined,
       rateLimitDiscoveryRoot: options.rateLimit && options.rateLimit !== true ? options.rateLimit.projectRoot : undefined,

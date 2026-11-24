@@ -192,7 +192,7 @@ describe("Agent invocation console", () => {
       ])
       expect(consoleAppFile(plugin)).toBe(resolve(root, ".vitehub/nitro/console/app.mjs"))
       expect(config.nitro.plugins ?? []).toEqual([])
-      await expect(readFile(consoleAppFile(plugin), "utf8")).resolves.toContain(`installConsoleSections(${JSON.stringify(root)}, ["agents","usage","blob","kv","site"])`)
+      await expect(readFile(consoleAppFile(plugin), "utf8")).resolves.toContain(`installConsoleSections(${JSON.stringify(root)}, ["agents","usage","blob","kv"])`)
       await expect(readFile(consoleAppFile(plugin), "utf8")).resolves.toContain(`installConsoleProjectName(${JSON.stringify(root)}, "console-host")`)
       await expect(readFile(consoleAppFile(plugin), "utf8")).resolves.toMatch(/installConsoleBuild\(\{"time":"\d{4}-/)
       await expect(readFile(consoleAppFile(plugin), "utf8")).resolves.toContain('"host":{"name":"cloudflare","preset":"cloudflare-module"},"framework":{"name":"nitro"}')
@@ -421,6 +421,12 @@ describe("Agent invocation console", () => {
     expect(config.handlers.map(handler => handler.route)).toEqual(["/portal/_vitehub/**"])
   })
 
+  it("refuses an app route in the Nitro routes option on a Console path", () => {
+    expect(() => addConsoleRpcHandler({ routes: { "/portal/_vitehub/rpc": "./server/rpc.ts" } }, "/runtime", "/portal/"))
+      .toThrow("the Nitro routes option uses that path")
+    expect(() => addConsoleRpcHandler({ routes: { "/portal/_vitehub/other": "./server/other.ts" } }, "/runtime", "/portal/")).not.toThrow()
+  })
+
   it("registers Blob inspection without loading the Agent server graph", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-blob-host-"))
     try {
@@ -508,7 +514,7 @@ describe("Agent invocation console", () => {
       const generated = await readFile(consoleAppFile(plugin), "utf8")
       expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv","site"])`)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"])`)
       expect(generated).not.toContain("installConsoleInvocations")
       expect(generated).not.toContain("hidden.agent")
     } finally {
@@ -646,7 +652,7 @@ describe("Agent invocation console", () => {
       expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
       expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDefinitions)})`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["workspaces","site"])`)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["workspaces"])`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"workspaces":{"definitions":[{"fields":[{"label":"Kind","value":"Workspace Definition"},{"label":"Source root","value":"server/workspaces/docs/workspace"}],"file":"server/workspaces/docs/config.ts","name":"docs","source":"server-workspaces-directory-config"}],"kind":"definition-catalog"}}, `)
       expect(generated).not.toContain("The Console must not initialize")
       expect(generated).not.toContain("installConsoleInvocations")
@@ -690,7 +696,7 @@ describe("Agent invocation console", () => {
       expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDatabase)})`)
       expect(generated).toContain(`import("@vite-hub/database/runtime/registry")`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["env","databases","site"])`)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["env","databases"])`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"databases":{"definitions":[{"fields":[{"label":"Mode","value":"Default"},{"label":"Tables","value":"notes, users"}],"file":"server/databases/default.ts","name":"default","source":"server-databases"}],"kind":"definition-catalog"}}, `)
       expect(generated).toContain(`installConsoleDatabase(${JSON.stringify(root)}, vitehubConsoleDatabases, ["default"])`)
       expect(generated).not.toContain("The Console must not evaluate")
@@ -729,7 +735,7 @@ describe("Agent invocation console", () => {
         "/_vitehub/**",
       ])
       const generated = await readFile(consoleAppFile(plugin), "utf8")
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["env","queues","site"])`)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["env","queues"])`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"queues":{"definitions":[{"fields":[],"file":"server/queues/email.ts","name":"email","source":"server-queues"}],"kind":"definition-catalog"}}, `)
       expect(generated).not.toContain("The Console must not evaluate")
       expect(generated).not.toContain("installConsoleInvocations")
@@ -775,7 +781,7 @@ describe("Agent invocation console", () => {
       expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
       expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDefinitions)})`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["env","rate-limits","site"])`)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["env","rate-limits"])`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"rate-limits":{"definitions":[{"fields":[{"label":"Limit","value":"25"},{"label":"Window","value":"10s"},{"label":"Enforcement","value":"Strict"},{"label":"Provider failure","value":"Allow"},{"label":"Source location","value":"2:1"}],"file":"server/api/upload.post.ts","name":"uploads","source":"require-rate-limit"}],"kind":"definition-catalog"}}, `)
       expect(generated).not.toContain("The Console must not evaluate")
       expect(generated).not.toContain("installConsoleInvocations")
@@ -852,7 +858,7 @@ describe("Agent invocation console", () => {
       expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
       expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDefinitions)})`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["schedules","site"])`)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["schedules"])`)
       // The runtime reader reads the Definitions that the Process Runtime loaded. It does not import a handler itself.
       expect(generated).toContain(`{ readScheduleConsoleRecords: vitehubConsoleRuntimeReader0 }`)
       expect(generated).toMatch(/import\("[^"]*[\\/]schedule[\\/](?:src|dist)[\\/]runtime[\\/]console\.(?:ts|js)"\)/)

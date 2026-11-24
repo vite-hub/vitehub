@@ -72,7 +72,7 @@ function isConsoleRouteGuard(value: unknown): boolean {
  * access token of the Console. See `server/site.ts`.
  */
 export function addConsoleRpcHandler(
-  nitro: { handlers?: Array<{ handler: string; route?: string }>; modules?: unknown[]; plugins?: string[] },
+  nitro: { handlers?: Array<{ handler: string; route?: string }>; modules?: unknown[]; routes?: Record<string, unknown> },
   consoleRuntimeRoot: string,
   base?: string,
   options: { siteAccess?: boolean } = {},
@@ -95,6 +95,10 @@ export function addConsoleRpcHandler(
   if (conflict) {
     throw viteHubErrorDiagnostics.VITE_HUB_R0040({ message: `Cannot mount the ViteHub Console handler at "${conflict.route}" because that route already uses "${conflict.handler}".` })
   }
+  const routeConflict = Object.keys(nitro.routes ?? {}).find(path => routes.includes(path))
+  if (routeConflict) {
+    throw viteHubErrorDiagnostics.VITE_HUB_R0040({ message: `Cannot mount the ViteHub Console handler at "${routeConflict}" because the Nitro routes option uses that path. Move the app route to another path.` })
+  }
   // The route checks its own access: a signed POST has no app session, and a ticket GET has the ticket as proof. Its
   // modules import the generated Console app module. Loaded on the first request, they stay out of every cold start.
   kit.addHandler({ handler, lazy: true, meta: { ...consoleRouteMeta }, route }, "end")
@@ -103,9 +107,4 @@ export function addConsoleRpcHandler(
   nitro.handlers = kit.config.handlers as Array<{ handler: string; route?: string }>
   // A second registration, such as a config reload, replaces the guard with the current routes.
   nitro.modules = [...(nitro.modules ?? []).filter(module => !isConsoleRouteGuard(module)), consoleRouteGuard(routes)]
-  // SAFETY: The kit preserves the caller's Nitro plugin registrations.
-  const plugins = kit.config.plugins as string[]
-  // Preserve an outer kit's plugin array so subsequent registrations use the same list.
-  if (nitro.plugins) nitro.plugins.splice(0, nitro.plugins.length, ...plugins)
-  else nitro.plugins = plugins
 }

@@ -49,6 +49,7 @@ import { resolveConsoleProjectName } from "./console/project.ts"
 import { insertConsoleSection, resolveConsoleSectionIds, type ConsoleSectionId } from "./console/runtime/sections.ts"
 import { consoleContributedSections, consoleDocumentEditorSectionIds, discoverConsoleEntrySections, isConsoleContributedSectionId } from "./console/contributions.ts"
 import { addConsoleAppRoutes, addConsoleRpcHandler } from "./console/nitro.ts"
+import { resolveConsoleSiteAccess } from "./console/site-access.ts"
 import { serializeConsoleRefresh } from "./console/refresh.ts"
 import { assertConsoleAccess, assertConsoleProductionAuth, resolveConsoleOptions, consoleInvocationRootPlugin, consoleAppModuleId, consoleOperationContributions, resolveConsoleAccessBuild, resolveGeneratedConsoleApp, type ConsoleInvocationRootState } from "./console/vite.ts"
 
@@ -1216,6 +1217,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       if (!nuxt.options.dev && !nuxt.options._prepare) assertConsoleProductionAuth(configuredConsole)
     }
   }
+  const consoleSiteAccess = resolveConsoleSiteAccess(options.comments, { projectRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) })
   // Module setup and the `nitro:config` hook write the same Console app module. Only the file and the catalog differ.
   const writeNuxtConsoleApp = (file: string, catalog: ConsoleBuildCatalog) => writeConsoleAppModule({
     file,
@@ -1230,7 +1232,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     runtimeCapabilityImports,
     development: nuxt.options.dev === true,
     target: { host: { name: plan.host, preset: nitroPreset }, framework: { name: "nuxt", version: nuxt._version } },
-    site: true,
+    site: consoleSiteAccess,
   })
   const viteConfig = nuxt.options.vite as UserConfig & {
     [VITEHUB_GENERATED_ROOT]?: string
@@ -1590,7 +1592,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       )
       installConsoleSections(projectRoot, consoleSections)
       installConsoleProjectName(projectRoot, resolveConsoleProjectName(projectRoot, options.name))
-      addConsoleRpcHandler(config, consoleRuntimeRoot, undefined, { siteAccess: Boolean(options.comments) })
+      addConsoleRpcHandler(config, consoleRuntimeRoot, undefined, { siteAccess: consoleSiteAccess })
       addConsoleAppRoutes(config, consoleRuntimeRoot)
       // CLI discovery resolves no Console access, so its plugin would differ from the running dev server's and make
       // that server rebuild. The Vite Console plugin skips this write in CLI discovery too.
@@ -1735,7 +1737,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       projectRoot,
       name: options.name,
       sections: consoleSections,
-      siteAccess: Boolean(options.comments),
+      siteAccess: consoleSiteAccess,
       discovery: {
         contentImportBase: "vite-hub/content",
         databaseDiscoveryRoot: configuredDatabaseDiscoveryRoot,
