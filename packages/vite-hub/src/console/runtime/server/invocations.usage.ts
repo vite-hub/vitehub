@@ -59,6 +59,5 @@ const usageHandler = async (event: ConsoleRequestEvent): Promise<Record<string, 
  */
 export const readConsoleUsage: ConsoleAccessRoute<typeof usageHandler> = withConsoleAccess(usageHandler, { section: "usage" });
 
-/** `GET <base>/_vitehub/console/usage` */
 const consoleUsageRoute: ConsoleRoute = consoleRoute(readConsoleUsage);
 export default consoleUsageRoute;

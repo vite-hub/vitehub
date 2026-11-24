@@ -106,7 +106,7 @@ This context can hold secrets or customer data from app code. Protect it like pr
 
 **Skills** shows the files bundled with each Agent Definition, from colocated `skills/` folders and `agentWithSkills()`, as a Markdown preview or source. It reads the current Definition, so it starts no invocation and refreshes no Source. Text previews stop at 512 KiB, and binary files have none. **Skill index** opens [ViteHub's published Skill index](https://vitehub.dev/.well-known/skills/index.json), not your app's; the skills that your app serves are in **Served skills**.
 
-**Usage** shows the tokens and cost that providers reported for completed invocations over 24 hours, or 7, 30 or 90 days, by time and model. The app adds up its journal when the page asks, through `invocations.usage`, and the Console keeps no copy. A warning shows when the scan reaches 10,000 records or a finish event is cut, so partial totals never look complete. The Console fills in nothing that the provider left out. Add the [Usage Capability](/docs/agents/capabilities/usage) for an explicit usage request, an estimated cost, or a typed Agent Usage Record at finish.
+**Usage** shows the tokens and cost that providers reported for completed invocations over 24 hours, or 7, 30 or 90 days, by time and model. The app adds up its journal when the page asks, through `invocations.usage`, and the Console keeps no copy. A warning shows when the usage of an invocation is incomplete, such as a cut finish event, so partial totals never look complete. The Console fills in nothing that the provider left out. Add the [Usage Capability](/docs/agents/capabilities/usage) for an explicit usage request, an estimated cost, or a typed Agent Usage Record at finish.
 
 ## Which journal the Console reads
 
