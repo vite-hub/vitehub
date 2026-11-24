@@ -9,6 +9,8 @@ import { afterEach, describe, expect, it } from "vitest"
 
 import { vitehub } from "vite-hub"
 
+import { consoleTestKey } from "./support/console-signature.ts"
+
 const roots: string[] = []
 afterEach(async () => {
   for (const root of roots.splice(0)) await rm(root, { force: true, recursive: true })
@@ -36,9 +38,9 @@ async function fetchWhenReady(url: string, init?: RequestInit): Promise<Response
   }
 }
 
-describe("One-time links in an app whose Auth protects every route", () => {
-  it("leaves the ticket GET to the Console, so a link opens without an app session", { timeout: 240_000 }, async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-ticket-auth-"))
+describe("Console tokens in an app whose Auth protects every route", () => {
+  it("leaves the token GET of /_vitehub/site to the Console, so an impersonation or a preview opens without an app session", { timeout: 240_000 }, async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-site-auth-"))
     roots.push(root)
     await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
     const files = {
@@ -62,17 +64,18 @@ describe("One-time links in an app whose Auth protects every route", () => {
     await builder.buildApp()
 
     const server = spawn(process.execPath, [join(root, ".output/server/index.mjs")], {
-      env: { ...process.env, BETTER_AUTH_SECRET: "ticket-auth-build-test-secret-0123456789abcdef", HOST: "127.0.0.1", NODE_ENV: "production", PORT: String(port) },
+      env: { ...process.env, ...(await consoleTestKey("CONSOLE_SITE_BUILD")).env, BETTER_AUTH_SECRET: "site-auth-build-test-secret-0123456789abcdef", HOST: "127.0.0.1", NODE_ENV: "production", PORT: String(port) },
       stdio: "ignore",
     })
     try {
-      // The app's Auth rule still protects the app.
       const app = await fetchWhenReady(`${origin}/private`, { headers: { accept: "application/json" } })
       expect(app.status).toBe(401)
-      // The ticket GET reaches the Console, which reads the ticket. A wrong ticket gets the Console's answer, not Auth's.
-      const link = await fetch(`${origin}/_vitehub/rpc?ticket=vt1_wrong`, { headers: { accept: "text/html" } })
-      expect(await link.text()).toContain("CONSOLE_TICKET_INVALID")
+      const link = await fetch(`${origin}/_vitehub/site?token=vst1.wrong`, { headers: { accept: "text/html" } })
+      expect(await link.text()).toContain("CONSOLE_SITE_TOKEN_REFUSED")
       expect(link.status).toBe(401)
+      const visit = await fetch(`${origin}/_vitehub/site?${new URLSearchParams({ return: "/", intent: "A".repeat(43) })}`, { redirect: "manual" })
+      expect(visit.status).toBe(303)
+      expect(visit.headers.get("set-cookie")).toMatch(/__Host-vitehub-site-state=/)
     }
     finally {
       server.kill()

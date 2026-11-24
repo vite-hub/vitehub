@@ -10,12 +10,13 @@ import { consoleOperationRegistry, installConsoleOperations } from "../src/conso
 import { installConsolePill } from "../src/console/runtime/server/pill.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { siteAccessOperations } from "../src/console/runtime/server/site-access-operation.ts"
-import siteAccessRoute from "../src/console/runtime/server/site.ts"
+import siteAccessRoute, { siteActionRoute } from "../src/console/runtime/server/site.ts"
 import { consoleEntryRoute, siteEntryPage, siteEntryRoute } from "../src/console/runtime/server/site-entry.ts"
 import { consoleRoutes } from "../src/console/runtime/server/routes.ts"
 import { readConsoleSiteVisitor } from "../src/console/runtime/server/site-visitor.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 import { consoleTestKey, signedRpcRequest } from "./support/console-signature.ts"
+import { siteActionBrowser } from "./support/site-token.ts"
 import { operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 import type { SiteTokenClaims } from "@vite-hub/internal/site-token"
@@ -136,6 +137,44 @@ describe("GET /_vitehub/site?token=", () => {
     expect(response.status).toBe(401)
     expect(await response.text()).toContain("CONSOLE_SITE_TOKEN_REFUSED")
     expect(response.headers.getSetCookie()).toEqual([])
+  })
+})
+
+describe("GET /_vitehub/site?token= with an impersonate or preview token", () => {
+  const target = { collection: "posts", id: "hello", section: "content" }
+
+  it.each([
+    ["a token for another app", "AUDIENCE", { claims: { aud: "https://evil.example" } }],
+    ["a token of another kind", "KIND", { kind: "site" as const }],
+    ["an expired token", "EXPIRED", { now: Date.now() - 61_000 }],
+  ])("refuses %s with 401 (%s), and the app runs no action", async (_name, code, input) => {
+    const visit = await siteActionBrowser(siteActionRoute, origin)
+    const response = await visit.open(await visit.token({ key: key.key, kind: "preview", target, ...input }))
+    expect(response.status).toBe(401)
+    const page = await response.text()
+    expect(page).toContain("CONSOLE_SITE_TOKEN_REFUSED")
+    expect(page).toContain(`(SITE_TOKEN_${code})`)
+    expect(response.headers.getSetCookie()).toEqual([])
+  })
+
+  it("refuses the token in another browser, which has its own state", async () => {
+    const first = await siteActionBrowser(siteActionRoute, origin)
+    const second = await siteActionBrowser(siteActionRoute, origin)
+    const value = await first.token({ key: key.key, kind: "impersonate", target: { action: "stop" } })
+    for (const cookie of [second.cookie, ""]) {
+      const response = await first.open(value, cookie)
+      expect(response.status).toBe(401)
+      expect(await response.text()).toContain("(SITE_TOKEN_STATE)")
+    }
+  })
+
+  it("does not make an impersonate or preview token a Site access visitor", async () => {
+    const visit = await siteActionBrowser(siteAccessRoute, origin)
+    for (const kind of ["impersonate", "preview"] as const) {
+      const value = await visit.token({ key: key.key, kind, target })
+      const cookie = `__Host-vitehub-site=${visit.state}.${value}`
+      expect(await readConsoleSiteVisitor(new Request(`${origin}/docs`, { headers: { cookie } })), kind).toBeUndefined()
+    }
   })
 })
 
@@ -299,7 +338,20 @@ describe("the /_vitehub/** route", () => {
     expect((await withoutComments.fetch(new Request(`${origin}/_vitehub/site?return=%2Fdocs`))).status).toBe(404)
     expect((await withoutComments.fetch(new Request(`${origin}/portal/_vitehub/site`))).status).toBe(404)
     expect((await withComments.fetch(new Request(`${origin}/_vitehub/site`, { method: "POST", headers: { origin } }))).status).toBe(204)
-    expect((await withoutComments.fetch(new Request(`${origin}/_vitehub/site`, { method: "POST", headers: { origin } }))).status).toBe(404)
+    expect((await withoutComments.fetch(new Request(`${origin}/_vitehub/site`, { method: "POST", headers: { origin } }))).status).toBe(405)
+  })
+
+  it("starts an impersonation or a preview of the Console at /_vitehub/site also in an app without Comments", async () => {
+    const routes = consoleRoutes({ siteAccess: false })
+    const intent = "A".repeat(43)
+    const response = await routes.fetch(new Request(`${origin}/_vitehub/site?${new URLSearchParams({ return: "/blog/hello", project: "p1", intent })}`))
+    expect(response.status).toBe(303)
+    const location = new URL(response.headers.get("location") ?? "")
+    expect(location.pathname).toBe("/visit")
+    expect(location.searchParams.get("intent")).toBe(intent)
+    expect(location.searchParams.get("project")).toBe("p1")
+    expect(response.headers.get("set-cookie")).toMatch(/__Host-vitehub-site-state=/)
+    expect((await routes.fetch(new Request(`${origin}/_vitehub/site?return=%2F&intent=bad`))).status).toBe(400)
   })
 
   it("sends /_vitehub/rpc to the Console RPC and every other path to the entry", async () => {

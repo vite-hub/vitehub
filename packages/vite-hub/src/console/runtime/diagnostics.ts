@@ -28,11 +28,8 @@ export type ConsoleDiagnosticCode =
   | "CONSOLE_SIGNATURE_MISSING"
   | "CONSOLE_SIGNATURE_ORIGIN"
   | "CONSOLE_SIGNATURE_STALE"
+  | "CONSOLE_SITE_ACCOUNT_MISMATCH"
   | "CONSOLE_SITE_TOKEN_REFUSED"
-  | "CONSOLE_TICKET_INVALID"
-  | "CONSOLE_TICKET_MISMATCH"
-  | "CONSOLE_TICKET_NO_PERSON"
-  | "CONSOLE_TICKET_STORE_MISSING"
   | "CONSOLE_UNAVAILABLE"
 
 export type ConsoleDiagnosticData = {
@@ -143,34 +140,16 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
       `${consoleGuide}/signed-requests`,
       "docs",
     ),
+    CONSOLE_SITE_ACCOUNT_MISMATCH: code(
+      "Impersonation uses the app session of this browser, and it belongs to another person than your Console account, or it has no session.",
+      "Sign in to the app in this browser with the email of your ViteHub Console account, then start the impersonation again from the Console. Stop an impersonation in the browser that started it.",
+      `${consoleGuide}/site-access#impersonation-and-content-preview`,
+      "docs",
+    ),
     CONSOLE_SITE_TOKEN_REFUSED: code(
       "The app refused the Site access token that the ViteHub Console sent.",
       "Open the site again from the ViteHub Console, in the same browser. Check that the app has the `VITEHUB_CONSOLE_KEY_<NAME>` of its link and that `vitehub({ publicUrl })` is the URL that you open.",
       `${consoleGuide}/site-access#how-the-app-checks-a-visit`,
-      "docs",
-    ),
-    CONSOLE_TICKET_INVALID: code(
-      "This one-time link expired, was used, or was changed.",
-      "Open the page again from the ViteHub Console. Each link works once, within 60 seconds.",
-      `${consoleGuide}/site-access#one-time-links`,
-      "docs",
-    ),
-    CONSOLE_TICKET_MISMATCH: code(
-      "This one-time link was made for another person or another app.",
-      "Open the page from the ViteHub Console in the browser where you are signed in to the app with the email of your Console account.",
-      `${consoleGuide}/site-access#one-time-links`,
-      "docs",
-    ),
-    CONSOLE_TICKET_NO_PERSON: code(
-      "A one-time link opens the app as the person who asks for it, and this call names no person. A `vitehub` command signs its calls with a key, not as a person.",
-      "Make the link in the ViteHub Console, where you are signed in.",
-      `${consoleGuide}/site-access#one-time-links`,
-      "docs",
-    ),
-    CONSOLE_TICKET_STORE_MISSING: code(
-      "One-time links need a store that every instance of the app shares, and the app has none.",
-      "Add app Auth with a Database, such as `defineAuth({ database: authDatabase() })`, then run `vitehub database migrate`. Its verification table keeps each link until it is used. Without Auth, use a default KV store on Redis, Upstash, or the `database` driver.",
-      `${consoleGuide}/site-access#one-time-links`,
       "docs",
     ),
     CONSOLE_LOOPBACK_ONLY: code(

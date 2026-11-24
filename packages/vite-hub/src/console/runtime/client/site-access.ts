@@ -4,9 +4,9 @@ import { isRecord } from "@vite-hub/internal/object"
 
 import { useConsoleProjects } from "./project-session"
 import { ConsoleRequestError, consoleResponseError } from "./request"
-import { openConsoleTicket } from "./ticket"
+import { openConsoleLink } from "./site-link"
 
-import type { ConsoleTicketLink } from "./ticket"
+import type { ConsoleLink } from "./site-link"
 
 /** A browser that Site access signed in to the app: its pass in the ViteHub Console. */
 export interface SiteSession {
@@ -65,7 +65,7 @@ async function siteApi(method: "GET" | "POST" | "DELETE", path: string, input: {
   return body
 }
 
-function linkOf(body: Record<string, unknown>): ConsoleTicketLink {
+function linkOf(body: Record<string, unknown>): ConsoleLink {
   const { url, expiresAt } = body
   if (typeof url !== "string" || typeof expiresAt !== "string") throw new ConsoleRequestError(502, "The Console answered without a link.")
   return { url, expiresAt }
@@ -105,16 +105,16 @@ export async function readSiteAccess(signal?: AbortSignal): Promise<{ sessions: 
  */
 export async function openSite(path?: string): Promise<void> {
   const { id, url } = currentProject()
-  await openConsoleTicket(async () => ({ url: `${url.replace(/\/+$/, "")}/_vitehub/site?${new URLSearchParams({ return: path ?? "/", project: id })}` }))
+  await openConsoleLink(async () => ({ url: `${url.replace(/\/+$/, "")}/_vitehub/site?${new URLSearchParams({ return: path ?? "/", project: id })}` }))
 }
 
 /** A one-time link for a phone, such as `/go/<code>` of the Console: it lasts 10 minutes, so there is time to scan it. */
-export async function phoneLink(): Promise<ConsoleTicketLink> {
+export async function phoneLink(): Promise<ConsoleLink> {
   return linkOf(await siteApi("POST", "/codes", { body: {} }))
 }
 
 /** Invites a guest. The answer has the link, which the Console shows once: the Console keeps only its hash. */
-export async function inviteGuest(input: { name: string, grants: string[], expiresInDays: 1 | 7 | 30 }): Promise<ConsoleTicketLink & { invite: SiteInvite }> {
+export async function inviteGuest(input: { name: string, grants: string[], expiresInDays: 1 | 7 | 30 }): Promise<ConsoleLink & { invite: SiteInvite }> {
   const body = await siteApi("POST", "/invites", { body: input })
   if (!isInvite(body.invite)) throw new ConsoleRequestError(502, "The answer has no invite.")
   return { ...linkOf(body), invite: body.invite }
