@@ -1,4 +1,4 @@
-import definition from "#vitehub/email/definition"
+import definition, { emailPreview, renderEmailTemplate } from "#vitehub/email/definition"
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import { createEmail } from "../client.ts"
@@ -19,7 +19,6 @@ function isTemplateMessage(message: EmailSendMessage): message is EmailTemplateM
 
 async function renderTemplate(message: TemplateSend): Promise<Result<EmailMessage, "EMAIL_TEMPLATE_RENDER_FAILED">> {
   const { data, subject, template, ...envelope } = message
-  const { emailPreview, renderEmailTemplate } = await import("#vitehub/email/definition")
   const entry = emailPreview.templates.find(entry => entry.name === template)
   if (!entry || !renderEmailTemplate) {
     throw emailErrorDiagnostics.EMAIL_TEMPLATE_NOT_FOUND({

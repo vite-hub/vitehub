@@ -8,7 +8,7 @@ import { env } from "@vite-hub/env"
 import * as rolldown from "@vite-hub/internal/build/rolldown"
 import { VITEHUB_GENERATED_ROOT, VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { createServer } from "vite"
+import { build, createServer } from "vite"
 
 import { hubWorkflow } from "@vite-hub/workflow/vite"
 
@@ -60,6 +60,37 @@ afterEach(async () => {
 })
 
 describe("hubEmail", () => {
+  it("builds template sends without an Email Definition import warning", async () => {
+    const root = await createTempProject()
+    const entry = join(root, "server.mjs")
+    const runtime = fileURLToPath(new URL("../dist/index.js", import.meta.url))
+    await mkdir(join(root, "server", "emails"), { recursive: true })
+    await writeFile(join(root, "server", "emails", "welcome.md"), "---\nsubject: Welcome\n---\n\nHello!\n")
+    await writeFile(entry, `export { email } from ${JSON.stringify(runtime)}\n`)
+    const warnings: string[] = []
+
+    await build({
+      configFile: false,
+      root,
+      logLevel: "silent",
+      plugins: [hubEmail({ driver: "log" })],
+      build: {
+        ssr: entry,
+        write: false,
+        rolldownOptions: {
+          onLog(level, log, handleLog) {
+            if (log.code === "INEFFECTIVE_DYNAMIC_IMPORT" && log.message.includes(EMAIL_DEFINITION_ID)) {
+              warnings.push(log.message)
+            }
+            handleLog(level, log)
+          },
+        },
+      },
+    })
+
+    expect(warnings).toEqual([])
+  })
+
   it("removes stale Email declarations when the integration is disabled", async () => {
     const root = await createTempProject()
     const declaration = join(root, ".vitehub", "types", "email.d.ts")
