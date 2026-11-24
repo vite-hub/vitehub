@@ -63,7 +63,7 @@ const kinds: readonly SiteTokenKind[] = ["site", "impersonate", "preview"]
 
 /** The person and the roles that a token signs in. */
 export interface SiteTokenClaims {
-  /** The origin of the app, such as `https://app.example.com`. */
+  /** The URL of the app, its origin and base path without a trailing `/`, such as `https://app.example.com/portal`. */
   aud: string
   /** The id of the person in the Console: the user id of a member, or the grant id of a guest. */
   sub: string
@@ -167,6 +167,14 @@ export function isSitePath(value: string): boolean {
   return value.startsWith("/") && !value.startsWith("//") && !value.includes("\\") && !/\p{Cc}/u.test(value) && value.length <= 2_048
 }
 
+function appUrl(url: URL): string {
+  return `${url.origin}${url.pathname.replace(/\/+$/, "")}`
+}
+
+function siteAppUrl(value: string): string | undefined {
+  return URL.canParse(value) ? appUrl(new URL(value)) : undefined
+}
+
 function siteDestination(app: string, path: string): string | undefined {
   if (!isSitePath(path)) return undefined
   const base = new URL(app)
@@ -193,7 +201,7 @@ export function siteVisitUrl(input: { console: string, app: string, state: strin
  */
 export async function signSiteToken(input: { key: ConsoleSigningKey, claims: Omit<SiteTokenClaims, "iat" | "exp">, now?: number }): Promise<string> {
   const iat = Math.floor((input.now ?? Date.now()) / 1_000)
-  const claims: SiteTokenClaims = { ...input.claims, aud: new URL(input.claims.aud).origin, iat, exp: iat + siteTokenLifetimeSeconds }
+  const claims: SiteTokenClaims = { ...input.claims, aud: appUrl(new URL(input.claims.aud)), iat, exp: iat + siteTokenLifetimeSeconds }
   const signed = `${tokenVersion}.${input.key.name}.${encodeConsoleBase64url(encoder.encode(JSON.stringify(claims)))}`
   const token = `${signed}.${await signConsoleBytes(input.key, encoder.encode(signed))}`
   if (token.length > maximumTokenLength) throw new RangeError(`The Site access token is ${token.length} characters, and an app accepts ${maximumTokenLength}. Use a shorter path or name.`)
@@ -259,8 +267,8 @@ export async function verifySiteToken(input: { token: string, keys: ReadonlyMap<
   if (!await verifyConsoleBytes(publicKey, signature, encoder.encode(`${version}.${name}.${payload}`))) {
     return failure("SITE_TOKEN_SIGNATURE", `The Site access token does not match the key \`VITEHUB_CONSOLE_KEY_${name}\`.`)
   }
-  const origin = new URL(input.origin).origin
-  if (claims.aud !== origin) return failure("SITE_TOKEN_AUDIENCE", `The Site access token was made for ${claims.aud}, and this app is ${origin}.`)
+  const app = siteAppUrl(input.origin)
+  if (siteAppUrl(claims.aud) !== app) return failure("SITE_TOKEN_AUDIENCE", `The Site access token was made for ${claims.aud}, and this app is ${app}.`)
   const now = Math.floor((input.now ?? Date.now()) / 1_000)
   const end = input.lifetime === undefined ? claims.exp : claims.iat + input.lifetime
   if (now >= end || claims.iat > now + siteTokenLifetimeSeconds) return failure("SITE_TOKEN_EXPIRED", "The Site access token expired. Open the site from the Console again.")
