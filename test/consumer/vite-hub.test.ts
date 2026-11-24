@@ -50,10 +50,6 @@ const fixtureViteHubPackages = [
   "vite-hub",
 ]
 
-/**
- * The Nuxt release that the packed Nuxt apps install. `VITEHUB_CONSUMER_NUXT=4.7` selects Nuxt 4.7, which builds the
- * server with Nitro 3 because the app depends on `nitro`, and needs Vite 8.3.8. Any other value selects the Nuxt 5 nightly.
- */
 const consumerNuxt = process.env.VITEHUB_CONSUMER_NUXT === "4.7"
   ? {
       dependencies: { nitro: "3.0.261103-rc", nuxt: "4.7.0" },
