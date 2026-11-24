@@ -26,7 +26,7 @@ pnpm dlx vite-hub init my-app --host vercel --features email --option email.driv
 - `--no-install` skips the install. `nextSteps` gives the install command. `--dry-run` prints the plan and writes nothing.
 - `--yes` applies the plan. Without a terminal, a missing input fails and names the flag, for example `Pass --host (cloudflare, vercel, netlify, deno, node) when running without an interactive terminal.` The command exits with `2` and gives `missing` and `rerun`.
 
-`init` writes the command that creates the same stack into `README.md`, between `<!-- vitehub:stack -->` and `<!-- /vitehub:stack -->`. `vitehub status --json` returns it as `stack.command`. A second run of the same command changes nothing.
+Run `vitehub status --json` for the current `stack.command`. Before replaying it, read `stack.omits` for settings the command cannot reproduce, such as credentials or config expressions. Restore those settings separately. If `stack.command` is `null`, the CLI could not plan a fresh setup; use the reported omissions to see what needs attention.
 
 ### `SETUP_INIT_DIR_NOT_EMPTY`
 

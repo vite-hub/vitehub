@@ -15,29 +15,34 @@ export interface PreviousTranslation {
 
 const threshold = 0.6
 
-function bigrams(text: string): Map<string, number> {
+interface Bigrams {
+  text: string
+  pairs: Map<string, number>
+  total: number
+}
+
+function bigrams(text: string): Bigrams {
   const normalized = text.toLowerCase().replace(/\s+/g, " ").trim()
   const result = new Map<string, number>()
   for (let index = 0; index < normalized.length - 1; index++) {
     const pair = normalized.slice(index, index + 2)
     result.set(pair, (result.get(pair) ?? 0) + 1)
   }
-  return result
+  return { text, pairs: result, total: Math.max(0, normalized.length - 1) }
+}
+
+function dice(left: Bigrams, right: Bigrams): number {
+  if (left.text === right.text) return 1
+  const total = left.total + right.total
+  if (total === 0) return 0
+  let shared = 0
+  for (const [pair, count] of right.pairs) shared += Math.min(count, left.pairs.get(pair) ?? 0)
+  return 2 * shared / total
 }
 
 /** Dice coefficient of the character pairs of two texts. */
 export function similarity(left: string, right: string): number {
-  if (left === right) return 1
-  const a = bigrams(left)
-  const b = bigrams(right)
-  let total = 0
-  let shared = 0
-  for (const count of a.values()) total += count
-  for (const [pair, count] of b) {
-    total += count
-    shared += Math.min(count, a.get(pair) ?? 0)
-  }
-  return total === 0 ? 0 : 2 * shared / total
+  return left === right ? 1 : dice(bigrams(left), bigrams(right))
 }
 
 function placeholders(text: string): string | undefined {
@@ -52,14 +57,27 @@ function placeholders(text: string): string | undefined {
  */
 export function findPreviousTranslations(messages: SourceMessages, records: TranslationRecords): Map<string, PreviousTranslation> {
   const missing = Object.entries(messages).filter(([id]) => !records[id] || !isVisible(records[id]))
-  const unused = Object.entries(records).filter(([id, record]) => !(id in messages) && isVisible(record))
+  if (!missing.length) return new Map()
+  const contexts = new Set(missing.map(([, message]) => message.context ?? ""))
+  const unused = new Map<string, Array<{ id: string, record: TranslationRecord, grams: Bigrams }>>()
+  for (const [id, record] of Object.entries(records)) {
+    if (id in messages || !contexts.has(record.salt ?? "") || !isVisible(record)) continue
+    const signature = placeholders(record.source)
+    if (signature === undefined) continue
+    const key = JSON.stringify([record.salt ?? "", signature])
+    const group = unused.get(key) ?? []
+    group.push({ id, record, grams: bigrams(record.source) })
+    unused.set(key, group)
+  }
   const candidates: Array<{ next: string } & PreviousTranslation> = []
   for (const [next, message] of missing) {
     const signature = placeholders(message.message)
     if (signature === undefined) continue
-    for (const [id, record] of unused) {
-      if ((record.salt ?? "") !== (message.context ?? "") || placeholders(record.source) !== signature) continue
-      const score = similarity(record.source, message.message)
+    const group = unused.get(JSON.stringify([message.context ?? "", signature]))
+    if (!group) continue
+    const grams = bigrams(message.message)
+    for (const { id, record, grams: previous } of group) {
+      const score = dice(previous, grams)
       if (score >= threshold) candidates.push({ next, id, record, similarity: score })
     }
   }

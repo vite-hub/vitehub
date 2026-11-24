@@ -245,7 +245,8 @@ export default defineSchedule({
   cron: '0 7 * * *',
   timeZone: 'Europe/Stockholm',
   async handler({ idempotencyKey }) {
-    await email.send({ from, to, subject: "Today's lesson", text, idempotencyKey })
+    const [error] = await email.send({ from, to, subject: "Today's lesson", text, idempotencyKey })
+    if (error) throw error
   },
 })
 ```

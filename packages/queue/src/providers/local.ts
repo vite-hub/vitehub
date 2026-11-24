@@ -74,6 +74,11 @@ export interface LocalQueueEngineOptions {
 }
 
 const maxTimerDelay = 2 ** 31 - 1
+const storeRetryMaxMs = 30_000
+
+function storeRetryDelayMs(failures: number): number {
+  return Math.min(10 * 2 ** (failures - 1), storeRetryMaxMs)
+}
 
 /** Retries after 1, 2, and 4 seconds, up to 60 seconds. The local and postgres providers use it. */
 export function defaultRetryDelayMs(attempts: number): number {
@@ -188,7 +193,7 @@ function toJobSummary(job: StoredJob, running: boolean): LocalQueueJob {
     ...(job.failedAt === undefined ? {} : { failedAt: isoTime(job.failedAt) }),
     id: job.id,
     queue: job.queue,
-    state: job.state === "dead" ? "dead" : running ? "running" : "pending",
+    state: running ? "running" : job.state === "dead" ? "dead" : "pending",
   }
 }
 
@@ -202,12 +207,14 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
   const writingKeys = new Set<string>()
   const expiringKeys = new Set<string>()
   const concurrency = new Map<string, number>()
+  const storeFailures = new WeakMap<StoredJob, number>()
   let enqueueTail = Promise.resolve()
   let started: Promise<void> | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
   let closed = false
 
   const file = (job: Pick<StoredJob, "key">) => join(base, `${job.key}.json`)
+  const attemptInFlight = (job: Pick<StoredJob, "key">) => runningKeys.has(job.key) || expiringKeys.has(job.key)
 
   async function persist(job: StoredJob) {
     const target = file(job)
@@ -259,6 +266,7 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
   }
 
   async function markDead(job: StoredJob, error: DeliveryError, reason = `after ${job.attempts} attempts`) {
+    storeFailures.delete(job)
     job.state = "dead"
     job.error = error
     job.failedAt = Date.now()
@@ -303,6 +311,7 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
       }
       const attempts = job.attempts + 1
       await persist({ ...job, attempts })
+      storeFailures.delete(job)
       job.attempts = attempts
       let handled = false
       try {
@@ -331,7 +340,11 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
       if (handled) await complete(job)
     }
     catch (storeError) {
-      job.availableAt = Date.now() + retryDelayMs(Math.max(1, job.attempts))
+      if (job.state === "pending") {
+        const failures = (storeFailures.get(job) ?? 0) + 1
+        storeFailures.set(job, failures)
+        job.availableAt = Date.now() + Math.max(retryDelayMs(Math.max(1, job.attempts)), storeRetryDelayMs(failures))
+      }
       console.error(`[vitehub:queue] The local provider cannot update the job file in ${base}.`, storeError)
     }
     finally {
@@ -422,7 +435,8 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
         for (const { availableAt, entry, expiresAt, stored } of prepared) {
           const duplicate = entry.idempotencyKey === undefined
             ? undefined
-            : [...jobs.values(), ...created].find(job => job.queue === queue && job.state === "pending" && job.idempotencyKey === entry.idempotencyKey)
+            : [...jobs.values(), ...created].find(job => job.queue === queue && job.idempotencyKey === entry.idempotencyKey
+              && (job.state === "pending" || (job.state === "dead" && attemptInFlight(job))))
           if (duplicate) {
             ids.push(duplicate.id)
             continue
@@ -465,7 +479,7 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
       const job = findJob(id)
       if (!job) return undefined
       return {
-        ...toJobSummary(job, runningKeys.has(job.key)),
+        ...toJobSummary(job, attemptInFlight(job)),
         file: file(job),
         ...(job.idempotencyKey === undefined ? {} : { idempotencyKey: job.idempotencyKey }),
         ...await readPayload(job),
@@ -476,13 +490,13 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
       return [...jobs.values()]
         .filter(job => job.state !== "done" && !writingKeys.has(job.key))
         .sort((a, b) => b.enqueuedAt - a.enqueuedAt)
-        .map(job => toJobSummary(job, runningKeys.has(job.key)))
+        .map(job => toJobSummary(job, attemptInFlight(job)))
     },
     async retry(id) {
       await this.start()
       const job = findJob(id)
       if (!job) return "missing"
-      if (runningKeys.has(job.key) || expiringKeys.has(job.key)) return "running"
+      if (attemptInFlight(job)) return "running"
       const now = Date.now()
       if (job.state === "dead") {
         const { payload } = await readPayload(job)
@@ -497,12 +511,12 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
         await persist(retry)
         jobs.set(job.key, retry)
         schedule()
-        return toJobSummary(retry, runningKeys.has(retry.key))
+        return toJobSummary(retry, attemptInFlight(retry))
       }
       job.availableAt = now
       await persist(job)
       schedule()
-      return toJobSummary(job, runningKeys.has(job.key))
+      return toJobSummary(job, attemptInFlight(job))
     },
     provider: "local",
     rules,
@@ -516,8 +530,8 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
       for (const job of jobs.values()) {
         if (job.state === "done") continue
         const entry = queues[job.queue] ??= { dead: 0, pending: 0, running: 0 }
-        if (job.state === "dead") entry.dead++
-        else if (runningKeys.has(job.key)) entry.running++
+        if (attemptInFlight(job)) entry.running++
+        else if (job.state === "dead") entry.dead++
         else entry.pending++
       }
       return { base, deadLimit: localQueueDeadLimit, durability: "single-host", queues }

@@ -7,7 +7,7 @@ import { generateMessageId } from "@lingui/message-utils/generateMessageId"
 import { i18nErrorDiagnostics } from "./errors.ts"
 import { findPreviousTranslations } from "./lineage.ts"
 import { translationProblem } from "./placeholders.ts"
-import { createLiveTranslations, draftRef, publishedRef, readRevisionRecords, recordChanges } from "./live.ts"
+import { createLiveTranslations, draftRef, publishedRef, readRevisionRecord, readRevisionRecords, recordChanges } from "./live.ts"
 import { diglotSegment, isVisible, messageSegment, recordPath } from "./record-format.ts"
 import { configureI18n, resolveRequestLocale, setI18nScope } from "./runtime.ts"
 
@@ -138,6 +138,12 @@ export function getRequestI18n(event: unknown): I18n | undefined {
 
 const catalogHeaders = { "cache-control": "no-cache", "content-type": "application/json; charset=utf-8" }
 
+function ifNoneMatchNames(header: string | null, etag: string): boolean {
+  if (!header) return false
+  if (header.trim() === "*") return true
+  return header.match(/(?:W\/)?"[^"]*"/g)?.some(tag => tag.replace(/^W\//, "") === etag) ?? false
+}
+
 /**
  * Response of `GET /_vitehub/i18n/<locale>.json`: the published translations of the browser messages. The ETag is the
  * Workspace revision, so a browser downloads a catalog again only after a publish.
@@ -149,7 +155,7 @@ export async function i18nCatalogResponse(request: Request): Promise<Response> {
   if (!state?.live || !locale) return new Response("Not found", { status: 404 })
   await state.live.refresh()
   const etag = `"${state.live.revision}"`
-  if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers: { ...catalogHeaders, etag } })
+  if (ifNoneMatchNames(request.headers.get("if-none-match"), etag)) return new Response(null, { status: 304, headers: { ...catalogHeaders, etag } })
   const body = { revision: state.live.revision, messages: state.live.clientMessages(locale) }
   return new Response(JSON.stringify(body), { headers: { ...catalogHeaders, etag } })
 }
@@ -257,9 +263,9 @@ export function useTranslations(): Translations {
   const unknown = (locale: string) => i18nErrorDiagnostics.I18N_UNKNOWN_LOCALE({ locale, locales: translated })
 
   const sources = state.options.workspace.sources ?? {}
-  const drafts = async () => {
+  const drafts = async (locales: readonly string[]) => {
     const workspace = writable(state)
-    const [published, draft] = await Promise.all([recordsAt(workspace, publishedRef, translated), recordsAt(workspace, draftRef, translated)])
+    const [published, draft] = await Promise.all([recordsAt(workspace, publishedRef, locales), recordsAt(workspace, draftRef, locales)])
     const visible = (records: Record<string, TranslationRecords>) => Object.fromEntries(
       Object.entries(records).map(([locale, messages]) => [locale, Object.fromEntries(Object.entries(messages).filter(([, record]) => isVisible(record)))]),
     )
@@ -272,7 +278,7 @@ export function useTranslations(): Translations {
       return state.live?.revision ?? "build"
     },
     async status() {
-      const { published, draft } = await drafts()
+      const { published, draft } = await drafts(translated)
       const ids = Object.keys(sources)
       return translated.map((locale) => {
         const done = ids.filter(id => published[locale]?.[id])
@@ -284,11 +290,13 @@ export function useTranslations(): Translations {
     async missing(locale, options) {
       const entry = match(locale)
       if (!entry) return [unknown(locale), undefined]
-      const { published, draft } = await drafts()
+      const { published, draft } = await drafts([entry])
       const records = { ...published[entry], ...draft[entry] }
       const previous = findPreviousTranslations(sources, records)
       const ids = Object.keys(sources).filter(id => !(id in records)).sort()
-      const start = options?.cursor ? Math.max(0, ids.indexOf(options.cursor) + 1) : 0
+      const cursor = options?.cursor
+      const after = cursor === undefined ? 0 : ids.findIndex(id => id > cursor)
+      const start = after === -1 ? ids.length : after
       const limit = Math.max(1, Math.min(options?.limit ?? 50, 200))
       const page = ids.slice(start, start + limit)
       const items = page.map((id): MissingTranslation => {
@@ -320,12 +328,12 @@ export function useTranslations(): Translations {
       if (problem) return [i18nErrorDiagnostics.I18N_INVALID_TRANSLATION({ problem }), undefined]
       const workspace = writable(state)
       const id = generateMessageId(input.source, input.context)
+      const segment = diglotSegment(messageSegment(input.source, input.context))
       const head = await workspace.history.head({ ref: draftRef })
-      const draft = head ? await readRevisionRecords(await workspace.history.open(head.id), [entry]) : {}
-      const current = draft[entry]?.[id] ?? (await recordsAt(workspace, publishedRef, [entry]))[entry]?.[id]
+      const draft = await readRevisionRecord(workspace, head, entry, segment)
+      const current = draft ?? await readRevisionRecord(workspace, await workspace.history.head({ ref: publishedRef }), entry, segment)
       const at = new Date().toISOString()
       const by = input.by ?? current?.by ?? ""
-      const segment = diglotSegment(messageSegment(input.source, input.context))
       const record = nextRecord(current, input, { segment, by, at })
       if (record instanceof Error) return [record, undefined]
       let revision: { id: string }

@@ -101,9 +101,14 @@ function statFromEntry(entry: ShellStat | ShellEntry): FsStat {
   }
 }
 
-async function copyWorkspacePath(workspace: WritableShellWorkspace, from: string, to: string) {
+function isMissingWorkspacePath(error: unknown) {
+  return error instanceof Error && /Workspace (?:path|file) does not exist:/.test(error.message)
+}
+
+async function copyWorkspacePath(workspace: WritableShellWorkspace, from: string, to: string, missingDirectory?: () => Error) {
   const source = await workspace.stat(from)
   if (source.type === "file") {
+    if (missingDirectory) throw missingDirectory()
     await workspace.writeFile(to, await workspace.readFile(from, { encoding: "binary" }))
     return
   }
@@ -186,7 +191,10 @@ class WorkspaceFileSystem implements WorkspaceShellFileSystem {
     if (!relativePath) {
       return statFromEntry({ path: "", type: "directory" })
     }
-    return statFromEntry(await this.workspace.stat(relativePath))
+    return statFromEntry(await this.workspace.stat(relativePath).catch((error: unknown) => {
+      if (!isMissingWorkspacePath(error)) throw error
+      throw shellErrorDiagnostics.SHELL_PATH_NOT_FOUND({ cause: error, message: `[vitehub] ENOENT: no such file or directory, stat '${this.#resolveFromRoot(path)}'` })
+    }))
   }
 
   async mkdir(path: string, options?: MkdirOptions): Promise<void> {
@@ -227,7 +235,7 @@ class WorkspaceFileSystem implements WorkspaceShellFileSystem {
 
   async cp(src: string, dest: string, _options?: CpOptions): Promise<void> {
     const workspace = this.#requireWritable()
-    await copyWorkspacePath(workspace, this.#toRelativePath(src), this.#toRelativePath(dest))
+    await copyWorkspacePath(workspace, this.#toRelativePath(src), this.#toRelativePath(dest), this.#missingDirectory(dest))
     await this.#refreshPaths()
   }
 
@@ -242,7 +250,7 @@ class WorkspaceFileSystem implements WorkspaceShellFileSystem {
     if (!from || to.startsWith(`${from}/`)) {
       throw shellErrorDiagnostics.SHELL_R0022({ message: `[vitehub] Cannot move Workspace path "${src}" into itself, "${dest}".` })
     }
-    await copyWorkspacePath(workspace, from, to)
+    await copyWorkspacePath(workspace, from, to, this.#missingDirectory(dest))
     await workspace.rm(from, { recursive: true, force: true })
     await this.#refreshPaths()
   }
@@ -315,6 +323,11 @@ class WorkspaceFileSystem implements WorkspaceShellFileSystem {
 
   #resolveFromRoot(path: string) {
     return this.resolvePath(workspaceMountPoint, path)
+  }
+
+  #missingDirectory(path: string) {
+    if (!path.endsWith("/")) return undefined
+    return () => shellErrorDiagnostics.SHELL_PATH_NOT_FOUND({ message: `[vitehub] ENOTDIR: not a directory, '${this.#resolveFromRoot(path)}'` })
   }
 
   #toRelativePath(path: string) {
