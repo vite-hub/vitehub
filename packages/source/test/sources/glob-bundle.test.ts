@@ -164,6 +164,26 @@ describe("glob() calls in a module", () => {
     expect(output?.code).toContain(`import __vitehubGlob0 from`)
   })
 
+  it("rewrites literal calls in Nitro's own build, which Nuxt 4.7 runs after its Vite builds", async () => {
+    const plugin = hubSource()
+    const transform = (plugin.transform as { handler: (this: unknown, code: string, id: string, options?: { ssr?: boolean }) => unknown }).handler
+    const config = plugin.config as (config: { build?: { ssr: boolean }, [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean }, env: { command: "build" | "serve", mode: string }) => unknown
+    await config({ [VITEHUB_NITRO_CONFIG_CONTEXT]: true }, { command: "build", mode: "production" })
+    await config({}, { command: "build", mode: "production" })
+    const code = `import { glob } from "vite-hub/source"\nexport const docs = glob("docs/**/*.md")`
+    const output = transform.call({ parse }, code, "/project/server/content.ts", { ssr: true }) as { code: string } | undefined
+    expect(output?.code).toContain(`import __vitehubGlob0 from`)
+  })
+
+  it("leaves Nitro's own development transforms unchanged", async () => {
+    const plugin = hubSource()
+    const transform = (plugin.transform as { handler: (this: unknown, code: string, id: string, options?: { ssr?: boolean }) => unknown }).handler
+    const config = plugin.config as (config: { [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean }, env: { command: "build" | "serve", mode: string }) => unknown
+    await config({ [VITEHUB_NITRO_CONFIG_CONTEXT]: true }, { command: "serve", mode: "development" })
+    const code = `import { glob } from "vite-hub/source"\nexport const docs = glob("docs/**/*.md")`
+    expect(transform.call({ parse }, code, "/project/server/content.ts", { ssr: true })).toBeUndefined()
+  })
+
   it("leaves legacy SSR development transforms unchanged", async () => {
     const plugin = hubSource()
     const transform = (plugin.transform as { handler: (this: unknown, code: string, id: string, options?: { ssr?: boolean }) => unknown }).handler

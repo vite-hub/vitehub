@@ -907,6 +907,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
   }
   const configurationTransitionByRoot = new Map<string, Promise<unknown>>()
   let legacyServerBuild = false
+  let nitroServerBuild = false
   let resolvedConfig: ResolvedConfig | undefined
   const generatedHandlersListeners = new Set<{
     handlesHostRestart?: boolean
@@ -1021,7 +1022,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
         const environment = this.environment?.config
         const server = environment
           ? environment.consumer === "server"
-          : options?.ssr === true && legacyServerBuild
+          : options?.ssr === true && (legacyServerBuild || nitroServerBuild)
         if (!server || (environment && environment.command !== "build")) return
         const calls = findGlobCalls(this.parse(code) as unknown as Parameters<typeof findGlobCalls>[0])
         for (const call of calls.filter(call => call.input === undefined)) {
@@ -1077,7 +1078,10 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     async config(config, env) {
       // SAFETY: Vite passes its user config with ViteHub's shared symbols attached.
       const viteConfig = config as SourcePluginConfig
-      if (viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT]) return
+      if (viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT]) {
+        nitroServerBuild = env.command === "build"
+        return
+      }
       legacyServerBuild = env.command === "build" && config.build?.ssr === true
       const projectRoot = viteConfig[VITEHUB_PROJECT_ROOT]
         ? resolve(viteConfig[VITEHUB_PROJECT_ROOT])
