@@ -150,9 +150,13 @@ export function createCursorHistory(namespace = "default") {
   return { take, store, restore, complete, clear }
 }
 
-/** Records a provider cursor, refusing to weaken repeat detection at the bound. */
+/** Records a provider cursor. At the bound it forgets the oldest cursor, so a long listing continues and a recent repeat is still caught. */
 export function recordCursor(history: CursorHistory, cursor: string): boolean {
-  if (cursor.length > MAX_CURSOR_LENGTH || history.size >= MAX_CURSORS_PER_HISTORY) return false
+  if (cursor.length > MAX_CURSOR_LENGTH) return false
+  if (history.size >= MAX_CURSORS_PER_HISTORY) {
+    const oldest = history.values().next()
+    if (!oldest.done) history.delete(oldest.value)
+  }
   history.add(cursor)
   return true
 }
