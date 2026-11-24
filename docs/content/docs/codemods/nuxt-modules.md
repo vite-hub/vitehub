@@ -18,6 +18,8 @@ These codemods add `vite-hub/nuxt`, which needs Nitro 3: Nuxt 4.7 with the `nitr
 npx @vite-hub/codemods nuxt-safe-runtime-config --nuxt-nightly
 ```
 
+Each codemod also adds `vite-hub` and the packages of each ViteHub feature that it turns on to `package.json`, such as `@vite-hub/email` for `resend`, and `@vite-hub/schedule` and `@vite-hub/kv` for `nuxt-cron` on Node. Without them, the build stops with `VITE_HUB_R0136`. Run the install command that the report lists.
+
 ## nuxt-safe-runtime-config
 
 The codemod moves the `nuxt-safe-runtime-config` module to ViteHub [Env](/docs/env). It reads one of the two schema sources of the module:

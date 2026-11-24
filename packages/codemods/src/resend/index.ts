@@ -148,7 +148,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   }
   const dependencies = await readDependencies(cwd)
   const remove = [...(keepModule ? [] : [moduleName]), ...(resendImported || keepModule ? [] : ["resend"])].filter(name => dependencies.has(name))
-  const packageResult = await editPackageJson(cwd, packageJson.version, { remove, add: ["vite-hub"] })
+  const packageResult = await editPackageJson(cwd, packageJson.version, { remove, add: ["vite-hub"], features: ["email"] })
   const edits: FileEdit[] = [{ path: config.fileName, before: config.code, after: configCode }, ...calls.edits]
   if (packageResult.edit) edits.push(packageResult.edit)
 
@@ -164,7 +164,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
       ...(keepModule ? [`${moduleName} stays because ${calls.useResendRemaining.join(", ")} still call useResend(). Remove it after those follow-ups.`] : []),
     ],
     nextSteps: [
-      `Run \`${packageResult.installCommand}\` to install vite-hub${remove.length ? ` and remove ${remove.join(" and ")}` : ""}.`,
+      `Run \`${packageResult.installCommand}\` to install ${packageResult.installs}${remove.length ? ` and remove ${remove.join(" and ")}` : ""}.`,
       "Run `npx nuxi prepare`, then type-check the app.",
     ],
   }

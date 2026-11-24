@@ -2,10 +2,13 @@ import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
+import { features, installSpecifier } from "@vite-hub/internal/features"
+import { invariant } from "@vite-hub/internal/invariant"
 import { subset, validRange } from "semver"
 
 import { codemodError } from "../error-diagnostics.ts"
 
+import type { FeatureId } from "@vite-hub/internal/features"
 import type { FileEdit } from "../types.ts"
 
 type Manifest = Record<string, unknown>
@@ -24,6 +27,8 @@ function isDependencyMap(value: unknown): value is DependencyMap {
 export interface PackageJsonResult {
   edit?: FileEdit
   installCommand: string
+  /** The ViteHub packages that the codemod adds, as a list for the report, such as "vite-hub and @vite-hub/email". */
+  installs: string
 }
 
 function detectInstallCommand(cwd: string): string {
@@ -49,6 +54,24 @@ export interface PackageJsonChange {
    * that range. A range the codemod cannot read stays as it is.
    */
   within?: Readonly<Record<string, string>>
+  /**
+   * Features that the migrated app turns on. `vite-hub` resolves the packages of each one from the app, and the build
+   * stops while one is missing, so each package is added: a `@vite-hub/*` package like `add`, and another package at
+   * the range of `within` or of `vitehub add`.
+   */
+  features?: readonly FeatureId[]
+}
+
+function withFeaturePackages(change: PackageJsonChange): { add: string[], within: Record<string, string> } {
+  const packages = [...new Set((change.features ?? []).flatMap(id => features[id].packages))]
+  const own = packages.filter(name => name.startsWith("@vite-hub/"))
+  const within = { ...change.within }
+  for (const name of packages.filter(name => !own.includes(name))) {
+    const range = within[name] ?? installSpecifier(name).slice(name.length + 1)
+    invariant(range, `every codemod that turns on a feature passes a range for its package ${name}`)
+    within[name] = range
+  }
+  return { add: [...new Set([...change.add, ...own])], within }
 }
 
 /** True when `range` allows a version that `supported` does not. A prerelease in `range` counts. */
@@ -63,7 +86,9 @@ function outside(range: string, supported: string): boolean {
 export async function editPackageJson(cwd: string, version: string, change: PackageJsonChange): Promise<PackageJsonResult> {
   const path = join(cwd, "package.json")
   const command = detectInstallCommand(cwd)
-  if (!existsSync(path)) return { installCommand: command }
+  const { add, within } = withFeaturePackages(change)
+  const installs = new Intl.ListFormat("en", { type: "conjunction" }).format(add)
+  if (!existsSync(path)) return { installCommand: command, installs }
   const before = await readFile(path, "utf8")
   let manifest: unknown
   try {
@@ -89,8 +114,8 @@ export async function editPackageJson(cwd: string, version: string, change: Pack
     const map = manifest[section]
     return isDependencyMap(map) && name in map
   })
-  for (const name of change.add) if (!installed(name)) dependencies[name] = range
-  for (const [name, supported] of Object.entries(change.within ?? {})) {
+  for (const name of add) if (!installed(name)) dependencies[name] = range
+  for (const [name, supported] of Object.entries(within)) {
     if (!installed(name)) {
       dependencies[name] = supported
       continue
@@ -103,5 +128,5 @@ export async function editPackageJson(cwd: string, version: string, change: Pack
   manifest[target] = Object.fromEntries(Object.entries(dependencies).sort(([left], [right]) => left.localeCompare(right)))
   const indent = /^[ \t]+/m.exec(before)?.[0] ?? "  "
   const after = `${JSON.stringify(manifest, null, indent)}${before.endsWith("\n") ? "\n" : ""}`
-  return { edit: after === before ? undefined : { path: "package.json", before, after }, installCommand: command }
+  return { edit: after === before ? undefined : { path: "package.json", before, after }, installCommand: command, installs }
 }
