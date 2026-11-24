@@ -3,7 +3,7 @@ import { checkBundle } from "./checks.ts"
 import { moduleGroup } from "./groups.ts"
 import { explainRoute, routesOf } from "./routes.ts"
 
-import type { BundleChainStep, BundleEnvironmentReport, BundleExplanation, BundleGroup, BundleModule, BundleReport, BundleRouteExplanation, BundleSide } from "./types.ts"
+import type { BundleChainStep, BundleChunk, BundleEnvironmentReport, BundleExplanation, BundleGroup, BundleModule, BundleReport, BundleRouteExplanation, BundleSide } from "./types.ts"
 
 interface PlacedModule extends BundleModule {
   environment: string
@@ -20,11 +20,11 @@ function outputPath(report: BundleEnvironmentReport, file: string): string {
   return report.outDir === "." ? file : `${report.outDir}/${file}`
 }
 
-function innerOutputs(reports: readonly BundleEnvironmentReport[]): Map<string, { report: BundleEnvironmentReport, file: string }> {
-  const outputs = new Map<string, { report: BundleEnvironmentReport, file: string }>()
+function innerOutputs(reports: readonly BundleEnvironmentReport[]) {
+  const outputs = new Map<string, { environment: string, chunk: BundleChunk }>()
   for (const report of reports) {
     if (report.side !== "server") continue
-    for (const chunk of report.chunks) outputs.set(outputPath(report, chunk.file), { report, file: chunk.file })
+    for (const chunk of report.chunks) outputs.set(outputPath(report, chunk.file), { environment: report.environment, chunk })
   }
   return outputs
 }
@@ -42,15 +42,14 @@ function placedModules(outer: readonly BundleEnvironmentReport[], all: readonly 
     for (const chunk of report.chunks) {
       for (const module of chunk.modules) {
         const source = inner.get(module.id)
-        const sourceChunk = source?.report.chunks.find(candidate => candidate.file === source.file)
-        const total = sourceChunk?.modules.reduce((sum, part) => sum + part.bytes, 0) ?? 0
-        if (!source || !sourceChunk || total === 0) {
+        const total = source?.chunk.modules.reduce((sum, part) => sum + part.bytes, 0) ?? 0
+        if (!source || total === 0) {
           placed.push({ ...module, environment: report.environment, startup: chunk.startup })
           continue
         }
-        const shares = allocateBytes(sourceChunk.modules.map(part => part.bytes), module.bytes)
-        for (const [index, part] of sourceChunk.modules.entries()) {
-          placed.push({ ...part, bytes: shares[index]!, environment: source.report.environment, startup: chunk.startup })
+        const shares = allocateBytes(source.chunk.modules.map(part => part.bytes), module.bytes)
+        for (const [index, part] of source.chunk.modules.entries()) {
+          placed.push({ ...part, bytes: shares[index]!, environment: source.environment, startup: chunk.startup })
         }
       }
     }

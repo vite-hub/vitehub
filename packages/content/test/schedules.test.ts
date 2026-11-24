@@ -8,7 +8,7 @@ import { drizzle } from "drizzle-orm/libsql"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 
-import { useWorkspace } from "@vite-hub/workspace"
+import { registerWorkspacePlugin, useWorkspace } from "@vite-hub/workspace"
 import { createBlobDatabaseWorkspaceStore, workspaceHistorySchema } from "@vite-hub/workspace/blob-database"
 import { registerWorkspace } from "@vite-hub/workspace/test"
 
@@ -30,6 +30,8 @@ afterEach(async () => {
   for (const dispose of cleanup.splice(0).reverse()) await dispose()
 })
 
+let lastStore: ReturnType<typeof createBlobDatabaseWorkspaceStore> | undefined
+
 async function historyWorkspace(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "vitehub-content-schedules-"))
   cleanup.push(() => rm(root, { recursive: true, force: true }))
@@ -39,7 +41,8 @@ async function historyWorkspace(): Promise<string> {
   for (const statement of migration.split(";").filter(statement => statement.trim())) await database.run(sql.raw(statement))
   const blob = createBlobStorage(createDriver({ driver: "fs", base: join(root, "objects") }))
   const name = `schedules-${++workspaces}`
-  registerWorkspace(name, { store: createBlobDatabaseWorkspaceStore({ blob, database, workspace: name }) })
+  lastStore = createBlobDatabaseWorkspaceStore({ blob, database, workspace: name })
+  registerWorkspace(name, { store: lastStore })
   return name
 }
 
@@ -57,8 +60,33 @@ async function setup() {
     logger: false,
   })
   cleanup.push(() => content.dispose())
-  return { content, workspace, posts: content.collection("posts"), settings: content.collection("settings") }
+  return { content, workspace, store: lastStore!, posts: content.collection("posts"), settings: content.collection("settings") }
 }
+
+function otherInstance(workspace: string) {
+  const content = defineContent({ workspace, collections: { posts: documents({ path: "posts/*.md", fields: { title: z.string() } }) }, logger: false })
+  cleanup.push(() => content.dispose())
+  return content
+}
+
+type Store = ReturnType<typeof createBlobDatabaseWorkspaceStore>
+
+async function scheduleFiles(store: Store): Promise<Array<Record<string, unknown>>> {
+  const head = await store.history.head({ ref: contentSchedulesRef })
+  if (!head) return []
+  const view = await store.history.open(head.id)
+  const entries = await view.list("", { recursive: true })
+  return await Promise.all(entries.filter(entry => entry.type === "file").map(async entry => JSON.parse(String(await view.readFile(entry.path)))))
+}
+
+async function rewriteSchedule(store: Store, id: string, change: (stored: Record<string, unknown>) => Record<string, unknown>): Promise<void> {
+  const head = await store.history.head({ ref: contentSchedulesRef })
+  const view = await store.history.open(head!.id)
+  const stored = JSON.parse(String(await view.readFile(id)))
+  await store.history.commit({ ref: contentSchedulesRef, ifHead: head!.id, changes: { put: { [id]: { path: id, content: JSON.stringify(change(stored)), mediaType: "application/json" } }, delete: [] }, message: "test: rewrite schedule" })
+}
+
+const expiredClaim = () => `${Date.now() - 16 * 60_000}:crashed-runner`
 
 async function rejection(promise: Promise<unknown>): Promise<any> {
   try {
@@ -219,6 +247,107 @@ describe("scheduled publishing", { timeout: 30_000 }, () => {
     await content.unschedule(first.id)
     await content.publish({ expect: expected })
     await expect(rejection(content.schedule({ at: later(), expect: expected }))).resolves.toMatchObject({ code: "CONTENT_R0011", message: expect.stringContaining("already published") })
+  })
+
+  it("removes a schedule whose claim expired, so the same document can be scheduled again", async () => {
+    const { content, store, posts } = await setup()
+    const saved = await posts.save("hello", { data: { title: "Hello" }, body: "" })
+    const at = later()
+    const schedule = await content.schedule({ at, expect: [{ collection: "posts", id: "hello", digest: saved.digest }] })
+    await rewriteSchedule(store, schedule.id, stored => ({ ...stored, running: expiredClaim() }))
+    await content.unschedule(schedule.id)
+    await expect(scheduleFiles(store)).resolves.toEqual([])
+    await expect(rejection(content.unschedule(schedule.id))).resolves.toMatchObject({ code: "CONTENT_NOT_FOUND" })
+    const again = await content.schedule({ at, expect: [{ collection: "posts", id: "hello", digest: saved.digest }] })
+    await expect(content.publishDue({ now: at })).resolves.toMatchObject({ published: [{ schedule: again.id }] })
+    await expect(scheduleFiles(store)).resolves.toEqual([])
+  })
+
+  it("keeps a publisher whose claim expired from publishing after unschedule()", async () => {
+    const { content, store, workspace, posts } = await setup()
+    const saved = await posts.save("hello", { data: { title: "Hello" }, body: "" })
+    const at = later()
+    const schedule = await content.schedule({ at, expect: [{ collection: "posts", id: "hello", digest: saved.digest }] })
+    const realNow = Date.now.bind(Date)
+    const stale = vi.spyOn(Date, "now").mockImplementation(() => realNow() - 16 * 60_000)
+    let resume!: () => void
+    const paused = new Promise<void>(resolve => { resume = resolve })
+    let claimed!: () => void
+    const claimedOnce = new Promise<void>(resolve => { claimed = resolve })
+    const commit = store.history.commit
+    const head = store.history.head
+    let pauseNextRead = false
+    store.history.commit = async (options) => {
+      const revision = await commit(options)
+      if (options.message?.startsWith("Claim schedule")) pauseNextRead = true
+      return revision
+    }
+    store.history.head = async (options) => {
+      if (pauseNextRead) {
+        pauseNextRead = false
+        claimed()
+        await paused
+      }
+      return await head(options)
+    }
+    const run = content.publishDue({ now: at })
+    await claimedOnce
+    stale.mockRestore()
+    await otherInstance(workspace).unschedule(schedule.id)
+    resume()
+    await expect(run).resolves.toEqual({ published: [], failed: [] })
+    await expect(posts.get("hello")).resolves.toBeNull()
+    await expect(scheduleFiles(store)).resolves.toEqual([])
+  })
+
+  it("refuses to unschedule when the expired claim is renewed while it commits", async () => {
+    const { content, store, posts } = await setup()
+    const saved = await posts.save("hello", { data: { title: "Hello" }, body: "" })
+    const schedule = await content.schedule({ at: later(), expect: [{ collection: "posts", id: "hello", digest: saved.digest }] })
+    await rewriteSchedule(store, schedule.id, stored => ({ ...stored, running: expiredClaim() }))
+    const renewed = `${Date.now()}:crashed-runner`
+    const commit = store.history.commit
+    store.history.commit = async (options) => {
+      if (options.message?.startsWith("Unschedule")) {
+        store.history.commit = commit
+        await rewriteSchedule(store, schedule.id, stored => ({ ...stored, running: renewed }))
+      }
+      return await commit(options)
+    }
+    await expect(rejection(content.unschedule(schedule.id))).resolves.toMatchObject({ message: expect.stringContaining("is currently publishing") })
+    await expect(scheduleFiles(store)).resolves.toMatchObject([{ id: schedule.id, running: renewed }])
+  })
+
+  it("deletes the cancelled files that earlier versions kept, and still runs due schedules", async () => {
+    const { content, store, posts } = await setup()
+    const first = await posts.save("first", { data: { title: "First" }, body: "" })
+    const second = await posts.save("second", { data: { title: "Second" }, body: "" })
+    const at = later()
+    const cancelled = await content.schedule({ at, expect: [{ collection: "posts", id: "first", digest: first.digest }] })
+    const due = await content.schedule({ at, expect: [{ collection: "posts", id: "second", digest: second.digest }] })
+    await rewriteSchedule(store, cancelled.id, stored => ({ ...stored, cancelled: expiredClaim() }))
+    await expect(content.publishDue({ now: at })).resolves.toMatchObject({ published: [{ schedule: due.id }], failed: [] })
+    await expect(scheduleFiles(store)).resolves.toEqual([])
+    await expect(posts.get("first")).resolves.toBeNull()
+  })
+
+  it("runs due schedules when a write:validate hook rejects the removal of cancelled files, and reports the rejection", async () => {
+    const { content, workspace, store, posts } = await setup()
+    cleanup.push(registerWorkspacePlugin(workspace, { id: "schedule-actions", hooks: { "write:validate": ({ commit }) => {
+      const intent = commit?.metadata.content
+      if (typeof intent === "object" && intent !== null && "action" in intent && intent.action === "schedules-removed") throw new Error("Unknown Content action")
+    } } }))
+    const first = await posts.save("first", { data: { title: "First" }, body: "" })
+    const second = await posts.save("second", { data: { title: "Second" }, body: "" })
+    const at = later()
+    const cancelled = await content.schedule({ at, expect: [{ collection: "posts", id: "first", digest: first.digest }] })
+    const due = await content.schedule({ at, expect: [{ collection: "posts", id: "second", digest: second.digest }] })
+    await rewriteSchedule(store, cancelled.id, stored => ({ ...stored, cancelled: expiredClaim() }))
+    await expect(content.publishDue({ now: at })).rejects.toThrow("Unknown Content action")
+    await expect(posts.get("second")).resolves.toMatchObject({ data: { title: "Second" } })
+    await expect(posts.get("first")).resolves.toBeNull()
+    await expect(scheduleFiles(store)).resolves.toEqual([expect.objectContaining({ id: cancelled.id, cancelled: expect.any(String) })])
+    await expect(content.schedules()).resolves.not.toContainEqual(expect.objectContaining({ id: due.id }))
   })
 
   it("settles each schedule once when runs overlap", async () => {
