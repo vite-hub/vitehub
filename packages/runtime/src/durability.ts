@@ -30,9 +30,9 @@ export interface DurabilityContext {
   env: Record<string, string | undefined>
   /**
    * The report of another primitive in this server, such as the Database that a KV store keeps its rows in. `name`
-   * defaults to the default store. `undefined` when that primitive is off.
+   * defaults to the default store. Pass `onlyIfUnambiguous` to fall back to the sole report when no default is set.
    */
-  find: (primitive: string, name?: string) => Durability | undefined
+  find: (primitive: string, name?: string, onlyIfUnambiguous?: boolean) => Durability | undefined
 }
 
 /**
@@ -67,10 +67,11 @@ export function collectDurability(entries: readonly DurabilityEntry[], env: Reco
   }
   const context: DurabilityContext = {
     env,
-    find: (primitive, name = "default") => entries
-      .filter(entry => entry.primitive === primitive)
-      .flatMap(run)
-      .find(report => (report.name ?? "default") === name),
+    find: (primitive, name = "default", onlyIfUnambiguous = false) => {
+      const reports = entries.filter(entry => entry.primitive === primitive).flatMap(run)
+      return reports.find(report => (report.name ?? "default") === name)
+        ?? (onlyIfUnambiguous && reports.length === 1 ? reports[0] : undefined)
+    },
   }
   return entries.flatMap(entry => [...run(entry)])
 }

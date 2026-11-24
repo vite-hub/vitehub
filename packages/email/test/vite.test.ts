@@ -8,7 +8,7 @@ import { env } from "@vite-hub/env"
 import * as rolldown from "@vite-hub/internal/build/rolldown"
 import { VITEHUB_GENERATED_ROOT, VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { createServer } from "vite"
+import { build, createServer } from "vite"
 
 import { hubWorkflow } from "@vite-hub/workflow/vite"
 
@@ -60,6 +60,37 @@ afterEach(async () => {
 })
 
 describe("hubEmail", () => {
+  it("builds template sends without an Email Definition import warning", async () => {
+    const root = await createTempProject()
+    const entry = join(root, "server.mjs")
+    const runtime = fileURLToPath(new URL("../dist/index.js", import.meta.url))
+    await mkdir(join(root, "server", "emails"), { recursive: true })
+    await writeFile(join(root, "server", "emails", "welcome.md"), "---\nsubject: Welcome\n---\n\nHello!\n")
+    await writeFile(entry, `export { email } from ${JSON.stringify(runtime)}\n`)
+    const warnings: string[] = []
+
+    await build({
+      configFile: false,
+      root,
+      logLevel: "silent",
+      plugins: [hubEmail({ driver: "log" })],
+      build: {
+        ssr: entry,
+        write: false,
+        rolldownOptions: {
+          onLog(level, log, handleLog) {
+            if (log.code === "INEFFECTIVE_DYNAMIC_IMPORT" && log.message.includes(EMAIL_DEFINITION_ID)) {
+              warnings.push(log.message)
+            }
+            handleLog(level, log)
+          },
+        },
+      },
+    })
+
+    expect(warnings).toEqual([])
+  })
+
   it("removes stale Email declarations when the integration is disabled", async () => {
     const root = await createTempProject()
     const declaration = join(root, ".vitehub", "types", "email.d.ts")
@@ -117,7 +148,7 @@ describe("hubEmail", () => {
 
   it("owns generated template module paths", () => {
     expect(resolveEmailTemplateModulePath("/tmp/templates", "#vitehub/emails/monthly/detail"))
-      .toBe("/tmp/templates/monthly%2Fdetail.mjs")
+      .toBe("/tmp/templates/monthly~2Fdetail.mjs")
     expect(resolveEmailTemplateModulePath("/tmp/templates", "other/module")).toBeUndefined()
     expect(() => resolveEmailTemplateModulePath("/tmp/templates", "#vitehub/emails/../secret"))
       .toThrow("is not valid")
@@ -398,15 +429,15 @@ describe("hubEmail", () => {
     ].join("\n"))
     await expect(readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
       .rejects.toMatchObject({ code: "ENOENT" })
-    expect(await readFile(join(root, ".vitehub", "email", "preview.mjs"), "utf8")).toMatch(/export const renderEmailTemplate = async \(source, data\) => \(await import\(".+\/markdown\.ts"\)\)\.renderEmailMarkdown\(source, \{ data \}\)/)
+    expect(await readFile(join(root, ".vitehub", "email", "preview.mjs"), "utf8")).toMatch(/export const renderEmailTemplate = async \(source, data, name\) => Object\.hasOwn\(vueTemplates, name\)\n.+\n  : \(await import\(".+\/markdown\.ts"\)\)\.renderEmailMarkdown\(source, \{ data \}\)/)
     await expect(plugin.api.prepareTypes({ materialize: true, projectRoot: root }))
       .resolves.toEqual({
         "monthly-recap": join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"),
-        "monthly-recap/index.mjs/detail": join(root, ".vitehub", "email", "templates", "monthly-recap%2Findex.mjs%2Fdetail.mjs"),
+        "monthly-recap/index.mjs/detail": join(root, ".vitehub", "email", "templates", "monthly-recap~2Findex.mjs~2Fdetail.mjs"),
       })
     expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
       .toContain("Hello there")
-    expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap%2Findex.mjs%2Fdetail.mjs"), "utf8"))
+    expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap~2Findex.mjs~2Fdetail.mjs"), "utf8"))
       .toContain("Nested detail")
     await rm(template)
     await rm(nestedTemplate)
@@ -689,7 +720,7 @@ describe("hubEmail", () => {
     await writeFile(join(secondServerDir, "emails", "first", "second.md"), "Second")
     const plugin = hubEmail({ driver: "resend" })
     await expect(plugin.api.prepareTypes({ materialize: true, projectRoot: root, serverDirs: [firstServerDir, secondServerDir] })).resolves.toEqual({
-      "first/second": join(root, ".vitehub", "email", "templates", "first%2Fsecond.mjs"),
+      "first/second": join(root, ".vitehub", "email", "templates", "first~2Fsecond.mjs"),
       first: join(root, ".vitehub", "email", "templates", "first.mjs"),
     })
   })

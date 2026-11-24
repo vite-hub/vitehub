@@ -8,6 +8,7 @@ import { admin, anonymous, jwt, lastLoginMethod, organization, phoneNumber, twoF
 import Stripe from "stripe"
 import { PgDialect, getTableConfig as getPostgresTableConfig } from "drizzle-orm/pg-core"
 import { postgresJsCodecs } from "drizzle-orm/postgres-js"
+import postgresJs from "postgres"
 import { getTableConfig as getSqliteTableConfig } from "drizzle-orm/sqlite-core"
 import { describe, expect, it } from "vitest"
 
@@ -86,7 +87,7 @@ describe("Auth tables", () => {
   it("stores the full unsigned 32-bit passkey counter range as JavaScript numbers", () => {
     const postgres = authPostgresSchema.passkey.counter!
     const sqlite = authSqliteSchema.passkey.counter!
-    const dialect = new PgDialect({ codecs: postgresJsCodecs })
+    const dialect = new PgDialect({ codecs: postgresJsCodecs(postgresJs()) })
     expect(postgres.getSQLType()).toBe("bigint")
     expect(postgres.dataType).toBe("number int53")
     expect(sqlite.getSQLType()).toBe("integer")
@@ -100,7 +101,7 @@ describe("Auth tables", () => {
   it("stores monthly API-key durations as JavaScript numbers in both dialects", () => {
     const postgres = createAuthPostgresSchema({ plugins: ["apiKey"] }).apikey
     const sqlite = createAuthSqliteSchema({ plugins: ["apiKey"] }).apikey
-    const dialect = new PgDialect({ codecs: postgresJsCodecs })
+    const dialect = new PgDialect({ codecs: postgresJsCodecs(postgresJs()) })
     const duration = 30 * 24 * 60 * 60 * 1000
     for (const key of ["refillInterval", "rateLimitTimeWindow"] as const) {
       const column = postgres[key]

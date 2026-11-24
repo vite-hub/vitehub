@@ -47,7 +47,7 @@ async function findHooks(cwd: string, config: NuxtConfigFile): Promise<FollowUp[
     }
     const seen = new Set<string>()
     walk(program, (node) => {
-      const value = node.type === "StringLiteral" ? node.value : node.type === "TemplateLiteral" && node.expressions.length === 0 ? node.quasis[0]?.value.cooked : undefined
+      const value = node.type === "StringLiteral" ? node.value : node.type === "TemplateLiteral" && node.expressions.length === 0 ? node.quasis[0]?.value.cooked ?? undefined : undefined
       const message = value === undefined ? undefined : hookMessages.get(value)
       if (!value || !message || seen.has(value)) return
       seen.add(value)

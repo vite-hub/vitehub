@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/kit",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "The headless Vue parts that ui-sdk does not have, a Nuxt module that auto-imports them, and a plain CSS style family. Import every other part from @ui-sdk/vue.",
   "keywords": [
     "a11y",
@@ -58,22 +58,22 @@
     "build:registry": "node registry/build.ts"
   },
   "dependencies": {
-    "@ui-sdk/core": "0.1.0-beta.5",
-    "@ui-sdk/vue": "0.1.0-beta.5"
+    "@ui-sdk/core": "0.1.0-beta.14",
+    "@ui-sdk/vue": "0.1.0-beta.14"
   },
   "devDependencies": {
-    "@cfworker/json-schema": "4.1.1",
+    "@cfworker/json-schema": "4.1.6",
     "@fontsource-variable/geist": "catalog:ui",
     "@fontsource-variable/geist-mono": "catalog:ui",
-    "@nuxt/kit": "4.6.2",
+    "@nuxt/kit": "4.6.4",
     "@nuxt/schema": "4.6.4",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
-    "@vitejs/plugin-vue": "^6.0.10",
-    "happy-dom": "21.0.3",
+    "@vitejs/plugin-vue": "^6.0.11",
+    "happy-dom": "21.0.4",
     "nuxt": "catalog:nuxt",
     "playwright-core": "catalog:browser",
-    "postcss": "^8.5.29",
+    "postcss": "^8.5.33",
     "postcss-selector-parser": "^7.2.1",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",

@@ -1,6 +1,6 @@
 import { gatewayDiagnostics } from "./diagnostics.ts"
 
-import type { AskAnswers, AskEntry, AskQuestion, AskQuestions } from "./ask.ts"
+import type { AskAnswers, AskChoiceCriteria, AskChoiceQuestion, AskEntry, AskQuestion, AskQuestions } from "./ask.ts"
 import type { AiGatewayAskError, AiGatewayAskResult, AiGatewayUsage } from "./types.ts"
 import type { IfQuestion, Question as JevQuestion, Questions as JevQuestions, SwitchQuestion } from "advocaat"
 
@@ -98,7 +98,7 @@ function validateQuestionCriteria(name: string, question: AskQuestion): void {
   }
 }
 
-export function hasValidChoiceAnswer(question: Extract<AskQuestion, { type: "choice" }>, answer: unknown): answer is Record<string, unknown> {
+export function hasValidChoiceAnswer<T extends AskChoiceCriteria>(question: AskChoiceQuestion<T>, answer: unknown): answer is Record<string, unknown> {
   if (!isObject(answer) || answer.type !== "choice" || typeof answer.choice !== "string" || !isObject(answer.probabilities)) return false
   if (typeof answer.confidence !== "number" || !Number.isFinite(answer.confidence) || answer.confidence < 0 || answer.confidence > 1) return false
   if (!isObject(question.criteria) || !Object.hasOwn(question.criteria, answer.choice)) return false

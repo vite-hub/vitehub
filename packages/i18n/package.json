@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/i18n",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Write messages in your language in Vue templates, scripts, and server code. ViteHub compiles them to message IDs, keeps one translation record per message, and picks the locale of each request.",
   "keywords": [
     "gettext",
@@ -87,17 +87,16 @@
     "@lingui/message-utils": "catalog:i18n",
     "@lingui/vue": "catalog:i18n",
     "@vite-hub/runtime": "workspace:*",
-    "@vue/compiler-sfc": "^3.5.44",
-    "magic-string": "^0.30.21",
+    "@vue/compiler-sfc": "^3.5.46",
+    "magic-string": "^1.4.5",
     "proper-lockfile": "catalog:"
   },
   "devDependencies": {
     "@diglot/cli": "catalog:i18n",
-    "@types/babel__core": "^7.20.5",
     "@types/node": "catalog:tooling",
     "@types/proper-lockfile": "catalog:",
     "@vite-hub/internal": "workspace:*",
-    "@vitejs/plugin-vue": "^6.0.10",
+    "@vitejs/plugin-vue": "^6.0.11",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",

@@ -166,12 +166,14 @@ export async function linkProject(caller: ConsoleTeamCaller, body: unknown): Pro
   if (!canManageProjects(caller)) return consoleProblem(403, "CONSOLE_PROJECT_FORBIDDEN", caller.projectIds ? "An API key for some projects cannot link projects." : "Only owners and admins of the team link projects.")
   const url: unknown = body instanceof Object ? Reflect.get(body, "url") : undefined
   const label: unknown = body instanceof Object ? Reflect.get(body, "label") : undefined
-  if (String(url) !== url || (label !== undefined && String(label) !== label)) {
-    return consoleProblem(400, "CONSOLE_PROJECT_INVALID", "Send { \"url\": \"https://app.example.com\" }, with an optional \"label\".")
+  const kind: unknown = body instanceof Object ? Reflect.get(body, "kind") : undefined
+  if (String(url) !== url || (label !== undefined && String(label) !== label) || (kind !== undefined && kind !== "site")) {
+    return consoleProblem(400, "CONSOLE_PROJECT_INVALID", "Send { \"url\": \"https://app.example.com\" }, with an optional \"label\". Use \"kind\": \"site\" to register a site for Hosted Comments.")
   }
   const parsed = parseProjectUrl(url, { allowPrivate: allowPrivateProjects() })
   if ("error" in parsed) return consoleProblem(400, "CONSOLE_PROJECT_URL", parsed.error)
-  const project = await caller.projects.create({ url: parsed.url, label, createdBy: caller.user.id })
+  const input = { url: parsed.url, label, createdBy: caller.user.id }
+  const project = kind === "site" ? await caller.projects.registerSite(input) : await caller.projects.create(input)
   if (!project) return consoleProblem(409, "CONSOLE_PROJECT_EXISTS", `This team already linked ${parsed.url}.`)
   return consoleJson({ project }, 201)
 }
@@ -184,8 +186,9 @@ export async function renameProject(caller: ConsoleTeamCaller, id: string, body:
   return project ? consoleJson({ project }) : consoleProblem(404, "CONSOLE_PROJECT_NOT_FOUND", "There is no such project.")
 }
 
-export async function unlinkProject(caller: ConsoleTeamCaller, id: string): Promise<Response> {
+export async function unlinkProject(caller: ConsoleTeamCaller, id: string, deleteHostedComments: boolean): Promise<Response> {
   if (!canManageProjects(caller)) return consoleProblem(403, "CONSOLE_PROJECT_FORBIDDEN", "Only owners and admins of the team unlink projects.")
+  if (!deleteHostedComments) return consoleDiagnosticProblem(409, consoleErrorDiagnostics.CONSOLE_HOSTED_COMMENTS_DELETE_UNCONFIRMED())
   if (!await caller.projects.remove(id)) return consoleProblem(404, "CONSOLE_PROJECT_NOT_FOUND", "There is no such project.")
   return new Response(null, { status: 204 })
 }

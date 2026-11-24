@@ -75,8 +75,8 @@ export const syncErrors = /*#__PURE__*/ defineErrors({
       fix: "Call `insert`, `update`, `delete`, and `retry` from an event handler or after mount.",
     },
     SYNC_CLEARED: {
-      why: "`clearSync()` dropped this write before the server confirmed it.",
-      fix: "Call `clearSync()` on sign-out only, after the writes that must reach the server resolved.",
+      why: "The browser lost this unconfirmed write when `clearSync()` dropped it or when the local IndexedDB database was deleted, upgraded, or closed. `keepWrites: true` only keeps queued writes that belong to an account.",
+      fix: "Before clearing Sync on sign-out, wait for any writes that must reach the server to resolve. After storage loss, the next full snapshot shows current rows in scope. It does not tell you whether the server applied the write. Repeat the write only if you can verify it did not apply or know it is safe to repeat.",
     },
     SYNC_LOCAL_CLOSED: {
       why: "An optimistic action changed `local` after it returned, such as after an `await`.",

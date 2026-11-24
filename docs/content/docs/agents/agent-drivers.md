@@ -155,7 +155,7 @@ Hello from the seeded rule.
 - The emulator listens on a free loopback port. The plugin sets `VITEHUB_MODELS=emulate` and `VITEHUB_EMULATE_URL` as Server Env. On the Cloudflare `miniflare` dev runner, it adds both as Wrangler vars.
 - A dev server restart keeps the URL. When you change the rules, the restart replaces them and the seed that `POST /_ai/reset` restores. When the dev server stops, the emulator stops and both variables go back to their earlier values.
 - Dev servers of different apps in one Node.js process share the variables, so they must use the same `emulate` setting. A second app with another setting fails with `AGENT_EMULATOR_DEV_APPS_CONFLICT`.
-- `vite build`, `vite preview`, and commands that only load the config, such as `vitehub env inspect`, do not start the emulator, and a build has no `@emulators/*` import.
+- `vite build`, `vite preview`, and commands that only load the config, such as `vitehub env list`, do not start the emulator, and a build has no `@emulators/*` import.
 - Without the two packages, `vite dev` fails with `AGENT_EMULATOR_PACKAGES_MISSING`. A rule that the emulator rejects fails with `AGENT_EMULATOR_RULES_INVALID`. `emulateModels()` uses the same codes.
 
 To run the emulator yourself, start it and set the switch:

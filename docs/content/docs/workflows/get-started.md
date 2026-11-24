@@ -68,7 +68,7 @@ export default async function sendWelcome(user: { id: string, email: string }) {
 
 A step can run more than once, so make it safe to repeat. For example, create or update the user by email. Do not add a new user on each try.
 
-OpenWorkflow saves the result of each step. When a step fails, it retries only that step, up to 3 attempts in total.
+OpenWorkflow saves the result of each step. When a step fails, it retries only that step, up to 3 retries after the first attempt, 4 attempts in total.
 
 [Durable execution](/docs/guides/durable-execution) shows a job that fails at step 2, and what each provider does then.
 
@@ -119,7 +119,7 @@ The response returns a unique run `id` and status:
 
 `"status":"queued"` means the run is stored. The OpenWorkflow worker in your dev server runs it a moment later. To see the status, result, or error of the run later, pass the run `id` to [`getWorkflowRun()`](/docs/workflows/server-api#inspect-a-run). Do not start a new run to check it.
 
-The run returned by `getWorkflowRun()` does not include step history.
+`getWorkflowRun()` includes `steps` for OpenWorkflow and native Vercel runs. `vitehub workflow runs get` shows steps only for inline runs that `vite dev` recorded, not OpenWorkflow runs.
 
 ## Start a run from the CLI or the Console
 

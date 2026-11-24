@@ -234,8 +234,8 @@ describe("vitehub add", () => {
       const result = await add(args, root)
       expect(result.exitCode, result.stdout).toBe(0)
       expect(result.json.features).toContain("database")
-      expect(result.json.install.packages).toEqual(expect.arrayContaining(["@vite-hub/database", "drizzle-orm"]))
-      expect(result.json.install.devPackages).toContain("drizzle-kit")
+      expect(result.json.install.packages).toEqual(expect.arrayContaining(["@vite-hub/database", "drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"]))
+      expect(result.json.install.devPackages).toContain("drizzle-kit@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0")
       const config = locateViteHubConfig("vite.config.ts", await readFile(join(root, "vite.config.ts"), "utf8"))
       expect(config.ok && config.site.keys.database).toMatchObject({ value: host === "node" ? true : { connection: { url: "libsql://example.com" } } })
       expect((await add(args, root)).json.status).toBe("unchanged")
@@ -315,8 +315,8 @@ describe("vitehub add", () => {
     const result = await add(["comments", "--dry-run"], root)
     expect(result.exitCode, result.stdout).toBe(0)
     expect(result.json.implied).not.toContain("database")
-    expect(result.json.install.packages).toEqual(expect.arrayContaining(["@vite-hub/comments", "@vite-hub/database", "drizzle-orm"]))
-    expect(result.json.install.devPackages).toContain("drizzle-kit")
+    expect(result.json.install.packages).toEqual(expect.arrayContaining(["@vite-hub/comments", "@vite-hub/database", "drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"]))
+    expect(result.json.install.devPackages).toContain("drizzle-kit@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0")
     expect(await snapshot(root)).toEqual(before)
   })
 
@@ -333,7 +333,7 @@ describe("vitehub add", () => {
     })
     expect(result.exitCode, result.stdout).toBe(0)
     expect(result.json.install.packages).toContain("@libsql/client")
-    expect(result.json.install.packages.filter(name => name === "drizzle-orm")).toHaveLength(1)
+    expect(result.json.install.packages.filter(name => name === "drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0")).toHaveLength(1)
     expect(calls[0]).toContain("@libsql/client")
     expect(result.json.install.packages).not.toContain("@better-auth/oauth-provider")
   })
@@ -347,16 +347,25 @@ describe("vitehub add", () => {
   })
 
   it.each([
-    'serverDir: process.env.SERVER_DIR || "backend"',
-    'rootDir: process.env.APP_ROOT || "app"',
-    'extends: ["./base"]',
-  ])("rejects Nuxt starters when the application server directory is unresolved: %s", async (options) => {
+    ['serverDir: process.env.SERVER_DIR || "backend"', {}],
+    ['rootDir: process.env.APP_ROOT || "app"', {}],
+    ['extends: ["./base"]', {}],
+    ['srcDir: "src", $development: { serverDir: "backend" }', {}],
+    ['srcDir: "src", $env: { staging: { rootDir: "app" } }', {}],
+    ['srcDir: "src", theme: "./base"', { "base/nuxt.config.ts": 'export default { serverDir: "backend" }' }],
+    ['srcDir: "src", _extends: "./base"', { "base/nuxt.config.ts": 'export default { serverDir: "backend" }' }],
+    ['srcDir: "src"', { ".nuxtrc": "serverDir=backend\n" }],
+    ["devtools: false", { ".nuxtrc": "extends[]=./base\n" }],
+    ["devtools: false", { ".nuxtrc": "rootDir.0=app\n" }],
+    ["devtools: false", { ".nuxtrc": "devtools=true\ndevtools[]=false\n" }],
+  ])("rejects Nuxt starters when the application server directory is unresolved: %s %j", async (options, files) => {
     const root = await createProject({
+      ...files,
       "package.json": pnpmManifest,
       "nuxt.config.ts": `export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], ${options}, vitehub: { host: "node" } })`,
     })
     const before = await snapshot(root)
-    const result = await add(["queue", "--name", "jobs", "--yes"], root)
+    const result = await add(["queue", "--name", "jobs", "--no-install", "--yes"], root)
     expect(result.exitCode).toBe(3)
     expect(result.json.error?.code).toBe("SETUP_SERVER_DIR_MANUAL")
     expect(await snapshot(root)).toEqual(before)
@@ -387,6 +396,8 @@ describe("vitehub add", () => {
       const before = await readFile(join(root, configFile), "utf8")
       const options = [
         ...(id === "console" ? ["--option", "console.auth=false"] : []),
+        ...(id === "i18n" ? ["--option", 'i18n.locales=["en","es"]'] : []),
+        ...(id === "mcp" ? ["--option", "mcp.auth=false"] : []),
         ...(featureSupport("database", host).level === "explicit" && ["comments", "connections"].includes(id) ? ["--option", "database.connection.url=libsql://example.com"] : []),
       ]
 
@@ -428,6 +439,9 @@ describe("vitehub add", () => {
     ['rootDir: "app"', "app/server"],
     ['serverDir: "backend"', "backend"],
     ['rootDir: "app", serverDir: "backend"', "app/backend"],
+    ['srcDir: "src"', "server"],
+    ['srcDir: "src", serverDir: "backend"', "backend"],
+    ['srcDir: "src", $production: { devtools: { enabled: false } }', "server"],
   ])("writes Nuxt starters into the application server directory: %s", async (options, serverDir) => {
     const root = await createProject({
       "package.json": pnpmManifest,
@@ -439,8 +453,32 @@ describe("vitehub add", () => {
     const files = Object.keys(await snapshot(root))
     expect(files).toContain(`${serverDir}/queues/jobs.ts`)
     expect(files).toContain(`${serverDir}/databases/jobs.ts`)
-    expect(files.some(file => file.startsWith("server/"))).toBe(false)
+    expect(files.filter(file => file.endsWith("/jobs.ts")).every(file => file.startsWith(`${serverDir}/`))).toBe(true)
     expect((await add(args, root)).json.status).toBe("unchanged")
+  })
+
+  it("adds, discovers, and removes Nuxt starters with unrelated RC settings", async () => {
+    const workspace = await createProject({
+      ".nuxtrc": "devtools.enabled=false\n",
+      "pnpm-workspace.yaml": "packages: ['apps/*']\n",
+      "apps/site/.nuxtrc": "# Project settings\napp.head.title=Example\n",
+      "apps/site/nuxt.config.ts": 'export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], srcDir: "src", vitehub: { host: "node" } })',
+      "apps/site/package.json": pnpmManifest,
+      "user/.nuxtrc": 'modules[]="@nuxt/devtools"\n',
+    })
+    const root = join(workspace, "apps/site")
+    const env = { XDG_CONFIG_HOME: join(workspace, "user") }
+    const starter = join(root, "server/queues/jobs.ts")
+    const result = await runSetup<AddResult>(["add", "queue", "--name", "jobs", "--no-install", "--yes", "--json"], root, env)
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(existsSync(starter)).toBe(true)
+
+    const status = await runSetup<SetupStatus>(["status", "--json"], root, env)
+    expect(status.json.features).toContainEqual(expect.objectContaining({ id: "queue", enabled: "on", reason: "default" }))
+
+    const removed = await runSetup(["remove", "queue", "--yes", "--json"], root, env)
+    expect(removed.exitCode, removed.stdout).toBe(0)
+    expect(existsSync(starter)).toBe(false)
   })
 
   it.each(["schedule.runtime.intervalMs=1000", "schedule.runtime.driver=other", "schedule.runtime=false"])("requires a valid Node Schedule runtime driver for %s", async (option) => {
@@ -618,6 +656,26 @@ describe("vitehub add", () => {
     expect(await snapshot(root)).toEqual(before)
   })
 
+  it("rejects the SMTP Email driver on Cloudflare before writing", async () => {
+    const root = await copyFixture("cloudflare")
+    const before = await snapshot(root)
+    const result = await add(["email", "--option", "email.driver=smtp", "--yes"], root)
+    expect(result.exitCode).toBe(3)
+    expect(result.json.error).toMatchObject({ code: "SETUP_FEATURE_UNSUPPORTED", why: expect.stringContaining("\"smtp\" driver") })
+    expect(await snapshot(root)).toEqual(before)
+  })
+
+  it.each([
+    ["node-self-hosted", "smtp", true],
+    ["node-self-hosted", "resend", false],
+    ["cloudflare", "resend", false],
+  ])("plans Email on %s with the %s driver", async (fixture, driver, nodemailer) => {
+    const result = await add(["email", "--option", `email.driver=${driver}`, "--dry-run"], await copyFixture(fixture))
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(result.json.install.packages).toContain("@vite-hub/email")
+    expect(result.json.install.packages.includes("nodemailer")).toBe(nodemailer)
+  })
+
   it("builds the feature object from --option", async () => {
     const root = await copyFixture("node-self-hosted")
 
@@ -733,11 +791,18 @@ describe("vitehub add", () => {
     const { exitCode, json } = await add(["database", "--yes"], root, spawn)
 
     expect(exitCode).toBe(0)
-    expect(json.install).toEqual({ command: "pnpm add @vite-hub/database drizzle-orm && pnpm add -D drizzle-kit", devPackages: ["drizzle-kit"], packages: ["@vite-hub/database", "drizzle-orm"] })
+    expect(json.install).toEqual({ command: 'pnpm add @vite-hub/database "drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0" && pnpm add -D "drizzle-kit@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"', devPackages: ["drizzle-kit@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"], packages: ["@vite-hub/database", "drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"] })
     expect(calls).toEqual([
-      { args: ["add", "@vite-hub/database", "drizzle-orm"], command: "pnpm", cwd: root, stdout: "stderr" },
-      { args: ["add", "-D", "drizzle-kit"], command: "pnpm", cwd: root, stdout: "stderr" },
+      { args: ["add", "@vite-hub/database", "drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"], command: "pnpm", cwd: root, stdout: "stderr" },
+      { args: ["add", "-D", "drizzle-kit@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"], command: "pnpm", cwd: root, stdout: "stderr" },
     ])
+  })
+
+  it("installs the Drizzle release that Auth requires as a peer", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "node" }`) })
+    const { exitCode, json } = await add(["auth", "--dry-run"], root)
+    expect(exitCode, JSON.stringify(json)).toBe(0)
+    expect(json.install).toMatchObject({ command: 'pnpm add @vite-hub/auth better-auth "drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"', packages: ["@vite-hub/auth", "better-auth", "drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"] })
   })
 
   it("declares owner packages in the target manifest even when hoisted", async () => {
@@ -751,8 +816,8 @@ describe("vitehub add", () => {
     })
     const result = await add(["database", "--dry-run"], join(root, "app"))
     expect(result.exitCode).toBe(0)
-    expect(result.json.install.packages).toEqual(["@vite-hub/database", "drizzle-orm"])
-    expect(result.json.install.devPackages).toEqual(["drizzle-kit"])
+    expect(result.json.install.packages).toEqual(["@vite-hub/database", "drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"])
+    expect(result.json.install.devPackages).toEqual(["drizzle-kit@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"])
   })
 
   it("uses target manifest declarations even before dependencies are installed", async () => {
@@ -779,6 +844,7 @@ describe("vitehub add", () => {
     expect(calls).toBe(2)
     expect(result.exitCode).toBe(1)
     expect(result.json.error?.code).toBe("SETUP_INSTALL_FAILED")
+    expect(result.json.error?.message).toContain('pnpm add -D "drizzle-kit@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"')
     expect(result.json.error?.fix).toContain("package manager may have changed")
     expect(await readFile(join(root, "package.json"), "utf8")).not.toBe(pnpmManifest)
     expect(await readFile(join(root, "pnpm-lock.yaml"), "utf8")).toBe("install 2")

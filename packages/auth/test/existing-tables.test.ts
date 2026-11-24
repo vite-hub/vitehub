@@ -14,7 +14,7 @@ import type { AuthSchemaOptions } from "../src/table-specs.ts"
 const execFileAsync = promisify(execFile)
 const roots: string[] = []
 const schemaModule = fileURLToPath(new URL("../src/schema.ts", import.meta.url))
-const drizzleKit = fileURLToPath(new URL("../node_modules/drizzle-kit/bin.cjs", import.meta.url))
+const drizzleKit = fileURLToPath(new URL("../node_modules/drizzle-kit/bin.js", import.meta.url))
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))

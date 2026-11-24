@@ -188,6 +188,9 @@ export function createContentSessions(options: {
       if (database === null || Object(database) !== database) {
         throw setupError(`Content sessions keep presence and edit leases in a Database, but Workspace ${JSON.stringify(options.workspace)} uses the ${JSON.stringify(target?.provider ?? "unknown")} Store, which has none. Use the Blob + Database Store, or the GitHub Store with a database.`)
       }
+      if (Reflect.get(Object(target), "dialect") === "postgresql") {
+        throw setupError(`Content sessions keep presence and edit leases in a SQLite, libSQL, or D1 Database, but Workspace ${JSON.stringify(options.workspace)} keeps its history in Postgres. Use a SQLite, libSQL, or D1 Database for this Workspace.`)
+      }
       const { createSessionStore } = await import("./sessions-store.ts")
       // SAFETY: A Store target with a database carries a Drizzle Database, as the Blob + Database Store target does.
       return createSessionStore(database as Parameters<typeof createSessionStore>[0], options.workspace, contentSessionTimeouts)

@@ -19,7 +19,7 @@ pnpm vitehub queue jobs clear --state dead --yes
 ```
 
 - `queue list` shows `provider: "local"`, the job folder, `durability: "single-host"`, `deadLimit` (dead jobs kept per queue), and the pending, running, and dead jobs of each queue. In a Cloudflare or Vercel app, also `rules`, the build's provider.
-- `queue jobs list` shows each stored job with its attempts and last error. `queue jobs show` adds the payload.
+- `queue jobs list` shows each stored job with its attempts and last error. `queue jobs get` adds the payload.
 - `queue jobs retry` runs a job now. A dead job gets new attempts.
 - `queue jobs clear` removes pending and dead jobs. It asks to confirm on a terminal and needs `--yes` elsewhere.
 

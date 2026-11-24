@@ -129,6 +129,8 @@ describe("KV review regressions", () => {
   })
 
   it.each([
+    ["get", "--json"],
+    ["set", "a", "{", "--json-value", "--json"],
     ["set", "a", "b", "--ttl", "0", "--json"],
     ["set", "a", "@/missing-kv-input-file", "--json"],
     ["set", "a", "--json-value", "--json", "--", "-0"],
@@ -141,7 +143,7 @@ describe("KV review regressions", () => {
     const output = context()
     const fetch = vi.fn()
     await expect(runKVCli(args, output.context, { fetch })).resolves.toBe(1)
-    expect(JSON.parse(output.stdout.output())).toEqual({ error: { message: expect.any(String) } })
+    expect(JSON.parse(output.stdout.output())).toEqual({ error: { code: "KV_CLI_USAGE", fix: "Run `vitehub kv --help` to see the commands and options.", message: expect.any(String) } })
     expect(output.stderr.output()).toBe("")
     expect(fetch).not.toHaveBeenCalled()
   })

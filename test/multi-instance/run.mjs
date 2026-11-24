@@ -28,8 +28,8 @@ const { values: options } = parseArgs({
 const fixturePackages = ["vite-hub", "blob", "cli", "database", "kv", "queue", "rate-limit", "realtime", "schedule", "workflow"]
 
 const appDependencies = {
-  "drizzle-kit": "1.0.0-rc.5",
-  "drizzle-orm": "1.0.0-rc.5",
+  "drizzle-kit": "1.0.0-rc.6",
+  "drizzle-orm": "1.0.0-rc.6",
   h3: "2.0.8",
   nitro: "3.0.261102-rc",
   nuxt: "npm:nuxt-nightly@5.0.0-2611031025-9496b7e",
@@ -45,8 +45,6 @@ const appDependencies = {
 }
 const appOverrides = {
   "@napi-rs/wasm-runtime": "1.1.6",
-  "@nestjs/common": "11.2.3",
-  "@nestjs/core": "11.2.3",
   nitro: "3.0.261102-rc",
   "nitro>h3": "2.0.8",
   "oxc-parser": "0.140.0",

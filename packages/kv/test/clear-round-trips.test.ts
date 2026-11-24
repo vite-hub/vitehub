@@ -53,7 +53,6 @@ interface Target {
 
 function stubUpstashRest(commands: string[]) {
   const values = new Map<string, string>()
-  const encode = (value: unknown): unknown => typeof value === "string" ? Buffer.from(value).toString("base64") : Array.isArray(value) ? value.map(encode) : value
   vi.stubGlobal("fetch", vi.fn(async (_url: unknown, init: RequestInit) => {
     // SAFETY: The Upstash client sends one JSON command array per request when auto pipelining is off.
     const [command, ...args] = JSON.parse(String(init.body)) as string[]
@@ -67,7 +66,7 @@ function stubUpstashRest(commands: string[]) {
       for (const key of args) values.delete(key)
       return Response.json({ result: args.length })
     }
-    if (name === "get") return Response.json({ result: encode(values.get(args[0]!) ?? null) })
+    if (name === "get") return Response.json({ result: values.get(args[0]!) ?? null })
     if (name === "scan") {
       const cursor = Number(args[0])
       const match = args[args.indexOf("match") + 1]!
@@ -75,7 +74,7 @@ function stubUpstashRest(commands: string[]) {
       const count = countIndex === -1 ? 10 : Number(args[countIndex + 1])
       const keys = [...values.keys()].filter(key => match === "*" || key.startsWith(match.slice(0, -1)))
       const next = cursor + count
-      return Response.json({ result: encode([next < keys.length ? String(next) : "0", keys.slice(cursor, next)]) })
+      return Response.json({ result: [next < keys.length ? String(next) : "0", keys.slice(cursor, next)] })
     }
     throw new Error(`Unexpected Upstash command: ${name}`)
   }))

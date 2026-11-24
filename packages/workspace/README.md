@@ -35,7 +35,7 @@ Use `skipLibCheck: true` in app TypeScript configs while ViteHub depends on runt
 
 The local Store persists file metadata inside `.vitehub` under the Workspace root. If file removal stops before metadata cleanup completes, reads reject with `Interrupted Workspace removal` so a restored file cannot reuse deleted ownership. Retry removal of the reported path with `force: true` and, for directories, `recursive: true` before restoring files.
 
-Lock markers are not reclaimed based on age because a slow operation or failed heartbeat may still own them. If a process crashes and operations report `Timed out waiting to read Workspace` or `Timed out waiting to write Workspace`, stop every process using that Workspace. Call `recoverLocalWorkspaceLocks({ root, offline: true })` from `@vite-hub/workspace/runtime` with the Local Store's root, then restart the processes after recovery succeeds. Prevent changes to the Store and its ancestor directories throughout recovery. The `offline: true` flag confirms exclusive offline access; it does not stop other processes. See [Local Store recovery](../../docs/content/docs/workspace/limits-and-errors.md#recover-a-local-store-after-a-crash) for the procedure.
+Lock markers are not reclaimed based on age because a slow operation or failed heartbeat may still own them. If a process crashes and operations report `Timed out waiting to read Workspace` or `Timed out waiting to write Workspace`, stop every process using that Workspace. Call `recoverLocalWorkspaceLocks({ root, offline: true })` from `@vite-hub/workspace/runtime` with the Local Store's root, then restart the processes after recovery succeeds. Prevent changes to the Store and its ancestor directories throughout recovery. The `offline: true` flag confirms exclusive offline access; it does not stop other processes. See [Local Store recovery](https://vitehub.dev/docs/workspace/limits-and-errors#recover-a-local-store-after-a-crash) for the procedure.
 
 Set `locks: "process"` on a local Store when one process owns its root, for example a disposable checkout that one worker uses. The Store then keeps the same per-path read and write locks in memory. It creates no `.vitehub/locks` directory, does not poll lock markers, and lists entries in parallel. Keep the default `locks: "filesystem"` when more than one process can access the root.
 
@@ -148,12 +148,11 @@ Definition, apply its migrations, and pass
 Workspace Definition's `store`. The framework also exports
 `vite-hub/workspace/blob-database`.
 
-`database` is a Drizzle database, or a function that returns one. In a
-Workspace Definition, pass `() => useDatabase("history").db`. The Store calls
-the function on first use, because the build loads the Workspace Definition
-without the app's Databases. Do not pass the Database Definition: it holds
-options only, and `useDatabase()` gives the database with the migrations and
-relations of the build.
+`blob` names a Blob store and `database` names a Database. The Store looks
+them up on first use, because the build loads the Workspace Definition without
+the app's Databases. `blob` also takes a `BlobStorage` object, and `database`
+takes a Drizzle database or a function that returns one. Do not pass the
+Database Definition: it holds options only.
 
 ```ts [server/databases/history/index.ts]
 import { defineDatabase } from "@vite-hub/database"
@@ -163,19 +162,30 @@ export default defineDatabase({ name: "history", schema: workspaceHistorySchema 
 ```
 
 ```ts [server/workspaces/notes.ts]
-import { blob } from "@vite-hub/blob"
-import { useDatabase } from "@vite-hub/database"
 import { defineWorkspace } from "@vite-hub/workspace"
 import { createBlobDatabaseWorkspaceStore } from "@vite-hub/workspace/blob-database"
 
 export default defineWorkspace({
   store: createBlobDatabaseWorkspaceStore({
-    blob: blob.store("workspace-history"),
-    database: () => useDatabase("history").db,
+    blob: "workspace-history",
+    database: "history",
     workspace: "notes-123",
   }),
 })
 ```
+
+On Postgres, import `workspaceHistorySchema` from
+`@vite-hub/workspace/blob-database/postgres` and set `dialect: "postgresql"`.
+If the Database uses Cloudflare Hyperdrive, disable query caching so all instances
+read the current head.
+
+Instances that use the same Blob store, Database, and workspace identity share
+one Workspace. The Database decides which commit wins: a commit from a stale
+head fails with `WORKSPACE_CONFLICT` on every instance. Postgres runs each
+commit in one transaction that locks the Workspace row. SQLite, libSQL, and D1
+run it as one batch of conditional statements. With names, the durability
+report shows the Store as `shared` only when the Blob store and the Database
+are both shared. With objects, it trusts them, as it does a custom Store.
 
 ```ts
 import { useWorkspace } from "@vite-hub/workspace"
@@ -230,21 +240,6 @@ if (saved) {
 
 Use `isWorkspaceName(name)` to check a Workspace name from a request or a database
 before you pass it to `useWorkspace()` or `useWorkspaceFiles()`.
-
-`history.diff({ from, to })` lists the files that were added, modified, or removed
-between two revisions, also on different refs. Changes to bytes, media type, or
-retained metadata count as modifications:
-
-```ts fragment
-const [published, saved] = await Promise.all([
-  workspace.history.head({ ref: "published" }),
-  workspace.history.head({ ref: "draft" }),
-])
-if (saved) {
-  const { entries } = await workspace.history.diff({ from: published?.id, to: saved.id })
-  // [{ path: "posts/hello.md", type: "modified", before, after }]
-}
-```
 
 `history.deleteRef({ ref, ifHead? })` deletes a ref. It returns `false` when the ref
 does not exist and no `ifHead` was supplied. It cannot delete `main` or the Store's
@@ -567,8 +562,6 @@ first use, so a missing one throws `WORKSPACE_R0072` then, not when the definiti
 
 Built on [`@vite-hub/source`](../source/README.md) and [isomorphic-git](https://isomorphic-git.org/). Shell-backed Workspace tools load `@vite-hub/shell` only when the shell tool executes.
 
-Learn more at [vitehub.dev](https://vitehub.dev).
-
 Startup and build Source cleanup track ownership by Workspace name. When definitions share a Store, removing or refreshing one definition does not remove files last materialized by another definition. Cleanup also preserves files without a recorded Workspace owner, including files from legacy snapshots. Shared paths still contain the most recent write.
 
 Source Sync and runtime Source materialization change files only inside the mount of the Source that they process. A Source with an empty mount owns the Workspace root. Source Sync with `stale: "remove"` removes only stale paths inside the current mount. If you move a Source mount, the files in the old mount stay. Remove them yourself if you do not need them. When mounts for the same Source key share an output path, sync retains their claims separately. Each mount can update the file, and every claim tracks the digest of the latest Source write to that shared path. Stale cleanup removes the file only after the other mounts release their claims and its content still matches that digest. Releasing a claim preserves this digest without adopting current file content, including user edits that restore an older Source version.
@@ -584,3 +577,5 @@ File metadata must be a JSON-safe plain object containing only plain objects, de
 Custom Stores can implement `removeEmptyDirectory(path)` to support build directory cleanup. The operation must check the path inside the Store mutation boundary, preserve files and missing paths, and reject nonempty directories. Stores without this method retain generated directories. The local, memory, and Cloudflare Artifacts Stores implement it.
 
 Writable facade wrappers that replace `fs` and omit symbol properties must forward internal Source Sync routing explicitly. After creating a wrapper, call `forwardWorkspaceFacade(base, wrapped)` from `@vite-hub/workspace/runtime`. This preserves durable sync metadata and enclosing Source guards without exposing internal setters or passing capabilities to the wrapper's public `setMeta` method. Public metadata writes still reject reserved keys.
+
+Learn more at [vitehub.dev](https://vitehub.dev).

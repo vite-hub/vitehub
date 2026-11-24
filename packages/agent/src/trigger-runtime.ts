@@ -21,7 +21,6 @@ import type {
   AgentChannelDispatchOptions,
   AgentChannelPullOptions,
   AgentChannelStateBinding,
-  AgentChannels,
   AgentInput,
   AgentRunInput,
   AgentRunMetadata,
@@ -44,7 +43,8 @@ import { parseStandardSchema } from "@vite-hub/internal/http-request"
 import { parseDuration } from "@vite-hub/runtime"
 import { serverVariable } from "./internal/server-variable.ts"
 import { githubHmacSignatureFormat, stripeSignatureToleranceSeconds, verifyViteHubHmacSignature, verifyViteHubStripeSignature } from "@vite-hub/internal/secret"
-import { channelMessageContextKey } from "./internal/channel-delivery-handlers.ts"
+import { agentChannelTriggerQueue, channelMessageContextKey } from "./internal/channel-delivery-handlers.ts"
+import { agentCapabilityOptions, agentChannelOptions, hasAgentDefinition } from "./internal/agent-definition-options.ts"
 import type { StreamEvent } from "./messages.ts"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type { WorkspaceName } from "@vite-hub/workspace"
@@ -79,52 +79,11 @@ export function isTriggerInputSchema<TInput>(input: string | StandardSchemaV1<un
 
 const agentTriggerContextKey = "agent.trigger"
 
-type WorkspaceAgentOptions<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  Name extends WorkspaceName = WorkspaceName,
-> = {
-  capabilities?: AgentCapabilityDefinition<TRuntimeConfig, Name>[]
-  channels?: AgentChannels<TRuntimeConfig>
-}
-
-type WorkspaceAgentDefinition<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  Name extends WorkspaceName = WorkspaceName,
-> = {
-  __vitehubWorkspaceAgentOptions?: WorkspaceAgentOptions<TRuntimeConfig, Name>
-}
-
-function hasAgentDefinition(value: unknown): value is { capabilities?: AgentCapabilityDefinition[], resolve: (...args: unknown[]) => unknown } {
-  return typeof value === "object"
-    && value !== null
-    && "resolve" in value
-    && typeof (value as { resolve?: unknown }).resolve === "function"
-}
-
 function createAgentCallbackContext<TRuntimeConfig extends AgentRuntimeConfig>(
   context: ResolvedAgentRuntimeContext<TRuntimeConfig>,
 ) {
   const { runtimeConfig: _runtimeConfig, ...callbackContext } = context
   return callbackContext
-}
-
-function agentCapabilityOptions<TRuntimeConfig extends AgentRuntimeConfig>(
-  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
-): AgentCapabilityDefinition<TRuntimeConfig>[] {
-  if (!hasAgentDefinition(agent)) return []
-  const workspaceDefinition = agent as Partial<WorkspaceAgentDefinition<TRuntimeConfig>>
-  const workspaceOptions = workspaceDefinition.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<TRuntimeConfig> | undefined
-  const capabilities = agent.capabilities || workspaceOptions?.capabilities
-  return (Array.isArray(capabilities) ? capabilities : []) as AgentCapabilityDefinition<TRuntimeConfig>[]
-}
-
-export function agentChannelOptions<TRuntimeConfig extends AgentRuntimeConfig>(
-  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
-): AgentChannels<TRuntimeConfig> {
-  if (!hasAgentDefinition(agent)) return {}
-  const workspaceDefinition = agent as Partial<WorkspaceAgentDefinition<TRuntimeConfig>>
-  const workspaceOptions = workspaceDefinition.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<TRuntimeConfig> | undefined
-  return (agent.channels || workspaceOptions?.channels || {}) as AgentChannels<TRuntimeConfig>
 }
 
 function channelHistoryAnnotations<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -163,34 +122,6 @@ function agentChannelTriggerState(request: Request | undefined, channelId: strin
   return bound?.channelId === channelId ? bound.binding : undefined
 }
 
-/** Admits dispatched items to the webhook queue that serves the current request. */
-export type AgentChannelQueuedDispatch = (
-  context: ResolvedAgentRuntimeContext,
-  items: readonly AgentChannelDispatchItem[],
-  options: AgentChannelDispatchOptions & { rawBody?: Uint8Array },
-) => Promise<ReplayChannelResult>
-
-const channelTriggerQueues = new WeakMap<Request, { admit: AgentChannelQueuedDispatch, channelId: string }>()
-
-/** Lets `dispatch(items, { queue: true })` of one Channel admit items into the webhook queue of this request. */
-export function bindAgentChannelTriggerQueue(request: Request, channelId: string, admit: AgentChannelQueuedDispatch): void {
-  channelTriggerQueues.set(request, { admit, channelId })
-}
-
-const channelWebhookStates = new WeakMap<Request, string>()
-
-/** Marks a webhook request whose Channel has webhook State, which deduplicates deliveries by ID. */
-export function bindAgentChannelWebhookState(request: Request, channelId: string): void {
-  channelWebhookStates.set(request, channelId)
-}
-
-/** How the webhook route that runs this request can own a delivery: through the webhook queue, by delivery ID, or not. */
-export function agentChannelDeliveryMode(request: Request | undefined, channelId: string): "queue" | "dedupe" | "none" {
-  if (!request) return "none"
-  if (channelTriggerQueues.get(request)?.channelId === channelId) return "queue"
-  return channelWebhookStates.get(request) === channelId ? "dedupe" : "none"
-}
-
 async function queueAgentChannelItems<TRuntimeConfig extends AgentRuntimeConfig>(
   context: ResolvedAgentRuntimeContext<TRuntimeConfig>,
   channelId: string,
@@ -198,12 +129,12 @@ async function queueAgentChannelItems<TRuntimeConfig extends AgentRuntimeConfig>
   options: AgentChannelDispatchOptions,
 ): Promise<ReplayChannelResult> {
   if (options.dryRun) throw agentDiagnostics.AGENT_DISPATCH_DRY_RUN_WITH_QUEUE({ channelId })
-  const bound = context.request ? channelTriggerQueues.get(context.request) : undefined
-  if (bound?.channelId !== channelId) {
+  const admit = agentChannelTriggerQueue(context.request, channelId)
+  if (!admit) {
     throw agentDiagnostics.AGENT_DISPATCH_QUEUE_UNAVAILABLE({ channelId })
   }
   // SAFETY: The queue admits items with the runtime context of the trigger that called dispatch().
-  return await bound.admit(context as ResolvedAgentRuntimeContext, items, options)
+  return await admit(context as ResolvedAgentRuntimeContext, items, options)
 }
 
 async function dispatchAgentChannelItems<TRuntimeConfig extends AgentRuntimeConfig>(

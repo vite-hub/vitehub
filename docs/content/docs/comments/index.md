@@ -102,7 +102,7 @@ The same `server/comments.ts` file also runs the [comment operations](/docs/comm
 `@vite-hub/comments` also works in a Vite app without `vite-hub`. Install it, add the `comments()` plugin, and import from `@vite-hub/comments`:
 
 ```bash pm [commands/install-alone]
-pnpm add @vite-hub/comments drizzle-orm@1.0.0-rc.5 valibot
+pnpm add @vite-hub/comments drizzle-orm@1.0.0-rc.6 valibot
 ```
 
 ```ts [vite.config.ts]

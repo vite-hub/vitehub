@@ -193,13 +193,6 @@ function fileText(item: ContentSourceItem | undefined): string | undefined {
   if (item.content instanceof Uint8Array) return new TextDecoder().decode(item.content)
 }
 
-/** The 1-based line of `index` in `text`. */
-function lineAt(text: string, index: number): number {
-  let line = 1
-  for (let at = text.indexOf("\n"); at !== -1 && at < index; at = text.indexOf("\n", at + 1)) line++
-  return line
-}
-
 /** The line of a top-level frontmatter key, such as `title` or `navigation.order`, or null. */
 function frontmatterLine(text: string | undefined, key: string): number | null {
   if (!text?.startsWith("---")) return null
@@ -390,6 +383,8 @@ export function checkContentDocuments(input: ContentCheckInput): { pages: number
     const { links, headings } = walked.get(page)!
     const seen = new Set<string>()
     let cursor = 0
+    let lineNumber = 1
+    let nextNewline = links.length ? page.text?.indexOf("\n") ?? -1 : -1
     for (const link of links) {
       if (seen.has(link)) continue
       seen.add(link)
@@ -398,7 +393,15 @@ export function checkContentDocuments(input: ContentCheckInput): { pages: number
         let index = page.text.indexOf(link, cursor)
         if (index === -1) index = page.text.indexOf(link)
         if (index !== -1) {
-          line = lineAt(page.text, index)
+          if (index < cursor) {
+            lineNumber = 1
+            nextNewline = page.text.indexOf("\n")
+          }
+          while (nextNewline !== -1 && nextNewline < index) {
+            lineNumber++
+            nextNewline = page.text.indexOf("\n", nextNewline + 1)
+          }
+          line = lineNumber
           cursor = index + link.length
         }
       }

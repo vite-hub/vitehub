@@ -99,11 +99,14 @@ Replace `vite-hub` with a manifest package name, such as `@vite-hub/agent`, and 
 | The kit Tailwind bridge against Nuxt UI | `corepack pnpm --filter @vite-hub/ui test:bridge` (needs Chromium as above, not in CI) |
 | Console styles that must not move pixels | `node packages/vite-hub/test/console-pixels.browser.mjs capture <dir>` on the base and on the branch, then `compare <base> <head>` (see the [Console playground](playground/console/README.md)). CI runs it on a pull request that changes the Console, its playground, the kit styles, or `packages/ui/theme.css`. Add the `console-pixels:expected` label when pixels change on purpose |
 | Headless UI parts, such as Tabs, Collapsible, Toast, or Dialog | `corepack pnpm --filter @vite-hub/ui test:parity` (needs Chromium as above, not in CI) |
+| What the Console adds to an app | `corepack pnpm exec vp run console:weight` after `vp run build` (not in CI, see below) |
 | Repository-wide impact | `corepack pnpm exec vp run verify` |
 
-A package test that needs a real Postgres or Redis reads `VITEHUB_TEST_POSTGRES_URL` or `VITEHUB_TEST_REDIS_URL` and skips when the variable is not set. The `postgres and redis tests` CI job finds these files by the variable they read and runs them against `postgres:17` and `redis:7` service containers, so a new file needs no CI change.
+`console:weight` builds a small app with the Console off and on, on Cloudflare and Node, and prints what the Console adds: startup code, page HTML, public files, server size, tables, Auth schema, env and memory. It fails while any row misses its target, so it is not a CI job; add `--json <file>` for machine output.
 
-Package typechecks use the pinned `tsrs` Rust port of TypeScript in its default compatibility mode. The shared `test/package-typecheck.mjs` launcher retains native TypeScript 7 through the `typescript-native` alias on hosts without a `tsrs` payload, including Windows ARM64. Keep `typescript` on version 6 for Vue checks and tools that use the JavaScript compiler API, including Sandbox Task discovery. `tsrs` is experimental; check compatibility before upgrading its pinned version. Package path mappings are relative to their config file because TypeScript 7 no longer supports `baseUrl`.
+A package test that needs a real Postgres or Redis reads `VITEHUB_TEST_POSTGRES_URL` or `VITEHUB_TEST_REDIS_URL` and skips when the variable is not set. The `postgres and redis tests` CI job finds these files by the variable they read and runs them against `postgres:17` and `redis:8` service containers, so a new file needs no CI change.
+
+Package typechecks use the pinned `tsrs` Rust port of TypeScript in its default compatibility mode. The shared `test/package-typecheck.mjs` launcher retains native TypeScript 7 through the `typescript-native` alias on hosts without a `tsrs` payload. Keep `typescript` on version 6 for Vue checks and tools that use the JavaScript compiler API, including Sandbox Task discovery. `tsrs` is experimental; check compatibility before upgrading its pinned version. Package path mappings are relative to their config file because TypeScript 7 no longer supports `baseUrl`.
 
 Root contracts do not include package tests. The full local gate does not replace provider runtime or browser checks. Read [CI](.github/workflows/ci.yml) for checks enabled on each event and the [live smoke workflow](.github/workflows/live-smoke.yml) for external-service requirements. Do not run live tasks without authorization.
 
@@ -185,7 +188,7 @@ Agents get each page as raw Markdown at `/raw/<page>.md`, in llms-full.txt, and 
 
 ```md
 ::agent-only
-Run `pnpm vitehub schedule run-runtime weekday-report` to start the run that the Console button starts.
+Run `pnpm vitehub schedule run weekday-report` to start a Schedule Definition with `manual: true`, the same run that the Console button starts.
 ::
 ```
 
@@ -261,9 +264,39 @@ A release PR is always open. We release every Friday when we merge it. Never pus
 
 Review the version, package changes, CI result, and release notes before merging the release PR. After merge, the release workflow verifies the exact merge commit, creates its tag, and dispatches `release.yml` on that tag. The existing package workflow builds and tests immutable tarballs, publishes to npm, verifies the registry, and then creates the GitHub release. A manual dispatch on a branch remains a dry run. A manual dispatch on a `v*` tag resumes publication for that tag.
 
-If merge verification fails permanently before a tag is created, merge a correction PR directly after the failed release merge. Then manually run **prepare release** on `main` with `recover_failed_release` enabled and its `recovery_pr` number. Recovery runs the full gate and tags that reviewed correction commit with the original unpublished version, even if later commits have reached `main`. Use the ordinary rerun path for transient failures.
+Before the publish job publishes a package, it checks each package that npm does not yet show at the release version. The package must exist on npm, and npm must accept the identity of `release.yml` in a trusted publisher OIDC exchange. The job discards the token. If a check fails, the job lists each failed package and publishes nothing. The exchange checks identity, not permission to publish directly: a stage-only publisher can pass preflight and fail later, after other packages have published.
 
-An organization owner must allow GitHub Actions to create and approve pull requests in the organization Actions settings. Repository administrators must then enable **Settings → Actions → General → Allow GitHub Actions to create and approve pull requests**. Without both settings, uppt pushes the release branch but cannot open the release PR. The `npm-release` environment must restrict deployments to `v*` tags and require the chosen reviewers before the first automated release. Each public npm package must trust `vite-hub/vitehub` with workflow `release.yml` and environment `npm-release`. npm adds a trusted publisher only to a package that already exists, so publish a new package once by hand before the first release that includes it. Nuxt Better Auth and Vite Doctor use npm staged publishing; ViteHub continues its current direct trusted publication until staged publishing and its approval flow are configured for every public package.
+If merge verification fails before the tag exists, rerun the failed jobs when the failure is transient. Otherwise, roll back the release:
+
+1. Cancel all queued and running **prepare release** runs that could tag this release, including manual `recover_failed_release` runs. Wait for them to stop. Do not start or rerun verification or legacy recovery for the discarded release once you choose rollback.
+2. Confirm the tag still does not exist on GitHub, for example with `git ls-remote --tags origin refs/tags/vX.Y.Z`. If the tag exists, do not revert. Use [Recover a failed npm publication](#recover-a-failed-npm-publication) instead.
+3. Delete the old `release/vX.Y.Z` branch to get fresh CI on the reopened PR. Revert the release PR and merge the revert only after the first two steps are complete.
+
+The release PR opens again at the same version, and fixes merge as normal PRs. The tag job checks `main` before creating the tag, but a run that already passed that check can still create it. That's why the rollback must wait for in-flight runs to stop.
+
+The older recovery path still works while no other PR has merged after the failed release merge: merge a correction PR directly after it, then manually run **prepare release** on `main` with `recover_failed_release` enabled and its `recovery_pr` number. Recovery runs the full gate and tags that reviewed correction commit with the original unpublished version.
+
+An organization owner must allow GitHub Actions to create and approve pull requests in the organization Actions settings. Repository administrators must then enable **Settings → Actions → General → Allow GitHub Actions to create and approve pull requests**. Without both settings, uppt pushes the release branch but cannot open the release PR. The `npm-release` environment must restrict deployments to `v*` tags and require the chosen reviewers before the first automated release. Nuxt Better Auth and Vite Doctor use npm staged publishing; ViteHub continues its current direct trusted publication until staged publishing and its approval flow are configured for every public package.
+
+Before releasing, check in npm package settings that each public package trusts `vite-hub/vitehub` with workflow `release.yml`, environment `npm-release`, and **Allow npm publish** enabled. As a package maintainer signed in with `npm login`, you can run `node .github/scripts/claim-npm-packages.mjs <package>` to check and repair the trusted publisher, including its direct-publish permission (`createPackage`). Pass the package name to limit the script to that package; without names it checks all publishable packages. For a missing package it reserves the name as `0.0.0-claim` under the `claim` dist-tag before setting up trust. Never publish the release version by hand to reserve a name.
+
+### Recover a failed npm publication
+
+Do not move, delete, or create again a release tag. The publish job stops when the tag does not point to the verified commit. Recover from the same tag:
+
+- **Preflight or direct-publish permission failure.** Use the package settings or the claim script above to fix each affected package. Use the claim script for missing packages. Confirm **Allow npm publish** on the matching trusted publisher before rerunning the failed jobs of the release run.
+- **Failure after some packages were published.** Rerun the failed jobs of the same release run. The job skips each version that npm shows with the same integrity and with provenance from this tag. It publishes the other packages in release order. If the run artifact expired, run `gh workflow run release.yml --ref vX.Y.Z`. That run packs the tag again and must produce the same tarballs.
+- **Staged version.** npm returns `E409 Cannot publish over previously staged version` when a version waits for approval in staging. The job stops at that package and prints the dist-tag, provenance source, and tarball integrity that the release expects. A package maintainer checks the staged metadata and tarball:
+
+  ```sh
+  npm stage list <package>
+  npm stage view <stage-id>
+  npm stage download <stage-id>
+  node -p "'sha512-' + require('node:crypto').createHash('sha512').update(require('node:fs').readFileSync(process.argv[1])).digest('base64')" <downloaded-file>
+  ```
+
+  Run `npm stage approve <stage-id>` only if the staged dist-tag and tarball integrity match and you can verify provenance from `release.yml` at the exact release tag and commit. If you cannot verify all three before approval, run `npm stage reject <stage-id>`. Then rerun the failed jobs. The rerun still verifies npm provenance from this release tag. After a reject, the rerun publishes the version again.
+- **A version that does not verify.** npm does not let you replace a published version. If npm shows the version with other contents or without provenance from this tag, do not tag again. Release the fix as the next version through the release PR.
 
 ## Pull requests
 

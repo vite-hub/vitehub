@@ -14,6 +14,8 @@ export type CommentsSchemaState = "empty" | "live" | "outdated" | "current"
 export interface CommentsMigrationOptions {
   /** `postgresql` for a Postgres Database. Default `sqlite`: SQLite, libSQL, and D1. */
   dialect?: "sqlite" | "postgresql"
+  /** The SQL name of the threads table that tells the state. Default `vitehub_comment_threads`. */
+  table?: string
 }
 
 export interface CommentsMigration {
@@ -133,15 +135,16 @@ function names(rows: unknown): string[] {
   return list.map(row => String(Array.isArray(row) ? row[0] : Object.values(Object(row))[0]))
 }
 
-async function columns(db: MigrationDatabase, postgres: boolean): Promise<string[]> {
-  if (postgres) return names(await db.execute!(sql.raw("SELECT column_name FROM information_schema.columns WHERE table_name = 'vitehub_comment_threads' AND table_schema = current_schema()")))
-  return names(await db.all!(sql.raw("SELECT name FROM pragma_table_info('vitehub_comment_threads')")))
+async function columns(db: MigrationDatabase, postgres: boolean, table = "vitehub_comment_threads"): Promise<string[]> {
+  const name = `'${table.replaceAll("'", "''")}'`
+  if (postgres) return names(await db.execute!(sql.raw(`SELECT column_name FROM information_schema.columns WHERE table_name = ${name} AND table_schema = current_schema()`)))
+  return names(await db.all!(sql.raw(`SELECT name FROM pragma_table_info(${name})`)))
 }
 
 /** What the Database has: no comments yet, the live-site tables, one model without newer columns, or nothing to do. */
 export async function commentsSchemaState(db: object, options: CommentsMigrationOptions = {}): Promise<{ state: CommentsSchemaState, missing: string[] }> {
   // SAFETY: Drizzle databases of every supported driver have these methods; `postgres` picks the ones it calls.
-  const found = await columns(db as MigrationDatabase, options.dialect === "postgresql")
+  const found = await columns(db as MigrationDatabase, options.dialect === "postgresql", options.table)
   if (!found.length) return { missing: [], state: "empty" }
   if (found.includes("number") && found.includes("created_by")) return { missing: [], state: "live" }
   const missing = Object.keys(addedColumns).filter(column => !found.includes(column))

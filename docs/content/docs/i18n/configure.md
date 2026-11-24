@@ -59,6 +59,7 @@ export default defineConfig({
 | --- | --- | --- |
 | `locales` | Required | BCP 47 language tags, such as `"en"`, `"es"`, or `"pt-BR"`. The first one is the source locale. Each tag can appear only once. |
 | `cookie` | `"locale"` | The cookie that stores the locale that a person picks with `setLocale()`. |
+| `workspace` | None | The name of a Workspace with retained history that stores live translations. See [Store translations in a Workspace](#store-translations-in-a-workspace). |
 
 Install `@vite-hub/i18n` in the app. `vite-hub` declares it as an optional package, and the build stops with an install command when it is missing.
 

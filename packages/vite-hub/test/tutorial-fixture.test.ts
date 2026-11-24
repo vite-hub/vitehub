@@ -102,7 +102,8 @@ describe("tutorial fixtures", () => {
     // The pages run `pnpm build` and `pnpm start`; these are the commands behind them.
     expect(manifest.scripts).toMatchObject({ build: "vite build", start: "node .output/server/index.mjs" })
 
-    await execFileAsync(resolve(repoRoot, "node_modules/.bin/vp"), ["build"], { cwd: fixtureRoot })
+    const { stdout, stderr } = await execFileAsync(resolve(repoRoot, "node_modules/.bin/vp"), ["build"], { cwd: fixtureRoot })
+    expect(stdout + stderr).not.toContain("[SOURCE_GLOB_OPTIONS_NOT_LITERAL]")
 
     const port = await availablePort()
     const child = spawn(process.execPath, [".output/server/index.mjs"], {

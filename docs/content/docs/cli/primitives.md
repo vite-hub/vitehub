@@ -561,7 +561,7 @@ pnpm vitehub schedule runs list sched_mh1x2y3z_ab12cd34
 pnpm vitehub schedule cancel sched_mh1x2y3z_ab12cd34 --yes
 ```
 
-Every command takes `--json`, `--url <origin>`, and `--timeout <ms>`. `runs` takes `--limit <n>`. Errors go to stderr, or to the JSON body with `--json`. `schedule.runs` and `schedule.attempts` are `read` operations of the Schedules section.
+Every command takes `--json`, `--url <origin>`, and `--timeout <ms>`. `runs list` takes `--limit <n>`. Errors go to stderr, or to the JSON body with `--json`. `schedule.runs` and `schedule.attempts` are `read` operations of the Schedules section.
 
 The output redacts URLs with credentials, bearer tokens, and secret assignments in error messages. An unknown run id fails with `SCHEDULE_RUN_NOT_FOUND` (`404`).
 
@@ -623,7 +623,7 @@ Run `pnpm vitehub hooks install` once to check for conflicts before each commit 
 
 ## Read Workspace history during development
 
-`vitehub workspace history`, `refs`, and `show` read a Workspace's [retained history](/docs/workspace/server-api#retained-folder-history): its refs, such as `draft` and `published`, and the revisions on each. Run them next to the dev server, or pass `--url <origin>` for a deployed app. They only read, and never commit or move a ref.
+`vitehub workspace history`, `refs`, and `get` read a Workspace's [retained history](/docs/workspace/server-api#retained-folder-history): its refs, such as `draft` and `published`, and the revisions on each. Run them next to the dev server, or pass `--url <origin>` for a deployed app. They only read, and never commit or move a ref.
 
 ```bash [Terminal]
 pnpm vitehub workspace history content
@@ -644,9 +644,9 @@ c08f4415a5303b77a6a0e58436b885215950ed298e3e6cebbc85c18f2b97edb9  draft      202
 
 - `history <workspace>` lists revisions newest first. Without `--ref`, it merges all refs and shows the newest `--limit` revisions (default `20`, at most `100`). With `--ref <ref>`, it lists one ref and prints the `--cursor` of the next page.
 - `refs <workspace>` lists each ref with its head revision.
-- `show <workspace> <ref|revision> [path]` takes a ref name or full revision id. A ref name wins when both match. Without a path, it prints the revision and its files with size, media type, and SHA-256 digest. With a file path, it prints the file as it was then, so you can redirect it. A binary file prints a notice instead, and `--json` returns its bytes as `base64`. With a directory path, it lists the files under it.
+- `get <workspace> <ref|revision> [path]` takes a ref name or full revision id. A ref name wins when both match. Without a path, it prints the revision and its files with size, media type, and SHA-256 digest. With a file path, it prints the file as it was then, so you can redirect it. A binary file prints a notice instead, and `--json` returns its bytes as `base64`. With a directory path, it lists the files under it.
 
-`AUTHOR` is the revision `metadata.author`, or `-`. Times are ISO 8601 UTC. Blob + Database revision ids are SHA-256 digests of the revision manifest. Every command takes `--json`, `--url <origin>`, and `--timeout <ms>`. With `--json`, the CLI prints revision objects with `id`, `ref`, `parentId`, `createdAt`, `message`, `metadata`, `author`, `files`, and `bytes`, and `show` returns content as `utf8` text or `base64` bytes. Errors go to stderr, or to the JSON body with `--json`, with exit status 1.
+`AUTHOR` is the revision `metadata.author`, or `-`. Times are ISO 8601 UTC. Blob + Database revision ids are SHA-256 digests of the revision manifest. Every command takes `--json`, `--url <origin>`, and `--timeout <ms>`. With `--json`, the CLI prints revision objects with `id`, `ref`, `parentId`, `createdAt`, `message`, `metadata`, `author`, `files`, and `bytes`, and `get` returns content as `utf8` text or `base64` bytes. Errors go to stderr, or to the JSON body with `--json`, with exit status 1.
 
 A Workspace whose Store keeps no revisions fails with `WORKSPACE_R0069` and names the [Blob + Database Store](/docs/workspace/configure#blob-database-store), which keeps refs and revisions.
 
