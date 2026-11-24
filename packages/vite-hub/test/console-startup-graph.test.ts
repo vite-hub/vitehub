@@ -5,7 +5,7 @@ import { dirname, join, relative, resolve } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
-import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
+import { writeConsoleAppModule } from "../src/console/app-module.ts"
 import { generatedModules } from "../src/internal/generated-modules.ts"
 
 const packageRoot = resolve(import.meta.dirname, "..")
@@ -55,8 +55,8 @@ describe("Console server startup graph", () => {
   it("loads the operations, usage index, and journal stores on the first Console request", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-startup-"))
     try {
-      const file = join(root, "plugin.mjs")
-      await writeConsoleNitroPlugin({
+      const file = join(root, "app.mjs")
+      await writeConsoleAppModule({
         file,
         projectRoot: root,
         sections: ["agents", "databases", "env", "kv", "mcp-client"],
@@ -94,8 +94,8 @@ describe("Console server startup graph", () => {
   it("loads the Console access and sign-in pages on the first Console request", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-startup-"))
     try {
-      const file = join(root, "plugin.mjs")
-      await writeConsoleNitroPlugin({
+      const file = join(root, "app.mjs")
+      await writeConsoleAppModule({
         file,
         projectRoot: root,
         sections: ["kv"],
@@ -107,10 +107,8 @@ describe("Console server startup graph", () => {
       const generated = await readFile(file, "utf8")
       expect(staticSpecifiers(generated)).toEqual([generatedModules.consoleSetup])
       expect(generated).toContain("installConsoleBuild(")
-      expect(generated).not.toContain("installConsolePageTool(")
       const loaded = [...startupGraph(generated).files].map(file => relative(packageRoot, file))
       expect(loaded).toContain("src/console/runtime/server/access-policy.ts")
-      expect(loaded).not.toContain("src/console/runtime/server/page-tool.ts")
       for (const lazy of ["src/console/auth-pages.ts", "src/console/runtime/server/access.ts", "src/console/runtime/server/sections.ts"]) {
         expect(loaded).not.toContain(lazy)
       }

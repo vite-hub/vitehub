@@ -28,9 +28,6 @@ import { operationRpcBody, operationRpcResponseResult } from "../../internal/tes
 
 const policyKey = Symbol.for("vitehub.console.access")
 const serverRoot = fileURLToPath(new URL("../src/console/runtime/server/", import.meta.url))
-// The page tools session reads no Console data: it lists the page tools of a visitor, and the Console link it can list
-// gives no access.
-const pageRoutes = new Set(["page-tools-route.ts"])
 
 function event(headers: Record<string, string> = {}): ConsoleRequestEvent {
   return requestEvent(new Request("http://vitehub.local/_vitehub/api/data", { headers }))
@@ -69,7 +66,7 @@ describe("Console data route contract", () => {
     expect(routes).toContain("invocation-workspace.get.ts")
     expect(routes).toContain("rpc.ts")
 
-    for (const file of routes.filter(route => !pageRoutes.has(route))) {
+    for (const file of routes) {
       Reflect.deleteProperty(globalThis, policyKey)
       const route: unknown = (await import(join(serverRoot, file))).default
       // HTTP routes are Fetchables. Operation handlers are functions of a request event.
@@ -376,7 +373,7 @@ describe("generated Console access", () => {
       if (!configHook) throw new TypeError("Expected a Console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook
       await Reflect.apply(configHandler, {}, [Object.assign(config, { root }), { command, mode: command === "build" ? "production" : "development" }])
-      return await readFile(join(root, `.vitehub/nitro/console/plugin${command === "serve" ? "-dev" : ""}.mjs`), "utf8")
+      return await readFile(join(root, `.vitehub/nitro/console/app${command === "serve" ? "-dev" : ""}.mjs`), "utf8")
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -411,7 +408,6 @@ describe("generated Console access", () => {
       expect.objectContaining({ route: route.replace(/\/rpc$/, "/site"), meta: { ...authAccessHandlerMeta } }),
       expect.objectContaining({ route: route.replace(/\/rpc$/, ""), meta: { ...authAccessHandlerMeta } }),
       expect.objectContaining({ route: route.replace(/\/rpc$/, "/**"), meta: { ...authAccessHandlerMeta } }),
-      expect.objectContaining({ route: route.replace(/\/rpc$/, "/page/tools"), meta: { vitehubOwnAccess: true } }),
     ])
   })
 
@@ -425,13 +421,13 @@ describe("generated Console access", () => {
     expect(config.nitro.publicAssets).toEqual(assets)
   })
 
-  it.each(["/", "/portal/"])("registers the entry, RPC and page tools session below %s", async (base) => {
+  it.each(["/", "/portal/"])("registers the entry, RPC and Site access routes below %s", async (base) => {
     const mount = base.replace(/\/$/, "")
     const config: { base: string, nitro: { handlers: Array<{ handler: string, middleware?: boolean, route: string }>, publicAssets?: Array<{ baseURL?: string }> } } = { base, nitro: { handlers: [] } }
     await generatedPlugin({ console: {} }, "build", config)
 
     const routes = config.nitro.handlers.map(handler => handler.route)
-    expect(routes).toEqual([`${mount}/_vitehub/rpc`, `${mount}/_vitehub/site`, `${mount}/_vitehub`, `${mount}/_vitehub/**`, `${mount}/_vitehub/page/tools`])
+    expect(routes).toEqual([`${mount}/_vitehub/rpc`, `${mount}/_vitehub/site`, `${mount}/_vitehub`, `${mount}/_vitehub/**`])
   })
 
   it("imports console.authorize for open access", async () => {

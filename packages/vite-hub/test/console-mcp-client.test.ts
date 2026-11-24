@@ -294,11 +294,11 @@ describe("MCP client section", () => {
   })
 
   it("loads the MCP client lazily only in apps that turn the section on", async () => {
-    const { writeConsoleNitroPlugin } = await import("../src/console/plugin.ts")
+    const { writeConsoleAppModule } = await import("../src/console/app-module.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-mcp-client-"))
     try {
       const generated = async (sections: string[]) => {
-        await writeConsoleNitroPlugin({ file: join(root, "plugin.mjs"), projectRoot: root, sections, catalog: { agents: [], content: {} }, blobStores: [] })
+        await writeConsoleAppModule({ file: join(root, "plugin.mjs"), projectRoot: root, sections, catalog: { agents: [], content: {} }, blobStores: [] })
         return readFile(join(root, "plugin.mjs"), "utf8")
       }
       const withMcp = await generated(["mcp-client"])

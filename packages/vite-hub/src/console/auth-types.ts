@@ -49,27 +49,10 @@ export interface ConsoleAgentAuthorizeContext {
 }
 
 /**
- * The check of the **Console** link in the page tools pill. It is not a Console call: the request is the page tools
- * session request of a page of the app, and `user` is the person that Site access signed in to the app, when there is one.
- * `true` or `{ sections }` with at least one section shows the link. The link gives no access: the Console checks the
- * person and the team when it opens.
- */
-export interface ConsolePageAuthorizeContext {
-  request: Request
-  /**
-   * The Site access person of the page: `id`, `name`, `email` and `image` of the token, and `role`, the roles
-   * comma-separated, such as `console,comments-write`. Not set when the browser has no Site access cookie.
-   */
-  user?: ConsoleUser
-  via: "page"
-}
-
-/**
  * The request that `console.authorize` checks. `via` is `"console"` or `"cli"`: who signed the request. `via` is
- * `"agent"` when an Agent calls Console operations as tools, `"page"` when the page tools pill asks whether to show the
- * Console link, and not set for an open Console in development.
+ * `"agent"` when an Agent calls Console operations as tools, and not set for an open Console in development.
  */
-export type ConsoleAuthorizeContext = ConsoleOpenAuthorizeContext | ConsoleSignedConsoleAuthorizeContext | ConsoleSignedCliAuthorizeContext | ConsoleAgentAuthorizeContext | ConsolePageAuthorizeContext
+export type ConsoleAuthorizeContext = ConsoleOpenAuthorizeContext | ConsoleSignedConsoleAuthorizeContext | ConsoleSignedCliAuthorizeContext | ConsoleAgentAuthorizeContext
 
 /**
  * What `console.authorize` returns for one request.

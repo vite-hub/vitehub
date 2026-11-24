@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createAuthConsole } from "../../auth/src/console-runtime.ts"
 import { consoleEventsFixture } from "../../auth/test/fixtures/console-events.ts"
-import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
+import { writeConsoleAppModule } from "../src/console/app-module.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import consoleRpcRoute from "../src/console/runtime/server/rpc.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
@@ -85,7 +85,7 @@ describe("console.impersonation configuration", () => {
       expect(resolveConsoleAccessBuild({ auth: false, impersonation: true }, { root })).toMatchObject({ mode: "open", impersonation: true })
       expect(resolveConsoleAccessBuild({}, { root })).toEqual({ mode: "token" })
       const file = join(root, "console.mjs")
-      await writeConsoleNitroPlugin({ file, projectRoot: root, sections: [], catalog: { agents: [], content: {} }, blobStores: [], access: { mode: "token", impersonation: true } })
+      await writeConsoleAppModule({ file, projectRoot: root, sections: [], catalog: { agents: [], content: {} }, blobStores: [], access: { mode: "token", impersonation: true } })
       expect(await readFile(file, "utf8")).toContain('installConsoleAccess({ mode: "token", impersonation: true })')
     }
     finally {

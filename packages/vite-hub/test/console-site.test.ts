@@ -6,10 +6,11 @@ import { siteStateHash, signSiteToken } from "@vite-hub/internal/site-token"
 
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
-import { installConsolePageTool } from "../src/console/runtime/server/page-tool.ts"
+import { installConsolePill } from "../src/console/runtime/server/pill.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
-import siteAccessRoute, { readConsoleSiteVisitor } from "../src/console/runtime/server/site.ts"
-import siteEntryRoute, { siteEntryPage } from "../src/console/runtime/server/site-entry.ts"
+import siteAccessRoute from "../src/console/runtime/server/site.ts"
+import siteEntryRoute from "../src/console/runtime/server/site-entry.ts"
+import { readConsoleSiteVisitor } from "../src/console/runtime/server/site-visitor.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 import { consoleTestKey, signedRpcRequest } from "./support/console-signature.ts"
 import { operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
@@ -161,9 +162,9 @@ describe("the site cookie", () => {
     expect((await siteAccessRoute.fetch(new Request(`${origin}/_vitehub/site`, { method: "POST", headers: { "sec-fetch-site": "cross-site" } }))).status).toBe(403)
   })
 
-  it("gives the pill the account of a member, and the Console link to members only", async () => {
+  it("gives the pill the account of a member, and the Console segment to members only", async () => {
     const nitroApp = {}
-    installConsolePageTool(nitroApp, { script: "/console.js", site: readConsoleSiteVisitor })
+    installConsolePill(nitroApp, { version: "0.4.0" })
     registerViteHubPageTool(nitroApp, { id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "/comments.js", allowed: async () => true })
     const session = async (cookie = "") => readViteHubPageSession(await (await respondViteHubPageSession(nitroApp, new Request(`${origin}/_vitehub/page/tools`, { headers: { cookie } }))).json())
     const member = await session(await signIn())
@@ -177,50 +178,35 @@ describe("the site cookie", () => {
 })
 
 describe("GET /_vitehub", () => {
-  async function enter(path = "/_vitehub", headers: Record<string, string> = {}): Promise<Response> {
-    return await siteEntryRoute.fetch(new Request(`${origin}${path}`, { headers }))
+  async function enter(path = "/_vitehub", init: RequestInit = {}, base = origin): Promise<Response> {
+    return await siteEntryRoute.fetch(new Request(`${base}${path}`, init))
   }
 
-  it("sends a visitor without Site access to /_vitehub/site with the page of the Referer", async () => {
-    const response = await enter("/_vitehub", { referer: `${origin}/runs/42?tab=logs` })
+  it("sends the browser to the app in the ViteHub Console", async () => {
+    const response = await enter()
     expect(response.status).toBe(303)
-    expect(response.headers.get("location")).toBe(`/_vitehub/site?${new URLSearchParams({ return: "/runs/42?tab=logs" })}`)
+    expect(response.headers.get("location")).toBe("https://console.vitehub.dev/open?project=http%3A%2F%2Flocalhost%3A5173&path=%2F")
     expect(response.headers.getSetCookie()).toEqual([])
   })
 
-  it("comes back to the path below /_vitehub and the app base", async () => {
-    expect((await enter("/_vitehub/projects/meetups?task=x")).headers.get("location")).toBe(`/_vitehub/site?${new URLSearchParams({ return: "/projects/meetups?task=x" })}`)
-    expect((await enter("/portal/_vitehub/runs/42")).headers.get("location")).toBe(`/portal/_vitehub/site?${new URLSearchParams({ return: "/runs/42" })}`)
+  it("opens the Console page below /_vitehub, with its query, for the app at its base", async () => {
+    const location = async (path: string) => new URL((await enter(path)).headers.get("location") ?? "")
+    const page = await location("/_vitehub/agents/bot?tab=trace")
+    expect(page.origin).toBe("https://console.vitehub.dev")
+    expect(Object.fromEntries(page.searchParams)).toEqual({ project: origin, path: "/agents/bot?tab=trace" })
+    expect(Object.fromEntries((await location("/portal/_vitehub/runs/42")).searchParams)).toEqual({ project: `${origin}/portal`, path: "/runs/42" })
+    expect(Object.fromEntries((await location("/_vitehub/_vitehub/runs")).searchParams)).toEqual({ project: origin, path: "/runs" })
   })
 
-  it("goes to the page with the pill at once for a member with a site cookie, and on a development server", async () => {
-    const nitroApp = { fetch: (request: Request) => siteEntryRoute.fetch(request) }
-    installConsolePageTool(nitroApp, { script: "/console.js", site: readConsoleSiteVisitor })
-    const open = async (cookie: string) => (await nitroApp.fetch(new Request(`${origin}/_vitehub/docs`, { headers: { cookie } }))).headers.get("location")
-    expect(await open(await signIn())).toBe("/docs?vitehub")
-    expect(await open(await signIn({ roles: ["comments-write"] }))).toMatch(/^\/_vitehub\/site\?/)
+  it("answers 404 for an app origin that the Console cannot open", async () => {
     installConsoleDevelopment("", true)
-    expect((await enter("/_vitehub/docs?tab=1")).headers.get("location")).toBe("/docs?tab=1&vitehub")
+    expect((await enter("/_vitehub", {}, "http://192.168.0.38:3000")).status).toBe(404)
   })
 
-  it("answers 404 for a path that ViteHub serves itself", async () => {
-    for (const path of ["/_vitehub/rpc/x", "/_vitehub/site/x", "/_vitehub/page/assets/old.js", "/_vitehub/_vitehub/runs"]) {
-      const response = await enter(path)
-      expect(response.status, path).toBe(404)
-      expect(response.headers.get("location"), path).toBeNull()
-    }
-  })
-
-  it.each([
-    [null, "/"],
-    ["/guide/day-2", "/guide/day-2"],
-    ["//evil.example/x", "/"],
-    ["https://evil.example/", "/"],
-    ["/\\evil.example", "/"],
-    ["/\t/evil.example", "/"],
-    ["/_vitehub/rpc", "/"],
-  ])("reads %s as the page %s", (page, path) => {
-    expect(siteEntryPage(page, "")).toBe(path)
+  it("opens the Console only with GET and HEAD", async () => {
+    expect((await enter("/_vitehub", { method: "POST" })).status).toBe(405)
+    expect((await enter("/_vitehub/rpc/x", { method: "POST" })).status).toBe(404)
+    expect((await enter("/_vitehub", { method: "HEAD" })).status).toBe(303)
   })
 
   it("answers only on the public URL, so another hostname of the deployment gets 404", async () => {

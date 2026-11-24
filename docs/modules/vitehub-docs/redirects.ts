@@ -419,7 +419,7 @@ export const docsLegacyFragmentRedirects = {
     "site-access-without-auth": "/docs/console/site-access#how-the-app-checks-a-visit",
     "give-browsers-site-access": "/docs/console/site-access#sign-browsers-in",
     "links-to-the-console": "/docs/console/site-access#link-to-the-console",
-    "open-the-console-from-your-pages": "/docs/console/site-access#open-the-console-from-your-pages",
+    "open-the-console-from-your-pages": "/docs/console/site-access#the-console-segment-of-the-comments-pill",
     "self-host-the-console": "/docs/console/get-started#self-host-the-console",
     "protect-the-console-route": "/docs/console/access#who-can-call-the-endpoint",
     "sign-console-requests": "/docs/console/signed-requests",

@@ -132,10 +132,10 @@ const runtimeEntries = [
   "src/console/runtime/rpc.ts",
   "src/console/runtime/sections.ts",
   "src/console/runtime/skills.ts",
-  // Generated Console output imports these when the server starts. Own files keep the request code out of startup.
+  // The generated Console app module imports these with the first Console request. Own files keep each route small.
   "src/console/runtime/server/access-policy.ts",
+  "src/console/runtime/server/agent-capability.ts",
   "src/console/runtime/server/development.ts",
-  "src/console/runtime/server/page-tool.ts",
   "src/console/runtime/server/runtime.ts",
   "src/console/runtime/server/agents.get.ts",
   "src/console/runtime/server/channel-replay.ts",
@@ -158,9 +158,10 @@ const runtimeEntries = [
   "src/console/runtime/server/setup.ts",
   "src/console/runtime/server/usage.get.ts",
   "src/console/runtime/server/status.get.ts",
-  // The page tools session route, and the Site access route and reader that the Console page tool loads with the first
-  // session request.
-  "src/console/runtime/server/page-tools-route.ts",
+  // The Console segment of the Comments pill. Comments installs it at startup, and it reads the visitor on the first
+  // page tools session request.
+  "src/console/runtime/server/pill.ts",
+  "src/console/runtime/server/site-visitor.ts",
   "src/console/runtime/server/site.ts",
 ];
 
@@ -529,7 +530,7 @@ export default defineConfig({
       ],
       deps: {
         // Agent-only apps need the client-free journal constructor without installing the optional Database package.
-        neverBundle: ["vite", /^@vite-hub\/(?!internal(?:\/|$)|database\/runtime\/libsql-drizzle$)/],
+        neverBundle: ["vite", "#vitehub/console/app", /^@vite-hub\/(?!internal(?:\/|$)|database\/runtime\/libsql-drizzle$)/],
         alwaysBundle: [/^@vite-hub\/internal/, "@vite-hub/database/runtime/libsql-drizzle"],
         onlyBundle: false,
       },
@@ -643,16 +644,17 @@ export default defineConfig({
           delete exports["./console/runtime/server/logs.get"];
           delete exports["./console/runtime/server/mcp-client-operations"];
           delete exports["./console/runtime/server/access-policy"];
+          delete exports["./console/runtime/server/agent-capability"];
           delete exports["./console/runtime/server/development"];
           delete exports["./console/runtime/server/operation-contributions"];
-          delete exports["./console/runtime/server/page-tools-route"];
-          delete exports["./console/runtime/server/page-tool"];
+          delete exports["./console/runtime/server/pill"];
           delete exports["./console/runtime/server/runtime"];
           delete exports["./console/runtime/server/search.get"];
           delete exports["./console/runtime/server/sections.get"];
           delete exports["./console/runtime/server/sections"];
           delete exports["./console/runtime/server/setup"];
           delete exports["./console/runtime/server/site"];
+          delete exports["./console/runtime/server/site-visitor"];
           delete exports["./console/runtime/server/usage.get"];
           delete exports["./console/runtime/server/status.get"];
           // Generated code imports `src/internal/*` entries by path. They are not public API.
@@ -708,7 +710,7 @@ export default defineConfig({
         },
       }],
       deps: {
-        neverBundle: ["vite", /^@vite-hub\/(?!internal(?:\/|$)|database\/runtime\/libsql-drizzle$)/],
+        neverBundle: ["vite", "#vitehub/console/app", /^@vite-hub\/(?!internal(?:\/|$)|database\/runtime\/libsql-drizzle$)/],
         alwaysBundle: [/^@vite-hub\/internal/, "@vite-hub/database/runtime/libsql-drizzle"],
         onlyBundle: false,
         dts: {
@@ -719,20 +721,7 @@ export default defineConfig({
       outExtensions: () => ({ dts: ".d.ts", js: ".js" }),
     },
     {
-      // The page tools loader at `/_vitehub/page/assets/loader.js`, for an app with the Console and no Comments. It has its
-      // own build, so it shares no chunk with the server code.
-      alias: motionCoreAlias,
-      deps: { alwaysBundle: [/./], onlyBundle: false },
-      dts: false,
-      entry: { "console/runtime/page/loader": "src/page/loader.ts" },
-      minify: true,
-      outExtensions: () => ({ js: ".js" }),
-      platform: "browser",
-      target: browserTarget,
-      tsconfig: "tsconfig.build.json",
-    },
-    {
-      // The Console segment of the page tools pill, at `/_vitehub/console/assets/page-tool.js` (see src/page/console.ts).
+      // The Console segment of the page tools pill. The ViteHub Console serves it at `/page/<version>/page-tool.js`.
       deps: { alwaysBundle: [/./], onlyBundle: false },
       dts: false,
       entry: { "console/runtime/page-tool/page-tool": "src/page/console.ts" },

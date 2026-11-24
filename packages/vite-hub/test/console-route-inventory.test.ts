@@ -53,7 +53,8 @@ function owner(root: string, path: string): string {
 
 /**
  * Every route, middleware, Nitro plugin, and public asset directory that ViteHub hands to Nitro for one production
- * build, one line each, sorted. A Console route that a change adds or removes shows here. `connections.management` sets
+ * build, one line each, sorted. A Console route, plugin, or asset that a change adds or removes shows here. The Console
+ * adds no Nitro plugin: its routes import the generated Console app module. `connections.management` sets
  * the app's own actor module, so the Connections management API is the app's, not the Console's.
  */
 async function nitroInventory(consoleOptions: true | ConsoleOptions): Promise<{ handlers: string[], plugins: string[], publicAssets: string[] }> {
@@ -132,7 +133,6 @@ const plugins = [
   "app/.vitehub/nitro/agent/invocations.mjs",
   "app/.vitehub/nitro/blob/plugin.ts",
   "app/.vitehub/nitro/comments/plugin.mjs",
-  "app/.vitehub/nitro/console/plugin.mjs",
   "app/.vitehub/nitro/durability/plugin.mjs",
   "app/.vitehub/nitro/error-log.mjs",
   // `security` headers, on by default in built output.
@@ -147,9 +147,7 @@ const publicAssets = [
   "/_vitehub/.well-known/skills console/public/skills",
   // The Comments overlay script, in the assets folder of the Comments API route.
   "/_vitehub/comments/assets @vite-hub/comments/dist/overlay",
-  // The Console link of the page tools pill. Comments added the session route and the loader first, so they stay.
-  "/_vitehub/console/assets console/page-tool",
-  // The page tools loader.
+  // The page tools loader of the Comments pill.
   "/_vitehub/page/assets @vite-hub/comments/dist/page",
 ]
 

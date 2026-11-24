@@ -229,7 +229,7 @@ export function agentInvocationsVitePlugin(options: AgentInvocationsPluginOption
       }
       const plugin = await writeAgentInvocationsNitroPlugin({ database: options.database, d1Binding, default: options.default, libsql, projectRoot, stateUrl: options.stateUrl })
       const kit = createNitroServerKit(viteConfig.nitro)
-      // The Console plugin reads the app-wide journal while it loads, so this plugin loads first.
+      // Agent plugins read the app-wide journal while they load, so this plugin loads first.
       kit.addPlugin(plugin, "start")
       viteConfig.nitro = kit.config
     },

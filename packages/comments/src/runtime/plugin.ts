@@ -48,6 +48,8 @@ export interface CommentsPluginOptions extends CommentsSessionOptions {
   dialect?: InstallCommentsOptions["dialect"]
   /** Loads `@vite-hub/webhooks`, when `defineComments({ send })` is on. */
   webhooks?: InstallCommentsOptions["webhooks"]
+  /** Install more segments of the pill, such as the **Console** segment of `vite-hub`. Only with the overlay on. */
+  pillSegments?: ReadonlyArray<(nitroApp: unknown, context: { base?: string, development: boolean }) => void>
 }
 
 const runtimeKey = Symbol.for("vitehub.comments.installed")
@@ -131,6 +133,7 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
         return !options.comments.options.identify && options.githubLogin?.configured() && (!user || user.github) ? "lazy" : false
       },
     })
+    for (const install of options.pillSegments ?? []) install(nitroApp, { base: options.base, development: options.development === true })
     // A build shows the overlay only on the origins of `vitehub({ publicUrl })`. A development server shows it on every origin.
     installViteHubPageTools(nitroApp, { base: options.base, origins: options.development === true ? [] : configuredPublicOrigins() })
   }

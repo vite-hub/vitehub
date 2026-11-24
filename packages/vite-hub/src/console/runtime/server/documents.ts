@@ -43,7 +43,7 @@ export interface ConsoleMediaAccess {
 /** Loads the owner actions of each document editor section on first use. */
 export type ConsoleDocumentEditors = Readonly<Record<string, () => Promise<ConsoleDocumentActions>>>
 
-/** What the generated Console plugin installs for one document editor section. */
+/** What the generated Console app module installs for one document editor section. */
 export interface ConsoleDocumentEditorInstall {
   /** Owner factory that turns the application module into actions. */
   actions: (module: Record<string, unknown>) => ConsoleDocumentActions

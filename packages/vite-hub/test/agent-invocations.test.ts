@@ -242,18 +242,18 @@ function agentInvocationsPlugin(options: Parameters<typeof vitehub>[0]): Plugin 
 }
 
 describe("vitehub({ agent: { invocations } })", () => {
-  it("generates a Nitro plugin that loads before the Console plugin", async () => {
+  it("generates a Nitro plugin that loads before the other Nitro plugins", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-"))
     try {
       const plugin = agentInvocationsPlugin({ agent: { invocations: { database: "journal", store: "database" } }, database: true, host: "node" })
       if (!plugin) throw new Error("Missing Agent Invocations plugin.")
-      const config = { nitro: { plugins: ["/app/.vitehub/nitro/console/plugin.mjs"] }, root }
+      const config = { nitro: { plugins: ["/app/server/plugins/app.mjs"] }, root }
       // SAFETY: The plugin reads only the root and the Nitro config, which this fixture supplies.
       const hook = plugin.config as (config: object) => Promise<void>
       await hook(config)
       await hook(config)
       const generated = join(root, ".vitehub/nitro/agent/invocations.mjs")
-      expect(config.nitro.plugins).toEqual([generated, "/app/.vitehub/nitro/console/plugin.mjs"])
+      expect(config.nitro.plugins).toEqual([generated, "/app/server/plugins/app.mjs"])
       await expect(readFile(generated, "utf8")).resolves.toBe(renderAgentInvocationsNitroPlugin({ database: true, default: { database: "journal", store: "database" } }))
     }
     finally {

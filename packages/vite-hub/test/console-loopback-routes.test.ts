@@ -27,13 +27,6 @@ const serverRoot = new URL("../src/console/runtime/server/", import.meta.url)
 // What a remote client sends to look local: the dev server's own Host, and the proxy headers of a local peer.
 const forgedLocal = { "host": "localhost:3000", "origin": "http://localhost:3000", "x-forwarded-for": "127.0.0.1", "x-forwarded-host": "localhost:3000", "x-real-ip": "127.0.0.1" }
 
-/**
- * Routes that answer a remote client without Console access, and why each one is safe.
- * - `page-tools-route.ts`: the page tools session. It only says which page tools this visitor gets. The Console link asks
- *   `consolePageToolAllowed()`, which `console-page-tool.test.ts` covers, and the link gives no access.
- */
-const outsideConsoleAccess = new Set(["page-tools-route.ts"])
-
 /** The Console routes that the Vite plugin and the Nuxt module register, with every section on and no sign-in. */
 async function registeredConsoleRoutes(): Promise<Registration[]> {
   const root = await mkdtemp(join(tmpdir(), "vitehub-console-loopback-"))
@@ -104,8 +97,7 @@ describe.each(["local", "open"] as const)("every Console route of a %s developme
     const routes = await registeredConsoleRoutes()
     const files = new Set(routes.map(entry => sourceFile(entry.handler)))
     // A route that this list does not name must be classified here, so no Console route skips the rule.
-    expect([...files].sort()).toEqual(["page-tools-route.ts", "rpc.ts", "site-entry.ts", "site.ts"])
-    const guarded = routes.filter(entry => !outsideConsoleAccess.has(sourceFile(entry.handler)))
+    expect([...files].sort()).toEqual(["rpc.ts", "site-entry.ts", "site.ts"])
     for (const peer of [
       // A dev worker behind the front process's proxy sees no address. The front process gave it a key, and no evidence.
       { key: true, remoteAddress: undefined },
@@ -120,7 +112,7 @@ describe.each(["local", "open"] as const)("every Console route of a %s developme
     ]) {
       if (peer.key) useViteHubDevPeerKey()
       else vi.stubEnv(viteHubDevPeerKeyEnv, undefined)
-      for (const entry of guarded) {
+      for (const entry of routes) {
         const label = `${entry.route} (${sourceFile(entry.handler)}), key ${peer.key}, address ${peer.remoteAddress}`
         const route: unknown = (await import(new URL(sourceFile(entry.handler), serverRoot).href)).default
         if (!(route instanceof Object) || !("fetch" in route) || !(route.fetch instanceof Function)) throw new TypeError(`${label} must default-export a Fetchable route.`)

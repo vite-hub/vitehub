@@ -110,6 +110,7 @@ import type { QueueOptions } from "@vite-hub/queue"
 import type { Plugin, PluginOption, ResolvedConfig, UserConfig } from "vite"
 import type { DoctorPluginApi } from "vite-doctor/extension"
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
+import { readViteHubVersion } from "./version.ts"
 
 export type { CacheOptions } from "./cache-storage.ts"
 export type { ConsoleOptions } from "./console/vite.ts"
@@ -1741,7 +1742,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
   const runtimeCapabilityImports = {
     blob: blobEnabled ? "vite-hub/blob" : false,
     connections: options.connections ? generatedModules.connectionsAgent : false,
-    console: configuredConsole ? "vite-hub/console/server" : false,
+    console: configuredConsole ? generatedModules.consoleAgent : false,
     db: options.database ? "@vite-hub/database/runtime/registry" : false,
     i18n: options.i18n ? "vite-hub/i18n/server" : false,
     // The `page()` Capability reaches the page through Realtime.
@@ -1941,6 +1942,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
       runtime: "vite-hub/comments/runtime",
       webhooks: "vite-hub/webhooks",
     },
+    ...configuredConsole ? { pillSegments: [{ module: generatedModules.consolePill, export: "installConsolePill", options: { version: readViteHubVersion() } }] } : {},
   })
   if (options.realtime) {
     plugins.push(requireOptionalOwner(ownerModules.realtimeVite, "realtime").hubRealtime({
