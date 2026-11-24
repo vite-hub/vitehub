@@ -162,12 +162,14 @@ export default defineWorkflow<{ callId: string }>({
 ```
 
 ```ts [server/api/webhooks/transcript.post.ts] fragment
+import { createError, defineEventHandler, readBody } from 'h3'
 import { resumeWorkflow } from 'vite-hub/workflow'
 
 export default defineEventHandler(async (event) => {
   // Check the webhook signature first. The token is not a secret.
-  const { token, text } = await readBody(event)
-  const [error] = await resumeWorkflow(token, { text })
+  const body = await readBody<{ token?: string, text?: string }>(event)
+  if (typeof body?.token !== 'string' || !body.token || typeof body.text !== 'string') throw createError({ status: 400, message: 'Token and text are required.' })
+  const [error] = await resumeWorkflow(body.token, { text: body.text })
   if (error?.code === 'WORKFLOW_SIGNAL_NOT_WAITING') throw createError({ status: 503 })
   if (error) throw error
   return { ok: true }

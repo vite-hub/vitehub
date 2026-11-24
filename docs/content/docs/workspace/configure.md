@@ -24,7 +24,7 @@ A file in `server/workspaces/` turns on Workspace, so you do not add a `workspac
 
 | Store | Configure with | Nuance |
 | --- | --- | --- |
-| Local | `{ driver: 'local', root?: string, locks?: 'filesystem' \| 'process' }` | Files on disk. Default in development and on hosts with no better match. |
+| Local | `{ driver: 'local', root?: string, locks?: 'filesystem' \| 'process', ignore?: 'git' }` | Files on disk. Default in development and on hosts with no better match. |
 | Memory | `{ driver: 'memory' }` | Temporary storage for tests or short-lived runtimes. |
 | Cloudflare Artifacts | `{ driver: 'cloudflare', binding?, namespace?, repo?, repoPrefix?, branch? }` | Opt-in, versioned Git storage. Defaults: binding `WORKSPACE_ARTIFACTS`, namespace `vitehub`, repo prefix `vitehub-workspace-`. |
 | Vercel Blob | `{ driver: 'vercel', token?, prefix?, access? }` | Files live under `_vitehub/workspaces/<workspace>/`. `prefix`, or `VITEHUB_WORKSPACE_BLOB_PREFIX`, adds a namespace below `_vitehub/workspaces/` (letters, numbers, underscores, dashes, single slashes). The Console Blob section hides these files by default. Access defaults to `private`. On Vercel, it uses OIDC when the project has `BLOB_STORE_ID`. Elsewhere, it uses `BLOB_READ_WRITE_TOKEN`. |
