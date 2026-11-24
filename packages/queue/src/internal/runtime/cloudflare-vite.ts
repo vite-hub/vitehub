@@ -96,6 +96,7 @@ export function createQueueCloudflareWorker(options: QueueCloudflareWorkerOption
               await runInRunScopes(() => definition.handler(createQueueJob(message, currentBatch)))
             })
           },
+          queue: definitionName,
         })(batch)
       })
     },
