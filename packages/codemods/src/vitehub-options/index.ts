@@ -87,7 +87,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     if (result.changed) edits.push({ path: file, before, after: result.code })
   }
   followUps.push(...await renamedTypeReferences(cwd))
-  if (!edits.length && !followUps.length) throw codemodError("No vite.config or nuxt.config, or a file that one imports, sets preset, sandbox, devtools, observability.logs, logs.evlog, contentImportBase, or a top-level env, so there is nothing to migrate.")
+  if (!edits.length && !followUps.length) throw codemodError("No vite.config or nuxt.config, or a file that one imports, sets preset, sandbox, devtools, console options that moved, observability.logs, logs.evlog, contentImportBase, or a top-level env, so there is nothing to migrate.")
   return {
     summary: edits.length
       ? `Moved vite-hub options in ${edits.length} config file${edits.length === 1 ? "" : "s"}.`
@@ -101,7 +101,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
 
 export const vitehubOptions: Codemod = {
   name: "vitehub-options",
-  description: "Renames preset to host, moves observability.logs to logs and Env declarations into vitehub({ env }), and removes devtools and contentImportBase",
+  description: "Renames preset to host, moves observability.logs to logs, Env declarations into vitehub({ env }) and the Console journal options into agent.invocations, and removes devtools, contentImportBase and the Console options that left the app",
   usage: "[dir]",
   async detect({ cwd }) {
     const { results, followUps } = await migrations(cwd)

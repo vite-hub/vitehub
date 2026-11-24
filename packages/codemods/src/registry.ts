@@ -9,6 +9,7 @@ import { cliGetList } from "./cli-get-list/index.ts"
 import { cliUrlFlag } from "./cli-url-flag/index.ts"
 import { cliYesFlag } from "./cli-yes-flag/index.ts"
 import { cmsRoles } from "./cms-roles/index.ts"
+import { consoleOutOfApp } from "./console-out-of-app/index.ts"
 import { defineForms } from "./define-forms/index.ts"
 import { docus } from "./docus/index.ts"
 import { driverKey } from "./driver-key/index.ts"
@@ -69,6 +70,7 @@ export const codemods: readonly Codemod[] = [
   cliUrlFlag,
   cliYesFlag,
   cmsRoles,
+  consoleOutOfApp,
   choicesPackage,
   cliGetList,
   cliAgentTree,
@@ -106,6 +108,7 @@ export const upgradeCodemods: readonly Codemod[] = [
   cliUrlFlag,
   cliYesFlag,
   cmsRoles,
+  consoleOutOfApp,
   choicesPackage,
   cliGetList,
   cliAgentTree,

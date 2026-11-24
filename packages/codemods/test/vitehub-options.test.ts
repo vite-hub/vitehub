@@ -372,6 +372,75 @@ describe("vitehub-options transform", () => {
     ])
   })
 
+  it.each([
+    ["vitehub({ console: { pill: true } })", "vitehub({ console: true })"],
+    ["vitehub({ console: { pill: { position: 'bottom-left' }, mcpClient: true, auth: 'token' } })", "vitehub({ console: true })"],
+    ["vitehub({ console: { pill: true, authorize: './server/console-authorize.ts' } })", "vitehub({ console: { authorize: './server/console-authorize.ts' } })"],
+    ["vitehub({ console: { embed: true, mcp: true, origins: ['https://a.test'], signInPage: false, impersonation: true } })", "vitehub({ console: { impersonation: true } })"],
+    ["vitehub({ console: { mcpClient: { servers: [] } }, host: 'node' })", "vitehub({ console: true, host: 'node' })"],
+  ])("removes the Console options that left the app in %s", (from, to) => {
+    const input = `import { vitehub } from 'vite-hub'\nexport default { plugins: [${from}] }\n`
+    const result = migrateViteHubOptions("vite.config.ts", input)
+    expect(result).toMatchObject({ changed: true, code: input.replace(from, to), followUps: [] })
+    expect(migrateViteHubOptions("vite.config.ts", result.code).changed).toBe(false)
+  })
+
+  it("removes console.pill in a Nuxt config", () => {
+    const input = lines(
+      "export default defineNuxtConfig({",
+      "  modules: ['vite-hub/nuxt'],",
+      "  vitehub: {",
+      "    console: {",
+      "      pill: true,",
+      "      authorize: './server/console-authorize.ts',",
+      "    },",
+      "  },",
+      "})",
+    )
+    const result = migrateViteHubOptions("nuxt.config.ts", input)
+    expect(result.code).toBe(lines(
+      "export default defineNuxtConfig({",
+      "  modules: ['vite-hub/nuxt'],",
+      "  vitehub: {",
+      "    console: {",
+      "      authorize: './server/console-authorize.ts',",
+      "    },",
+      "  },",
+      "})",
+    ))
+    expect(result.notes).toEqual([expect.stringContaining("nuxt.config.ts: removed console.pill.")])
+  })
+
+  it("moves the Console journal options to agent.invocations", () => {
+    const input = "import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ console: { retention: { days: 7 }, observations: false } })] }\n"
+    const result = migrateViteHubOptions("vite.config.ts", input)
+    expect(result.code.replace(/\s+/g, "")).toBe("import{vitehub}from'vite-hub'exportdefault{plugins:[vitehub({console:true,agent:{invocations:{retention:{days:7},observations:false}},})]}")
+    expect(result.followUps).toEqual([])
+    expect(result.notes).toEqual(["vite.config.ts: moved console.retention, console.observations to agent.invocations."])
+  })
+
+  it("moves the Console journal options into an existing agent.invocations object", () => {
+    const input = "import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ agent: { invocations: { mode: 'database' } }, console: { databaseUrl: 'file:x.db', authorize: './a.ts' } })] }\n"
+    const result = migrateViteHubOptions("vite.config.ts", input)
+    expect(result.code.replace(/\s+/g, "")).toBe("import{vitehub}from'vite-hub'exportdefault{plugins:[vitehub({agent:{invocations:{mode:'database',databaseUrl:'file:x.db',}},console:{authorize:'./a.ts'}})]}")
+  })
+
+  it("reports the Console options that it cannot move", () => {
+    const input = "import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ agent: { invocations: 'database' }, console: { retention: 7, auth: 'app' } })] }\n"
+    const result = migrateViteHubOptions("vite.config.ts", input)
+    expect(result.changed).toBe(false)
+    expect(result.followUps.map(followUp => followUp.message)).toEqual([
+      expect.stringContaining("console.auth was removed"),
+      expect.stringContaining("console.retention was removed. Move it to agent: { invocations: { retention } }"),
+    ])
+  })
+
+  it("keeps console.auth false and reports console.auth objects", () => {
+    expect(migrateViteHubOptions("vite.config.ts", "import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ console: { auth: false } })] }\n")).toMatchObject({ changed: false, followUps: [] })
+    const result = migrateViteHubOptions("vite.config.ts", "import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ console: { auth: { github: true } } })] }\n")
+    expect(result.followUps.map(followUp => followUp.message)).toEqual([expect.stringContaining("console.auth was removed")])
+  })
+
   it("leaves configs that use the current options unchanged", () => {
     const input = "import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ logs: true, env: { server: {} } })] }\n"
     expect(migrateViteHubOptions("vite.config.ts", input)).toMatchObject({ changed: false, code: input, followUps: [] })

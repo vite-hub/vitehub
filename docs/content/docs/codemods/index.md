@@ -33,7 +33,7 @@ The command finds every module in the app that a codemod supports and runs those
 | Codemod | Moves |
 | --- | --- |
 | [`define-forms`](/docs/codemods/upgrade-vitehub#define-forms) | The former define forms of Queue, Schedule, Sandbox Task, Workflow, Content, and Database to the one form of each |
-| [`vitehub-options`](/docs/codemods/upgrade-vitehub#vitehub-options) | The options that moved in `vitehub()`: `preset` to `host`, `logs` into `observability`, Env declarations into `vitehub({ env })`, and `devtools` and `contentImportBase` removed |
+| [`vitehub-options`](/docs/codemods/upgrade-vitehub#vitehub-options) | The options that moved in `vitehub()`: `preset` to `host`, `logs` into `observability`, Env declarations into `vitehub({ env })`, the Console journal options into `agent.invocations`, and `devtools`, `contentImportBase` and the Console options that left the app removed |
 | [`queue-workflow-verbs`](/docs/codemods/upgrade-vitehub#queue-workflow-verbs) | The old Queue and Workflow verbs to `sendQueue`, `useQueue`, `startWorkflow`, and `resumeWorkflow` |
 | [`queue-durations`](/docs/codemods/upgrade-vitehub#queue-durations) | Queue `delaySeconds` to `delay` with a duration such as `'60s'`, and `retentionSeconds` to `retention` |
 | [`result-tuples`](/docs/codemods/upgrade-vitehub#result-tuples) | `startWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `resumeWorkflow()`, the Workflow handle methods, `runSchedule()`, `listAuthEvents()`, `aggregateAuthEvents()`, `runBrowser()`, `runBrowserContent()`, `runSandboxTask()`, and gateway `ask()` to `[error, data]` reads |
@@ -51,6 +51,7 @@ The command finds every module in the app that a codemod supports and runs those
 | [`cli-yes-flag`](/docs/codemods/upgrade-vitehub#cli-yes-flag) | Replace old CLI prompt flags in scripts and CI, or report a manual migration |
 | [`cli-url-flag`](/docs/codemods/upgrade-vitehub#cli-url-flag) | `vitehub` calls in scripts and CI: `--server` to `--url`, the app URL |
 | [`cms-roles`](/docs/codemods/upgrade-vitehub#cms-roles) | The `cms` preset option `access: "roles"` to `roles: true` |
+| [`console-out-of-app`](/docs/codemods/upgrade-vitehub#console-out-of-app) | The `via: 'page'` branch of `console.authorize` and `ConsolePageAuthorizeContext` removed, `VITEHUB_CONSOLE_MCP_KEY` reported |
 | [`choices-package`](/docs/codemods/upgrade-vitehub#choices-package) | `@vite-hub/decisions` and `vite-hub/decisions` imports and the `vitehub decisions` command to `choices` |
 | [`cli-get-list`](/docs/codemods/upgrade-vitehub#cli-get-list) | `vitehub` read commands in scripts and CI: `show` and `info` to `get`, `env inspect` and `env status` to `env list`, `schedule runs` to `runs list` |
 | [`cli-agent-tree`](/docs/codemods/upgrade-vitehub#cli-agent-tree) | `vitehub` Agent calls in scripts and CI: `agents …`, `invocations …`, and `conversations export` move under `vitehub agent` |

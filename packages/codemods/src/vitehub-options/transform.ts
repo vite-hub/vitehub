@@ -27,6 +27,19 @@ const ownerPlugins: Record<string, { name: string, previousName?: string, packag
   workspace: { name: "hubWorkspace", package: "workspace" },
 }
 
+const removedConsoleOptions: Record<string, string> = {
+  embed: "Apps do not serve the Console page. Open the app in the ViteHub Console at https://console.vitehub.dev.",
+  mcp: "Apps do not serve a Console MCP. Agents use the ViteHub MCP at https://console.vitehub.dev/mcp.",
+  mcpClient: "The MCP client section of the ViteHub Console connects to MCP servers from the Console server. Remove @modelcontextprotocol/sdk if nothing else imports it, and remove VITEHUB_CONSOLE_MCP_KEY.",
+  origins: "The ViteHub Console signs calls on its server, so apps take no Console calls from browsers.",
+  pill: "The Comments pill loads the Console segment from the ViteHub Console. An app without Comments opens through https://console.vitehub.dev.",
+  signInPage: "People sign in to the ViteHub Console at https://console.vitehub.dev.",
+}
+
+const invocationKeys = new Set(["databaseUrl", "observations", "retention"])
+
+const removedConsoleAuth = "console.auth was removed: apps do not sign people in to the Console. Set console: true, link the app in the ViteHub Console at https://console.vitehub.dev, and set the VITEHUB_CONSOLE_KEY_<NAME> line that it shows. Move a check of the person to console.authorize. See https://vitehub.dev/docs/console/migrate"
+
 const configFunctions = new Set(["defineConfig", "defineNuxtConfig", "defineNitroConfig"])
 
 export interface OptionsMigration {
@@ -200,6 +213,69 @@ export function migrateViteHubOptions(file: string, code: string, findOptions?: 
     changed = true
   }
 
+  const moveToInvocations = (options: ObjectExpression, items: ObjectProperty[]): boolean => {
+    const entries = items.map(text)
+    const agent = property(options, "agent")
+    if (!agent) {
+      insertProperties(options, [`agent: { invocations: { ${entries.join(", ")} } }`])
+      return true
+    }
+    const agentObject = objectValue(agent.value)
+    if (!agentObject || agentObject.properties.some(item => item.type === "SpreadElement")) return false
+    const invocations = property(agentObject, "invocations")
+    if (!invocations) {
+      insertProperties(agentObject, [`invocations: { ${entries.join(", ")} }`])
+      return true
+    }
+    const invocationsObject = objectValue(invocations.value)
+    if (!invocationsObject || invocationsObject.properties.some(item => item.type === "SpreadElement")) return false
+    if (items.some(item => property(invocationsObject, keyName(item.key, item.computed) ?? ""))) return false
+    insertProperties(invocationsObject, entries)
+    return true
+  }
+
+  const migrateConsoleOptions = (options: ObjectExpression, consoleOptions: ObjectExpression) => {
+    const removable: ObjectProperty[] = []
+    const moved: ObjectProperty[] = []
+    let kept = 0
+    for (const item of consoleOptions.properties) {
+      const key = item.type === "ObjectProperty" ? keyName(item.key, item.computed) : undefined
+      if (item.type !== "ObjectProperty" || !key) {
+        kept++
+        continue
+      }
+      const reason = removedConsoleOptions[key]
+      const authValue = key === "auth" ? unwrapExpression(item.value) : undefined
+      if (reason || (authValue?.type === "StringLiteral" && authValue.value === "token")) {
+        removable.push(item)
+        notes.push(`${file}: removed console.${key}. ${reason ?? "Signed calls are the default."}`)
+      }
+      else if (invocationKeys.has(key) && !item.computed && !item.shorthand) moved.push(item)
+      else {
+        kept++
+        if (invocationKeys.has(key)) follow(item, `console.${key} was removed. Move it to agent: { invocations: { ${key} } } in the vite-hub options by hand.`)
+        else if (authValue && !(authValue.type === "BooleanLiteral" && !authValue.value)) follow(item, removedConsoleAuth)
+      }
+    }
+    if (moved.length) {
+      if (moveToInvocations(options, moved)) {
+        removable.push(...moved)
+        notes.push(`${file}: moved ${moved.map(item => `console.${keyName(item.key)}`).join(", ")} to agent.invocations.`)
+      }
+      else {
+        kept += moved.length
+        for (const item of moved) follow(item, `console.${keyName(item.key)} was removed. Move it to agent: { invocations: { ${keyName(item.key)} } } in the vite-hub options by hand.`)
+      }
+    }
+    if (!removable.length) return
+    if (kept) for (const item of removable) remove(item)
+    else {
+      editor.output.overwrite(start(consoleOptions), end(consoleOptions), "true")
+      for (const item of removable) removed.add(item)
+      changed = true
+    }
+  }
+
   // The options objects of `vitehub()` in a Vite config, or of `vite-hub/nuxt` in a Nuxt config.
   const optionObjects: ObjectExpression[] = importedOptions ?? []
   const environmentOptions: ObjectExpression[] = []
@@ -245,6 +321,8 @@ export function migrateViteHubOptions(file: string, code: string, findOptions?: 
     }
     const cloudflare = property(options, "cloudflare")
     if (cloudflare) follow(cloudflare, "cloudflare.secretsFile was removed: `vitehub deploy` uploads the Worker secrets that the app reads. Keep the values in the shell or in .env.production, then remove cloudflare.")
+    const consoleOptions = objectValue(property(options, "console")?.value)
+    if (consoleOptions) migrateConsoleOptions(options, consoleOptions)
     const contentImportBase = property(options, "contentImportBase")
     if (contentImportBase) {
       remove(contentImportBase)
