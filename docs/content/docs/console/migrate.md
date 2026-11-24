@@ -108,20 +108,34 @@ Guests and members sign in again through the Console. Routes that check the app'
 :::tabs-item{label="SQLite and D1"}
 ```sql [site-access-cleanup.sql]
 DROP TABLE IF EXISTS "vitehub_console_site";
-DELETE FROM "session" WHERE "user_id" IN (SELECT "id" FROM "user" WHERE "email" LIKE 'guest-________-____-____-____-____________@guests.invalid');
-DELETE FROM "account" WHERE "provider_id" = 'vitehub-site-guest' OR "user_id" IN (SELECT "id" FROM "user" WHERE "email" LIKE 'guest-________-____-____-____-____________@guests.invalid');
-DELETE FROM "user" WHERE "email" LIKE 'guest-________-____-____-____-____________@guests.invalid';
-UPDATE "user" SET "role" = NULLIF(trim(replace(replace(replace(replace(replace(',' || replace(replace("role", ', ', ','), ' ,', ',') || ',', ',console,', ','), ',comments-read,', ','), ',comments-write,', ','), ',comments-resolve,', ','), ',comments-delete,', ','), ','), '') WHERE ',' || replace(replace("role", ', ', ','), ' ,', ',') || ',' LIKE '%,console,%' OR ',' || replace(replace("role", ', ', ','), ' ,', ',') || ',' LIKE '%,comments-%';
+DELETE FROM "session" WHERE "user_id" IN (SELECT "id" FROM "user" WHERE "email" GLOB 'guest-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]@guests.invalid');
+DELETE FROM "account" WHERE "provider_id" = 'vitehub-site-guest' OR "user_id" IN (SELECT "id" FROM "user" WHERE "email" GLOB 'guest-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]@guests.invalid');
+DELETE FROM "user" WHERE "email" GLOB 'guest-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]@guests.invalid';
+WITH RECURSIVE "token"("user_id", "n", "value", "rest") AS (
+  SELECT "id", 0, NULL, "role" || ',' FROM "user" WHERE "role" IS NOT NULL
+  UNION ALL
+  SELECT "user_id", "n" + 1, trim(substr("rest", 1, instr("rest", ',') - 1)), substr("rest", instr("rest", ',') + 1) FROM "token" WHERE "rest" <> ''
+)
+UPDATE "user" SET "role" = (
+  SELECT NULLIF(group_concat("value", ','), '') FROM (
+    SELECT "value" FROM "token" WHERE "user_id" = "user"."id" AND "value" <> '' AND "value" NOT IN ('console', 'comments-read', 'comments-write', 'comments-resolve', 'comments-delete') ORDER BY "n"
+  )
+)
+WHERE "id" IN (SELECT "user_id" FROM "token" WHERE "value" IN ('console', 'comments-read', 'comments-write', 'comments-resolve', 'comments-delete'));
 ```
 :::
 
 :::tabs-item{label="Postgres"}
 ```sql [site-access-cleanup.sql]
 DROP TABLE IF EXISTS "vitehub_console_site";
-DELETE FROM "session" WHERE "user_id" IN (SELECT "id" FROM "user" WHERE "email" LIKE 'guest-________-____-____-____-____________@guests.invalid');
-DELETE FROM "account" WHERE "provider_id" = 'vitehub-site-guest' OR "user_id" IN (SELECT "id" FROM "user" WHERE "email" LIKE 'guest-________-____-____-____-____________@guests.invalid');
-DELETE FROM "user" WHERE "email" LIKE 'guest-________-____-____-____-____________@guests.invalid';
-UPDATE "user" SET "role" = NULLIF(trim(both ',' from replace(replace(replace(replace(replace(',' || replace(replace("role", ', ', ','), ' ,', ',') || ',', ',console,', ','), ',comments-read,', ','), ',comments-write,', ','), ',comments-resolve,', ','), ',comments-delete,', ',')), '') WHERE ',' || replace(replace("role", ', ', ','), ' ,', ',') || ',' LIKE '%,console,%' OR ',' || replace(replace("role", ', ', ','), ' ,', ',') || ',' LIKE '%,comments-%';
+DELETE FROM "session" WHERE "user_id" IN (SELECT "id" FROM "user" WHERE "email" ~ '^guest-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}@guests\.invalid$');
+DELETE FROM "account" WHERE "provider_id" = 'vitehub-site-guest' OR "user_id" IN (SELECT "id" FROM "user" WHERE "email" ~ '^guest-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}@guests\.invalid$');
+DELETE FROM "user" WHERE "email" ~ '^guest-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}@guests\.invalid$';
+UPDATE "user" SET "role" = NULLIF(array_to_string(array(
+  SELECT trim("value") FROM unnest(string_to_array("role", ',')) WITH ORDINALITY AS "token"("value", "n")
+  WHERE trim("value") <> '' AND trim("value") NOT IN ('console', 'comments-read', 'comments-write', 'comments-resolve', 'comments-delete') ORDER BY "n"
+), ','), '')
+WHERE EXISTS (SELECT 1 FROM unnest(string_to_array("role", ',')) AS "token"("value") WHERE trim("value") IN ('console', 'comments-read', 'comments-write', 'comments-resolve', 'comments-delete'));
 ```
 :::
 ::

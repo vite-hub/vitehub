@@ -215,9 +215,10 @@ export function migrateViteHubOptions(file: string, code: string, findOptions?: 
 
   const moveToInvocations = (options: ObjectExpression, items: ObjectProperty[]): boolean => {
     const entries = items.map(text)
+    if (options.properties.some(item => item.type === "SpreadElement")) return false
     const agent = property(options, "agent")
     if (!agent) {
-      if (options === legacyAgentTarget || options.properties.some(item => item.type === "SpreadElement")) return false
+      if (options === legacyAgentTarget) return false
       insertProperties(options, [`agent: { invocations: { ${entries.join(", ")} } }`])
       return true
     }
@@ -235,7 +236,7 @@ export function migrateViteHubOptions(file: string, code: string, findOptions?: 
     return true
   }
 
-  const migrateConsoleOptions = (options: ObjectExpression, consoleProperty: ObjectProperty, consoleOptions: ObjectExpression) => {
+  const migrateConsoleOptions = (options: ObjectExpression, consoleOptions: ObjectExpression) => {
     const removable: ObjectProperty[] = []
     const moved: ObjectProperty[] = []
     let kept = 0
@@ -270,9 +271,8 @@ export function migrateViteHubOptions(file: string, code: string, findOptions?: 
     }
     if (!removable.length) return
     if (kept) for (const item of removable) remove(item)
-    else if (environmentOptions.includes(options)) remove(consoleProperty)
     else {
-      editor.output.overwrite(start(consoleOptions), end(consoleOptions), "true")
+      editor.output.overwrite(start(consoleOptions), end(consoleOptions), environmentOptions.includes(options) ? "{}" : "true")
       for (const item of removable) removed.add(item)
       changed = true
     }
@@ -327,9 +327,8 @@ export function migrateViteHubOptions(file: string, code: string, findOptions?: 
     }
     const cloudflare = property(options, "cloudflare")
     if (cloudflare) follow(cloudflare, "cloudflare.secretsFile was removed: `vitehub deploy` uploads the Worker secrets that the app reads. Keep the values in the shell or in .env.production, then remove cloudflare.")
-    const consoleProperty = property(options, "console")
-    const consoleOptions = objectValue(consoleProperty?.value)
-    if (consoleProperty && consoleOptions) migrateConsoleOptions(options, consoleProperty, consoleOptions)
+    const consoleOptions = objectValue(property(options, "console")?.value)
+    if (consoleOptions) migrateConsoleOptions(options, consoleOptions)
     const contentImportBase = property(options, "contentImportBase")
     if (contentImportBase) {
       remove(contentImportBase)

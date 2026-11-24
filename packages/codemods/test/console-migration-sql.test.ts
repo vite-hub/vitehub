@@ -37,6 +37,10 @@ function appDatabase(): DatabaseSync {
   user.run("plain", "Flo", "guest-like@example.com", 0, null)
   user.run("customer", "Gus", "guest-customer@guests.invalid", 1, "user")
   user.run("regional", "Hal", "hal@example.com", 1, "regional manager, console")
+  user.run("lookalike", "Ivo", "guest-customer-0001-0002-0003-000000000004@guests.invalid", 1, "user")
+  user.run("super", "Jo", "jo@example.com", 1, "super admin,  console")
+  user.run("padded", "Kim", "kim@example.com", 1, " console ")
+  user.run("twice", "Lu", "lu@example.com", 1, "console,console")
   user.run("guest-old", "Old guest", "guest-6f1c9a52-0d7e-4c6b-9a8f-1b2c3d4e5f60@guests.invalid", 0, "guest,comments-read")
   user.run("guest-new", "New guest", "guest-0b7f2d4e-8a1c-4e3f-9b6d-2c5a7e9f1d30@guests.invalid", 0, "guest,console")
   session.run("s-admin", "t1", "admin")
@@ -64,11 +68,15 @@ const expected = {
   users: [
     { id: "admin", role: "admin" },
     { id: "customer", role: "user" },
+    { id: "lookalike", role: "user" },
     { id: "member", role: null },
     { id: "own-roles", role: "user,consoleadmin,comments" },
+    { id: "padded", role: null },
     { id: "plain", role: null },
     { id: "regional", role: "regional manager" },
     { id: "spaced", role: "admin" },
+    { id: "super", role: "super admin" },
+    { id: "twice", role: null },
     { id: "writer", role: "user" },
   ],
   sessions: ["s-admin", "s-customer", "s-plain"],

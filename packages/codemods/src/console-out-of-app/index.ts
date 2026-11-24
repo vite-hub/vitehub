@@ -35,7 +35,9 @@ function isNestedScope(node: Node): boolean {
   return isFunction(node) || node.type === "ObjectMethod" || node.type === "ClassMethod" || node.type === "ClassPrivateMethod"
 }
 
-function viaMatcher(fn: FunctionNode, resolve: Resolve): (node: Node, nested: boolean) => boolean {
+type ViaMatch = "remove" | "report" | undefined
+
+function viaMatcher(fn: FunctionNode, resolve: Resolve): (node: Node, nested: boolean) => ViaMatch {
   const first = fn.params[0]
   const param = first?.type === "AssignmentPattern" ? first.left : first
   const context = param?.type === "Identifier" ? param : undefined
@@ -49,10 +51,14 @@ function viaMatcher(fn: FunctionNode, resolve: Resolve): (node: Node, nested: bo
   }
   return (node, nested) => {
     const value = unwrapExpression(node)
-    if (value.type === "Identifier") return (via !== undefined && resolve(value) === via) || (nested && value.name === "via")
-    if (value.type !== "MemberExpression" && value.type !== "OptionalMemberExpression") return false
-    if (keyName(value.property, value.computed) !== "via" || value.object.type !== "Identifier" || !context) return false
-    return resolve(value.object) === context || (nested && value.object.name === context.name)
+    if (value.type === "Identifier") {
+      if (via !== undefined && resolve(value) === via) return nested ? "report" : "remove"
+      return value.name === "via" ? "report" : undefined
+    }
+    if (value.type !== "MemberExpression" && value.type !== "OptionalMemberExpression") return undefined
+    if (keyName(value.property, value.computed) !== "via" || value.object.type !== "Identifier" || !context) return undefined
+    if (resolve(value.object) === context) return nested ? "report" : "remove"
+    return nested && value.object.name === context.name ? "report" : undefined
   }
 }
 
@@ -126,21 +132,22 @@ export function migrateConsoleAuthorize(file: string, code: string): { code: str
 
   const resolve = bindingResolver(program)
   for (const fn of authorizeFunctions(file, program, resolve)) {
-    const isVia = viaMatcher(fn, resolve)
+    const matchVia = viaMatcher(fn, resolve)
     walk(fn, (node, ancestors) => {
       if (inRemoved(node)) return
       const nested = ancestors.slice(1).some(isNestedScope)
       if (node.type === "SwitchCase" && node.test && isPage(node.test)) {
         const parent = ancestors.at(-1)
-        if (parent?.type === "SwitchStatement" && isVia(parent.discriminant, nested)) follow(node, pageBranch)
+        if (parent?.type === "SwitchStatement" && matchVia(parent.discriminant, nested)) follow(node, pageBranch)
         return
       }
       if (node.type !== "BinaryExpression" || !["===", "==", "!==", "!="].includes(node.operator)) return
       if (node.left.type === "PrivateName") return
-      if (!((isVia(node.left, nested) && isPage(node.right)) || (isPage(node.left) && isVia(node.right, nested)))) return
+      const match = isPage(node.right) ? matchVia(node.left, nested) : isPage(node.left) ? matchVia(node.right, nested) : undefined
+      if (!match) return
       const parent = ancestors.at(-1)
       const block = ancestors.at(-2)
-      const removable = !nested && (node.operator === "===" || node.operator === "==")
+      const removable = match === "remove" && (node.operator === "===" || node.operator === "==")
         && parent?.type === "IfStatement" && parent.test === node && !parent.alternate
         && (block?.type === "BlockStatement" || block?.type === "Program")
       if (removable) removeRange(listItemRemoval(code, parent))
@@ -155,8 +162,8 @@ export function migrateConsoleAuthorize(file: string, code: string): { code: str
       const local = specifier.local.name
       let used = false
       walk(program, (node, ancestors) => {
-        if (used || node.type !== "Identifier" || node.name !== local || node === specifier.local || inRemoved(node)) return
-        if (ancestors.at(-1) === specifier) return
+        if (used || node.type !== "Identifier" || node.name !== local || inRemoved(node)) return
+        if (ancestors.at(-1)?.type === "ImportSpecifier") return
         used = true
       })
       if (used) follow(specifier, pageType)

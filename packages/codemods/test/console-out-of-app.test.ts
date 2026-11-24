@@ -142,6 +142,33 @@ describe("console-out-of-app", () => {
     expect(result.followUps.map(followUp => followUp.line)).toEqual([5])
   })
 
+  it("reports a via read from the context in the body", () => {
+    const input = lines(
+      "import { defineConsoleAuthorize } from 'vite-hub/console/auth'",
+      "export default defineConsoleAuthorize((ctx) => {",
+      "  const { via } = ctx",
+      "  if (via === 'page') return false",
+      "  return true",
+      "})",
+    )
+    const result = migrateConsoleAuthorize("server/console.ts", input)
+    expect(result).toMatchObject({ changed: false, code: input })
+    expect(result.followUps.map(followUp => followUp.line)).toEqual([4])
+  })
+
+  it("removes a bare and an aliased page context import that are both unused", () => {
+    const input = lines(
+      "import { defineConsoleAuthorize } from 'vite-hub/console/auth'",
+      "import type { ConsolePageAuthorizeContext, ConsolePageAuthorizeContext as Alias } from 'vite-hub/console/auth'",
+      "export default defineConsoleAuthorize(() => true)",
+    )
+    expect(migrateConsoleAuthorize("server/console.ts", input)).toEqual({
+      changed: true,
+      code: lines("import { defineConsoleAuthorize } from 'vite-hub/console/auth'", "export default defineConsoleAuthorize(() => true)"),
+      followUps: [],
+    })
+  })
+
   it("keeps the import of a page context alias that is still used", () => {
     const input = lines(
       "import { defineConsoleAuthorize } from 'vite-hub/console/auth'",
