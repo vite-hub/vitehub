@@ -183,8 +183,12 @@ Import the ViteHub helper from its `vite-hub/*` path where you need it.
 ## Turn auto-imports off
 
 On Nuxt 5, leave `experimental.nitroAutoImports` off. On Nuxt 4.7, set
-`experimental: { nitroAutoImports: false }`. Nuxt's other switches also stop
-the ViteHub server auto-imports:
+`experimental: { nitroAutoImports: false }` to override the default.
+On either version, if you explicitly enabled imports through `nitroLegacy`,
+also remove that setting or set `nitroLegacy: { imports: false }`. If you use
+other legacy options, keep them and set `imports: false` in the same object.
+
+Nuxt's other switches also stop the ViteHub server auto-imports:
 
 - `nitro: { imports: false }` turns off all server auto-imports, also for
   `server/utils/`.

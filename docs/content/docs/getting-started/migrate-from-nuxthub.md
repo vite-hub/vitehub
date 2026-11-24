@@ -36,12 +36,13 @@ see [Browser](/docs/browser).
 
 ## Replace the module
 
-Use Nuxt 4.7 with the `nitro` package, or Nuxt 5. On Nuxt 4.7, run `pnpm add nuxt@^4.7.0 nitro`. Without `nitro`, Nuxt 4.7 does not run Nitro 3, and ViteHub stops with [`VITE_HUB_B0023`](/docs/development/diagnostics/vite_hub_b0023). Nuxt 5 is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`. Use pnpm 11.5 or newer. Older versions can hang when they resolve this nightly alias. Remove `@nuxthub/core` and install ViteHub:
+Remove `@nuxthub/core`:
 
 ```bash [Terminal]
 pnpm remove @nuxthub/core
-pnpm add vite-hub
 ```
+
+Use Nuxt 4.7 with the `nitro` package, or Nuxt 5. Follow the [Nuxt module installation](/docs/frameworks-hosts/nuxt#install-the-module) to install the framework and the matching ViteHub version.
 
 Install the package for each feature you use. For Database, keep or add `drizzle-orm` as a direct dependency, because your schema imports it. `@vite-hub/database` needs `drizzle-orm` 1.0.0-rc.5, 1.0.0-rc.6 or 1.x, plus `drizzle-kit` 1.0.0-rc.5, 1.0.0-rc.6 or 1.x for migration commands. With an older version, the package manager installs a second copy, and the query types stop matching. Do not use `^1.0.0-rc.5`. It also matches Drizzle snapshot builds, such as `1.0.0-rc.5-ab785fc`, which sort above the release:
 
