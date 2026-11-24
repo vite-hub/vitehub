@@ -139,14 +139,30 @@ function parentDirectory(path: string): string | undefined {
   return index > 0 ? path.slice(0, index) : undefined;
 }
 
+function* ancestorPaths(path: string): Iterable<string> {
+  for (let index = path.indexOf("/"); index !== -1; index = path.indexOf("/", index + 1)) {
+    yield path.slice(0, index);
+  }
+}
+
 /**
  * Runs an app in a WebContainer and keeps its state in Vue refs, for the workspace components of `@vite-hub/ui/workspace`
  * or your own. Only one WebContainer runs per page.
  */
 export function useWebContainer(options: UseWebContainerOptions): UseWebContainerReturn {
-  const assetPaths = Object.keys(options.assets ?? {});
-  const textFiles = (next: Readonly<WebContainerFiles>): WebContainerFiles => Object.fromEntries(Object.entries(next).filter(([path]) =>
-    !assetPaths.some(asset => asset === path || asset.startsWith(`${path}/`) || path.startsWith(`${asset}/`))));
+  const assets = new Set(Object.keys(options.assets ?? {}));
+  const reserved = new Set(assets);
+  for (const asset of assets) {
+    for (const directory of ancestorPaths(asset)) reserved.add(directory);
+  }
+  function textFiles(next: Readonly<WebContainerFiles>): WebContainerFiles {
+    if (!assets.size) return { ...next };
+    return Object.fromEntries(Object.entries(next).filter(([path]) => {
+      if (reserved.has(path)) return false;
+      for (const directory of ancestorPaths(path)) if (assets.has(directory)) return false;
+      return true;
+    }));
+  }
   const initial: WebContainerFiles = textFiles(options.files);
   const installCommand = options.install ?? "install";
   const startCommand = options.start ?? "dev";

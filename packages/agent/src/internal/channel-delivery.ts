@@ -166,20 +166,45 @@ export function agentChannelDeliveryMessageIdentity(provider: string, payload: u
   }
 }
 
-function stablePayload(value: unknown): string {
+const englishHostKeyOrder = new Intl.Collator("en-US")
+
+function comparePayloadKeys(left: string, right: string): number {
+  return englishHostKeyOrder.compare(left, right) || (left < right ? -1 : left > right ? 1 : 0)
+}
+
+function compareHostLocaleKeys(left: string, right: string): number {
+  return left.localeCompare(right)
+}
+
+function stablePayload(value: unknown, compare: (left: string, right: string) => number): string {
   if (!value || typeof value !== "object") return JSON.stringify(value)
-  if (Array.isArray(value)) return `[${value.map(stablePayload).join(",")}]`
+  if (Array.isArray(value)) return `[${value.map(entry => stablePayload(entry, compare)).join(",")}]`
   // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   return `{${Object.entries(value as Record<string, unknown>)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, entry]) => `${JSON.stringify(key)}:${stablePayload(entry)}`)
+    .sort(([left], [right]) => compare(left, right))
+    .map(([key, entry]) => `${JSON.stringify(key)}:${stablePayload(entry, compare)}`)
     .join(",")}}`
+}
+
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("")
 }
 
 export async function agentChannelDeliveryPayloadFingerprint(payload: unknown): Promise<string | undefined> {
   if (payload === undefined) return
-  const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(stablePayload(payload)))
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("")
+  return await sha256Hex(stablePayload(payload, comparePayloadKeys))
+}
+
+/**
+ * The payload fingerprint, then the fingerprint that earlier releases stored on this host when its locale orders the
+ * payload keys differently. Bind and resume with both so a delivery admitted before an upgrade settles after it.
+ */
+export async function agentChannelDeliveryPayloadFingerprints(payload: unknown): Promise<string[]> {
+  if (payload === undefined) return []
+  const fixed = stablePayload(payload, comparePayloadKeys)
+  const hostLocale = stablePayload(payload, compareHostLocaleKeys)
+  return hostLocale === fixed ? [await sha256Hex(fixed)] : await Promise.all([sha256Hex(fixed), sha256Hex(hostLocale)])
 }
 
 function log(event: AgentChannelDeliveryEvent, delivery: AgentChannelDelivery): void {
@@ -527,18 +552,20 @@ export async function bindAgentChannelDeliveryPayload(
   state: StateAdapter,
   delivery: AgentChannelDeliveryTracker,
   provider: string,
-  fingerprint: string,
+  fingerprints: readonly string[],
 ): Promise<void> {
-  await state.set(payloadKey(provider, fingerprint), delivery.delivery.id, retentionMs)
+  await Promise.all(fingerprints.map(fingerprint => state.set(payloadKey(provider, fingerprint), delivery.delivery.id, retentionMs)))
 }
 
 export async function resumeAgentChannelDeliveryPayload(
   state: StateAdapter,
   provider: string,
-  fingerprint: string,
+  fingerprints: readonly string[],
 ): Promise<AgentChannelDeliveryTracker | undefined> {
-  const deliveryId = await state.get<string>(payloadKey(provider, fingerprint))
-  return deliveryId ? await resumeAgentChannelDelivery(state, deliveryId) : undefined
+  for (const fingerprint of fingerprints) {
+    const deliveryId = await state.get<string>(payloadKey(provider, fingerprint))
+    if (deliveryId) return await resumeAgentChannelDelivery(state, deliveryId)
+  }
 }
 
 export function agentChannelDeliveryTracker(context: AgentRuntimeContext): AgentChannelDeliveryTracker | undefined {

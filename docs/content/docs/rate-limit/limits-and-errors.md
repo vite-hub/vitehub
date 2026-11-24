@@ -38,7 +38,7 @@ A request over the limit is not an error code. `requireRateLimit()` answers `429
 
 ### Policies
 
-The build reads the policy of each `checkRateLimit()` and `requireRateLimit()` call. A policy that it cannot read or accept stops `vite dev` and `vite build` with `RATE_LIMIT_R0001`, before a request arrives. `createRateLimiter()` checks its policy when you call it and throws `RATE_LIMIT_R0031` to `RATE_LIMIT_R0036`.
+The build reads the policy of each `checkRateLimit()`, `refundRateLimit()`, and `requireRateLimit()` call. A policy that it cannot read or accept stops `vite dev` and `vite build` with `RATE_LIMIT_R0001`, before a request arrives. `createRateLimiter()` checks its policy when you call it and throws `RATE_LIMIT_R0031` to `RATE_LIMIT_R0036`.
 
 | Code | Cause |
 | --- | --- |
@@ -54,7 +54,7 @@ The build reads the policy of each `checkRateLimit()` and `requireRateLimit()` c
 | Code | Cause |
 | --- | --- |
 | `RATE_LIMIT_R0009` | The Cloudflare Rate Limiting binding of the policy is not on the request. Deploy the generated Wrangler configuration. |
-| `RATE_LIMIT_R0010` | `checkRateLimit()` or `requireRateLimit()` has an empty ID. |
+| `RATE_LIMIT_R0010` | `checkRateLimit()`, `refundRateLimit()`, or `requireRateLimit()` has an empty ID. |
 | `RATE_LIMIT_R0011`, `RATE_LIMIT_R0012` | The call has an unknown option, or `key` is an empty string. |
 | `RATE_LIMIT_R0013` | The request has no client address and the call has no `key`. Pass a user or tenant key. |
 | `RATE_LIMIT_R0030`, `RATE_LIMIT_R0038` | A direct Rate Limiter call has an empty key. |
@@ -74,7 +74,7 @@ The `kv` driver reads the current counter generation and uses one atomic `increm
 
 - Rejected requests also increment the counter, so `used` can be larger than `limit`. The manifest says `rejectedAttempts: "counted"`.
 - Each instance computes the window start from its own clock. Keep the server clocks in sync, or requests at the end of a window can count in the next one.
-- When KV fails or takes more than one second, the request follows the `failure` policy: `deny` returns `503`, `allow` lets it continue. `peek` and `reset` also return `unavailable` after one second. The deadline does not cancel the KV operation, so a timed-out request can still increment the counter. A KV configuration error, such as a missing `REDIS_URL` for an explicit `redis` store, throws.
+- Each individual KV storage call has a one-second timeout, so an operation that makes several calls can take longer. When a call fails or times out, `consume` follows the `failure` policy (`deny` returns `503`, `allow` lets the request continue), and `peek`, `refund`, and `reset` return `unavailable`. The deadline does not cancel the KV write (including `consume`, `refund`, or `reset`), so `unavailable` does not tell callers whether a write took effect. A KV configuration error, such as a missing `REDIS_URL` for an explicit `redis` store, throws.
 - `refund()` adds one to a second key, `<counter key>:refunds`, because KV has no atomic decrement. `consume()` reads that key only when the counter passes the limit, so the `used` and `remaining` of an allowed request do not include refunds. `peek()` includes them. Two refunds at the same time can give back one request more than the window counted.
 - `peekRateLimit()` and `resetRateLimit()` read the window from the policies that this process used. In a process that has not used the Rate Limit yet, `peek` returns `unused` and `reset` returns `unsupported`.
 - An explicit `driver: 'kv'` on a KV store without a shared atomic increment, such as `fs-lite`, fails the build with `RATE_LIMIT_KV_STORE_UNSUPPORTED`. A runtime that `setRateLimitRuntimeConfig({ driver: 'kv' })` configures fails with `RATE_LIMIT_KV_RUNTIME_STORE_UNSUPPORTED` on such a store, unless it also sets `memoryFallback: true`.
