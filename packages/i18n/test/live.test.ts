@@ -231,6 +231,21 @@ function setup(store = memoryWorkspace()) {
 }
 
 describe("translations in a Workspace", () => {
+  it.each(["draft", "published"])("checks the message identity of a record found on %s", async (ref) => {
+    const { store } = setup()
+    const existing = record("menu\u0000Open", "Abrir")
+    const target = messageSegment("Open", "menu")
+    expect(existing.hash).toBe(target.hash)
+    await store.workspace.history.commit({ ref, ifHead: null, changes: { put: { [recordPath("es", target.hash)]: JSON.stringify(existing) } } })
+
+    const translations = useTranslations()
+    const [error] = await translations.save({ locale: "es", source: "Open", context: "menu", translation: "", by: "ana" })
+    expect(error).toBeUndefined()
+    const [listError, records] = await translations.list("es", { ref: "draft" })
+    expect(listError).toBeUndefined()
+    expect(records?.[messageId("Open", "menu")]).toMatchObject({ source: "Open", salt: "menu", text: "Open", review: "rejected", by: "ana" })
+  })
+
   it.each(["verified", "rejected"] as const)("keeps machine provenance when marking unchanged text %s", async (review) => {
     setup()
     const translations = useTranslations()
@@ -434,6 +449,21 @@ describe("translations in a Workspace", () => {
     const cached = await i18nCatalogResponse(new Request("http://app.test/_vitehub/i18n/es.json", { headers: { "if-none-match": `"${revision}"` } }))
     expect(cached.status).toBe(304)
     expect((await i18nCatalogResponse(new Request("http://app.test/_vitehub/i18n/fr.json"))).status).toBe(404)
+  })
+
+  it("answers a catalog request with 304 for every If-None-Match form that names the revision", async () => {
+    setup()
+    const translations = useTranslations()
+    await translations.save({ locale: "es", source: "Deploy your agent", translation: "Publica tu agente" })
+    const { revision } = await translations.publish()
+    const status = async (ifNoneMatch: string) =>
+      (await i18nCatalogResponse(new Request("http://app.test/_vitehub/i18n/es.json", { headers: { "if-none-match": ifNoneMatch } }))).status
+
+    expect(await status(`W/"${revision}"`)).toBe(304)
+    expect(await status(`"old", "${revision}"`)).toBe(304)
+    expect(await status("*")).toBe(304)
+    expect(await status(`"old", W/"older"`)).toBe(200)
+    expect(await status(`${revision}`)).toBe(200)
   })
 
   it("keeps its translations when the Workspace cannot be read", async () => {

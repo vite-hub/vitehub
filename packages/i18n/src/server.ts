@@ -7,7 +7,7 @@ import { generateMessageId } from "@lingui/message-utils/generateMessageId"
 import { i18nErrorDiagnostics } from "./errors.ts"
 import { findPreviousTranslations } from "./lineage.ts"
 import { translationProblem } from "./placeholders.ts"
-import { createLiveTranslations, draftRef, publishedRef, readRevisionRecords, recordChanges } from "./live.ts"
+import { createLiveTranslations, draftRef, publishedRef, readRevisionRecord, readRevisionRecords, recordChanges } from "./live.ts"
 import { diglotSegment, isVisible, messageSegment, recordPath } from "./record-format.ts"
 import { configureI18n, resolveRequestLocale, setI18nScope } from "./runtime.ts"
 
@@ -138,6 +138,12 @@ export function getRequestI18n(event: unknown): I18n | undefined {
 
 const catalogHeaders = { "cache-control": "no-cache", "content-type": "application/json; charset=utf-8" }
 
+function ifNoneMatchNames(header: string | null, etag: string): boolean {
+  if (!header) return false
+  if (header.trim() === "*") return true
+  return header.match(/(?:W\/)?"[^"]*"/g)?.some(tag => tag.replace(/^W\//, "") === etag) ?? false
+}
+
 /**
  * Response of `GET /_vitehub/i18n/<locale>.json`: the published translations of the browser messages. The ETag is the
  * Workspace revision, so a browser downloads a catalog again only after a publish.
@@ -149,7 +155,7 @@ export async function i18nCatalogResponse(request: Request): Promise<Response> {
   if (!state?.live || !locale) return new Response("Not found", { status: 404 })
   await state.live.refresh()
   const etag = `"${state.live.revision}"`
-  if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers: { ...catalogHeaders, etag } })
+  if (ifNoneMatchNames(request.headers.get("if-none-match"), etag)) return new Response(null, { status: 304, headers: { ...catalogHeaders, etag } })
   const body = { revision: state.live.revision, messages: state.live.clientMessages(locale) }
   return new Response(JSON.stringify(body), { headers: { ...catalogHeaders, etag } })
 }
@@ -322,12 +328,12 @@ export function useTranslations(): Translations {
       if (problem) return [i18nErrorDiagnostics.I18N_INVALID_TRANSLATION({ problem }), undefined]
       const workspace = writable(state)
       const id = generateMessageId(input.source, input.context)
+      const segment = diglotSegment(messageSegment(input.source, input.context))
       const head = await workspace.history.head({ ref: draftRef })
-      const draft = head ? await readRevisionRecords(await workspace.history.open(head.id), [entry]) : {}
-      const current = draft[entry]?.[id] ?? (await recordsAt(workspace, publishedRef, [entry]))[entry]?.[id]
+      const draft = await readRevisionRecord(workspace, head, entry, segment)
+      const current = draft ?? await readRevisionRecord(workspace, await workspace.history.head({ ref: publishedRef }), entry, segment)
       const at = new Date().toISOString()
       const by = input.by ?? current?.by ?? ""
-      const segment = diglotSegment(messageSegment(input.source, input.context))
       const record = nextRecord(current, input, { segment, by, at })
       if (record instanceof Error) return [record, undefined]
       let revision: { id: string }
