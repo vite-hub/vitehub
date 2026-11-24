@@ -109,6 +109,15 @@ describe("mountViteHubPagePill", () => {
     exit.click()
     expect(pressed).toEqual([true])
   })
+
+  it("lets the exit button open a menu next to it instead of pressing", () => {
+    const pressed: boolean[] = []
+    const menu = document.createElement("vitehub-menu")
+    const { element } = mount({ exit: { label: "Close review", press: keyboard => pressed.push(keyboard), menu: () => [menu] } })
+    element.shadowRoot!.querySelector<HTMLButtonElement>("button.exit")!.click()
+    expect(pressed).toEqual([])
+    expect(menu.getRootNode()).toBe(element.shadowRoot)
+  })
 })
 
 describe("pill folds", () => {
