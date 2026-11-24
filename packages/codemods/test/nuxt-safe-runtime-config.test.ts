@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs"
-import { cp, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -214,14 +214,18 @@ describe("defaults that the field schema rejects", () => {
     return { ...config.vitehub.env.server }
   }
 
-  async function migrateSchemaConfig(config: string, schema: string) {
+  async function migrateSchemaConfig(config: string, schema: string, dependencies: Record<string, string> = { "nuxt-safe-runtime-config": "0.3.2" }, installed?: string) {
     const cwd = await mkdtemp(join(tmpdir(), "vitehub-codemod-defaults-"))
     try {
       await Promise.all([
-        writeFile(join(cwd, "package.json"), '{"dependencies":{"nuxt-safe-runtime-config":"0.3.2"}}'),
+        writeFile(join(cwd, "package.json"), JSON.stringify({ dependencies })),
         writeFile(join(cwd, "nuxt.config.ts"), config),
         writeFile(join(cwd, "schema.ts"), `import * as v from ${JSON.stringify(fileURLToPath(import.meta.resolve("valibot")))}\nexport default ${schema}`),
       ])
+      if (installed) {
+        await mkdir(join(cwd, "node_modules/nuxt-safe-runtime-config"), { recursive: true })
+        await writeFile(join(cwd, "node_modules/nuxt-safe-runtime-config/package.json"), JSON.stringify({ name: "nuxt-safe-runtime-config", version: installed }))
+      }
       const run = await runCodemod("nuxt-safe-runtime-config", { cwd, dryRun: true })
       return { code: run.result.edits.find(edit => edit.path === "nuxt.config.ts")?.after ?? "", report: formatReport(run) }
     }
@@ -256,6 +260,36 @@ describe("defaults that the field schema rejects", () => {
     expect(code).toContain("apiSecret: env({ secret: true, source: env.source('NUXT_API_SECRET') })")
     expect(report).not.toContain("which its $schema rejects")
     expect(report).toContain("Env stops the app when a schema fails, so the codemod wrote no schema module.")
+  })
+
+  const buildCheckOff = `export default defineNuxtConfig({
+      modules: ['nuxt-safe-runtime-config'],
+      safeRuntimeConfig: { $schema: './schema', validateAtBuild: false },
+      runtimeConfig: { apiSecret: '' },
+    })`
+  const secretSchema = "v.object({ apiSecret: v.pipe(v.string(), v.minLength(16)) })"
+
+  it.each([
+    ["0.4.0", { "nuxt-safe-runtime-config": "0.4.0" }, undefined],
+    ["^0.4.0", { "nuxt-safe-runtime-config": "^0.4.0" }, undefined],
+    ["an unreadable range", { "nuxt-safe-runtime-config": "catalog:" }, undefined],
+    ["no declared version", {}, undefined],
+    ["installed 0.4.0", { "nuxt-safe-runtime-config": "^0.3.2 || ^0.4.0" }, "0.4.0"],
+  ])("requires a variable that module %s checks when the server starts with validateAtBuild: false", async (_label, dependencies, installed) => {
+    const { code, report } = await migrateSchemaConfig(buildCheckOff, secretSchema, dependencies, installed)
+    expect(code).toContain("apiSecret: env({ schema: env.schemaFrom('./server/env.schema.ts', 'apiSecret'), secret: true, source: env.source('NUXT_API_SECRET') })")
+    expect(report).toContain("which its $schema rejects")
+  })
+
+  it.each([
+    ["0.3.2", { "nuxt-safe-runtime-config": "0.3.2" }, undefined],
+    ["^0.3.2", { "nuxt-safe-runtime-config": "^0.3.2" }, undefined],
+    ["installed 0.3.2", { "nuxt-safe-runtime-config": "^0.3.2 || ^0.4.0" }, "0.3.2"],
+  ])("keeps a default that module %s never checked with validateAtBuild: false", async (_label, dependencies, installed) => {
+    const { code, report } = await migrateSchemaConfig(buildCheckOff, secretSchema, dependencies, installed)
+    expect(code).toContain("apiSecret: env({ default: '', secret: true, source: env.source('NUXT_API_SECRET') })")
+    expect(report).not.toContain("which its $schema rejects")
+    expect(report).toContain("The module did not validate runtimeConfig, so the codemod wrote no schema module.")
   })
 
   it("requires a variable whose empty default failed the schema at boot", async () => {
