@@ -75,6 +75,7 @@ beforeEach(() => {
 
 afterEach(() => {
   Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.access"))
+  Reflect.deleteProperty(globalThis, Symbol.for("vitehub.page-tools"))
   installConsoleDevelopment("/app", false)
   vi.unstubAllEnvs()
   vi.unstubAllGlobals()
@@ -138,9 +139,23 @@ describe("GET /_vitehub/site?token=", () => {
 describe("the site cookie", () => {
   it("names the person of the token, a member with the console role and a guest without it", async () => {
     const member = await signIn()
-    expect(await readConsoleSiteVisitor(new Request(`${origin}/docs`, { headers: { cookie: member } }))).toEqual({ id: "console-ada", name: "Ada", email: "ada@example.com", roles: ["console", "comments-write"], kind: "member" })
+    expect(await readConsoleSiteVisitor(new Request(`${origin}/docs`, { headers: { cookie: member } }))).toEqual({ id: "console-ada", name: "Ada", email: "ada@example.com", roles: ["console", "comments-read", "comments-write"], kind: "member" })
     const guest = await signIn({ sub: "guest-1", name: "Ana", email: undefined, roles: ["comments-write"] })
     expect(await readConsoleSiteVisitor(new Request(`${origin}/docs`, { headers: { cookie: guest } }))).toMatchObject({ id: "guest-1", roles: ["comments-write"], kind: "guest" })
+  })
+
+  it("gives a member the roles of a page tool that the app added after the Console signed the token", async () => {
+    const member = await signIn({ roles: ["console"] })
+    registerViteHubPageTool({}, { id: "review", label: "Review", icon: "i-lucide-eye", script: "/review.js", grants: [{ id: "review-write", label: "Review" }], allowed: async () => true })
+    expect((await readConsoleSiteVisitor(new Request(`${origin}/docs`, { headers: { cookie: member } })))?.roles).toEqual(["console", "comments-read", "comments-write", "review-write"])
+  })
+
+  it("keeps the signed roles of a member and a guest when console.authorize may limit the grants", async () => {
+    installConsoleAccess({ mode: "token", authorize: () => ({ sections: ["site:read"], grants: ["comments-read"] }) })
+    const member = await signIn({ roles: ["console", "comments-read"] })
+    expect((await readConsoleSiteVisitor(new Request(`${origin}/docs`, { headers: { cookie: member } })))?.roles).toEqual(["console", "comments-read"])
+    const guest = await signIn({ sub: "guest-1", name: "Ana", email: undefined, roles: ["comments-write"] })
+    expect((await readConsoleSiteVisitor(new Request(`${origin}/docs`, { headers: { cookie: guest } })))?.roles).toEqual(["comments-write"])
   })
 
   it("ends 12 hours after the Console signed the token, and after the key of the link is gone", async () => {
