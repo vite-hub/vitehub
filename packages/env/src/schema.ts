@@ -1,3 +1,6 @@
+import { isRecordOrFunction } from "@vite-hub/internal/object"
+import { isStandardSchema, standardResultIssues } from "@vite-hub/internal/standard-schema"
+
 import { envErrorDiagnostics } from "./error-diagnostics.ts"
 export interface StandardSchemaResultSuccess<T = unknown> {
   issues?: undefined
@@ -38,15 +41,16 @@ export function parseSchema(schema: unknown, value: unknown, label: string): unk
     throw envErrorDiagnostics.ENV_R0029({ message: `[vitehub] ${label} uses env.schemaFrom(), which only env.server supports. Pass the schema object itself.` })
   }
   if (isStandardSchema(schema)) {
-    const result = schema["~standard"].validate(value)
+    const result: unknown = schema["~standard"].validate(value)
     if (isPromiseLike(result)) {
       throw envErrorDiagnostics.ENV_R0014({ message: `[vitehub] ${label} uses an async schema. Env validation currently requires sync schemas.` })
     }
-    if ("issues" in result && result.issues && result.issues.length > 0) {
-      throw envErrorDiagnostics.ENV_R0015({ message: `[vitehub] Invalid ${label}: ${formatIssues(result.issues)}` })
+    const issues = standardResultIssues(result)
+    if (issues) {
+      throw envErrorDiagnostics.ENV_R0015({ message: `[vitehub] Invalid ${label}: ${formatStandardIssues(issues)}` })
     }
-    if (!("value" in result)) {
-      throw envErrorDiagnostics.ENV_R0016({ message: `[vitehub] Invalid ${label}: ${formatIssues(result.issues)}` })
+    if (!hasResultValue(result)) {
+      throw envErrorDiagnostics.ENV_R0016({ message: `[vitehub] Invalid ${label}: the schema returned no value.` })
     }
     return result.value
   }
@@ -75,21 +79,29 @@ function isSchemaModuleReference(schema: unknown): boolean {
   return typeof schema === "object" && schema !== null && !Array.isArray(schema) && (schema as { kind?: unknown }).kind === "schema-module"
 }
 
-function isPromiseLike(value: unknown): value is Promise<unknown> {
-  return typeof value === "object" && value !== null && "then" in value && typeof value.then === "function"
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return isRecordOrFunction(value) && typeof value.then === "function"
 }
 
-function isStandardSchema(schema: unknown): schema is StandardSchemaV1 {
-  return isZodLike(schema)
-    && hasSchemaMethod(schema, "~standard")
-    && typeof (schema as StandardSchemaV1)["~standard"]?.validate === "function"
+export function hasResultValue(result: unknown): result is { value: unknown } {
+  return isRecordOrFunction(result) && "value" in result
+}
+
+export function formatStandardIssues(issues: readonly unknown[]): string {
+  return issues.map((issue) => {
+    const message = isRecordOrFunction(issue) && typeof issue.message === "string" ? issue.message : "Invalid value."
+    const segments = isRecordOrFunction(issue) && Array.isArray(issue.path)
+      ? issue.path.map(segment => isRecordOrFunction(segment) ? segment.key : segment).filter(segment => typeof segment === "string" || typeof segment === "number")
+      : []
+    return segments.length ? `${segments.join(".")}: ${message}` : message
+  }).join("; ")
 }
 
 function isZodLike(schema: unknown): schema is ZodLikeSchema {
   return typeof schema === "object" && schema !== null
 }
 
-function hasSchemaMethod(schema: ZodLikeSchema, method: "parse" | "safeParse" | "~standard"): boolean {
+function hasSchemaMethod(schema: ZodLikeSchema, method: "parse" | "safeParse"): boolean {
   return Object.hasOwn(schema, method) || isZodSchemaMethod(schema, method)
 }
 
