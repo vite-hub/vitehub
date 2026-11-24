@@ -15,7 +15,6 @@ const workflowSchema = object({ permissions: record(string(), string()), jobs: r
   steps: array(object({ name: optional(string()), if: optional(string()), run: optional(string()), env: optional(record(string(), string())) })),
 })) })
 const workflow = parse(workflowSchema, parseYaml(readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8")))
-// Jobs after the gate, such as the preview publish, wait for it and are not part of it.
 const jobNames = Object.entries(workflow.jobs).filter(([name, job]) => name !== "ci" && !job.needs?.includes("ci")).map(([name]) => name)
 const gate = workflow.jobs.ci!
 
@@ -288,6 +287,7 @@ fi
     "ui-sdk",
     "service-tests",
     "agent-codex-emulator",
+    "codemods-node-22",
     "docs",
     "docs-snippets",
     "docs-demo",

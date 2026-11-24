@@ -9,7 +9,7 @@ icon: i-lucide-database
 
 An Invocation is one run of an Agent. The Invocation journal logs each run's status, metadata, and chosen trace content, so you can inspect runs in the CLI and the Console. To run or stream an Agent, read [Invocations](/docs/agents/invocations) first.
 
-The journal gives the model no conversation context. Use [Chat History](/docs/agents/chat-history-sessions) or [Memory](/docs/agents/capabilities/memory) for that. If your app uses [Database](/docs/database), including Postgres, start with `invocations: 'database'`. If the host gives you a separate store, use the direct SQLite or D1 adapter. Choose content and retention settings before you store real conversations.
+The journal gives the model no conversation context. Use [Chat History](/docs/agents/chat-history-sessions) or [Memory](/docs/agents/capabilities/memory) for that. If your app uses [Database](/docs/database), including Postgres, start with `invocations: 'database'`. On the Node host, a Postgres `default` Database already holds the [default journal](#use-the-default-journal). If the host gives you a separate store, use the direct SQLite or D1 adapter. Choose content and retention settings before you store real conversations.
 
 ## Store invocation history
 
@@ -44,7 +44,7 @@ export default defineAgent({
 })
 ```
 
-ViteHub creates one journal per Agent Definition, not per request. The Database store connects on its first operation. Durability and recovery depend on the store and the host lifecycle. A local SQLite file and the `'memory'` journal belong to one server instance. D1, remote libSQL, and a [Postgres Database](#store-invocations-in-a-postgres-database) are shared, so every instance reads the same Invocations. Only the journal is shared: Agent State, startup recovery, and process hosts still expect one Node instance.
+ViteHub creates one journal per Agent Definition, not per request. The Database store connects on its first operation. Durability and recovery depend on the store and the host lifecycle. A local SQLite file and the `'memory'` journal belong to one server instance. D1, remote libSQL, and a [Postgres Database](#store-invocations-in-a-postgres-database) are shared, so every instance reads the same Invocations. Agent State still belongs to its store. With a Database, a [process host](/docs/agents/process-hosts#run-one-host-across-servers) runs on one instance at a time. The [recovery sweep](#recover-interrupted-invocations) works on every instance.
 
 ## Use the default journal
 
@@ -53,10 +53,13 @@ When an app has Agents and sets no journal, ViteHub installs the default journal
 | Host | Default journal |
 | --- | --- |
 | Development and Node | Local SQLite at `.vitehub/data/agent-invocations.sqlite` in the project root. On the Node host, when `agent.providers.state.url` is a `file:` URL, the journal is `agent-invocations.sqlite` in the same directory |
+| Node production build with a Postgres `default` Database | That Database, tables `vitehub_default_agent_invocations` and `vitehub_default_agent_invocations_observations`. Every Node process that uses the Database shares the journal |
 | Cloudflare production build | The D1 binding of the default or only Database Definition, table `vitehub_agent_invocations` |
 | Cloudflare without a Database Definition | Memory of the Worker isolate |
 
-The default journal keeps prompts, messages, final text, tool input and output, progress updates, generated session titles, and the values of [page changes](/docs/agents/capabilities/page#every-change-and-undo), so the Console and the CLI can show them. It suits development and Node hosts with a persistent filesystem. A local file is local to one replica. Vercel and Nitro-hosted Deno production deployments should set a durable journal, such as `agent.invocations: 'database'` or a remote libSQL `databaseUrl`. A production build for these hosts logs a warning while it uses the local file.
+The default journal keeps prompts, messages, final text, tool input and output, progress updates, generated session titles, and the values of [page changes](/docs/agents/capabilities/page#every-change-and-undo), so the Console and the CLI can show them. It suits development and Node hosts with a persistent filesystem or a Postgres `default` Database. A local file is local to one replica. Vercel and Nitro-hosted Deno production deployments should set a durable journal, such as `agent.invocations: 'database'` or a remote libSQL `databaseUrl`. A production build for these hosts logs a warning while it uses the local file.
+
+On the Node host, a production build uses the resolved `default` Database, including plugin contributions. When it is Postgres, the default journal uses the [Postgres store](#store-invocations-in-a-postgres-database) of that Database, and the Database migrations create its tables. An app that upgrades from 0.4 does not see its old records there: see [Upgrade a Node app from 0.4](#upgrade-a-node-app-from-04). Development, a SQLite `default` Database, an explicit `databaseUrl`, and `dataDir` keep the local file. The `agent-invocations` line of the boot Durability report says `shared` only for a Postgres server, and `process` for PGlite. When no dev server runs, `vitehub agent invocations` reads the `default` Database Definition of the app and reads the journal from it. Run it in the app directory with the same environment variables as the server. Use `--url` if the Database comes from a plugin or the Nuxt app uses layers or custom `rootDir`, `srcDir`, or `serverDir` settings. The CLI does not infer the Database in those cases.
 
 The default journal requires Nitro-hosted Agents. For the Netlify host or `agent.runtime: 'deno'`, set `agent.invocations: false` and configure `invocations` on each Agent Definition. These standalone outputs reject an omitted or configured app-wide journal with `VITE_HUB_R0132`, including a remote `databaseUrl`.
 
@@ -121,10 +124,10 @@ export default defineConfig({
 ::
 
 - `databaseUrl` takes a `file:` or libSQL URL. A relative `file:` path resolves from the ViteHub project root. On the Cloudflare host, a remote libSQL URL replaces D1, and a `file:` URL fails the production build with `VITE_HUB_B0021`, because a Worker cannot open a local file.
-- `retention` takes the [retention limits](#set-retention-limits). The SQLite and libSQL default journal keeps every terminal record by default. The D1 default journal defaults to 30 days and 10,000 terminal records. It does not support `maxSize` and fails the build with `VITE_HUB_B0016`. An invalid limit fails the build with `VITE_HUB_B0015`.
+- `retention` takes the [retention limits](#set-retention-limits). The SQLite and libSQL default journal keeps every terminal record by default. The D1 and Postgres default journals default to 30 days and 10,000 terminal records. They do not support `maxSize` and fail the build with `VITE_HUB_B0016`. An invalid limit fails the build with `VITE_HUB_B0015`.
 - `observations` takes the [observation bounds](#bound-observation-storage).
 
-`VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` moves the journal at runtime and wins over `databaseUrl` and D1. Authenticated libSQL endpoints also need `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN`:
+`VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` moves the journal at runtime and wins over `databaseUrl`, D1, and the Postgres `default` Database. Authenticated libSQL endpoints also need `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN`:
 
 ```dotenv [.env]
 VITEHUB_AGENT_INVOCATIONS_DATABASE_URL=libsql://my-database.turso.io
@@ -133,9 +136,34 @@ VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN=secret-token
 
 On the Cloudflare host, a production build includes the libSQL client only when `databaseUrl` is set. A Worker that stores the journal in D1 or memory does not ship it, so `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` throws `AGENT_R1036` there. To move such a Worker to libSQL at runtime, set `databaseUrl` to a libSQL URL in the build. The variable still wins over it.
 
-The server opens the journal on the first record or read, so libSQL does not load at server start. Read it in server code with `getAgentInvocations()` from `vite-hub/agent`. `await getAgentInvocationsDatabase()` from `vite-hub/agent/invocations/drizzle` opens Drizzle over the same database for queries and `db.batch()` writes. Check `driver` before you destructure `db` and `schema`. D1 inserts require non-null `search` and `summary`, and the D1 `db.transaction()` method rejects. It resolves to `undefined` when `agent.invocations` selects another store or `false`, and for the memory journal of a Worker.
+The server opens the journal on the first record or read, so libSQL does not load at server start. Read it in server code with `getAgentInvocations()` from `vite-hub/agent`. `await getAgentInvocationsDatabase()` from `vite-hub/agent/invocations/drizzle` opens Drizzle over the same database for queries and `db.batch()` writes. Check `driver` before you destructure `db` and `schema`. D1 inserts require non-null `search` and `summary`, and the D1 `db.transaction()` method rejects. It resolves to `undefined` when `agent.invocations` selects another store or `false`, for the memory journal of a Worker, and for the default journal in a Postgres Database. Query those tables with `useDatabase()`.
 
 Earlier releases kept this journal in the Console, at `.vitehub/data/console.sqlite`, with `console.databaseUrl`, `console.retention`, `console.observations`, and `VITEHUB_CONSOLE_DATABASE_URL`. These options are removed, and ViteHub does not move the old records. Set `databaseUrl` to the old file to keep reading it.
+
+### Upgrade a Node app from 0.4
+
+In 0.4, a Node production build kept the default journal in a local SQLite file: `.vitehub/data/agent-invocations.sqlite` in the project root, or `agent-invocations.sqlite` next to a `file:` Agent State database. From 0.5, when the `default` Database uses Postgres, the build keeps it in the Postgres tables `vitehub_default_agent_invocations` and `vitehub_default_agent_invocations_observations`. ViteHub does not copy the old records to Postgres, and it does not change or delete the file. The Console and `vitehub agent invocations` read from the selected journal. Choose one of these paths before you deploy.
+
+To keep the SQLite file, follow the [configuration examples above](#use-the-default-journal) and set `agent.invocations.databaseUrl` to an absolute `file:` URL for the existing journal on the production volume, such as `file:/app/.vitehub/data/agent-invocations.sqlite`. In a production build, a relative `file:` path resolves from the project root recorded at build time, not the directory where Node starts. This config selects SQLite at build time and keeps support for `retention.maxSize`.
+
+To select the file at runtime, set the same URL in your service environment. For example, save this variable in `.env` and start the server with `node --env-file=.env .output/server/index.mjs`.
+
+```dotenv [.env]
+VITEHUB_AGENT_INVOCATIONS_DATABASE_URL=file:/app/.vitehub/data/agent-invocations.sqlite
+```
+
+If your build selects Postgres, remove `retention.maxSize` or replace it with `maxAge` or `maxRecords` before building. A runtime override cannot bypass this check. To keep `maxSize`, select SQLite with `databaseUrl` in the build config.
+
+With either journal, run `pnpm vitehub database generate` using the config you will build with, and commit any new migrations before building. A SQLite pin in the build config omits the two default journal tables, but Postgres can still need migrations for other Agent tables. A runtime pin does not change which migrations the build requires.
+
+Before you start the upgraded server, apply the migrations with `pnpm vitehub database migrate` using the production Database connection. If the server uses the Postgres journal and its tables are missing from the live Database, the first journal operation fails with `AGENT_INVOCATION_POSTGRES_TABLES_MISSING`. See [Store invocations in a Postgres Database](#store-invocations-in-a-postgres-database).
+
+When you keep SQLite, the journal updates the file schema on first use and keeps its records. The file stays local to one server instance. ViteHub has no command to import the old records into Postgres. To read or export the SQLite records without the app, pass `--database` with the file. The standalone CLI does not read `databaseUrl` from the build config, but also accepts `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` from its environment:
+
+```sh
+vitehub agent invocations list --database /app/.vitehub/data/agent-invocations.sqlite
+vitehub agent invocations export --database /app/.vitehub/data/agent-invocations.sqlite > old-invocations.jsonl
+```
 
 ### AGENT_R1029: Local file on a Cloudflare Worker
 
@@ -360,7 +388,7 @@ On a Postgres Database, the adapter uses two tables, and shared resumable web ch
 | `vitehub_agent_invocations_observations` | The observations that a running Invocation appends, one row each. When the Invocation ends, the store moves them into its record and deletes the rows. Deleting an Invocation deletes its rows. |
 | `vitehub_agent_chat_streams` and `vitehub_agent_chat_stream_chunks` | The streams of web chat routes with [`resumable.scope: 'shared'`](/docs/agents/channels#resume-a-web-chat): one row for each stream, and its bytes as chunk rows. |
 
-The store does not create these tables, because the Database user can lack the `CREATE` privilege. ViteHub adds them to the schema of the target Database, the Database of `agent.invocations` or `default`, when that Database uses Postgres. Write and apply their migration with the other tables:
+The store does not create these tables, because the Database user can lack the `CREATE` privilege. ViteHub adds them to the schema of the target Database, the Database of `agent.invocations` or `default`, when that Database uses Postgres. The default journal of a Node build uses separate tables, `vitehub_default_agent_invocations` and `vitehub_default_agent_invocations_observations`, in the `default` Database. Its retention policy does not prune explicit journals. Write and apply their migration with the other tables:
 
 ```sh
 pnpm vitehub database generate
@@ -578,7 +606,7 @@ vitehub agent invocations get INVOCATION_ID
 vitehub agent invocations tail INVOCATION_ID
 ```
 
-Without `--url`, the CLI uses the dev server of this project, found in `.vitehub/dev-server.json`, as every `vitehub` command does, and reads through its Console. When no dev server runs, it fails with `AGENT_INVOCATIONS_NO_DEV_SERVER`: start the dev server, pass `--url`, or read the journal file with `--database`. `VITEHUB_AGENT_INVOCATIONS_URL` still names an invocation endpoint. An explicitly configured `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` selects a local journal file instead of dev server discovery. Use `--json` for scripts. `vitehub agent invocations cancel INVOCATION_ID` cancels inside the Nitro runtime of a Vite + Nitro Development Server. With `--url` and the app URL, such as `https://app.example.com` or `http://localhost:3000`, `list`, `get`, `tail`, and `cancel` use that app's Console, as every `vitehub` command does.
+Without `--url`, the CLI uses the dev server of this project, found in `.vitehub/dev-server.json`, as every `vitehub` command does, and reads through its Console. When no dev server runs, `list`, `get`, `tail`, `export`, and `wait-idle` read the journal from the Postgres `default` Database when the [default journal](#use-the-default-journal) is there. They find its URL in the app config and the environment, as the server does, and load the app's Postgres driver. Otherwise the CLI fails with `AGENT_INVOCATIONS_NO_DEV_SERVER`: start the dev server, pass `--url`, or read the journal file with `--database`. `VITEHUB_AGENT_INVOCATIONS_URL` still names an invocation endpoint. An explicitly configured `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` selects a local journal file instead of dev server discovery. Use `--json` for scripts. `vitehub agent invocations cancel INVOCATION_ID` cancels inside the Nitro runtime of a Vite + Nitro Development Server. With `--url` and the app URL, such as `https://app.example.com` or `http://localhost:3000`, `list`, `get`, `tail`, and `cancel` use that app's Console, as every `vitehub` command does.
 
 See [Cancel an Agent Invocation](/docs/cli/agents#cancel-an-agent-invocation) and [Inspect and cancel on a deployed app](/docs/cli/agents#inspect-and-cancel-on-a-deployed-app).
 
@@ -803,6 +831,10 @@ A process that stops mid-run can leave records pending or running. Recovery mark
 For a store that one process owns, `createProcessAgentInvocations` from `vite-hub/agent/process` recovers before it returns the journal. Pass the usual `defineAgentInvocations` options and `recovery: { recover(invocation) }`, which returns whether this process owns the Invocation. Use `recover: () => true` only when the database belongs to that service alone. A failed recovery rejects startup.
 
 With a libSQL Agent state provider, a persistent Nitro server recovers each Agent journal when it resumes queued webhook deliveries, one second after start or on the first request that loads the Agent routes. It fails pending or running Invocations that started before the process, skips those that a queued delivery reruns under the same run ID, and skips Agents with a durable Workflow runtime. A failed recovery is logged, and the queue still resumes.
+
+Every Node instance with a default or sole ViteHub Database sweeps the journal of each Agent every 15 seconds, even without durable webhook State. Only the instance that holds the Lease `agent-recovery:<agent>` in the [Leases](/docs/guides/run-one-at-a-time) table sweeps. It renews the 30-second Lease while it works and stops taking recovery work if it loses the Lease. When that instance stops, another one takes over. A sweep fails the pending or running Invocations that started more than 30 seconds ago and that no live run holds. Thus, when an instance crashes, another instance fails its Invocations about 30 seconds after the last claim renewal, without a restart. The sweep does not wait for a claim and does not retry Chat turns: only a process that starts retries them. The `agent-recovery` line of the boot Durability report shows whether the sweep runs.
+
+Each instance has an owner label: `VITEHUB_INSTANCE_ID` when it is set, else `<hostname>:<pid>:<random>`, made once per process. Leases store it as their `owner`, and journal claims start with it. Give each instance its own value, such as the pod or machine name, so you can see which instance holds a Lease or runs an Invocation.
 
 Then it retries each interrupted inline Chat turn once. A turn is interrupted when it started before the process and no live run holds the journal claim of its Invocation. A run renews its claim every 10 seconds, and a claim expires 30 seconds after its last renewal. Thus, when several processes share one journal and one Agent state, a process that starts does not run again a turn that another process still runs. When the journal has no record for the turn, or the journal check fails, the start time is the only test.
 

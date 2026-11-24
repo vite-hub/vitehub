@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs"
 import { resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalizeNitroPreset } from "@vite-hub/internal/deployment"
 import { createDirectoryDefinitionSource, discoverDefinitions, writeFileIfChanged, writeFileIfChangedSync } from "@vite-hub/internal/definition-catalog"
+import { mcpPublicRouteNeedsSignedAuth } from "@vite-hub/internal/feature-inputs"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { createNitroServerKit, ownAccessRouteMeta } from "@vite-hub/internal/nitro-kit"
 import { dirname, relative, resolve } from "pathe"
@@ -198,7 +199,7 @@ export function hubMcp(options: McpVitePluginOptions = {}): McpVitePlugin {
     throw mcpErrorDiagnostics.MCP_B0001({ message: `[vitehub] mcp.publicRoute must differ from mcp.route. Both are ${JSON.stringify(route)}.` })
   }
   const auth = options.auth ?? true
-  if (publicRoute && auth !== true) {
+  if (mcpPublicRouteNeedsSignedAuth(publicRoute, auth)) {
     throw mcpErrorDiagnostics.MCP_B0003({ message: `[vitehub] mcp.publicRoute needs auth: true. With mcp: { auth: ${JSON.stringify(auth)} }, the tools with access: "public" are public on ${JSON.stringify(route)} already.` })
   }
   const imports = { authMcp: options.imports?.authMcp ?? "@vite-hub/auth/mcp", runtime: options.imports?.runtime ?? "@vite-hub/mcp/runtime" }

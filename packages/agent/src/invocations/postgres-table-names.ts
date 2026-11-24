@@ -1,6 +1,7 @@
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 const maxTablePrefixLength = 25
+export const defaultAgentJournalPostgresPrefix = "vitehub_default_agent_"
 
 /**
  * The SQL names of the Postgres journal tables for one `tablePrefix`. It lives apart from the Drizzle tables, so the

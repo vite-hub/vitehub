@@ -150,13 +150,15 @@ Blob stores binary objects and small object metadata. Keep catalogs, indexes, pe
 
 Pass the cursor returned by `blob.list()` unchanged to the next list call on the same Blob Store. Keep `prefix` and `folded` unchanged. Netlify Blobs listings fail if they cannot decode the cursor.
 
+`limit` must be a safe integer of 0 or more, or omitted. Another value, such as `-1`, `2.5`, `9007199254740992`, or `NaN` from `Number(query.limit)`, throws `BLOB_R0034` as an H3 `HTTPError` with status `400` before `list()` reads the store. With `limit: 0`, `fs`, files-sdk, Vercel Blob, and Netlify Blobs return no blobs, while a folded zero-limit page can still return folders.
+
 A Netlify Blobs listing makes one request for each page and returns the pathname, ETag, size, and upload time of each file, without its content type or custom metadata. Call `blob.head()` for those.
 
-With `folded: true`, files-sdk drivers (S3 and S3-compatible stores, R2, GCS, and Azure) ask the provider for the folders, so each page is one provider request. A page then holds at most `limit` blobs and folders together.
+With `folded: true`, files-sdk drivers (S3 and S3-compatible stores, R2, GCS, and Azure) ask the provider for the folders, so each page is one provider request. For a positive `limit`, a page holds at most `limit` blobs and folders together; with `limit: 0`, the page has no blobs and can still return folders.
 
 With a partial prefix such as `docs/re`, a native page can be empty while `hasMore` is true. Continue with the returned cursor to reach the matching entries.
 
-Filesystem listings sort keys by UTF-16 code unit, so `B.txt` comes before `a.txt`. The cursor holds the last listed key, so a key added or removed between pages does not repeat or skip another key. A listing reads only the directories on the `prefix` path and the directories that the page reaches.
+Filesystem listings sort keys by UTF-16 code unit, so `B.txt` comes before `a.txt`. The `fs`, `cloudflare` (R2 binding), and files-sdk drivers also sort folded `folders` by UTF-16 code unit. On `fs`, the cursor holds the last listed key, so a key added or removed between pages does not repeat or skip another key. A listing reads only the directories on the `prefix` path and the directories that the page reaches.
 
 Filesystem listings skip child directories removed or replaced by files during traversal, so unaffected blobs remain visible. Permission and path-safety errors still propagate. A store root that is a regular file still fails.
 

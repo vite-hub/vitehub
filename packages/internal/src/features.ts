@@ -107,6 +107,7 @@ export interface FeatureDefinition<TId extends FeatureId = FeatureId> {
   packages: readonly string[]
   /** Additional packages selected by literal provider options. */
   providerPackages?: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>>
+  requiredOptions?: readonly { option: `${TId}.${string}`, detail: string }[]
   /** Development dependencies that the app installs for this feature. */
   devPackages: readonly string[]
   implies: readonly FeatureImplication[]
@@ -191,7 +192,7 @@ export default defineAgent({
     enabledByDiscovery: sourceFiles("auth"),
     hosts: everywhere("better-auth", "Better Auth"),
     id: "auth",
-    packages: ["@vite-hub/auth", "better-auth"],
+    packages: ["@vite-hub/auth", "better-auth", "drizzle-orm"],
     summary: "Better Auth sign-in, sessions, and organizations, with tables that ViteHub owns.",
     title: "Auth",
   }),
@@ -350,6 +351,7 @@ ${name === "default" ? "" : `  name: ${JSON.stringify(name)},\n`}  schema: {
     hosts: everywhere("nitro", "Nitro 3", "Requires Nitro 3 with request async context, or Nuxt 5. Nuxt 4 and Nitro 2 are unsupported."),
     id: "i18n",
     packages: ["@vite-hub/i18n"],
+    requiredOptions: [{ option: "i18n.locales", detail: "Pass a nonempty JSON array of locale names or set locales in your I18n config." }],
     summary: "Messages with translation records for each locale and a locale for each request.",
     title: "I18n",
   }),
@@ -360,12 +362,13 @@ ${name === "default" ? "" : `  name: ${JSON.stringify(name)},\n`}  schema: {
       cloudflare: native("cloudflare", "Workers KV", "Cloudflare Workers KV binding."),
       deno: native("deno-kv", "Deno KV", "Native Deno KV through Deno.openKv()."),
       dev: native("fs-lite", "fs-lite", "Local filesystem-backed KV for development.", "single-host"),
-      netlify: explicit("kv.driver", "Upstash / Redis", "Set `kv.driver` to `upstash`, `redis`, or `database`, or set Upstash REST credentials at build time. No Netlify-native KV output is provided. Without them, KV uses a Postgres Default Database, else `fs-lite` files that other function instances cannot read."),
+      netlify: explicit("kv.driver", "Upstash / Redis", "Set `kv.driver` (or `kv.stores.default.driver` when using multiple stores) to `upstash`, `redis`, or `database`, or set Upstash REST credentials at build time. No Netlify-native KV output is provided. Without them, KV uses a Postgres Default Database, else `fs-lite` files that other function instances cannot read."),
       node: native("fs-lite", "Redis / Postgres / fs-lite", "A table in a Postgres Default Database, else local files. Redis requires kv: { driver: 'redis' }; REDIS_URL supplies its URL on every server. Upstash with REST credentials at build time.", "single-host"),
       vercel: native("upstash", "Upstash", "Upstash Redis with KV REST credentials."),
     },
     id: "kv",
     packages: ["@vite-hub/kv"],
+    providerPackages: { driver: { upstash: ["@upstash/redis"] } },
     summary: "Key-value storage with one API on every host.",
     title: "KV",
   }),
@@ -374,6 +377,7 @@ ${name === "default" ? "" : `  name: ${JSON.stringify(name)},\n`}  schema: {
     hosts: everywhere("nitro", "Nitro"),
     id: "mcp",
     packages: ["@vite-hub/mcp"],
+    requiredOptions: [{ option: "mcp.auth", detail: "Choose an access mode when Auth is disabled. With Auth enabled, MCP requires sign-in by default. The optional mode requires Auth and lets anyone call public tools. Set false only when anyone may call every tool." }],
     summary: "The app's own MCP server, with one tool per file in `server/mcp/tools/`.",
     title: "MCP server",
   }),
@@ -555,7 +559,7 @@ export function featurePackages(id: FeatureId, value: unknown, host: ViteHubHost
   const definition = features[id]
   const options = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined
   const stores = options?.stores
-  const values = id === "blob" && stores && typeof stores === "object" && !Array.isArray(stores)
+  const values = (id === "blob" || id === "kv") && stores && typeof stores === "object" && !Array.isArray(stores)
     ? [value, ...Object.values(stores)]
     : [value]
   const selected = values.flatMap(value => Object.entries(definition.providerPackages ?? {}).flatMap(([key, choices]) => {
@@ -570,8 +574,19 @@ export function featurePackages(id: FeatureId, value: unknown, host: ViteHubHost
   if (id === "sandboxTask" && (sandboxDriver === "vercel" || sandboxDriver === "cloudflare")) selected.push(sandboxDriverPackages[sandboxDriver])
   // On Vercel, Queue and Workflow use the Vercel driver unless the app sets another `driver`.
   if ((id === "queue" || id === "workflow") && host === "vercel" && (options?.driver ?? "vercel") === "vercel") selected.push(...vercelProviderPackages[id])
+  if (id === "email" && options?.driver === "smtp" && host !== "cloudflare") selected.push(...ownerCheckedPackages.email ?? [])
   if (id === "console" && enabled.includes("agent")) selected.push(...consoleFeaturePackages.agents)
   return [...new Set([...definition.packages, ...selected])]
+}
+
+const ownerCheckedPackages: Partial<Record<FeatureId, readonly string[]>> = { email: ["nodemailer"] }
+
+/**
+ * Whether `vitehub add` installs `name` for feature `id`, but the feature's owner package checks it itself, because only
+ * the owner knows when the app loads it. `vite-hub` does not require such a package before the owner runs.
+ */
+export function isOwnerCheckedPackage(id: FeatureId, name: string): boolean {
+  return ownerCheckedPackages[id]?.includes(name) ?? false
 }
 
 const sandboxDriverPackages = { cloudflare: "@cloudflare/sandbox", vercel: "@vercel/sandbox" } as const
@@ -584,6 +599,35 @@ const vercelProviderPackages = {
   queue: ["@vercel/queue", "@vercel/functions"],
   workflow: ["@vercel/functions"],
 } as const
+
+const drizzleRange = "1.0.0-rc.5 || ^1.0.0"
+
+const installRanges: Readonly<Record<string, string>> = {
+  "drizzle-kit": drizzleRange,
+  "drizzle-orm": drizzleRange,
+}
+
+/**
+ * The package manager argument that installs `name`, such as `drizzle-orm@1.0.0-rc.5 || ^1.0.0`. Drizzle tags 0.x as
+ * `latest` and the next 1.0 candidate as `rc`, so a plain name installs a version that ViteHub cannot import. npm saves
+ * the range as written, and an exact version would be saved as `^1.0.0-rc.5`, which also matches later candidates.
+ * Other packages keep their name. Feature catalogs, status, and removal use the plain name.
+ */
+export function installSpecifier(name: string): string {
+  const range = installRanges[name]
+  return range ? `${name}@${range}` : name
+}
+
+export function quoteSupportedInstallSpecifier(value: string): string | undefined {
+  const separator = value.indexOf("@", 1)
+  if (separator < 0) return undefined
+  const name = value.slice(0, separator)
+  return Object.hasOwn(installRanges, name) && value === installSpecifier(name) ? `"${value}"` : undefined
+}
+
+export function formatInstallArgument(value: string): string {
+  return quoteSupportedInstallSpecifier(value) ?? (/^[\w@%+=:,./-]+$/u.test(value) ? value : `'${value.replaceAll("'", `'\\''`)}'`)
+}
 
 /** Additional Console owners selected by its enabled Agent integration. */
 export const consoleFeaturePackages = {

@@ -139,7 +139,7 @@ const plugins = [
   "app/.vitehub/nitro/request-policy.mjs",
   "app/.vitehub/nitro/schedule/plugin.ts",
   "app/.vitehub/nitro/standard-context.mjs",
-  "app/.vitehub/nitro/workflow/dev-plugin.mjs",
+  "app/.vitehub/nitro/workflow/build-plugin.mjs",
 ]
 
 const publicAssets = [

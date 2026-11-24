@@ -119,6 +119,7 @@ export function createDevice(options: DeviceOptions): Device {
   const now = options.now ?? (() => Date.now())
   const maxBytes = options.maxBytes ?? maxDeviceBytes
   const entries = new Map<string, MemoryEntry>()
+  let heldBytes = 0
   const pending = new Map<string, StoredEntry | undefined>()
   const listeners = new Set<(event: DeviceEvent) => void>()
   const warned = new Set<string>()
@@ -164,6 +165,7 @@ export function createDevice(options: DeviceOptions): Device {
   function invalidate(): void {
     epoch++
     entries.clear()
+    heldBytes = 0
     pending.clear()
     emit({ type: "reset" })
   }
@@ -209,14 +211,21 @@ export function createDevice(options: DeviceOptions): Device {
     }).catch(backgroundFailure)
   }
 
+  function hold(entry: MemoryEntry): void {
+    heldBytes += entry.bytes - (entries.get(entry.key)?.bytes ?? 0)
+    entries.set(entry.key, entry)
+  }
+
+  function release(key: string): void {
+    heldBytes -= entries.get(key)?.bytes ?? 0
+    entries.delete(key)
+  }
+
   function evict(keep?: string): void {
-    let total = 0
-    for (const entry of entries.values()) total += entry.bytes
+    if (heldBytes <= maxBytes) return
     for (const entry of [...entries.values()].sort((a, b) => a.storedAt - b.storedAt)) {
-      if (total <= maxBytes) return
-      if (entry.key === keep) continue
-      entries.delete(entry.key)
-      total -= entry.bytes
+      if (heldBytes <= maxBytes) return
+      if (entry.key !== keep) release(entry.key)
     }
   }
 
@@ -286,7 +295,7 @@ export function createDevice(options: DeviceOptions): Device {
       }
       total += entry.bytes
       if (!entries.has(entry.key)) {
-        entries.set(entry.key, { ...entry, account: found.account })
+        hold({ ...entry, account: found.account })
         loaded.push(entry.key)
       }
     }
@@ -401,13 +410,13 @@ export function createDevice(options: DeviceOptions): Device {
       json = undefined
     }
     if (json === undefined) {
-      entries.delete(key)
+      release(key)
       if (!diskless) pending.set(key, undefined)
       return flush()
     }
     const time = now()
     const entry = { key, json, storedAt: time, expiresAt: time + maxAge, bytes }
-    entries.set(key, { ...entry, account })
+    hold({ ...entry, account })
     if (!diskless) pending.set(key, entry)
     evict(key)
     flush()

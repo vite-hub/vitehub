@@ -137,7 +137,7 @@ The [runtime methods](/docs/comments/server-api#runtime-methods), such as `comme
 
 An app without its own sign-in can sign people in with a GitHub App. This is on when:
 
-- The app has neither ViteHub Auth nor the Console, and `server/comments.ts` has no `identify`.
+- The app has no ViteHub Auth, and `server/comments.ts` has no `identify`.
 - The server has `VITEHUB_GITHUB_CLIENT_ID` and `VITEHUB_GITHUB_CLIENT_SECRET`.
 
 A person who may not read sees **Sign in with GitHub** in the overlay. GitHub returns them to the page in comment mode, with their picture in the toolbar. Selecting it signs them out.

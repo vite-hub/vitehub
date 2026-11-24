@@ -140,6 +140,32 @@ import { generatedModules } from "../src/internal/generated-modules.ts"
 import { isPackageInstalled } from "../src/internal/optional-owners.ts"
 import { hostManagedAuthorize, productionConsole } from "./support/console-authorize.ts"
 
+function serverAutoImports<Created extends { nuxt: { options: object } }>(created: Created): Created {
+  Object.assign(created.nuxt.options, { experimental: { nitroAutoImports: true } })
+  return created
+}
+
+function consoleAgentOptions(generated: string): Map<string, string> {
+  const source = ts.createSourceFile("plugin.mjs", generated, ts.ScriptTarget.Latest, false, ts.ScriptKind.JS)
+  function findOptions(node: ts.Node): ts.ObjectLiteralExpression | undefined {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "installConsoleAgentDefinitions") {
+      const options = node.arguments[1]
+      if (options && ts.isObjectLiteralExpression(options)) return options
+    }
+    return ts.forEachChild(node, findOptions)
+  }
+  const options = findOptions(source)
+  if (!options) throw new Error("Missing installConsoleAgentDefinitions options")
+  const values = new Map<string, string>()
+  for (const property of options.properties) {
+    if (ts.isPropertyAssignment(property) && (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name))) {
+      values.set(property.name.text, property.initializer.getText(source))
+    }
+    else if (ts.isShorthandPropertyAssignment(property)) values.set(property.name.text, property.name.text)
+  }
+  return values
+}
+
 function createNuxt(dev = false, plugins: PluginOption[] = []) {
   const nitroInitHooks: Array<(instance: { options: { handlers: Array<{ handler: string, route: string, middleware?: boolean }>, output: { serverDir: string } }, hooks: { hook: (name: string, callback: () => Promise<void>) => void } }) => void> = []
   const routerOptionsHooks: Array<(context: { files: Array<{ path: string, optional?: boolean }> }) => void> = []
@@ -166,6 +192,12 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
     sharedTsConfig: TypeConfig
   }
   const prepareTypesHooks: Array<(context: PrepareTypesContext) => void> = []
+  let modulesDone = false
+  function runModulesDoneHook() {
+    if (modulesDone) return
+    modulesDone = true
+    for (const hook of modulesDoneHooks) hook()
+  }
   const nuxt = {
     callHook: vi.fn(async (_name: "restart") => {}),
     hook(name: "pages:routerOptions" | "nitro:init" | "components:extend" | "app:templatesGenerated" | "build:before" | "builder:watch" | "close" | "doctor:extendExtensions" | "icon:clientBundleIcons" | "listen" | "modules:done" | "nitro:build:before" | "imports:context" | "nitro:config" | "prepare:types" | "vite:serverCreated", callback: (typeof routerOptionsHooks)[number] | (typeof importsContextHooks)[number] | (typeof prepareTypesHooks)[number] | (typeof nitroInitHooks)[number] | (() => void) | (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>) | ((entries: string[]) => void) | ((server: unknown, listener: { url: string }) => void) | ((icons: Set<string>) => void)) {
@@ -205,7 +237,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
       rootDir: `${tmp}/vitehub-nuxt`,
       serverDir: `${tmp}/vitehub-nuxt/custom-server` as string | undefined,
       srcDir: `${tmp}/vitehub-nuxt/app`,
-      vite: { plugins } as UserConfig,
+      vite: { plugins } as UserConfig & { vue?: Record<string, unknown> },
       vitehubCliDiscovery: undefined as true | undefined,
       watch: undefined as string[] | undefined,
     },
@@ -241,6 +273,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
       for (const hook of closeHooks) await hook()
     },
     async runNitroConfigHook(config: Record<string, unknown>) {
+      runModulesDoneHook()
       if (!nitroConfigHooks.length) throw new TypeError("Expected a Nitro config hook.")
       for (const hook of nitroConfigHooks) await hook(config)
     },
@@ -249,9 +282,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
       for (const hook of iconHooks) hook(icons)
       return icons
     },
-    runModulesDoneHook() {
-      for (const hook of modulesDoneHooks) hook()
-    },
+    runModulesDoneHook,
     runDoctorExtensionsHook() {
       const entries: string[] = []
       for (const hook of doctorExtensionHooks) hook(entries)
@@ -1810,7 +1841,7 @@ describe("ViteHub Nuxt integration", () => {
     await expect(generatedAgentJournal(application)).resolves.toContain(
       `"databaseUrl":${JSON.stringify(pathToFileURL(`${tmp}/vitehub-nuxt/persistent data/agent-invocations.sqlite`).href)}`,
     )
-    if (consoleOn) await expect(readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`, "utf8")).resolves.not.toContain("databaseUrl")
+    if (consoleOn) expect(consoleAgentOptions(await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`, "utf8")).has("databaseUrl")).toBe(false)
     await application.runCloseHook()
   })
 
@@ -1827,6 +1858,24 @@ describe("ViteHub Nuxt integration", () => {
     }, application.nuxt)
 
     await expect(generatedAgentJournal(application)).resolves.toContain(`d1: { binding: "APP_DB", env: async () => (await import("cloudflare:workers")).env }`)
+    await application.runCloseHook()
+  })
+
+  it.each(["definition", "contribution", "sqlite"] as const)("selects the Node Agent journal after Database replay: %s", async (source) => {
+    mocks.vitehub.mockReturnValue([agentInvocationsVitePlugin({ database: true, host: "node" })])
+    await rm(agentJournalPlugin, { force: true })
+    await mkdir(`${tmp}/vitehub-nuxt/custom-server/databases`, { recursive: true })
+    const definition = `${tmp}/vitehub-nuxt/custom-server/databases/default.ts`
+    const contribution = { name: "feature/vite", vitehub: { databases: [{ name: "feature", dialect: "postgresql", reason: "Test." }] } }
+    if (source === "contribution") await rm(definition, { force: true })
+    else await writeFile(definition, `export default defineDatabase({ ${source === "definition" ? 'dialect: "postgresql", driver: "node-postgres", ' : ""}schema: {} })\n`)
+    const application = createNuxt(false, source === "contribution" ? [contribution] : [])
+    Object.assign(application.nuxt.options, { _prepare: true })
+    await viteHubNuxtModule({ host: "node", agent: true, database: true }, application.nuxt)
+
+    const generated = await generatedAgentJournal(application, true)
+    if (source !== "sqlite") expect(generated).toContain('database: "default"')
+    else expect(generated).not.toContain('database: "default"')
     await application.runCloseHook()
   })
 
@@ -2040,7 +2089,7 @@ describe("ViteHub Nuxt integration", () => {
     }, application.nuxt)
     const generated = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin-dev.mjs`, "utf8")
     expect(generated).toContain("invoke: true")
-    expect(generated).not.toContain("databaseUrl")
+    expect(consoleAgentOptions(generated).has("databaseUrl")).toBe(false)
     await application.runCloseHook()
   })
 
@@ -2136,7 +2185,7 @@ describe("ViteHub Nuxt integration", () => {
       plugin => isTestRecord(plugin) && ["vite-hub/deployment-host", "@vite-hub/kv/vite"].includes(String(plugin.name)),
     ))
 
-    const enabled = createNuxt(dev)
+    const enabled = serverAutoImports(createNuxt(dev))
     await viteHubNuxtModule({ cache: { driver: "kv" }, kv: { driver: "fs-lite" }, host: "node" }, enabled.nuxt)
     expect(enabled.nuxt.options.vite.plugins).toContainEqual(expect.objectContaining({ name: "@vite-hub/kv/vite" }))
     const config = { ...nitroOptions(enabled.nuxt), imports: { imports: [] } }
@@ -2938,10 +2987,9 @@ describe("ViteHub Nuxt integration", () => {
       host: "node",
     }, production.nuxt)
     const generated = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs`, "utf8")
-    expect(generated).toContain("invoke: true")
-    // The Console reads the Agent journal. It does not configure one.
-    expect(generated).not.toContain("observations")
-    expect(generated).not.toContain("retention")
+    const registration = consoleAgentOptions(generated)
+    expect(registration.get("invoke")).toBe("true")
+    for (const key of ["observations", "retention", "databaseUrl"]) expect(registration.has(key)).toBe(false)
   })
 
   it.each(["databaseUrl", "observations", "retention"])("rejects the removed console.%s option in Nuxt", async (key) => {
@@ -3921,10 +3969,10 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     expect((nitroConfig.alias as Record<string, string>)["#vitehub/emails"]).toBe(emailTemplates)
   })
 
-  it("materializes Email templates before Cloudflare Workflow preparation", async () => {
+  it("prepares Email template types at setup, and materializes the templates when Nuxt starts the build", async () => {
     const prepareTypes = vi.fn().mockResolvedValue({
       "monthly-recap": `${tmp}/vitehub-nuxt/.vitehub/email/templates/monthly-recap.mjs`,
-      "monthly-recap/detail": `${tmp}/vitehub-nuxt/.vitehub/email/templates/monthly-recap%2Fdetail.mjs`,
+      "monthly-recap/detail": `${tmp}/vitehub-nuxt/.vitehub/email/templates/monthly-recap~2Fdetail.mjs`,
     })
     mocks.vitehub.mockReturnValue([
       {
@@ -3932,14 +3980,29 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
         name: "@vite-hub/email/vite",
       },
     ])
-    const { nuxt } = createNuxt()
+    const { buildBeforeHooks, nuxt } = createNuxt()
+    const compilerOptions = { delimiters: ["[[", "]]"] }
+    nuxt.options.vite.vue = { template: { compilerOptions } }
+    nuxt.options.vite.resolve = { alias: { "@mail": `${tmp}/vitehub-nuxt/custom-server/emails` } }
+    const vue = expect.objectContaining({
+      alias: expect.objectContaining({ "@mail": `${tmp}/vitehub-nuxt/custom-server/emails` }),
+      pluginOptions: { template: { compilerOptions } },
+    })
 
     await viteHubNuxtModule({ email: true, host: "cloudflare" }, nuxt)
 
-    expect(prepareTypes).toHaveBeenCalledWith({
+    expect(prepareTypes).toHaveBeenCalledExactlyOnceWith({
+      materialize: false,
+      projectRoot: `${tmp}/vitehub-nuxt`,
+      serverDirs: [`${tmp}/vitehub-nuxt/custom-server`],
+      vue,
+    })
+    await Promise.all(buildBeforeHooks.map(hook => hook()))
+    expect(prepareTypes).toHaveBeenLastCalledWith({
       materialize: true,
       projectRoot: `${tmp}/vitehub-nuxt`,
       serverDirs: [`${tmp}/vitehub-nuxt/custom-server`],
+      vue,
     })
     const emailTemplates = `${tmp}/vitehub-nuxt/.vitehub/email/templates`
     // SAFETY: Nuxt aliases are normalized to a string map by the module setup path.
@@ -3948,7 +4011,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     )
     // SAFETY: Nuxt aliases are normalized to a string map by the module setup path.
     expect((nuxt.options.alias as Record<string, string>)["#vitehub/emails/monthly-recap/detail"]).toBe(
-      `${emailTemplates}/monthly-recap%2Fdetail.mjs`,
+      `${emailTemplates}/monthly-recap~2Fdetail.mjs`,
     )
     // SAFETY: Nuxt aliases are normalized to a string map by the module setup path.
     expect((nuxt.options.alias as Record<string, string>)["#vitehub/emails"]).toBe(emailTemplates)
@@ -3983,7 +4046,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     }
     const resolver = rollupConfig.plugins.find(plugin => plugin.name === "vite-hub/nuxt-email-templates")
     expect(resolver?.resolveId("#vitehub/emails/monthly/detail")).toBe(
-      `${tmp}/vitehub-nuxt/.vitehub/email/templates/monthly%2Fdetail.mjs`,
+      `${tmp}/vitehub-nuxt/.vitehub/email/templates/monthly~2Fdetail.mjs`,
     )
   })
 
@@ -4001,9 +4064,10 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     await runNitroConfigHook(nitroConfig)
 
     expect(prepareTypes).toHaveBeenCalledWith({
-      materialize: true,
+      materialize: false,
       projectRoot: `${tmp}/vitehub-nuxt`,
       serverDirs: [`${tmp}/vitehub-nuxt/custom-server`],
+      vue: expect.any(Object),
     })
     const emailTemplates = `${tmp}/vitehub-nuxt/.vitehub/email/templates`
     // SAFETY: Nuxt aliases are normalized to a string map by the module setup path.
@@ -4012,7 +4076,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     expect((nitroConfig.alias as Record<string, string>)["#vitehub/emails"]).toBe(emailTemplates)
   })
 
-  it("materializes and exposes Email templates on non-host-specific Nitro presets", async () => {
+  it("exposes Email templates on non-host-specific Nitro presets", async () => {
     const prepareTypes = vi.fn()
     mocks.vitehub.mockReturnValue([
       {
@@ -4027,9 +4091,10 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     await runNitroConfigHook(nitroConfig)
 
     expect(prepareTypes).toHaveBeenCalledWith({
-      materialize: true,
+      materialize: false,
       projectRoot: `${tmp}/vitehub-nuxt`,
       serverDirs: [`${tmp}/vitehub-nuxt/custom-server`],
+      vue: expect.any(Object),
     })
     const emailTemplates = `${tmp}/vitehub-nuxt/.vitehub/email/templates`
     // SAFETY: Nuxt aliases are normalized to a string map by the module setup path.
@@ -4523,7 +4588,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
   })
 
   it("auto-imports the server helpers of every enabled feature after Nuxt's own entries", async () => {
-    const { nuxt, runNitroConfigHook } = createNuxt()
+    const { nuxt, runNitroConfigHook } = serverAutoImports(createNuxt())
     await viteHubNuxtModule({ blob: true, database: true, kv: true, host: "node", queue: true, rateLimit: true, schedule: true }, nuxt)
 
     const config: Record<string, unknown> = { imports: { autoImport: true, imports: [{ from: "#app", name: "useAppConfig" }] } }
@@ -4544,7 +4609,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
   })
 
   it("auto-imports Source and the server helpers of enabled features", async () => {
-    const kvOnly = createNuxt()
+    const kvOnly = serverAutoImports(createNuxt())
     await viteHubNuxtModule({ env: false, kv: true, host: "node" }, kvOnly.nuxt)
     const kvConfig: Record<string, unknown> = { imports: { imports: [] } }
     await kvOnly.runNitroConfigHook(kvConfig)
@@ -4554,7 +4619,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     ])
 
     // Env is on unless the app sets `env: false`.
-    const defaults = createNuxt()
+    const defaults = serverAutoImports(createNuxt())
     await viteHubNuxtModule({ host: "node" }, defaults.nuxt)
     const defaultConfig: Record<string, unknown> = { imports: { imports: [] } }
     await defaults.runNitroConfigHook(defaultConfig)
@@ -4567,7 +4632,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     ])
 
     // A host without a Queue service does not install the Queue package, so it gets no Queue helpers.
-    const netlify = createNuxt()
+    const netlify = serverAutoImports(createNuxt())
     await viteHubNuxtModule({ env: false, host: "netlify", queue: true }, netlify.nuxt)
     const netlifyConfig: Record<string, unknown> = { imports: { imports: [] } }
     await netlify.runNitroConfigHook(netlifyConfig)
@@ -4583,7 +4648,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     { host: "cloudflare", agent: false, workflow: undefined, enabled: false },
     { host: "cloudflare", agent: false, workflow: true, enabled: true },
   ] as const)("selects server imports for effective Workflow enablement: %j", async ({ host, agent, workflow, enabled }) => {
-    const { nuxt, runNitroConfigHook } = createNuxt()
+    const { nuxt, runNitroConfigHook } = serverAutoImports(createNuxt())
     // Read Agent from Nuxt options too, as applications configured through vitehub() do.
     Object.assign(nuxt.options, { vitehub: { agent } })
     await viteHubNuxtModule({ env: false, host, workflow }, nuxt)
@@ -4608,7 +4673,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
         await mkdir(directory, { recursive: true })
         await writeFile(resolve(directory, "package.json"), JSON.stringify(manifest))
       }
-      const { nuxt, runNitroConfigHook } = createNuxt()
+      const { nuxt, runNitroConfigHook } = serverAutoImports(createNuxt())
       nuxt.options.rootDir = root
       nuxt.options.buildDir = resolve(root, ".nuxt")
       nuxt.options.serverDir = resolve(root, "server")
@@ -4669,7 +4734,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
   })
 
   it("reads feature switches from the Nuxt module options", async () => {
-    const { nuxt, runNitroConfigHook } = createNuxt()
+    const { nuxt, runNitroConfigHook } = serverAutoImports(createNuxt())
     Object.assign(nuxt.options, { vitehub: { kv: {}, rateLimit: {} } })
     await viteHubNuxtModule({ env: false, host: "node" }, nuxt)
 
@@ -4683,48 +4748,76 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
 
   it("adds no server auto-imports when the app turns Nuxt auto-imports off", async () => {
     // `imports: { autoImport: false }` in nuxt.config.ts reaches Nitro as `imports.autoImport: false`.
-    const autoImportOff = createNuxt()
+    const autoImportOff = serverAutoImports(createNuxt())
     await viteHubNuxtModule({ kv: true, host: "node", queue: true }, autoImportOff.nuxt)
     const autoImportOffConfig: Record<string, unknown> = { imports: { autoImport: false, imports: [] } }
     await autoImportOff.runNitroConfigHook(autoImportOffConfig)
     expect(autoImportOffConfig).toHaveProperty("imports.imports", [])
 
     // `nitro: { imports: false }` reaches Nitro as `imports: false`.
-    const nitroImportsOff = createNuxt()
+    const nitroImportsOff = serverAutoImports(createNuxt())
     await viteHubNuxtModule({ blob: true, kv: true, host: "node" }, nitroImportsOff.nuxt)
     const nitroImportsOffConfig: Record<string, unknown> = { imports: false }
     await nitroImportsOff.runNitroConfigHook(nitroImportsOffConfig)
     expect(nitroImportsOffConfig.imports).toBe(false)
 
-    const unset = createNuxt()
+    const unset = serverAutoImports(createNuxt())
     await viteHubNuxtModule({ kv: true, host: "node" }, unset.nuxt)
     const unsetConfig: Record<string, unknown> = {}
     await unset.runNitroConfigHook(unsetConfig)
     expect(unsetConfig).not.toHaveProperty("imports")
   })
 
-  it("keeps a server auto-import name that another source already configures", async () => {
+  it.each([
+    ["no switch", {}, false],
+    ["experimental.nitroAutoImports", { experimental: { nitroAutoImports: true } }, true],
+    ["nitroLegacy: true", { nitroLegacy: true }, true],
+    ["nitroLegacy without imports: false", { nitroLegacy: { h3: false } }, true],
+    ["nitroLegacy with imports: false", { nitroLegacy: { imports: false } }, false],
+  ])("adds server auto-imports only when Nuxt server auto-imports are on: %s", async (_, options, enabled) => {
     const { nuxt, runNitroConfigHook } = createNuxt()
+    Object.assign(nuxt.options, options)
+    await viteHubNuxtModule({ env: false, kv: true, host: "node" }, nuxt)
+
+    const config: Record<string, unknown> = { imports: { imports: [] } }
+    await runNitroConfigHook(config)
+    expect(config).toHaveProperty("imports.imports", enabled
+      ? [{ from: "vite-hub/kv", name: "kv", priority: -1 }, { from: "vite-hub/source", name: "useSource", priority: -1 }]
+      : [])
+  })
+
+  it("keeps a server auto-import name that another source already configures", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const { nuxt, runNitroConfigHook } = serverAutoImports(createNuxt())
     await viteHubNuxtModule({ env: false, kv: true, host: "node", queue: true }, nuxt)
 
     const config: Record<string, unknown> = {
       imports: {
         imports: [{ from: "~/server/utils/kv", name: "kv" }],
-        presets: [{ from: "custom-queue", imports: ["defineQueue", { as: "sendQueue", name: "enqueue" }] }],
+        presets: [{ from: "custom-queue", imports: ["defineQueue", ["enqueue", "sendQueue"]] }],
       },
     }
     await runNitroConfigHook(config)
 
     expect(config).toHaveProperty("imports.imports", [
       { from: "~/server/utils/kv", name: "kv" },
+      { from: "vite-hub/kv", name: "kv", priority: -1, disabled: true },
+      { from: "vite-hub/queue", name: "defineQueue", priority: -1, disabled: true },
       { from: "vite-hub/queue", name: "deferQueue", priority: -1 },
       { from: "vite-hub/queue", name: "useQueue", priority: -1 },
+      { from: "vite-hub/queue", name: "sendQueue", priority: -1, disabled: true },
       { from: "vite-hub/source", name: "useSource", priority: -1 },
     ])
+    expect(warn.mock.calls.map(([message]) => String(message)).filter(message => message.includes("auto-import")).map(message => message.split(" already")[0])).toEqual([
+      "[vitehub] ~/server/utils/kv",
+      "[vitehub] custom-queue",
+      "[vitehub] custom-queue",
+    ])
+    warn.mockRestore()
   })
 
   it("registers each server auto-import once when Nuxt replays the Nitro config", async () => {
-    const { nuxt, runNitroConfigHook } = createNuxt()
+    const { nuxt, runNitroConfigHook } = serverAutoImports(createNuxt())
     await viteHubNuxtModule({ env: false, kv: true, host: "node" }, nuxt)
 
     const config: Record<string, unknown> = { imports: { imports: [] } }

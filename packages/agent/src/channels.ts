@@ -24,6 +24,7 @@ import { CHAT_FINISH_EXTENSION_CONTEXT_KEY } from "./chat-trigger.ts"
 import { channelDeliveryFinishEffectsContextKey, defineCapability, trustGitHubPullRequestWorkspaceCapability, workspaceMaterializationPathsSymbol, workspacePersistencePathsSymbol } from "./capability-runtime.ts"
 import { mergeConflictSkillContent, mergeConflictSkillName, mergeConflictSkillPath } from "./internal/merge-conflict-skill.ts"
 import { agentChannelDeliveryTracker } from "./internal/channel-delivery.ts"
+import { agentChannelOptions } from "./internal/agent-definition-options.ts"
 import { isResponse } from "./internal/response.ts"
 import { asUnknownBoundary } from "./internal/runtime-type.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
@@ -89,7 +90,7 @@ import type { ChatFinishDeliveryRegistrar } from "./internal/chat-finish-deliver
 import { withAgentChannelStatusDefinition } from "./internal/channel-status.ts"
 import type { AgentChannelStatus } from "./internal/channel-status.ts"
 import { withAgentChannelSyncDefinition } from "./internal/channel-sync.ts"
-import { channelDeliveryHandlers, channelHandlerTriggerName } from "./internal/channel-delivery-handlers.ts"
+import { agentChannelDeliveryMode, channelDeliveryHandlers, channelHandlerTriggerName } from "./internal/channel-delivery-handlers.ts"
 import { untrackedChannelWebhook } from "./internal/channel-delivery.ts"
 import { withAgentChannelHistoryDefinition } from "./internal/channel-history.ts"
 import { createTelegramChannelSyncProvider } from "./internal/telegram-channel-sync.ts"
@@ -4547,7 +4548,6 @@ function channelHandlerTrigger<TRuntimeConfig extends AgentRuntimeConfig>(
       const name = input.event ?? webhook.event?.(input.payload, request) ?? "webhook"
       if (!Object.hasOwn(handlers, name)) return ignored(`no target for event "${name}"`)
       const id = webhook.id?.(input.payload, request) || createHash("sha256").update(input.body ?? JSON.stringify(input.payload ?? null)).digest("hex")
-      const { agentChannelDeliveryMode } = await import("./trigger-runtime.ts")
       const mode = agentChannelDeliveryMode(context.request, context.trigger.channelId)
       const event: ChannelEvent = { name, id, data: input.payload }
       return {
@@ -5272,7 +5272,6 @@ export async function gmailChannelStatus(channel: AgentChannelDefinition, option
   if (!channelsConsoleHost()) await (await import("#vitehub/agent/registry")).loadAgentHost()
   const host = channelsConsoleHost()
   if (!host) return undefined
-  const { agentChannelOptions } = await import("./trigger-runtime.ts")
   const matches = Object.entries(host.agents).flatMap(([name, agent]) => {
     if (options.agent !== undefined && name !== options.agent) return []
     const id = Object.entries(agentChannelOptions(agent)).find(([, candidate]) => candidate === channel)?.[0]

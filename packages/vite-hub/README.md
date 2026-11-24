@@ -37,10 +37,12 @@ pnpm add vite-hub
 | `auth` | `@vite-hub/auth better-auth` |
 | `blob` | `@vite-hub/blob` |
 | `browser` | `@vite-hub/browser` |
-| `channels` | `@vite-hub/channels` |
-| `connections` | `@vite-hub/connections @vite-hub/database drizzle-orm` |
-| `database`, and Connections or Comments, which turn Database on | `@vite-hub/database drizzle-orm`, and `drizzle-kit` as a development dependency |
+| `channels` | `@vite-hub/channels`, and `@vite-hub/agent` for built-in adapters from `vite-hub/channels/adapters` |
+| `connections` | `@vite-hub/connections @vite-hub/database drizzle-orm@1.0.0-rc.5` |
+| `database`, and Connections or Comments, which turn Database on | `@vite-hub/database drizzle-orm@1.0.0-rc.5` |
 | `email` | `@vite-hub/email` |
+| Forms | `@vite-hub/forms @vite-hub/database drizzle-orm@1.0.0-rc.5 valibot` |
+| `i18n` | `@vite-hub/i18n` |
 | `kv`, and `cache: { driver: "kv" }` | `@vite-hub/kv` |
 | `queue` | `@vite-hub/queue` |
 | `rateLimit` | `@vite-hub/rate-limit` |
@@ -48,21 +50,27 @@ pnpm add vite-hub
 | `realtime` | `@vite-hub/realtime` |
 | `sandboxTask` | `@vite-hub/sandbox` |
 | `schedule` | `@vite-hub/schedule` |
+| Sync | `@vite-hub/sync @vite-hub/database drizzle-orm@1.0.0-rc.5` |
+| Webhooks | `@vite-hub/webhooks @vite-hub/queue @vite-hub/database drizzle-orm@1.0.0-rc.5` |
 | `workflow` | `@vite-hub/workflow` |
 | `workspace` | `@vite-hub/workspace`, and `@vite-hub/shell` for shell commands |
 | `server/content.ts` | `@vite-hub/content`, and `@vite-hub/cms` for the `cms` preset |
 | `server/comments.ts` | `@vite-hub/comments` |
 | `.template.md` imports | `@vite-hub/markdown-template` |
-| Console with Agents | `@libsql/client drizzle-orm` |
+| Console with Agents | `@libsql/client drizzle-orm@1.0.0-rc.5` |
 | Console MCP client (`console.mcpClient`) | `@modelcontextprotocol/sdk` |
 | `vite-hub/choices` | `@vite-hub/choices` |
 | `vite-hub/device` | `@vite-hub/device` |
 | `vite-hub/forge` | `@vite-hub/forge` |
 | `vite-hub/gateways` | `@vite-hub/gateways` |
 | `vite-hub/ui` | `@vite-hub/ui` |
+| `vite-hub/web-container` | `@vite-hub/web-container` |
 | `vite-hub/console/ui` | `@vite-hub/ui @json-render/core @json-render/vue @vueuse/core` |
 | `vite-hub/docs/*` | `@vite-hub/docs` |
 | `vite-hub/presets/*` | `@vite-hub/presets` |
+| `vitehub migrate` | `@vite-hub/codemods` as a development dependency |
+
+If you use Database, including for Connections, Comments, Forms, Sync, or Webhooks, run `pnpm add -D drizzle-kit@1.0.0-rc.5` to generate migrations. With npm, pass `--save-exact` for pinned Drizzle RC packages so `package.json` keeps the exact version instead of a `^` range. For example, run `npm install --save-exact drizzle-orm@1.0.0-rc.5` and `npm install -D --save-exact drizzle-kit@1.0.0-rc.5`.
 
 A build with an enabled feature whose package is missing fails with the `pnpm add` command to run. Incompatible ViteHub packages fail the build; most other out-of-range peers only warn. An unsupported `drizzle-orm` version also fails the build with `VITE_HUB_PEER_VERSION_UNSUPPORTED` when Database is enabled or the build loads the Drizzle query adapter for Agent Invocations. Agent builds that do not load the adapter can keep an unrelated Drizzle version.
 
@@ -86,7 +94,7 @@ export default defineConfig({
 
 This registers ViteHub's build integration. Your application still needs a server entry or a framework such as Nuxt. For Nuxt, use the `vite-hub/nuxt` module shown in the [installation guide](https://vitehub.dev/docs/getting-started/installation).
 
-On Nuxt 5, the module auto-imports the server helpers of each enabled feature, such as `kv`, `db`, and `sendQueue`. Set `nitro: { imports: false }` to turn them off. Read [Nuxt server auto-imports](https://vitehub.dev/docs/frameworks-hosts/nuxt-server-auto-imports).
+On Nuxt 5, server code imports ViteHub helpers such as `kv`, `db`, and `sendQueue` from their `vite-hub/*` paths. When the app turns on Nuxt's `experimental: { nitroAutoImports: true }`, the module also auto-imports the server helpers of each enabled feature. A name that the app or another module already gives keeps that source, and ViteHub logs one warning. Read [Nuxt server auto-imports](https://vitehub.dev/docs/frameworks-hosts/nuxt-server-auto-imports).
 
 On a Node host with persistent storage, set `dataDir` once. Enabled Agent State, Agent Invocation journal, KV, Blob, and Workspace integrations derive local paths from it. For example, `vitehub({ host: "node", dataDir: "/var/lib/app", agent: true, kv: true, blob: true, workspace: true })` uses that directory without per-store environment variables. Relative paths resolve from the configuration process's working directory. The host must mount persistent storage there; `dataDir` does not create a volume. Other hosts require their own storage providers.
 
@@ -142,7 +150,7 @@ Discovered Database Definitions do not enable Database. Without `database`, impo
 
 If an enabled capability is not supported by the host, the build fails. You can instead configure an explicit Blob driver through `blob` or compose an owner package directly when the application provides its own portable implementation.
 
-The Deno host uses Nitro's Deno entrypoint, so it rejects Schedule and `agent.runtime: "deno"`; those owner-package outputs require an explicit deployment integration.
+On the Deno host, `schedule: true` writes static Schedules as `Deno.cron` registrations. The generated `.output/main.ts` loads them before the Nitro server. Use the default Agent runtime for deployed routes. The host rejects `agent.runtime: "deno"` because it generates a separate server outside the deployed entrypoint. See the [Deno host guide](https://vitehub.dev/docs/frameworks-hosts/deno).
 
 The Deno host emits `.output/deno.json`, stages under `.output/node_modules` the packages that the server bundle keeps external and the Linux glibc binaries that bundled packages load at runtime, such as libSQL's native module, and writes `.output/deploy.mjs`, a non-interactive create-or-update runner used by the `node ./deploy.mjs` command in `.output/nitro.json`; set `DENO_DEPLOY_ORG` before deployment. The runner uses the resolved deployment identity as its app name, with `DENO_DEPLOY_APP` as an optional override, and uploads node modules when it creates or updates an app. The Node host emits a plain Node server artifact suitable for a VPS or container image; Docker is not a host.
 
@@ -277,7 +285,7 @@ Built-in Agent Drivers and Sandbox runtimes are selected by literal or tagged va
 
 ## Record Agent invocations
 
-An app with Nitro-hosted Agents records their invocations in the default journal, with the Console on or off. It is local SQLite at `.vitehub/data/agent-invocations.sqlite`, or `agent-invocations.sqlite` next to a `file:` Agent State database on the node host, or the D1 binding of the default Database Definition in a Cloudflare production build. The Console only reads it. The Netlify host and `agent.runtime: "deno"` require `agent.invocations: false` and journals configured on each Agent Definition; they reject an omitted or configured app-wide journal with `VITE_HUB_R0132`. Set the default journal options in `agent.invocations`:
+An app with Nitro-hosted Agents records their invocations in the default journal, with the Console on or off. It is local SQLite at `.vitehub/data/agent-invocations.sqlite`, or `agent-invocations.sqlite` next to a `file:` Agent State database on the node host, or the D1 binding of the default Database Definition in a Cloudflare production build, or the Postgres `default` Database in a node production build without `databaseUrl` or `dataDir`. The Console only reads it. The Netlify host and `agent.runtime: "deno"` require `agent.invocations: false` and journals configured on each Agent Definition; they reject an omitted or configured app-wide journal with `VITE_HUB_R0132`. Set the default journal options in `agent.invocations`:
 
 ```ts
 import { vitehub } from "vite-hub"
@@ -293,9 +301,9 @@ vitehub({
 })
 ```
 
-`databaseUrl` takes a `file:` or libSQL URL, and `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` overrides it at runtime, with `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN` for an authenticated endpoint. `retention` takes `maxAge`, `maxRecords`, and `maxSize`. The SQLite journal keeps every terminal record by default; the D1 journal defaults to 30 days and 10,000 terminal records and does not support `maxSize`. On a Worker without D1 or a remote URL, the journal stays in memory. `console.databaseUrl`, `console.retention`, `console.observations`, and `VITEHUB_CONSOLE_DATABASE_URL` are removed and fail with a message that names the new option. ViteHub does not move records from the old `.vitehub/data/console.sqlite` file. See [the default journal](https://vitehub.dev/docs/agents/invocation-storage#use-the-default-journal).
+`databaseUrl` takes a `file:` or libSQL URL, and `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` overrides it at runtime, with `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN` for an authenticated endpoint. `retention` takes `maxAge`, `maxRecords`, and `maxSize`. The SQLite journal keeps every terminal record by default; the D1 and Postgres journals default to 30 days and 10,000 terminal records and do not support `maxSize`. On a Worker without D1 or a remote URL, the journal stays in memory. `console.databaseUrl`, `console.retention`, `console.observations`, and `VITEHUB_CONSOLE_DATABASE_URL` are removed and fail with a message that names the new option. ViteHub does not move records from the old `.vitehub/data/console.sqlite` file. See [the default journal](https://vitehub.dev/docs/agents/invocation-storage#use-the-default-journal).
 
-`getAgentInvocations()` from `vite-hub/agent` returns the app-wide journal. `await getAgentInvocationsDatabase()` from `vite-hub/agent/invocations/drizzle` opens Drizzle over the default journal on first use, for queries and atomic writes such as `db.batch()` on D1. Check the returned `driver` before destructuring to narrow the D1 or libSQL database and schema types. D1 inserts require non-null `search` and `summary`; libSQL reads allow null while legacy rows await backfill. The D1 `db.transaction()` method rejects before the callback runs. It resolves to `undefined` for another journal store, for `agent.invocations: false`, and for the in-memory journal of a Worker.
+`getAgentInvocations()` from `vite-hub/agent` returns the app-wide journal. `await getAgentInvocationsDatabase()` from `vite-hub/agent/invocations/drizzle` opens Drizzle over the default journal on first use, for queries and atomic writes such as `db.batch()` on D1. Check the returned `driver` before destructuring to narrow the D1 or libSQL database and schema types. D1 inserts require non-null `search` and `summary`; libSQL reads allow null while legacy rows await backfill. The D1 `db.transaction()` method rejects before the callback runs. It resolves to `undefined` for another journal store, for `agent.invocations: false`, for the in-memory journal of a Worker, and for the default journal in a Postgres Database.
 
 Set `invocations` on an Agent Definition to record into another journal, such as the app's Database:
 
@@ -360,7 +368,7 @@ Console image uploads require invocation to be enabled. The Console fixes the Ag
 
 ## Logs
 
-`vite-hub/logs` uses Evlog's public logger API and adds a read-only `LogSource` contract for existing pipelines. A bounded local buffer supports development inspection without adding an exporter. Read the [Logs guide](https://vitehub.dev/docs/logs) and [Logs contract](src/logs/README.md) for retention, redaction and source ownership.
+`vite-hub/logs` exports the read-only `LogSource` contract and a bounded local buffer (`createLogBuffer()`) for development inspection without adding an exporter. Import Evlog's logger API from `evlog`. Read the [Logs guide](https://vitehub.dev/docs/logs) and [Logs contract](src/logs/README.md) for retention, redaction and source ownership.
 
 Logs has its own `logs` key. Turn it on with `vitehub({ console: { auth: false }, logs: true })` during local development. It attaches a bounded buffer to Evlog's existing drain and reuses an installed Evlog Nitro module. Pass `logs: { maxEntries: 256 }` to size the buffer, and `observability: { evlog: { redact: true } }` to configure Evlog when ViteHub owns its setup. If another integration already installed Evlog, configure the options there.
 

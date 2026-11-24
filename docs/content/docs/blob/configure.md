@@ -78,7 +78,7 @@ export default defineConfig({
 | `blob: { serve: false }` | No serve route. This is the default. |
 | `blob: { serve: { access: 'public' } }` | Adds a Nitro route at `/_vitehub/blob/**` that sends every file of the default store to anyone. |
 | `blob: { serve: { authorize: true } }` | Adds the same route, but each request needs a signed-in Auth session. |
-| `blob: { serve: { public?, authorize?, route?, store?, publicBaseUrl?, headers?, anonymous? } }` | Adds a Nitro route. Set exactly one of `access: 'public'` and `authorize: true`, or the build fails with `BLOB_C0021`. `route` defaults to `/_vitehub/blob` and `store` to `default`. `publicBaseUrl` changes the public URLs. `headers` adds static response headers. `anonymous: true` also sends signed-out requests to the `authorize` export. |
+| `blob: { serve: { access?, authorize?, route?, store?, publicBaseUrl?, headers?, anonymous? } }` | Adds a Nitro route. Set exactly one of `access: 'public'` and `authorize: true`, or the build fails with `BLOB_C0021`. `route` defaults to `/_vitehub/blob` and `store` to `default`. `publicBaseUrl` changes the public URLs. `headers` adds static response headers. `anonymous: true` also sends signed-out requests to the `authorize` export. |
 
 > [!WARNING]
 > The serve route sends each file from the app origin with the content type that the uploader sent. It serves HTML, SVG, XML, and multipart types in a CSP sandbox, so they run no script. A middleware `Content-Security-Policy` does not remove the sandbox. When users who are not fully trusted can upload, set `publicBaseUrl` to an origin that has no app cookies, and limit [`ensure.types`](/docs/blob/server-api#ensureblobblob-options) to the types that your app needs. Read [Serve a transformed object](/docs/blob/server-api#serve-a-transformed-object).
@@ -615,7 +615,7 @@ Use filesystem storage on one machine with one process. Each object is the file 
 | `defaultUrlExpiresIn` | `number` | Files SDK default | Default signed URL lifetime in seconds. |
 | `publicBaseUrl` | `string` | None | Public or CDN base URL for objects, instead of signed URLs when supported. |
 
-The runtime binding takes precedence. HTTP credentials are used when no active binding exists. ViteHub reads them only for HTTP access and signed URLs, so a server with the binding does not need the HTTP credential variables. In `vite dev`, a store that the Cloudflare host infers uses the local `fs` driver instead of the HTTP credentials. See [Use the real store in development](#use-the-real-store-in-development).
+The runtime binding takes precedence. HTTP credentials are used when no active binding exists. ViteHub reads them only for HTTP access and signed URLs, so a server with the binding does not need the HTTP credential variables. Unless `remote: true` is set, a `cloudflare` store in `vite dev` uses the dev runner's emulated R2 binding when it has one, or the local `fs` driver on the Node runner, instead of the HTTP credentials; with `remote: true`, `vite dev` uses the real R2 bucket over HTTP. See [Use the real store in development](#use-the-real-store-in-development).
 
 ### Vercel Blob
 

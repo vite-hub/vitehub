@@ -39,6 +39,15 @@ describe("vitehub status", () => {
     for (const name of packages) expect(feature(json, id).fix).toContain(name)
   })
 
+  it.each([
+    ["node", ["@vite-hub/email", "nodemailer"]],
+    ["cloudflare", ["@vite-hub/email"]],
+  ] as const)("asks for nodemailer for the SMTP Email driver only where it runs (%s)", async (host, packages) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "${host}", email: { driver: "smtp" } }`) })
+    const { json } = await runSetup<SetupStatus>(["status", "--json"], root)
+    expect(feature(json, "email").missingPackages).toEqual([...packages])
+  })
+
   it("reads the host from config without loading it", async () => {
     const root = await createProject({
       "package.json": pnpmManifest,
@@ -126,6 +135,20 @@ describe("vitehub status", () => {
   })
 
   it.each([
+    [`srcDir: "src"`, "server/comments.ts", "on"],
+    [`srcDir: "src"`, "src/server/comments.ts", "off"],
+  ])("discovers Nuxt Comments in the root server directory with %s: %s", async (options, file, enabled) => {
+    const root = await createProject({
+      [file]: `throw new Error("must not load discovery files")`,
+      "nuxt.config.ts": `export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], ${options} })`,
+      "package.json": pnpmManifest,
+    })
+    const { json } = await runSetup<SetupStatus>(["status", "--json"], root)
+    expect(feature(json, "comments")).toMatchObject({ enabled, reason: "default" })
+    expect(feature(json, "queue")).toMatchObject({ enabled: "off", reason: "default" })
+  })
+
+  it.each([
     ["backend", "backend/comments.ts", "on"],
     ["backend", "server/comments.ts", "off"],
     ["", "server/comments.ts", "on"],
@@ -143,6 +166,7 @@ describe("vitehub status", () => {
 
   it.each([
     [`serverDir: process.env.SERVER_DIR`, {}],
+    ['srcDir: "src", $development: { serverDir: "backend" }', { "backend/comments.ts": "export default {}" }],
     [`extends: ["./base"]`, { "base/nuxt.config.ts": "export default {}", "base/server/comments.ts": "export default {}" }],
     ["", { "layers/base/nuxt.config.ts": "export default {}", "layers/base/server/comments.ts": "export default {}" }],
   ])("keeps unresolved Nuxt discovery unknown: %s", async (options, files) => {
@@ -308,7 +332,7 @@ describe("vitehub status", () => {
       const missing = (await runSetup<SetupStatus>(["status", "--json"], root)).json
       expect(feature(missing, "schedule")).toMatchObject({ fix: "pnpm add @vite-hub/schedule", missingPackages: ["@vite-hub/schedule"] })
       expect(feature(missing, "database")).toMatchObject({
-        fix: "pnpm add @vite-hub/database drizzle-orm && pnpm add -D drizzle-kit",
+        fix: 'pnpm add @vite-hub/database "drizzle-orm@1.0.0-rc.5 || ^1.0.0" && pnpm add -D "drizzle-kit@1.0.0-rc.5 || ^1.0.0"',
         missingPackages: ["@vite-hub/database", "drizzle-orm", "drizzle-kit"],
       })
 
