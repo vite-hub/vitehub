@@ -22,9 +22,7 @@ describe("agent-ready HTTP contracts", () => {
     const diagnostics = modules.indexOf("./modules/diagnostics");
     expect(diagnostics).toBeGreaterThanOrEqual(0);
     expect(modules.indexOf("@vite-hub/docs/nuxt")).toBeGreaterThan(diagnostics);
-    // The docs module installs nuxt-agent-discovery, so the site does not list it. Content serves llms.txt.
     expect(Object.keys(docsPackage.dependencies)).toEqual(expect.arrayContaining(["nuxt-agent-discovery"]));
-    // Local patch until nuxt-agent-discovery routes negotiated pages through the Cloudflare Worker.
     expect(workspace).toContain("nuxt-agent-discovery@0.8.2: patches/nuxt-agent-discovery@0.8.2.patch");
     const manifest = await createDocsManifest({ dir: resolve(docsRoot, "content"), base: "/docs" });
     expect(manifest.pages.map(page => page.path).filter(path => path !== "/")).toEqual([...trustPages, ...workspacePages].sort().map(page => `/${page}`));
@@ -68,7 +66,6 @@ describe("agent-ready HTTP contracts", () => {
     expect(links.length).toBeGreaterThan(0);
     for (const link of links.filter(link => !machineResources.includes(link))) {
       expect(link).toMatch(/^\/raw\/.+\.md$/);
-      // Each raw link names a page that the build writes a raw copy for.
       expect(findDocsPage(manifest, link.replace(/^\/raw/, "").replace(/\.md$/, "")), link).not.toBeNull();
     }
   });
@@ -92,7 +89,7 @@ describe("agent-ready HTTP contracts", () => {
     expect(lockfile).toMatch(/^ {2}nitro@3\.[^:]+:$/m);
     expect(lockfile).toMatch(/^ {2}'@nuxt\/devtools@3\.[^']+':$/m);
     expect(config).toMatch(/devtools:\s*{\s*enabled:\s*false/);
-    expect(cliPackage.peerDependencies.nuxt).toBe("catalog:nuxt-compat");
+    expect(cliPackage.peerDependencies.nuxt).toBe("^4.7.0 || >=5.0.0-0");
     expect(cliPackage.peerDependenciesMeta.nuxt).toEqual({ optional: true });
   });
 });
