@@ -9,7 +9,7 @@ type ReplayHook = "resolveId" | "load" | "transform"
 const replayHooks: readonly ReplayHook[] = ["resolveId", "load", "transform"]
 
 const notReplayed: Record<string, { hooks: readonly ReplayHook[], reason: string }> = {
-  "@vite-hub/agent/vite": { hooks: ["resolveId", "load"], reason: "The Agent Nitro config aliases its generated modules; the transform is replayed through vitehub.agent.transformWorkspaceAgent." },
+  "@vite-hub/agent/vite": { hooks: ["resolveId", "load", "transform"], reason: "The Agent Nitro config aliases its generated modules. KNOWN GAP: Nitro runs transformWorkspaceAgent instead of the original transform that registers named Channels." },
   "@vite-hub/channels/vite": { hooks: ["resolveId", "load"], reason: "packages/channels/src/vite.ts configureNitroChannels aliases #vitehub/channels/registry to a generated file." },
   "@vite-hub/connections/vite": { hooks: ["resolveId", "load"], reason: "packages/connections/src/vite.ts aliases #vitehub/connections/registry to a generated file." },
   "@vite-hub/content/vite": { hooks: ["resolveId", "load", "transform"], reason: "The plugin's nitro.setup adds @vite-hub/content/nitro-kv for the KV registration. Without a Vite environment the build makes no Source snapshots, so a cold server parses glob() and files() Sources on its first read." },
@@ -18,7 +18,6 @@ const notReplayed: Record<string, { hooks: readonly ReplayHook[], reason: string
   "@vite-hub/i18n/vite": { hooks: ["resolveId", "load"], reason: "KNOWN GAP: with i18n.workspace, .vitehub/nitro/i18n/plugin.mjs imports virtual:vite-hub/i18n/build-messages, which the Nitro build leaves unresolved, and the server does not start." },
   "@vite-hub/kv/optional-peers": { hooks: ["resolveId"], reason: "Optional peer stubs; Nuxt aliases the disabled KV drivers itself." },
   "@vite-hub/sandbox/task/vite": { hooks: ["resolveId", "load"], reason: "The plugin's nitro.setup aliases @vite-hub/sandbox/task to the generated facade (#5462)." },
-  "@vite-hub/source/vite": { hooks: ["resolveId", "load", "transform"], reason: "KNOWN GAP: glob() Sources are not bundled in the Nitro build. #5463 replays these hooks." },
   "@vite-hub/workspace/vite": { hooks: ["resolveId", "load"], reason: "configureNitroWorkspaceAssets aliases the assets registry for a Nitro build outside Vite." },
   "vite-hub/cloudflare-node-dev": { hooks: ["resolveId", "load"], reason: "Nuxt writes its own Cloudflare dev shims (writeCloudflareDevShims)." },
   "vite-hub/console": { hooks: ["transform"], reason: "Nuxt filters the Console plugin out and installs consoleOperationFeatures() in Nitro (installNitroBuildPlugins)." },
@@ -65,9 +64,9 @@ describe("Nuxt 4.7 Nitro replay coverage", () => {
   it("replays or explains every server resolveId, load and transform hook", () => {
     const unexplained: string[] = []
     for (const plugin of plugins.values()) {
-      const replay = nitroRuntimeResolver(plugin, {}, { root: process.cwd() })
+      const originalHooks = nitroRuntimeResolver(plugin, {}, { root: process.cwd() })?.originalHooks
       for (const hook of replayHooks) {
-        if (Reflect.get(plugin, hook) === undefined || Reflect.get(replay ?? {}, hook) !== undefined) continue
+        if (plugin[hook] === undefined || originalHooks?.[hook] !== undefined) continue
         if (!notReplayed[plugin.name]?.hooks.includes(hook)) unexplained.push(`${plugin.name} ${hook}`)
       }
     }
@@ -78,8 +77,8 @@ describe("Nuxt 4.7 Nitro replay coverage", () => {
     const stale = Object.entries(notReplayed).flatMap(([name, { hooks }]) => {
       const plugin = plugins.get(name)
       if (!plugin) return [`${name}: no such plugin`]
-      const replay = nitroRuntimeResolver(plugin, {}, { root: process.cwd() })
-      return hooks.filter(hook => Reflect.get(plugin, hook) === undefined || Reflect.get(replay ?? {}, hook) !== undefined).map(hook => `${name} ${hook}`)
+      const originalHooks = nitroRuntimeResolver(plugin, {}, { root: process.cwd() })?.originalHooks
+      return hooks.filter(hook => plugin[hook] === undefined || originalHooks?.[hook] !== undefined).map(hook => `${name} ${hook}`)
     })
     expect(stale).toEqual([])
   })

@@ -128,8 +128,6 @@ catalogs:
     "@takumi-rs/core": 2.22.1
     nuxt: npm:nuxt-nightly@5.0.0-2611222336-0ed8910
     nuxt-schema-org: ^7.0.1
-  nuxt-compat:
-    nuxt: ">=5.0.0-0"
   realtime:
     "@tiptap/core": ^3.35.0
     "@tiptap/extension-blockquote": ^3.35.0

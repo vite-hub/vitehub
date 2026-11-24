@@ -1,6 +1,9 @@
+import { execFile } from "node:child_process"
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { stripTypeScriptTypes } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, join, relative, resolve } from "node:path"
+import { promisify } from "node:util"
 
 import { files, github } from "@vite-hub/source"
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest"
@@ -110,7 +113,7 @@ async function setupDocs(docs: DocsModuleOptions, appBase = "/", dev = false, la
     rootDir: resolve(import.meta.dirname, "fixtures"), buildDir, serverDir: "/missing-server",
     // A Nuxt 5 nightly installs as `nuxt-nightly`.
     srcDir: "/app", appDir: "/node_modules/nuxt-nightly/dist/app", dev, build: { transpile: [] }, appConfig: {}, extensions: [".js", ".ts", ".vue"], _layers: layers,
-    experimental: { defaults: { nuxtLink: { prefetchOn: { visibility: true } as Record<string, boolean> } } },
+    experimental: { defaults: { nuxtLink: { prefetchOn: { visibility: true } as Record<string, boolean> } }, nitroViteEnvironment: true },
     app: { baseURL: appBase, head: {} }, runtimeConfig: { public: {} }, alias: {}, css: [],
     imports: { dirs: [] }, watch: [] as string[], docs,
   }
@@ -607,6 +610,78 @@ describe("docs Nuxt setup", () => {
       join(dir, "b"),
     ]);
   });
+
+  it("reads pages from disk in development when Nitro builds the server without Vite", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "docs-nitro-bundler-"));
+    roots.push(dir);
+    mkdirSync(join(dir, "guide"));
+    writeFileSync(join(dir, "guide/install.md"), "---\ntitle: Install\n---\nRun pnpm add lumen.");
+    const options = await setupDocs({ base: "/", sources: [{ source: dir, mount: "/docs" }] }, "/", true);
+    options.experimental.nitroViteEnvironment = false;
+    const nitro: { virtual?: Record<string, string | (() => string)> } = {};
+    for (const hook of hooks.get("nitro:config") ?? []) await hook(nitro as never);
+    const template = nitro.virtual?.["#docs/files"];
+    if (typeof template !== "function") throw new Error("#docs/files is not generated in development");
+    const file = join(dir, "docs-files.mjs");
+    writeFileSync(file, template());
+    const script = join(dir, "verify.mjs")
+    writeFileSync(script, `
+      import assert from "node:assert/strict";
+      import { writeFile } from "node:fs/promises";
+      import files from "./docs-files.mjs";
+      assert.equal(files.has("docs-0", "guide/install.md"), true);
+      assert.equal(await files.read("docs-0", "guide/install.md"), "---\\ntitle: Install\\n---\\nRun pnpm add lumen.");
+      assert.equal(await files.read("docs-0", "missing.md"), null);
+      await writeFile(new URL("./guide/install.md", import.meta.url), "---\\ntitle: Install\\n---\\nRun pnpm add lumen@2.");
+      assert.equal(await files.read("docs-0", "guide/install.md"), "---\\ntitle: Install\\n---\\nRun pnpm add lumen@2.");
+    `)
+    await promisify(execFile)(process.execPath, [script])
+    expect(readFileSync(join(dir, "guide/install.md"), "utf8")).toContain("lumen@2")
+  });
+
+  it("serves packed Markdown in standalone Workerd and restarts on a content edit", async () => {
+    const app = appWithDocs({ "docs/index.md": "Home" })
+    const page = join(app.dir, "docs/index.md")
+    writeFileSync(page, "---\ntitle: Home\n---\n# Home")
+    const options = await setupDocs({ dir: app.dir }, "/", true)
+    options.experimental.nitroViteEnvironment = false
+    const config: { virtual?: Record<string, () => string> } = {}
+    await callHook("nitro:config", config)
+    await callHook("nitro:init", { options: { ...config, devServer: { runner: "miniflare" } } })
+    const fixture = mkdtempSync(join(tmpdir(), "docs-workerd-"))
+    roots.push(fixture)
+    writeFileSync(join(fixture, "files.mjs"), config.virtual!["#docs/files"]!())
+    const runtime = readFileSync(new URL("../src/runtime/files.ts", import.meta.url), "utf8")
+    writeFileSync(join(fixture, "runtime.mjs"), stripTypeScriptTypes(runtime.replace("#docs/files", "./files.mjs")))
+    writeFileSync(join(fixture, "test.mjs"), `
+      import { readDocsFile } from "./runtime.mjs";
+      export default { async test() {
+        if (!(await readDocsFile("docs", "docs/index.md"))?.includes("# Home")) throw new Error("Missing page");
+        if (await readDocsFile("docs", "missing.md") !== null) throw new Error("Unexpected page");
+      } };
+    `)
+    const configPath = join(fixture, "config.capnp")
+    writeFileSync(configPath, `
+      using Workerd = import "/workerd/workerd.capnp";
+      const config :Workerd.Config = (services = [(name = "docs", worker = (
+        compatibilityDate = "2026-07-30",
+        compatibilityFlags = ["nodejs_compat"],
+        modules = [(name = "test.mjs", esModule = embed "test.mjs"),
+                   (name = "runtime.mjs", esModule = embed "runtime.mjs"),
+                   (name = "files.mjs", esModule = embed "files.mjs")]
+      ))]);
+    `)
+    const { createRequire: createNodeRequire } = await vi.importActual<typeof import("node:module")>("node:module")
+    const require = createNodeRequire(import.meta.url)
+    const { default: workerd } = require("workerd") as { default: string }
+    await promisify(execFile)(workerd, ["test", configPath])
+
+    vi.useFakeTimers()
+    writeFileSync(page, "---\ntitle: Home\n---\n# Updated")
+    watchContent.mock.calls[0]![2]!("change", "docs/index.md")
+    await vi.advanceTimersByTimeAsync(100)
+    await vi.waitFor(() => expect(nuxtCallHook).toHaveBeenCalledWith("restart"))
+  })
 
   it.each([true, false])("copies and serves the pages of a github() Source (dev: %s)", async (dev) => {
     const fake = createFakeGitHub({ owner: "acme", repo: "docs" });
