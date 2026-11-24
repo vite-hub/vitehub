@@ -16,6 +16,8 @@ icon: i-lucide-code-2
 | `ViteHubError` from `vite-hub/runtime` | Throw your own Workflow failures with stable codes. |
 | `NonRetryableError` from `vite-hub/workflow` | Fail a run at once, with no more retries, on every provider. |
 | `readRequestPayload`, `readValidatedPayload`, `validatePayload` from `vite-hub/workflow` | Read provider request payloads in custom runtime entry points. `readRequestPayload()` returns `unknown`: check it with `validatePayload()`, or call `readValidatedPayload()`. |
+| `getCloudflareWorkflowBindingName` from `vite-hub/workflow` | Compute the generated Cloudflare Workflow binding name for a Workflow name. |
+| `startOpenWorkflowWorker`, `createOpenWorkflowWorker` from `vite-hub/workflow/openworkflow` | Run a separate OpenWorkflow worker process when `workflow: { worker: false }`. |
 | `hubWorkflow` from `@vite-hub/workflow/vite` | Add Workflow discovery and host output. |
 
 `vite-hub/workflow` also exports the Provider, Definition, Run, Step, Start Options, and Integration Options types.
@@ -65,7 +67,7 @@ export default defineEventHandler(async (event) => {
 | --- | --- | --- |
 | OpenWorkflow | The run stays pending in storage until its start time. | `queued` |
 | Cloudflare | The run sleeps until its start time before the handler. A waiting instance does not count toward the concurrency limit. | `running` |
-| Vercel `native` entry of a folder Workflow | The generated entry calls Workflow DevKit `sleep()` before the first step. | `running` |
+| Vercel `native` entry of a folder Workflow without `index.ts` | The generated entry calls Workflow DevKit `sleep()` before the first step. | `running` |
 | Vercel `native` entry that you wrote | Not supported. `startWorkflow()` returns the error `WORKFLOW_OPERATION_UNSUPPORTED`. | |
 | Inline runs (`vite dev`, normal Vercel handlers) | A timer in the server process. It is not durable: a restart loses the run. Outside `vite dev`, the first delayed run of each Workflow logs a warning. | `queued` |
 
@@ -80,9 +82,9 @@ On Cloudflare, ViteHub cannot tell the delay from other sleeps, so the run repor
 | `getWorkflowRun(name, id)` | Reads the current run state. Returns `[error, run]`. |
 | `cancelWorkflow(name, id)` | Cancels a Cloudflare run, a native Vercel run, or a pending or running OpenWorkflow run. Returns `[error, run]`. |
 | `resumeWorkflow(token, payload)` | Sends `payload` to a run that waits on the token of `context.createSignal()`, or to a Workflow DevKit hook on Vercel. Returns `[error, signal]`. |
-| `createWorkflow(name, options?)` | Returns a handle with `start`, `defer`, `getRun`, and `cancel`. `start`, `getRun`, and `cancel` return `[error, data]`. |
+| `createWorkflow(name, handler?, options?)` | Returns a handle with `start`, `defer`, `getRun`, and `cancel`. Also accepts `createWorkflow(name, options)` and `createWorkflow({ name, handler, ...options })`. `start`, `getRun`, and `cancel` return `[error, data]`. |
 
-`WorkflowStartOptions` accepts `id` and `delay`. For `id`, use only letters, digits, `-`, and `_`, start with a letter, a digit, or `_`, and use up to 100 characters, so the id works on every provider. On Cloudflare, `startWorkflow()` returns the error `WORKFLOW_CLOUDFLARE_RUN_ID_INVALID` for another id, also in `vite dev`. `getWorkflowRun()` queries Cloudflare for existing instances, whose ids can follow different rules. `createWorkflow({ id })` hashes its value into an id that follows these rules.
+`WorkflowStartOptions` accepts `id` and `delay`. For `id`, use only letters, digits, `-`, and `_`, start with a letter, a digit, or `_`, and use up to 100 characters, so the id works on every provider. On Cloudflare, `startWorkflow()` returns the error `WORKFLOW_CLOUDFLARE_RUN_ID_INVALID` for another id, also in `vite dev`. `getWorkflowRun()` queries Cloudflare for existing instances, whose ids can follow different rules. Passing `id` to `createWorkflow()`, such as `createWorkflow(name, { id })` or `createWorkflow(name, handler, { id })`, hashes its value into an id that follows these rules.
 
 The `result` of a completed run is the value that the handler returned, stored as JSON. All providers return the same plain value. A `Date` comes back as a string, and `undefined` fields are removed. Return a JSON-safe value. Return a `Response` for binary data, a status, or headers. Then `result` is a `Response`.
 

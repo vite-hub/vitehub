@@ -34,7 +34,7 @@ All Vercel Workflow definitions, including plain inline handlers, require `@verc
 pnpm add @vercel/functions
 ```
 
-For [native durable definitions](/docs/workflows/configure#add-a-durable-vercel-entry), also install `workflow` and `@workflow/builders`. A Workflow folder is native too. Plain inline handlers do not need these two packages. When a native definition misses them, the build stops with `WORKFLOW_R0006` and prints the install command.
+For [native durable definitions](/docs/workflows/configure#add-a-durable-vercel-entry), also install `workflow` and `@workflow/builders`. A Workflow folder with numbered step files and no `index.ts` is native too. Plain inline handlers do not need these two packages. When a native definition misses them, the build stops with `WORKFLOW_R0006` and prints the install command.
 
 ```bash pm
 pnpm add --save-exact workflow@5.2.3 @workflow/builders@5.0.6
@@ -71,7 +71,7 @@ OpenWorkflow resolves storage at runtime in this order:
 1. `sqlite.path` selects SQLite, and `postgres.url` selects Postgres. Set only one. If its environment value is missing or empty, startup fails. It does not fall back to another store.
 2. With neither set, `OPENWORKFLOW_SQLITE_PATH` selects SQLite.
 3. Else `OPENWORKFLOW_POSTGRES_URL` selects Postgres.
-4. Else, when the app has a Postgres Default Database (`server/databases/config.ts` with `dialect: 'postgresql'`), OpenWorkflow uses that Database's connection URL. A Database that connects through PG* variables only fails startup with `WORKFLOW_OPENWORKFLOW_DATABASE_URL_MISSING`, so runs never go to a SQLite file by accident. `DATABASE_URL` alone is not used.
+4. Else, when the app has a Postgres Default Database (`server/databases/default.ts` or `server/databases/default/index.ts` with `dialect: 'postgresql'`), OpenWorkflow uses that Database's connection URL. A Database that connects through PG* variables only fails startup with `WORKFLOW_OPENWORKFLOW_DATABASE_URL_MISSING`, so runs never go to a SQLite file by accident. `DATABASE_URL` alone is not used.
 5. Else it uses `.vitehub/data/openworkflow.sqlite.db` in the process working directory, unless `DATABASE_URL` contains a Postgres URL (see below).
 
 ### `DATABASE_URL` is not read
