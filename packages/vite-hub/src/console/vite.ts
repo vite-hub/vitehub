@@ -362,7 +362,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       handler(code) {
         const catalog = projectRoot ? consoleBuildCatalogs.get(projectRoot) : undefined
         const documents = development ? consoleDocumentEditorSectionIds.length > 0 : catalog ? consoleAppModuleHasDocumentEditors({ ...consoleAppModuleOptions(), catalog }) : undefined
-        const transformed = transformConsoleOperationFeatures(code, options.operationSections ?? sections, documents)
+        const transformed = transformConsoleOperationFeatures(code, options.operationSections ?? sections, documents, development)
         return transformed === undefined ? undefined : { code: transformed, map: null }
       },
     },

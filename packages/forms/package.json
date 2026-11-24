@@ -81,6 +81,7 @@
   },
   "dependencies": {
     "@standard-schema/spec": "catalog:runtime",
+    "@valibot/to-json-schema": "catalog:runtime",
     "birpc": "catalog:runtime",
     "nostics": "catalog:runtime",
     "valibot": "catalog:runtime"

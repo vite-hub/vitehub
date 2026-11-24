@@ -11,6 +11,7 @@ declare global {
   interface ImportMeta {
     viteHubConsoleAgents?: boolean
     viteHubConsoleAuth?: boolean
+    viteHubConsoleDevelopment?: boolean
     viteHubConsoleDocuments?: boolean
   }
 }

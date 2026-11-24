@@ -85,6 +85,7 @@
     "test": "vp run --cache -t vite-hub#build && vp run --cache -t @vite-hub/connections#build && vp test"
   },
   "dependencies": {
+    "@valibot/to-json-schema": "catalog:runtime",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "jose": "catalog:auth",

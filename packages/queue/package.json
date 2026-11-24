@@ -70,6 +70,7 @@
     "test": "vp run --cache -t @vite-hub/queue#build && vp test"
   },
   "dependencies": {
+    "@valibot/to-json-schema": "catalog:runtime",
     "@vite-hub/runtime": "workspace:*",
     "defu": "catalog:unjs",
     "nostics": "catalog:runtime",

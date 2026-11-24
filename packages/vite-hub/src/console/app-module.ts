@@ -61,6 +61,10 @@ const consoleRuntimeCapabilityImports: readonly ConsoleRuntimeCapabilityImport[]
   { exportName: "kv", name: "kv" },
 ]
 
+function renderPickedImport(module: string, bindings: string): string {
+  return `import(${JSON.stringify(module)}).then(({ ${bindings} }) => ({ ${bindings} }))`
+}
+
 /** The Agent capabilities of a Console invocation. They load with the first invocation, not when the server starts. */
 function renderConsoleRuntimeCapabilities(imports: Record<string, false | string> | undefined): string | undefined {
   if (!imports) return undefined
@@ -72,7 +76,7 @@ function renderConsoleRuntimeCapabilities(imports: Record<string, false | string
   })
   if (!capabilities.length) return undefined
   const bindings = capabilities.map(({ alias, exportName }) => `{ ${exportName}: ${alias} }`).join(", ")
-  const modules = capabilities.map(({ module }) => `import(${JSON.stringify(module)})`).join(", ")
+  const modules = capabilities.map(({ exportName, module }) => renderPickedImport(module, exportName)).join(", ")
   return `capabilities: async () => { const [${bindings}] = await Promise.all([${modules}]); return { ${capabilities.map(({ alias, name }) => `${name}: ${alias}`).join(", ")} } }`
 }
 
@@ -220,7 +224,7 @@ function renderConsoleAppModule(
     `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)}${navigationSections ? `, ${JSON.stringify(navigationSections)}` : ""})`,
     // The first Console request or agent tool that needs the operations loads them, with every primitive they import.
     `installConsoleRuntime(async () => {`,
-    `  const [${[...runtimeImports.map(entry => `{ ${entry.bindings} }`), ...agentModules.map(entry => entry.binding)].join(", ")}] = await Promise.all([${[...runtimeImports, ...agentModules].map(entry => `import(${JSON.stringify(entry.module)})`).join(", ")}])`,
+    `  const [${[...runtimeImports.map(entry => `{ ${entry.bindings} }`), ...agentModules.map(entry => entry.binding)].join(", ")}] = await Promise.all([${[...runtimeImports.map(entry => renderPickedImport(entry.module, entry.bindings)), ...agentModules.map(entry => `import(${JSON.stringify(entry.module)})`)].join(", ")}])`,
     "  return () => {",
     ...runtimeInstall.map(line => `    ${line}`),
     "  }",

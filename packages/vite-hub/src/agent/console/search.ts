@@ -1,9 +1,7 @@
-import { defineCollection } from "@vite-hub/source"
-
 import { getConsoleInvocations } from "../../console/runtime/server/invocations.ts"
+import { viteHubErrorDiagnostics } from "../../error-diagnostics.ts"
 
 import type { AgentInvocationRecord, AgentInvocationSummary } from "@vite-hub/agent"
-import type { StandardSchemaV1 } from "@standard-schema/spec"
 
 export interface ConsoleSearchItem {
   agentName?: string
@@ -14,52 +12,15 @@ export interface ConsoleSearchItem {
   updatedAt: string
 }
 
-interface ConsoleSearchQuery {
-  search?: string
+/** One page of `search.query`. `nextCursor` is the `cursor` of the next page, or `null` on the last page. */
+export interface ConsoleSearchPage {
+  items: ConsoleSearchItem[]
+  nextCursor: string | null
 }
 
-interface ConsoleSearchRow {
-  excerpt?: string
-  summary: AgentInvocationSummary
-}
-
-const cursorSchema: StandardSchemaV1<string, string> = {
-  "~standard": {
-    version: 1,
-    vendor: "vitehub-console",
-    validate(value) {
-      return String(value) === value
-        ? { value }
-        : { issues: [{ message: "Console search cursor must be a string." }] }
-    },
-  },
-}
-
-const querySchema: StandardSchemaV1<ConsoleSearchQuery, ConsoleSearchQuery> = {
-  "~standard": {
-    version: 1,
-    vendor: "vitehub-console",
-    validate(value) {
-      if (Object(value) !== value || Array.isArray(value)) {
-        return { issues: [{ message: "Console search query must be an object." }] }
-      }
-      const query = Object(value)
-      if (Reflect.ownKeys(query).some(key => key !== "search")) {
-        return { issues: [{ message: "Console search only accepts a search query." }] }
-      }
-      const rawSearch = Reflect.get(query, "search")
-      if (rawSearch === undefined) return { value: {} }
-      if (String(rawSearch) !== rawSearch) {
-        return { issues: [{ message: "Console search must have one string value." }] }
-      }
-      const search = String(rawSearch).trim()
-      if (search.length > 256) {
-        return { issues: [{ message: "Console search must be at most 256 characters." }] }
-      }
-      return { value: search ? { search } : {} }
-    },
-  },
-}
+const defaultSearchLimit = 12
+const maxSearchLimit = 24
+const maxSearchLength = 256
 
 function searchableStrings(value: unknown, values: string[], ancestors = new WeakSet<object>()): void {
   if (Object.prototype.toString.call(value) === "[object String]") {
@@ -98,41 +59,35 @@ export function consoleSearchExcerpt(record: AgentInvocationRecord, search: stri
   return `${start ? "…" : ""}${text.slice(start, end)}${end < text.length ? "…" : ""}`
 }
 
-export const consoleSearch = defineCollection(
-  async ({ cursor, limit, query, signal }): Promise<ConsoleSearchRow[]> => {
-    signal?.throwIfAborted()
-    const invocations = getConsoleInvocations()
-    const listQuery: Parameters<typeof invocations.list>[0] = { limit }
-    if (cursor) listQuery.cursor = cursor
-    if (query.search) listQuery.search = query.search
-    const page = await invocations.list(listQuery)
-    const rows = await Promise.all(page.invocations.map(async (summary) => {
-      const record = query.search ? await invocations.get(summary.id) : undefined
-      const row: ConsoleSearchRow = { summary }
-      if (record) row.excerpt = consoleSearchExcerpt(record, query.search)
-      return row
-    }))
-    signal?.throwIfAborted()
-    return rows
-  },
-  {
-    // The `search.query` Console operation checks access before it calls this handler.
-    access: "public",
-    cursor: row => row.summary.cursor,
-    cursorSchema,
-    defaultLimit: 12,
-    maxLimit: 24,
-    querySchema,
-    transform(row): ConsoleSearchItem {
-      const item: ConsoleSearchItem = {
-        context: row.summary.threadId || row.summary.origin || row.summary.channelId || row.summary.id,
-        id: row.summary.id,
-        status: row.summary.status,
-        updatedAt: row.summary.updatedAt || row.summary.startedAt || row.summary.createdAt,
-      }
-      if (row.summary.agentName) item.agentName = row.summary.agentName
-      if (row.excerpt) item.excerpt = row.excerpt
-      return item
-    },
-  },
-)
+function searchItem(summary: AgentInvocationSummary, excerpt: string | undefined): ConsoleSearchItem {
+  const item: ConsoleSearchItem = {
+    context: summary.threadId || summary.origin || summary.channelId || summary.id,
+    id: summary.id,
+    status: summary.status,
+    updatedAt: summary.updatedAt || summary.startedAt || summary.createdAt,
+  }
+  if (summary.agentName) item.agentName = summary.agentName
+  if (excerpt) item.excerpt = excerpt
+  return item
+}
+
+function searchRequestError(message: string): Error {
+  return Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0052({ message }), { status: 400, statusCode: 400, statusMessage: message })
+}
+
+/** Search the Agent Invocations of the Console. A search adds the matching excerpt of each Invocation. */
+export async function searchConsoleInvocations(input: { cursor?: string, limit?: number, search?: string }): Promise<ConsoleSearchPage> {
+  if (input.limit !== undefined && input.limit < 1) throw searchRequestError("Console search limit must be a positive integer.")
+  const search = input.search?.trim()
+  if (search && search.length > maxSearchLength) throw searchRequestError(`Console search must be at most ${maxSearchLength} characters.`)
+  const invocations = getConsoleInvocations()
+  const listQuery: Parameters<typeof invocations.list>[0] = { limit: Math.min(input.limit ?? defaultSearchLimit, maxSearchLimit) }
+  if (input.cursor) listQuery.cursor = input.cursor
+  if (search) listQuery.search = search
+  const page = await invocations.list(listQuery)
+  const items = await Promise.all(page.invocations.map(async (summary) => {
+    const record = search ? await invocations.get(summary.id) : undefined
+    return searchItem(summary, record ? consoleSearchExcerpt(record, search) : undefined)
+  }))
+  return { items, nextCursor: page.cursor ?? null }
+}

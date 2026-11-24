@@ -61,6 +61,7 @@
   },
   "dependencies": {
     "@standard-schema/spec": "catalog:runtime",
+    "@valibot/to-json-schema": "catalog:runtime",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "valibot": "catalog:runtime"
