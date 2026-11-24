@@ -275,9 +275,9 @@ export function resolveAuthOptions(
   const callback = typeof definition.options === "function"
   const usesContext = !request || callback
   const env = usesContext ? input.env?.(input.event) ?? {} : {}
-  const origin = request && clientRequest(request)
-  const requestUrlOrigin = origin ? new URL(origin.url).origin : undefined
-  const proxiedOrigin = origin ? forwardedRequestOrigin(origin) : undefined
+  const client = request && clientRequest(request)
+  const clientUrlOrigin = client ? new URL(client.url).origin : undefined
+  const proxiedOrigin = client ? forwardedRequestOrigin(client) : undefined
   const resolveAt = (origin: string | undefined) => {
     const context: AuthRuntimeContext = {
       env,
@@ -294,8 +294,8 @@ export function resolveAuthOptions(
   }
   // Determine trust without exposing forwarded headers to a callback. Only options that trust proxy headers may select
   // a forwarded origin for callbacks and links.
-  let resolved = resolveAt(requestUrlOrigin)
-  if (request && callback && resolved.trusted && proxiedOrigin !== requestUrlOrigin) {
+  let resolved = resolveAt(clientUrlOrigin)
+  if (request && callback && resolved.trusted && proxiedOrigin !== clientUrlOrigin) {
     const forwarded = resolveAt(proxiedOrigin)
     // If the callback revokes trust with the forwarded context, discard that snapshot and keep URL-derived values.
     resolved = forwarded.trusted ? forwarded : {
@@ -306,8 +306,8 @@ export function resolveAuthOptions(
   const { declared, trusted } = resolved
   // A callback result is request-scoped as a whole. A static Definition adds only the request defaults below.
   let requestRuntimeOptions = (callback ? declared : {}) as AuthRuntimeOptions & Record<string, unknown>
-  if (origin) {
-    const requestOrigin = trusted && proxiedOrigin ? proxiedOrigin : origin.url
+  if (client) {
+    const requestOrigin = trusted && proxiedOrigin ? proxiedOrigin : client.url
     const baseURL = requestRuntimeOptions.baseURL || resolvePublicUrl({ request: { url: requestOrigin } })
     if (!baseURL) {
       throw authErrorDiagnostics.AUTH_R0022({ message: `[vitehub] The request host ${new URL(requestOrigin).host} is not an origin of vitehub({ publicUrl }), so Auth has no base URL.` })

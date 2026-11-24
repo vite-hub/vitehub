@@ -41,6 +41,15 @@ export default defineMiddleware((event) => {
   }
 })
 `)
+    await writeFile(join(root, "server/middleware/account.ts"), `import { defineMiddleware } from "nitro"
+import { serverFetch } from "nitro/app"
+
+export default defineMiddleware(async (event) => {
+  if (event.url.pathname !== "/account") return
+  const items = await serverFetch("/api/items", { headers: { cookie: event.req.headers.get("cookie") ?? "" } })
+  return new Response(\`Account of \${(await items.json()).email}\`)
+})
+`)
     await mkdir(join(root, "server/api"), { recursive: true })
     await writeFile(join(root, "server/api/items.get.ts"), `import { defineHandler } from "nitro"
 import { requireAuth } from "@vite-hub/auth/server"
@@ -92,6 +101,8 @@ assert.match(await page.text(), /Signed-in sessions: 1/)
 const items = await server.fetch(new Request(origin + "/items", { headers: { cookie, host: new URL(origin).host } }))
 assert.equal(items.status, 200, items.headers.get("location"))
 assert.match(await items.text(), /Items of ada@example.com \\(ok\\), session of ada@example.com/)
+const account = await server.fetch(new Request(origin + "/account", { headers: { cookie, host: new URL(origin).host } }))
+assert.equal(await account.text(), "Account of ada@example.com")
 `)
 
     const { build, loadNuxt } = await import("nuxt")

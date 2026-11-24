@@ -1,21 +1,29 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 
-type RequestOrigin = Pick<Request, "headers" | "url">
+import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 
-const clientRequests = new AsyncLocalStorage<RequestOrigin>()
+type ClientRequest = Pick<Request, "headers" | "url">
 
-/**
- * Runs `next` with `request` as the request that the client sent. A request that the server serves in process while
- * `next` runs, such as a Nuxt `useFetch()` during server rendering, keeps the first client request.
- */
-export function runWithClientRequest<T>(request: RequestOrigin, next: () => T): T {
+const inProcessOrigin = "http://localhost"
+const storageKey = Symbol.for("vitehub.auth.client-request")
+const runtimeGlobal = globalThis as typeof globalThis & Record<symbol, unknown>
+// SAFETY: Only this module sets the key, to an AsyncLocalStorage of client requests.
+const clientRequests = (runtimeGlobal[storageKey] ||= new AsyncLocalStorage<ClientRequest>()) as AsyncLocalStorage<ClientRequest>
+
+export function runWithClientRequest<T>(request: ClientRequest, next: () => T): T {
   return clientRequests.getStore() ? next() : clientRequests.run(request, next)
 }
 
 /**
- * The request that the client sent for `request`. Nuxt serves a `useFetch()` of server rendering in process at
+ * Nitro serves a request that the server sends to itself, such as a Nuxt `useFetch()` during server rendering, at
  * `http://localhost`, so the URL of that request does not show the origin of the page.
  */
-export function clientRequest(request: RequestOrigin): RequestOrigin {
-  return clientRequests.getStore() ?? request
+export function clientRequest(request: ClientRequest): ClientRequest {
+  const client = clientRequests.getStore()
+  return client && new URL(request.url).origin === inProcessOrigin ? client : request
+}
+
+export function clientRequestOrigin(request: ClientRequest, trustProxyHeaders = false): string {
+  const client = clientRequest(request)
+  return trustProxyHeaders ? forwardedRequestOrigin(client) : new URL(client.url).origin
 }

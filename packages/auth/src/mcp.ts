@@ -3,6 +3,7 @@ import { APIError, createAuthMiddleware } from "better-auth/api"
 import { jwt } from "better-auth/plugins"
 
 import { isRecord } from "@vite-hub/internal/object"
+import { clientRequestOrigin } from "./client-request.ts"
 import { mcpRegistrationPluginId } from "./mcp-config.ts"
 import { appAuth, baseScopes, pathOf, stateOf } from "./mcp-token.ts"
 
@@ -201,7 +202,8 @@ export async function serveMcpOAuthDiscovery(request: Request, options: McpOAuth
 }
 
 async function discoveryDocument(request: Request, document: typeof discoveryDocuments[number], options: McpOAuthDiscoveryOptions): Promise<Response | undefined> {
-  const { origin, pathname } = new URL(request.url)
+  const { pathname } = new URL(request.url)
+  const origin = clientRequestOrigin(request)
   const suffix = pathname.slice(`/.well-known/${document}`.length).replace(/\/+$/, "")
   const auth = options.auth ?? appAuth(request)
   const state = await stateOf(auth)
