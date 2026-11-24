@@ -47,6 +47,29 @@ describe.each([
 })
 
 describe("nuxthub", () => {
+  it("imports bare NuxtHub helpers from a custom serverDir without rewriting an app-owned KV", async () => {
+    const route = "export const read = async () => await kv.get('a')\n"
+    const cwd = await app("custom-server-bindings", {
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['@nuxthub/core'], serverDir: 'backend', hub: { kv: true, blob: true } })\n",
+      "backend/utils/index.ts": "export * from '../lib/store'\n",
+      "backend/lib/store.ts": "export const kv = new Map()\n",
+      "backend/api/rows.ts": route,
+      "backend/api/files.ts": "export const files = { blob }\n",
+    })
+    const { result } = await runCodemod("nuxthub", { cwd, dryRun: true })
+    expect(result.edits.find(edit => edit.path === "backend/api/files.ts")?.after).toContain("vite-hub/blob")
+    expect(result.edits.find(edit => edit.path === "backend/api/rows.ts")).toBeUndefined()
+  })
+
+  it("imports a NuxtHub KV used without a member expression", async () => {
+    const cwd = await app("bare-kv", {
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['@nuxthub/core'], hub: { kv: true } })\n",
+      "server/api/rows.ts": "export const store = kv\n",
+    })
+    const { result } = await runCodemod("nuxthub", { cwd, dryRun: true })
+    expect(result.edits.find(edit => edit.path === "server/api/rows.ts")?.after).toContain("vite-hub/kv")
+  })
+
   it.each([undefined, "^0.45.4", "^1.0.0-rc.4", "^1.0.0-rc.5", "1.0.0-rc.5", "^1.0.0"])("selects a supported Drizzle version from %s", async (version) => {
     const directory = await app(`drizzle-${version ?? "missing"}`, {
       "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['@nuxthub/core'], hub: { db: 'sqlite' } })\n",
@@ -58,7 +81,7 @@ describe("nuxthub", () => {
       const selected = manifest.dependencies[name]
       // Every version the app can install is one that Database accepts, snapshot builds such as 1.0.0-rc.5-ab785fc too.
       expect(subset(selected, databasePackage.peerDependencies[name], { includePrerelease: true })).toBe(true)
-      expect(selected).toBe(version === "1.0.0-rc.5" || version === "^1.0.0" ? version : "1.0.0-rc.5 || ^1.0.0")
+      expect(selected).toBe(version === "1.0.0-rc.5" || version === "^1.0.0" ? version : "1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0")
     }
   })
 
@@ -181,6 +204,7 @@ describe("nuxthub", () => {
     const run = await runCodemod("nuxthub", { cwd: directory, dryRun: true })
     expect(run.result.edits.find(edit => edit.path === "server/api/demo.ts")?.after).toBe([
       "import { kv as store } from 'vite-hub/kv'",
+      "import { blob } from 'vite-hub/blob'",
       "",
       "export default defineEventHandler(async () => {",
       "  const error = 1",
@@ -321,7 +345,7 @@ describe("nuxthub", () => {
     expect(after("server/databases/default/schema/index.ts")).toBe("export * from './users'\n")
     expect(after("server/databases/default/index.ts")).toContain("dialect: 'postgresql'")
     expect(after("server/utils/db.ts")).toBe("import { users } from '~~/server/databases/default/schema'\nimport type { User } from '../databases/default/schema/users'\n\nexport { users }\n")
-    expect(JSON.parse(after("package.json") ?? "{}")).toEqual({ dependencies: { "@vite-hub/database": codemodsRange, "@vite-hub/kv": codemodsRange, "drizzle-kit": "1.0.0-rc.5 || ^1.0.0", "drizzle-orm": "1.0.0-rc.5 || ^1.0.0", "vite-hub": codemodsRange } })
+    expect(JSON.parse(after("package.json") ?? "{}")).toEqual({ dependencies: { "@vite-hub/database": codemodsRange, "@vite-hub/kv": codemodsRange, "drizzle-kit": "1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0", "drizzle-orm": "1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0", "vite-hub": codemodsRange } })
     expect(run.result.followUps.filter(followUp => followUp.file === "nuxt.config.ts").map(followUp => followUp.message)).toMatchInlineSnapshot(`
       [
         "hub.db also set driver: 'postgres-js'. ViteHub reads the connection, the Cloudflare binding, and the Drizzle options from server/databases/default/index.ts. Move them there by hand. See https://vitehub.dev/docs/database/configure.",

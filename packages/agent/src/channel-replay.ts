@@ -14,7 +14,8 @@ import { getAgentChannelStatusDefinition, type AgentChannelStatusDefinition } fr
 import { isRuntimeRecord } from "./internal/runtime-type.ts"
 import { readWorkflowJournalName, setWorkflowJournalName } from "./internal/workflow-journal-name.ts"
 import { agentToolJsonSchema } from "./tool-schema.ts"
-import { agentChannelOptions, isResolvedAgentTriggerHandledInvocation, prepareAgentTriggerInvocation, resolveAgentTriggerInvocation } from "./trigger-runtime.ts"
+import { agentChannelOptions } from "./internal/agent-definition-options.ts"
+import { isResolvedAgentTriggerHandledInvocation, prepareAgentTriggerInvocation, resolveAgentTriggerInvocation } from "./trigger-runtime.ts"
 
 import type {
   AgentChannelDispatchItem,

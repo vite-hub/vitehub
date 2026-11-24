@@ -22,7 +22,7 @@ In this tutorial, you sign up a user with an email and password, then use the sa
 Install Auth, Better Auth, and Drizzle. Auth uses your app's `drizzle-orm`, so the app has one copy:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/auth better-auth drizzle-orm@1.0.0-rc.5
+pnpm add @vite-hub/auth better-auth drizzle-orm@1.0.0-rc.6
 ```
 
 ::

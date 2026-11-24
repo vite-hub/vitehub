@@ -275,6 +275,10 @@ export default defineConfig({
           to: "dist/console/runtime/components",
         },
         {
+          from: "src/console/runtime/components/console-hosted-comments-embed.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
           from: "src/console/runtime/components/console-account-sign-in.vue",
           to: "dist/console/runtime/components",
         },

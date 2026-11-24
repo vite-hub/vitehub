@@ -28,8 +28,8 @@ export function bindingResolver(program: File): (node: Identifier, name?: string
       || node.type === "ObjectMethod" || node.type === "ClassMethod" || node.type === "ClassPrivateMethod" || node.type === "TSDeclareFunction"
     const ownsScope = fn || node.type === "Program" || node.type === "BlockStatement" || node.type === "StaticBlock"
       || node.type === "CatchClause" || node.type === "ForStatement" || node.type === "ForInStatement" || node.type === "ForOfStatement"
-      || node.type === "SwitchStatement" || node.type === "ClassDeclaration" || node.type === "ClassExpression"
-    const scope = ownsScope || !outer ? { parent: outer, bindings: new Map<string, Identifier>(), hoists: fn || node.type === "Program" || node.type === "StaticBlock" } : outer
+      || node.type === "SwitchStatement" || node.type === "ClassDeclaration" || node.type === "ClassExpression" || node.type === "TSModuleBlock"
+    const scope = ownsScope || !outer ? { parent: outer, bindings: new Map<string, Identifier>(), hoists: fn || node.type === "Program" || node.type === "StaticBlock" || node.type === "TSModuleBlock" } : outer
     scopes.set(node, scope)
     if (fn) {
       if ("id" in node) declare(node.id, node.type === "FunctionDeclaration" || node.type === "TSDeclareFunction" ? outer ?? scope : scope)
@@ -46,6 +46,7 @@ export function bindingResolver(program: File): (node: Identifier, name?: string
     else if (node.type === "ImportSpecifier" || node.type === "ImportDefaultSpecifier" || node.type === "ImportNamespaceSpecifier") declare(node.local, scope)
     else if (node.type === "CatchClause") declare(node.param, scope)
     else if (node.type === "TSEnumDeclaration" || node.type === "TSImportEqualsDeclaration") declare(node.id, scope)
+    else if (node.type === "TSModuleDeclaration" && node.kind === "namespace") declare(node.id, scope)
   })
   return (node, name = node.name) => {
     let scope = scopes.get(node)

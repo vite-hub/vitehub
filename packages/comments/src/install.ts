@@ -1,7 +1,9 @@
+import { getTableName } from "drizzle-orm"
 import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 
 import { installCommentsRuntime } from "./operations-core/server.ts"
 import { createCommentsStore } from "./operations-core/store.ts"
+import { tenantCommentsStore } from "./operations-core/tenant-store.ts"
 import { commentsSchemaGate } from "./migrate.ts"
 import { commentsSchema } from "./operations-core/database.ts"
 import { createForgeSync, logSyncFailure } from "./forge/sync.ts"
@@ -15,6 +17,7 @@ import type { CommentsPeople } from "./operations-core/define.ts"
 import type { CommentsAttachmentStore, CommentsRuntime } from "./operations-core/service.ts"
 import type { CommentsDatabase, CommentsStore, CommentsTables } from "./operations-core/store.ts"
 import type { CommentsSchemaOwner } from "./migrate.ts"
+import type { TenantCommentsStoreOptions } from "./operations-core/tenant-store.ts"
 import type { CommentsRequestEvent } from "./types.ts"
 import type { Installed } from "./installed.ts"
 import type { CommentSendWebhooks } from "./send/service.ts"
@@ -44,6 +47,12 @@ export interface InstallCommentsOptions {
    * Without it, the Send routes answer `COMMENTS_SEND_OFF`.
    */
   webhooks?: () => Promise<CommentSendWebhooks>
+  /**
+   * Keeps the threads of one tenant in `tables` that several tenants share, such as one project of a hosted Console.
+   * See `tenantCommentsStore()`. The runtime serves only this definition: the comment operations of the app keep
+   * their own runtime. Comments only reads the tables, as with `schema: "app"`.
+   */
+  tenant?: TenantCommentsStoreOptions
 }
 
 /** The store, after the tables are ready: each method waits for `ready` first. */
@@ -66,7 +75,9 @@ function gated(store: CommentsStore, ready: () => Promise<void>): CommentsStore 
  */
 export function installComments(comments: Comments, install: InstallCommentsOptions): CommentsRuntime {
   const tables = install.tables ?? { commentCounters: commentsSchema.vitehubCommentCounters, commentMessages: commentsSchema.vitehubCommentMessages, commentThreads: commentsSchema.vitehubCommentThreads }
-  const store = gated(createCommentsStore(install.database, tables), commentsSchemaGate(install.database, install.schema ?? "app", { dialect: install.dialect ?? "sqlite" }))
+  const owner = install.tenant ? "app" : install.schema ?? "app"
+  const shared = createCommentsStore(install.database, tables)
+  const store = gated(install.tenant ? tenantCommentsStore(shared, install.tenant) : shared, commentsSchemaGate(install.database, owner, { dialect: install.dialect ?? "sqlite", ...(owner === "app" ? { table: getTableName(tables.commentThreads) } : {}) }))
   // SAFETY: defineComments() sets this slot to the set of pending tasks before it freezes the object.
   const pending = Reflect.get(comments, pendingKey) as Set<Promise<unknown>> | undefined
   const track = (task: Promise<unknown>) => {
@@ -114,6 +125,6 @@ export function installComments(comments: Comments, install: InstallCommentsOpti
   if (send) runtime.reopened = thread => send.reopened(thread)
   runtimes.set(comments, { runtime, ...(sync ? { sync } : {}), ...(send ? { send } : {}) })
   // The comment operations of the Console, the CLI, and MCP share the runtime.
-  installCommentsRuntime(runtime)
+  if (!install.tenant) installCommentsRuntime(runtime)
   return runtime
 }

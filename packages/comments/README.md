@@ -91,6 +91,10 @@ import { contentField } from "vite-hub/content/client"
 
 An edit reads the draft, changes one string field, and saves the document with `ifDigest`. It needs `content.can({ action: "write" })`. Publishing stays in the Content publish flow.
 
+### Add Hosted Comments
+
+Register your site in the Console with **Hosted Comments only**, then copy the script into your page HTML. For a connected app, copy it from **Settings** > **Connection** > **Hosted Comments**. The Console signs reviewers in and stores their page threads. Confirming an unlink permanently deletes that project's hosted threads and replies.
+
 ## Server API
 
 Every method returns `[error, data]`.
@@ -121,7 +125,7 @@ A failure in `onComment`, `onMention`, or the pull request sync never fails the 
 - Threads live only in the Database. Presence rooms hold no document, and connections are read-only. The server binds each person's presence to the user that `identify` or the Auth session resolves.
 - Pins anchor to the Content field first, then a CSS path checked against the element text, then the text alone, then the page point. A pin whose element is gone shows dashed.
 - A thread change tells the other tabs of the page through the Realtime events room, and they read the threads again. Changes from the server API reach open pages when they refetch: on focus and every 30 seconds.
-- Without a Realtime authority, such as on Vercel, comments work without presence or cursors.
+- Without a Realtime driver, such as on Vercel, comments work without presence or cursors.
 - Write routes compare `Origin` with the request origin, and honour `X-Forwarded-Proto` and `X-Forwarded-Host` from a proxy that ends TLS.
 - Page context stores only the URL origin and pathname, validated against the request origin and thread page. Query parameters, URL credentials, and fragments are discarded. Nuxt component files come from its resolved component registry.
 - Guests can comment only when `authorize` allows `user: null`. They name themselves in the browser, and their names and IDs are display data only. Guests cannot delete comments or threads. `defineComments({ rateLimit: { limit: 5, window: "1m" } })` limits the writes of each guest address.
@@ -159,7 +163,7 @@ const response = await handler.fetch(new Request("https://site.test/_vitehub/com
 
 - [Comments](https://vitehub.dev/docs/comments) covers access, guests, mentions, hosts, and errors.
 - [Content](https://vitehub.dev/docs/content) covers collections, drafts, and publishing.
-- [Realtime](https://vitehub.dev/docs/realtime) covers room authorities.
+- [Realtime](https://vitehub.dev/docs/realtime) covers room drivers.
 
 ### Floating window
 

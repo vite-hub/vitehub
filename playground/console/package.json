@@ -6,11 +6,11 @@
     "@nuxt/ui": "catalog:nuxt",
     "@vite-hub/ui": "workspace:*",
     "vue": "catalog:ui",
-    "vue-router": "^5.4.0"
+    "vue-router": "^5.5.1"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
-    "@vitejs/plugin-vue": "^6.0.10",
+    "@vitejs/plugin-vue": "^6.0.11",
     "valibot": "catalog:runtime",
     "vite": "catalog:vite"
   },

@@ -70,7 +70,7 @@ const title = computed(() => {
   if (page.value === "env") return "Env values";
   if (page.value === "settings") return "Account settings";
   if (page.value === "home") return "Apps";
-  if (gate.value.kind === "setup") return `Connect ${appName(gate.value.project)}`;
+  if (gate.value.kind === "setup") return gate.value.project.publicKey === null ? appName(gate.value.project) : `Connect ${appName(gate.value.project)}`;
   return projects.current.value ? appName(projects.current.value) : "App";
 });
 
@@ -122,6 +122,10 @@ function intent(target: LazyPage): void {
 // The server calls each app with its token. A linked app answers, and an app without the variable refuses it. The
 // device keeps each answer, so the names of the apps show in the first frame of the next visit.
 for (const app of apps.value) {
+  if (app.publicKey === null) {
+    status[app.id] = "site";
+    continue;
+  }
   status[app.id] = "checking";
   const check = useStoredData(consoleAppCheckKey(app.id), () => checkConsoleAccountProject(app.id));
   if (check.storedAt.value && check.data.value) {
@@ -283,7 +287,8 @@ async function retry(): Promise<void> {
   box-shadow: inset 0 0 0 1px var(--muted-foreground);
 }
 
-.vitehub-account-shell__dot[data-status="connected"] {
+.vitehub-account-shell__dot[data-status="connected"],
+.vitehub-account-shell__dot[data-status="site"] {
   background: var(--ui-success);
 }
 

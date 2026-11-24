@@ -1,3 +1,5 @@
+import { i18nLocaleListProblem } from "@vite-hub/internal/feature-inputs"
+
 import { i18nErrorDiagnostics } from "./errors.ts"
 
 /** The `i18n` option of `vitehub()` and `vite-hub/nuxt`. */
@@ -28,24 +30,10 @@ export interface I18nLocaleConfig {
 }
 
 export function resolveI18nLocaleConfig(options: I18nOptions): I18nLocaleConfig {
-  const locales = Array.isArray(options?.locales) ? options.locales : []
-  if (locales.length === 0) throw i18nErrorDiagnostics.I18N_INVALID_LOCALES({ problem: "`i18n.locales` is empty." })
-  const seen = new Set<string>()
-  for (const locale of locales) {
-    if (typeof locale !== "string" || !isLocaleTag(locale)) throw i18nErrorDiagnostics.I18N_INVALID_LOCALES({ problem: `\`${String(locale)}\` is not a BCP 47 language tag.` })
-    if (seen.has(locale.toLowerCase())) throw i18nErrorDiagnostics.I18N_INVALID_LOCALES({ problem: `\`${locale}\` is listed twice.` })
-    seen.add(locale.toLowerCase())
-  }
+  const locales = options?.locales
+  const problem = i18nLocaleListProblem(locales)
+  if (problem) throw i18nErrorDiagnostics.I18N_INVALID_LOCALES({ problem })
   return { locales: [...locales], sourceLocale: locales[0]!, cookie: options.cookie || "locale" }
-}
-
-function isLocaleTag(value: string): boolean {
-  try {
-    return Intl.getCanonicalLocales(value).length === 1
-  }
-  catch {
-    return false
-  }
 }
 
 /**

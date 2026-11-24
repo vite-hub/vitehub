@@ -317,8 +317,13 @@ describe("vitehub({ agent: { invocations } })", () => {
         plugin: "vite-hub/agent-invocations",
       })])
       // The contributed names are the SQL names of the tables in the schema module.
-      const { agentInvocationsPostgresSchema } = await import("@vite-hub/agent/invocations/postgres")
+      const { agentDefaultJournalPostgresSchema, agentInvocationsPostgresSchema } = await import("@vite-hub/agent/invocations/postgres")
       const { getTableName } = await import("drizzle-orm")
+      expect(tables.find(table => table.name === "agent-default-journal")).toMatchObject({
+        database: "default",
+        definition: { export: "agentDefaultJournalPostgresSchema", module: "vite-hub/agent/invocations/postgres" },
+        tables: Object.fromEntries(Object.entries(agentDefaultJournalPostgresSchema).map(([key, table]) => [key, getTableName(table)])),
+      })
       await expect(agentInvocationsDatabaseContributions(context, undefined)).resolves.toEqual([expect.objectContaining({
         tables: Object.fromEntries(Object.entries(agentInvocationsPostgresSchema).map(([key, table]) => [key, getTableName(table)])),
       })])

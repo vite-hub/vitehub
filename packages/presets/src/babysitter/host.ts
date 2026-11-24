@@ -259,6 +259,8 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
   // GitHub does not retry failed webhook deliveries. Lost check results leave green PRs waiting.
   const redelivery = createWebhookRedelivery({ source: credentials, event: host.event, error: host.error });
   let redeliverySweep: ReturnType<typeof setInterval> | undefined;
+  let starting: Promise<void> | undefined;
+  let closing = false;
   return {
     start() {
       registerAgentProcessHostIntake(context.agentName, async ({ deliveryId, event, payload }) => {
@@ -275,12 +277,13 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
       });
       // Bring over an inbox file from a hand-wired Babysitter once, before the first claim.
       // This process owns the inbox scope, so no lease from an earlier process belongs to a running pass.
-      void inbox.importLegacyFile(".vitehub/pull-request-inbox.sqlite")
+      starting = inbox.importLegacyFile(".vitehub/pull-request-inbox.sqlite")
         .catch(error => host.error("babysitter.legacy-import.failed", error))
-        .then(() => inbox.releaseLeases())
+        .then(() => closing ? 0 : inbox.releaseLeases())
         .then(released => { if (released) host.event("babysitter.leases.released", { released }) },
           error => host.error("babysitter.leases.release-failed", error))
         .finally(() => {
+          if (closing) return;
           if (swept) host.event("babysitter.workspaces.swept", { removed: swept });
           host.start();
           redeliverySweep = setInterval(() => void redelivery.sweep().catch(error => host.error("babysitter.webhook.redelivery_failed", error)), 5 * 60_000);
@@ -299,10 +302,12 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
           error => host.error("babysitter.labels.failed", error));
     },
     async close() {
+      closing = true;
       clearInterval(workspaceSweep);
       clearInterval(redeliverySweep);
       registerAgentProcessHostIntake(context.agentName, undefined);
       await host.close();
+      await starting;
       await inbox.close();
     },
     wake: reason => host.wake(reason),

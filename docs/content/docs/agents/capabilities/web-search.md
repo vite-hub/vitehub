@@ -28,11 +28,13 @@ export default defineAgent({
 })
 ```
 
-Use tool mode to choose the search provider. Install `@agntn/web` first.
+Use tool mode to choose the search provider. For a new install with AI SDK 7, use `@agntn/web@^0.9.1` on Node.js 26 or newer.
 
 ```bash [Terminal]
-pnpm add @agntn/web
+pnpm add @agntn/web@^0.9.1
 ```
+
+Existing Node.js 24 apps can keep `@agntn/web@0.5.x` and their pnpm allowance for its AI SDK 6 peer when upgrading ViteHub. For a new app on Node.js 24, use model mode with a provider that supports native web search.
 
 ```ts [server/agents/research.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
@@ -85,13 +87,13 @@ Tool mode rejects input properties not listed here.
 | Input | Type | Default | Description |
 | --- | --- | --- | --- |
 | `url` | `string` | required | Non-empty page URL to read. |
-| `maxTokens` | `number` | reader default | Maximum normalized content size. |
+| `maxTokens` | `number` | reader default | Maximum normalized content size. The tool returns an error if the selected reader cannot apply this limit. |
 
 ## Requirements
 
 - `mode: 'model'` or `mode: 'tool'`.
 - Model mode: a model-backed Driver (the part that runs the model) whose provider supports the `openai.web_search` tool.
-- Tool mode: `@agntn/web` in the app and one provider with its credential.
+- Tool mode: a compatible `@agntn/web` version as described above and one provider with its credential.
 
 ## Security and approval
 

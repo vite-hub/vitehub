@@ -10,7 +10,7 @@ const root = fileURLToPath(new URL(".", import.meta.url))
 const packageDirectory = process.argv.slice(2)
   .map(argument => relative(root, resolve(argument)).split(sep))
   .find(([first, name]) => first === "packages" && name)?.slice(0, 2).join("/")
-if (packageDirectory) {
+if (process.env.VITEST && packageDirectory) {
   const manifestPath = resolve(root, packageDirectory, "package.json")
   const manifest: unknown = existsSync(manifestPath) ? JSON.parse(readFileSync(manifestPath, "utf8")) : undefined
   const name = typeof manifest === "object" && manifest !== null && "name" in manifest ? String(manifest.name) : "<package name>"

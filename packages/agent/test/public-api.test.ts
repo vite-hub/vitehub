@@ -11,7 +11,12 @@ function moduleSpecifiers(source: string): string[] {
 
 // The build bundles the provider runtime with its own Effect copy. Check only the Agent's own code.
 function withoutBundledDependencies(source: string): string {
-  return source.replace(/^\/\/#region \S*\/node_modules\/[\s\S]*?^\/\/#endregion$/gm, "")
+  let bundled = false
+  return source.split("\n").filter((line) => {
+    const module = /^\/\/ (\S+)$/.exec(line)?.[1]
+    if (module) bundled = module.includes("node_modules/")
+    return !bundled
+  }).join("\n")
 }
 
 function containsForbiddenPublicReference(source: string): boolean {

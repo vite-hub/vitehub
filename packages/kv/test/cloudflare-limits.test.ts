@@ -1,5 +1,11 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import memoryDriver from "unstorage/drivers/memory"
+
+import type { KVStorage } from "../src/types.ts"
 
 const deletes: string[] = []
 const puts: Array<{ key: string, options: unknown }> = []
@@ -25,6 +31,11 @@ vi.mock("unstorage/drivers/fs-lite", () => ({ default: vi.fn(() => memoryDriver(
 
 const mib = 1024 * 1024
 
+function hook<T>(value: unknown): T {
+  // SAFETY: The test calls the plugin hooks with the subset of Vite arguments that they read.
+  return (Reflect.has(Object(value), "handler") ? Reflect.get(Object(value), "handler") : value) as T
+}
+
 describe("Cloudflare KV limits", () => {
   beforeEach(() => {
     vi.resetModules()
@@ -40,6 +51,24 @@ describe("Cloudflare KV limits", () => {
   async function cloudflareKV() {
     process.env.VITEHUB_HOST = "cloudflare"
     return (await import("../src/runtime/storage.ts")).kv
+  }
+
+  async function cloudflareBuildRuntimeKV(): Promise<KVStorage> {
+    const { hubKV } = await import("../src/vite.ts")
+    const directory = await mkdtemp(join(process.env.TMPDIR || tmpdir(), "vitehub-kv-cloudflare-runtime-"))
+    try {
+      const plugin = hubKV(undefined, { hosting: "cloudflare-module" })
+      await hook<(config: object, env: { command: string }) => unknown>(plugin.config)({ nitro: {}, root: directory }, { command: "build" })
+      await hook<(config: object) => unknown>(plugin.configResolved)({ build: { outDir: "dist" }, command: "build", nitro: {}, root: directory })
+      const load = hook<(id: string, options: { ssr: boolean }) => Promise<string>>(plugin.load)
+      const file = join(directory, "runtime.mjs")
+      await writeFile(file, await load("\0#vitehub/kv/runtime", { ssr: true }))
+      // SAFETY: The generated runtime exports `kv` with the public KVStorage shape.
+      return (await import(/* @vite-ignore */ file)).kv as KVStorage
+    }
+    finally {
+      await rm(directory, { force: true, recursive: true })
+    }
   }
 
   it("returns KV_KEY_TOO_LONG for a key above 512 UTF-8 bytes, before the provider call", async () => {
@@ -138,6 +167,35 @@ describe("Cloudflare KV limits", () => {
     // SAFETY: A JavaScript caller can pass options that the type rejects.
     const [error] = await kv.set("key", "value", options as { ttl?: number })
     expect(error).toMatchObject({ code: "KV_INVALID_OPTION", docs: "https://vitehub.dev/docs/kv/diagnostics/kv_invalid_option" })
+    expect(puts).toEqual([])
+  })
+
+  it("passes a duration ttl to the provider in seconds from the generated Cloudflare runtime", async () => {
+    const kv = await cloudflareBuildRuntimeKV()
+
+    expect((await kv.set("day", "value", { ttl: "24h" }))[0]).toBeUndefined()
+    expect((await kv.setMany([{ key: "many", value: "value" }], { ttl: "5m" }))[0]).toBeUndefined()
+    expect((await kv.set("plain", "value"))[0]).toBeUndefined()
+    expect(puts).toEqual([
+      { key: "day", options: { ttl: 86_400 } },
+      { key: "many", options: { ttl: 300 } },
+      { key: "plain", options: {} },
+    ])
+
+    // SAFETY: A JavaScript caller can pass options that the type rejects.
+    expect((await kv.set("key", "value", { expirationTtl: 60 } as { ttl?: number }))[0]?.code).toBe("KV_INVALID_OPTION")
+    expect((await kv.set("key", "value", { ttl: "soon" } as unknown as { ttl?: number }))[0]?.code).toBe("KV_INVALID_TTL")
+    expect(puts).toHaveLength(3)
+  })
+
+  it.each(["set", "setMany"] as const)("throws KV_STORE_NOT_FOUND before validating TTL in generated %s", async (operation) => {
+    const kv = await cloudflareBuildRuntimeKV()
+    const store = kv.store("missing")
+
+    const write = operation === "set"
+      ? store.set("key", "value", { ttl: 0 })
+      : store.setMany([{ key: "key", value: "value" }], { ttl: 0 })
+    await expect(write).rejects.toMatchObject({ code: "KV_STORE_NOT_FOUND" })
     expect(puts).toEqual([])
   })
 

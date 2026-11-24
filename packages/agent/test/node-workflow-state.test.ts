@@ -16,7 +16,7 @@ it("restores persisted Channel delivery in a fresh worker using only the Node st
     await writeFile(join(root, "package.json"), '{"type":"module"}')
     const plugin = hubAgent({ providers: { state: { driver: "libsql", url: `file:${join(root, "agent.sqlite")}` } } })
     await resolveConfig({ root, configFile: false, plugins: [plugin] }, "build")
-    const registryFile = join(root, ".vitehub/nitro/workflow/dev-registry.mjs")
+    const registryFile = join(root, ".vitehub/nitro/workflow/build-registry.mjs")
     await mkdir(join(root, ".vitehub/nitro/workflow"), { recursive: true })
     const registry = plugin.vitehub?.agent?.transformWorkflowRegistry("export default {}\n", registryFile)
     if (!registry) throw new Error("Expected Agent registry transform")

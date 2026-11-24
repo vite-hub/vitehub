@@ -1,6 +1,6 @@
 import { bigint, foreignKey, index, integer, jsonb, pgTable, primaryKey, text, timestamp } from "drizzle-orm/pg-core"
 
-import { postgresAgentInvocationTableNames } from "./postgres-table-names.ts"
+import { defaultAgentJournalPostgresPrefix, postgresAgentInvocationTableNames } from "./postgres-table-names.ts"
 
 import type { PgTable } from "drizzle-orm/pg-core"
 
@@ -96,4 +96,11 @@ export const agentInvocationsPostgresSchema: { agentInvocations: PgTable, agentI
   agentInvocationObservations: tables.observations,
   agentChatStreams,
   agentChatStreamChunks,
+}
+
+const defaultJournal = postgresAgentInvocationTables({ tablePrefix: defaultAgentJournalPostgresPrefix })
+
+export const agentDefaultJournalPostgresSchema: { agentDefaultInvocations: PgTable, agentDefaultInvocationObservations: PgTable } = {
+  agentDefaultInvocations: defaultJournal.invocations,
+  agentDefaultInvocationObservations: defaultJournal.observations,
 }

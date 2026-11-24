@@ -17,22 +17,23 @@ in the ViteHub options in `nuxt.config.ts` or `vite.config.ts`, as in
 | --- | --- |
 | `auto` | The default. Uses Cloudflare Durable Objects when the build resolves a Cloudflare host or hosting environment, such as `host: 'cloudflare'`. A Node server uses Redis with `REDIS_URL`, else Postgres with `REALTIME_POSTGRES_URL` or a Postgres Default Database, else `memory`. On the dev server, rooms run in memory. Other production builds fail. |
 | `cloudflare` | Generates a SQLite-backed Durable Object binding and migration, for durable, distributed rooms on Cloudflare. On the Vite dev server, it also picks Nitro's Cloudflare dev runtime for the whole app. Rooms still run in memory there. |
-| `redis` | Node only. Each instance holds its rooms in memory and shares them with the other instances through Redis pub/sub. Needs `REDIS_URL` when the server starts. |
-| `postgres` | Node only. Each instance holds its rooms in memory and shares them through Postgres `LISTEN`/`NOTIFY`. Uses the connection of the Default Database, which must be on Postgres. `REALTIME_POSTGRES_URL` overrides it. |
+| `redis` | Node only, Redis 6 or later. Each instance holds its rooms in memory and shares them with the other instances through Redis pub/sub. Needs `REDIS_URL` when the server starts. |
+| `postgres` | Node only. Each instance holds its rooms in memory and shares them through Postgres `LISTEN`/`NOTIFY`. Uses `REALTIME_POSTGRES_URL`, or the connection of a Postgres Default Database. |
 | `memory` | Keeps rooms in one process, for local development or one Node server. Room state is lost when the process stops. |
 
 With `auto`, a Node server uses Redis when `REDIS_URL` is set. Else it uses
-Postgres when the app's Default Database is on Postgres: the bus borrows the
-postgres.js client of that Database, so it connects the way the Database
-Definition says, whatever variable it reads. `REALTIME_POSTGRES_URL` gives
-Realtime its own Postgres instead. Realtime does not read `DATABASE_URL`
-itself. The server prints its choice when it starts:
+Postgres when `REALTIME_POSTGRES_URL` is set or when the app's Default Database
+is on Postgres: when borrowing the Default Database, the bus uses its
+postgres.js client, so it connects the way the Database Definition says,
+whatever variable it reads. `REALTIME_POSTGRES_URL` gives Realtime its own
+Postgres instead. Realtime does not read `DATABASE_URL` itself. The server
+prints its choice when it starts:
 
 ```txt
-[vitehub] Realtime shares rooms across instances through Postgres (Default Database).
+[vitehub] Realtime shares rooms across instances through Postgres (Default Database), namespace "my-app".
 ```
 
-ViteHub rejects the `memory`, `postgres`, and `redis` authorities on other
+ViteHub rejects the `memory`, `postgres`, and `redis` drivers on other
 deploy hosts, and the `cloudflare` driver with a deploy host that is not
 Cloudflare.
 
@@ -172,7 +173,7 @@ upgrades never reach Nitro. There, build and preview to test rooms.
 | --- | --- | --- | --- |
 | Node, Docker (several instances) | `redis` or `postgres`, which `auto` picks | In the memory of each instance, shared through the bus. | What the document adapter saved, and the shared room record. Unsaved edits survive while an instance keeps the room open, except for a reset after an [interrupted normalizing save](/docs/realtime/server-api#interrupted-normalizing-saves). |
 | Node, Docker (one process) | `memory`, which `auto` picks without `REDIS_URL` or a Postgres Default Database | In process memory. | Only what the document adapter saved. Unsaved edits from the last idle window are lost. |
-| Cloudflare Workers | `cloudflare` | One Durable Object per document, with Yjs updates in its SQLite storage. | The full Yjs state, its seed, and whether it was saved. A woken room saves pending edits. |
+| Cloudflare Workers | `cloudflare` | One Durable Object instance holding every room, with Yjs updates in its SQLite storage. | The full Yjs state, its seed, and whether it was saved. A woken room saves pending edits. |
 | Vercel, Netlify, Deno Deploy | none | Not supported. | Builds with Realtime on fail with `REALTIME_MISSING_DRIVER` or `REALTIME_DRIVER_CONFLICT`. |
 
 Serverless functions without a shared room cannot run Realtime. Polling a
