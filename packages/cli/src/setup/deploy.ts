@@ -322,7 +322,8 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
   const previous = checkPaths.length && !args.preview && !args.temporary ? await previousDeployment(project.root, link, credentials, context, run) : undefined
   const result = await adapter.deploy()
   if (!link && !args.temporary) await recordLink(project.root, host, result, projectName)
-  if (checkPaths.length && !result.url) context.stderr.write(`Deploy checks skipped: ${host} reported no URL to request, such as a workers.dev URL or a custom domain. The deploy is done.\n`)
+  const unchecked = checkPaths.length > 0 && !result.url
+  if (unchecked) context.stderr.write(`Deploy checks skipped: ${host} reported no URL to request, such as a workers.dev URL or a custom domain, so nothing is sent to IndexNow. The deploy is done.\n`)
   const checks = checkPaths.length && result.url ? await runDeployChecks(result.url, checkPaths, deployContext.fetch) : undefined
 
   const deployed: SetupDeployOutput = {
@@ -339,7 +340,7 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
   if (checks?.some(check => !check.ok)) throw checkFailed(deployed, host, previous, projectName, link, result, args.preview)
   if (!args.json) writeDeployed(deployed, projectName, context)
   const pushed = checkouts ? await pushCheckouts(checkouts, deployed, args, context) : deployed
-  const indexNow = output.deploy.indexNow && args.indexNow && !args.preview && !args.temporary ? await submitIndexNow(output.deploy.indexNow, deployContext.fetch) : undefined
+  const indexNow = output.deploy.indexNow && args.indexNow && !args.preview && !args.temporary && !unchecked ? await submitIndexNow(output.deploy.indexNow, deployContext.fetch) : undefined
   if (indexNow && !args.json) context.stderr.write("submitted" in indexNow ? `IndexNow: sent ${indexNow.submitted} URLs (${indexNow.status}).\n` : `IndexNow: nothing was sent. ${indexNow.error} The deploy is done.\n`)
   const final = indexNow ? { ...pushed, indexNow } : pushed
   if (args.json) writeSetupJson(context, final)

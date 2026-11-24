@@ -160,6 +160,8 @@ describe("the URL of a Wrangler deploy", () => {
     { targets: ["preview.example.com (custom domain) [production: disabled, previews: enabled]", "example.com (custom domain) [production: enabled, previews: disabled]"], url: "https://example.com" },
     { targets: ["example.com/*", "example.com/api/* (zone name: example.com)", "example.com (custom domain)"], url: "https://example.com" },
     { targets: ["example.com/*", "*.example.com/* (zone name: example.com)", "...and 3 more routes"], url: undefined },
+    { targets: ["https://*.example.com/*", "https://example.com/api/* (zone name: example.com)", "https://example.com/*"], url: undefined },
+    { targets: ["https://example.com/* (zone name: example.com)", "https://my-app.example.workers.dev"], url: "https://my-app.example.workers.dev" },
     { targets: ["schedule: */5 * * * *", "Consumer for orders", "Producer for orders", "workflow: checkout", "event triggers: 1"], url: undefined },
     { targets: [], url: undefined },
   ])("finds $url in $targets", ({ targets, url }) => {
@@ -231,8 +233,8 @@ describe("vitehub deploy with deploy.check", () => {
     expect(site.requests.map(request => request.path)).toEqual(["/_vitehub/health"])
   }, 30_000)
 
-  it("skips the checks with a warning when the Worker has only route patterns", async () => {
-    const root = await builtProject("cloudflare", { ...manifest({ check: ["/_vitehub/health"] }), ...wranglerConfig({ routes: [{ pattern: "example.com/*", zone_name: "example.com" }], triggers: { crons: ["*/5 * * * *"] } }), ".vitehub/link.json": JSON.stringify(cloudflareLink) })
+  it("skips the checks and IndexNow with a warning when the Worker has only route patterns", async () => {
+    const root = await builtProject("cloudflare", { ...manifest({ check: ["/_vitehub/health"], indexNow: { key: "0123456789abcdef0123456789abcdef", url: "https://shop.example.com" } }), ...wranglerConfig({ routes: [{ pattern: "example.com/*", zone_name: "example.com" }], triggers: { crons: ["*/5 * * * *"] } }), ".vitehub/link.json": JSON.stringify(cloudflareLink) })
     const hosts = await fakeHosts(cloudflareEnv)
     const fetchImpl: typeof fetch = async input => { throw new Error(`unexpected request to ${String(input)}`) }
     const result = await runSetup<DeployJson>(["deploy", "--no-build", "--no-provision", "--yes", "--json"], root, hosts.env, { fetch: fetchImpl })
@@ -240,12 +242,24 @@ describe("vitehub deploy with deploy.check", () => {
     expect(result.exitCode, result.stdout + result.stderr).toBe(0)
     expect(result.json.url).toBeUndefined()
     expect(result.json.checks).toBeUndefined()
+    expect(result.json.indexNow).toBeUndefined()
     expect(result.json.version).toBe("version-1")
-    expect(result.stderr).toContain("Deploy checks skipped: cloudflare reported no URL to request, such as a workers.dev URL or a custom domain. The deploy is done.\n")
+    expect(result.stderr).toContain("Deploy checks skipped: cloudflare reported no URL to request, such as a workers.dev URL or a custom domain, so nothing is sent to IndexNow. The deploy is done.\n")
 
     const text = await runSetup(["deploy", "--no-build", "--no-provision", "--yes"], root, hosts.env, { fetch: fetchImpl })
     expect(text.exitCode, text.stderr).toBe(0)
     expect(text.stdout).toBe("Deployed my-app to cloudflare.\nVersion: version-2\n")
+  }, 30_000)
+
+  it("fails when Wrangler reports no URL for a preview or writes no output entry", async () => {
+    const root = await builtProject("cloudflare", { ...manifest({ check: ["/"] }), ...wranglerConfig({ preview_urls: false, workers_dev: false }), ".vitehub/link.json": JSON.stringify(cloudflareLink) })
+    const preview = await runSetup<DeployJson>(["deploy", "--preview", "--no-build", "--no-provision", "--yes", "--json"], root, (await fakeHosts(cloudflareEnv)).env)
+    expect(preview.exitCode).toBe(1)
+    expect(preview.json.error?.why).toContain("wrangler versions upload printed no URL")
+
+    const production = await runSetup<DeployJson>(["deploy", "--no-build", "--no-provision", "--yes", "--json"], root, (await fakeHosts({ ...cloudflareEnv, FAKE_HOST_NO_OUTPUT: "1" })).env)
+    expect(production.exitCode).toBe(1)
+    expect(production.json.error?.why).toContain("wrangler deploy printed no URL")
   }, 30_000)
 
   it("says that production did not change when a preview fails its check", async () => {

@@ -148,11 +148,14 @@ async function readWranglerOutput(file: string): Promise<WranglerOutputEntry[]> 
 export function wranglerTargetUrl(targets: unknown): string | undefined {
   for (const target of Array.isArray(targets) ? targets : []) {
     if (typeof target !== "string") continue
-    if (target.startsWith("https://") && URL.canParse(target)) return target
-    const domain = /^([^\s*/]+) \(custom domain[ )]/u.exec(target)?.[1]
+    if (workersDevTarget.test(target)) return target
+    const domain = customDomainTarget.exec(target)?.[1]
     if (domain && !target.includes("production: disabled") && URL.canParse(`https://${domain}`)) return `https://${domain}`
   }
 }
+
+const workersDevTarget = /^https:\/\/[^\s*/]+\.workers\.dev\/?$/u
+const customDomainTarget = /^([^\s*/:]+) \(custom domain[ )]/u
 
 const durationUnits: Record<string, number> = { second: 1_000, minute: 60_000, hour: 3_600_000, day: 86_400_000 }
 
@@ -228,12 +231,13 @@ export async function cloudflareAdapter(context: DeployContext): Promise<DeployA
             args.push("--secrets-file", secretsFile)
           }
           const result = await run(args, { env: { ...env, WRANGLER_OUTPUT_FILE_PATH: outputFile }, show: true, signal })
-          if (result.exitCode !== 0) throw hostCliFailed(context.preview ? "wrangler versions upload" : "wrangler deploy", result, context.secrets)
+          const step = context.preview ? "wrangler versions upload" : "wrangler deploy"
+          if (result.exitCode !== 0) throw hostCliFailed(step, result, context.secrets)
           const entry = (await readWranglerOutput(outputFile)).findLast(item => item.type === (context.preview ? "version-upload" : "deploy"))
           const text = `${result.stdout}\n${result.stderr}`
-          const url = entry
-            ? (context.preview ? optionalString(entry.preview_url) : wranglerTargetUrl(entry.targets))
-            : findUrl(text, /\.workers\.dev$/u)
+          const fromTargets = entry && !context.preview
+          const url = fromTargets ? wranglerTargetUrl(entry.targets) : optionalString(entry?.preview_url) ?? findUrl(text, /\.workers\.dev$/u)
+          if (!url && !fromTargets) throw hostCliFailed(`${step} printed no URL`, result, context.secrets)
           const version = optionalString(entry?.version_id)
           const claimUrl = /Claim URL:\s*(https:\/\/\S+)/u.exec(text)?.[1]
           const expiresAt = claimExpiry(text)
