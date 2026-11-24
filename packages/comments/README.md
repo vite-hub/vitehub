@@ -91,6 +91,10 @@ import { contentField } from "vite-hub/content/client"
 
 An edit reads the draft, changes one string field, and saves the document with `ifDigest`. It needs `content.can({ action: "write" })`. Publishing stays in the Content publish flow.
 
+### Add Hosted Comments
+
+Register your site in the Console with **Hosted Comments only**, then copy the script into your page HTML. For a connected app, copy it from **Settings** > **Connection** > **Hosted Comments**. The Console signs reviewers in and stores their page threads. Confirming an unlink permanently deletes that project's hosted threads and replies.
+
 ## Server API
 
 Every method returns `[error, data]`.
