@@ -172,6 +172,25 @@ it.each([false, true])("preserves Nitro's Wrangler config while cleaning standal
   }
 })
 
+it("keeps the Nitro Cloudflare middleware after staged Workflow artifacts are published", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workflow-nitro-publish-"))
+  try {
+    await mkdir(join(rootDir, "server", "workflows"), { recursive: true })
+    await writeFile(join(rootDir, "server", "workflows", "welcome.ts"), "export default defineWorkflow(async () => 'ok')\n")
+    const nitro = await createCloudflareWorkflowNitroConfig({ nitro: { preset: "cloudflare-module" }, rootDir, workflow: {} })
+    const middleware = (nitro.handlers as Array<{ handler: string, middleware?: boolean }>).find(handler => handler.middleware)!
+    const { generateWorkflowProviderOutputs, writeProviderEntries } = await vi.importActual<typeof import("../src/internal/vite-build.ts")>("../src/internal/vite-build.ts")
+    const artifacts = await writeProviderEntries(rootDir, {}, {}, undefined, true, undefined, rootDir, join(rootDir, ".vitehub", "workflow-generations", "client", "output"))
+
+    await generateWorkflowProviderOutputs({ artifacts, clientOutDir: join(rootDir, "dist"), cloudflareInNitro: true, hosting: "cloudflare-module", rootDir, workflow: {} })
+
+    await expect(readFile(middleware.handler, "utf8")).resolves.toContain("enterWorkflowRuntimeEvent(event)")
+  }
+  finally {
+    await rm(rootDir, { force: true, recursive: true })
+  }
+})
+
 async function runConfigHook(config: UserConfig & { nitro?: Record<string, unknown> }, hosting: string, plugins: Plugin[] = [], workflow: WorkflowOptions = {}): Promise<Record<string, unknown>> {
   let nitro: Record<string, unknown> = {}
   await resolveConfig({
