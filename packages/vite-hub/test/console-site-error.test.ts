@@ -4,13 +4,10 @@ import { createApp, defineComponent, h } from "vue"
 import type { Slots } from "vue"
 import { afterEach, expect, it, vi } from "vitest"
 
-import { ConsoleRequestError } from "../src/console/runtime/client/request"
 import ConsoleSite from "../src/console/runtime/components/console-site.vue"
 
-const request = vi.hoisted(() => vi.fn())
-vi.mock("../src/console/runtime/client/request", async importOriginal => ({
-  ...await importOriginal<typeof import("../src/console/runtime/client/request")>(),
-  requestConsoleOperation: request,
+vi.mock("../src/console/runtime/client/project-session", () => ({
+  useConsoleProjects: () => ({ mode: "account", current: { value: { id: "p-1", url: "https://app.example.com/portal" } }, info: { value: { operations: ["site.access"] } } }),
 }))
 vi.mock("../src/console/runtime/components/console-confirm.vue", () => ({ default: {} }))
 vi.mock("../src/console/runtime/components/console-search.vue", () => ({ default: {} }))
@@ -38,21 +35,10 @@ const input = defineComponent({
 })
 
 let cleanup: (() => void) | undefined
-afterEach(() => { cleanup?.(); request.mockReset(); vi.unstubAllGlobals() })
+afterEach(() => { cleanup?.(); vi.unstubAllGlobals() })
 
-it.each([
-  { action: "Open site", operation: "site.link", payload: {}, scope: "main" },
-  { action: "Link a phone", operation: "site.link", payload: { qr: true }, scope: "main" },
-  { action: "Invite someone", operation: "site.invite", payload: { name: "Ana", grants: ["comments-read"], expiresInDays: 7 }, scope: "[role=dialog]" },
-])("shows the Auth setup guidance for $action", async ({ action, operation, payload, scope }) => {
-  const message = "Auth's user.role field can be set by the user."
-  const fix = "Set input: false on the field."
-  request.mockImplementation(async (name: string) => {
-    if (name === "site.invites") return { invites: [] }
-    if (name === "site.grants") return { grants: [{ id: "comments-read", label: "Read comments" }] }
-    if (name === "site.sessions") throw new ConsoleRequestError(409, { code: "AUTH_CONSOLE_UNAVAILABLE", message: "Auth could not list site browsers.", fix })
-    throw new ConsoleRequestError(409, { code: "AUTH_CONSOLE_UNAVAILABLE", message, fix })
-  })
+function mountSite(fetch: (url: string, init: RequestInit) => Promise<Response>) {
+  vi.stubGlobal("fetch", fetch)
   const tab = { close: vi.fn(), location: { replace: vi.fn() }, opener: null }
   vi.stubGlobal("open", () => tab)
   const app = createApp(ConsoleSite, { agentsBase: "", definitionsBase: "", kvBase: "", searchBase: "", sectionsBase: "" })
@@ -66,8 +52,36 @@ it.each([
   document.body.append(container)
   cleanup = () => { app.unmount(); container.remove() }
   app.mount(container)
+  return { container, Event, tab }
+}
 
-  await vi.waitFor(() => expect(container.querySelector("main [role=alert]")?.textContent).toContain("Auth could not list site browsers."))
+const overview = { sessions: [], invites: [], grants: [{ id: "console", label: "Console", membersOnly: true }, { id: "comments-read", label: "Read comments" }] }
+
+it("opens the app's /_vitehub/site in a new tab, which signs in through the Console", async () => {
+  const fetch = vi.fn<(url: string, init: RequestInit) => Promise<Response>>(async () => Response.json(overview))
+  const { container, tab } = mountSite(fetch)
+  const trigger = [...container.querySelectorAll<HTMLButtonElement>("button")].find(element => element.textContent === "Open site")!
+  await vi.waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/projects/p-1/site", expect.objectContaining({ method: "GET" })))
+  trigger.click()
+  await vi.waitFor(() => expect(tab.location.replace).toHaveBeenCalledWith("https://app.example.com/portal/_vitehub/site?return=%2F&project=p-1"))
+})
+
+it("shows the roles of the last token of a member browser", async () => {
+  const session = { id: "s-1", kind: "member", person: { id: "u-1", name: "Ada" }, grants: ["console", "comments-read"], device: "Phone", createdAt: "2026-11-23T00:00:00.000Z", lastSeenAt: "2026-11-23T00:00:00.000Z", expiresAt: "2026-11-30T00:00:00.000Z" }
+  const { container } = mountSite(async () => Response.json({ ...overview, sessions: [session] }))
+  await vi.waitFor(() => expect(container.textContent).toContain("Phone · Console, Read comments"))
+  expect(container.textContent).not.toContain("every page tool")
+})
+
+it.each([
+  { action: "Link a phone", path: "/api/projects/p-1/site/codes", payload: {}, scope: "main" },
+  { action: "Invite someone", path: "/api/projects/p-1/site/invites", payload: { name: "Ana", grants: ["comments-read"], expiresInDays: 7 }, scope: "[role=dialog]" },
+])("shows why the Console refused $action", async ({ action, path, payload, scope }) => {
+  const message = "Only members of the team open the site from the Console."
+  const fetch = vi.fn(async (url: string, init: RequestInit) => init.method === "GET"
+    ? Response.json(overview)
+    : Response.json({ code: "CONSOLE_SITE_FORBIDDEN", message, ok: false, status: 403 }, { status: 403 }))
+  const { container, Event, tab } = mountSite(fetch)
   const trigger = [...container.querySelectorAll<HTMLButtonElement>("button")].find(element => element.textContent === action)!
   await vi.waitFor(() => expect(trigger.disabled).toBe(false))
   trigger.click()
@@ -81,11 +95,10 @@ it.each([
 
   const diagnostic = () => container.querySelector(`${scope} [role=alert]`)?.textContent
   await vi.waitFor(() => expect(diagnostic()).toContain(message))
-  expect(diagnostic()).toContain(fix)
-  expect(diagnostic()).toContain("AUTH_CONSOLE_UNAVAILABLE")
-  expect(request).toHaveBeenCalledWith(operation, payload)
+  expect(diagnostic()).toContain("CONSOLE_SITE_FORBIDDEN")
+  const sent = fetch.mock.calls.find(([url]) => url === path)!
+  expect([sent[1].method, JSON.parse(String(sent[1].body))]).toEqual(["POST", payload])
   expect(tab.location.replace).not.toHaveBeenCalled()
-  if (action === "Open site") expect(tab.close).toHaveBeenCalledOnce()
   if (action !== "Invite someone") expect(container.querySelector("[role=dialog]")).toBeNull()
   expect(container.querySelector("[aria-label='Invite link']")).toBeNull()
 })

@@ -33,6 +33,11 @@
       "import": "./dist/console-signature.js",
       "default": "./dist/console-signature.js"
     },
+    "./site-token": {
+      "types": "./dist/site-token.d.ts",
+      "import": "./dist/site-token.js",
+      "default": "./dist/site-token.js"
+    },
     "./console": {
       "types": "./dist/console.d.ts",
       "import": "./dist/console.js",

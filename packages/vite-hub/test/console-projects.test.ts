@@ -266,6 +266,15 @@ describe("account Console", () => {
       expect(consoleOpenLink(`?project=${encodeURIComponent(linked.url)}&path=${encodeURIComponent(path)}`, projects), path).toBeUndefined()
   })
 
+  it("opens the app that a site link names when two apps have the same URL", async () => {
+    const { consoleOpenLink, consoleOpenReturnPath } = await import("../src/console/runtime/client/project-session.ts")
+    const projects = [linked, { id: "p-2", url: linked.url }]
+    const search = `?project=${encodeURIComponent(linked.url)}&site=%2F&visit=abc&app=p-2`
+    expect(consoleOpenLink(search, projects)).toEqual({ id: "p-2", path: "/" })
+    expect(consoleOpenLink(`?project=${encodeURIComponent(linked.url)}&app=p-3`, projects)).toBeUndefined()
+    expect(consoleOpenReturnPath("/", search)).toContain("&app=p-2")
+  })
+
   it("keeps a hostedConsoleUrl() link through GitHub and passkey sign-in, then opens its page", async () => {
     const { hostedConsoleUrl } = await import("@vite-hub/runtime")
     const link = new URL(hostedConsoleUrl("https://app.example.com/portal", "/agents/bot/invocations/abc", "https://console.example.com"))
@@ -317,6 +326,93 @@ describe("account Console", () => {
     expect(url).toBe("/p/p-1/_vitehub/rpc")
     expect(JSON.parse(String(init.body))).toMatchObject({ m: "site.link", a: [{ path: "/runs/42", state }] })
     expect(replace).toHaveBeenCalledWith(`https://app.example.com/portal/_vitehub/rpc?ticket=vt1_${"t".repeat(43)}`)
+  })
+
+  it("signs a Site access token in the Console for a /visit link, through a sign-in", async () => {
+    const hash = "h".repeat(43)
+    const token = `vst1.CONSOLE_P1.${"c".repeat(40)}.${"s".repeat(86)}`
+    const search = `?project=${encodeURIComponent("https://app.example.com/portal")}&site=${encodeURIComponent("/runs/42")}&visit=${hash}`
+    let session: import("../src/console/runtime/client/account.ts").ConsoleAccount | undefined
+    const fetch = vi.fn<(url: string, init: RequestInit) => Promise<Response>>(async () => Response.json({ url: `https://app.example.com/portal/_vitehub/site?token=${token}` }))
+    vi.stubGlobal("fetch", withAccount(() => session, fetch))
+    const replace = vi.fn()
+    vi.stubGlobal("location", { replace })
+    const module = await import("../src/console/runtime/client/project-session.ts")
+    const boot = { home: "/", navigate: vi.fn(), pageOrigin: "https://console.example.com", pathname: "/open", search, showPath: () => {} }
+    await module.startConsoleAccount(boot)
+    const back = new URL(module.consoleSignInReturnPath(), "https://console.example.com")
+    expect([back.searchParams.get("visit"), back.searchParams.get("state")]).toEqual([hash, null])
+    session = { user: { id: "u", name: "Ada", email: "ada@example.com" }, hasEmail: true, teams: [{ id: "t", name: "Personal", slug: "personal-u" }], teamId: "t", roles: ["owner"], projects: [linked] }
+    await module.startConsoleAccount({ ...boot, search: back.search })
+    expect(module.useConsoleProjects().gate.value).toEqual({ kind: "site", page: "/runs/42", state: hash, visit: true })
+    await module.openConsoleSite()
+    const [url, init] = fetch.mock.calls.find(([called]) => called !== "/api/account")!
+    expect([url, init.method, JSON.parse(String(init.body))]).toEqual(["/api/projects/p-1/site/token", "POST", { path: "/runs/42", state: hash }])
+    expect(replace).toHaveBeenCalledWith(`https://app.example.com/portal/_vitehub/site?token=${token}`)
+  })
+
+  it("follows only a Site access token link of the app that it opened", async () => {
+    const { siteTokenRedirect } = await import("../src/console/runtime/client/project-session.ts")
+    const token = `vst1.CONSOLE_P1.${"c".repeat(40)}.${"s".repeat(86)}`
+    expect(siteTokenRedirect(`https://app.example.com/portal/_vitehub/site?token=${token}`, linked.url)).toBe(`https://app.example.com/portal/_vitehub/site?token=${token}`)
+    for (const url of [
+      `https://evil.example/portal/_vitehub/site?token=${token}`,
+      `https://app.example.com/_vitehub/site?token=${token}`,
+      `https://app.example.com/portal/_vitehub/rpc?token=${token}`,
+      "https://app.example.com/portal/_vitehub/site?token=vst1.bad",
+      42,
+    ]) expect(siteTokenRedirect(url, linked.url), String(url)).toBeUndefined()
+  })
+
+  it("manages Site access of the open project through the Console API, not the app", async () => {
+    const calls: [string, string, unknown][] = []
+    const { state } = await account(async (url, init) => {
+      calls.push([url, init.method ?? "GET", init.body === undefined ? undefined : JSON.parse(String(init.body))])
+      if (url.endsWith("/invites") && init.method === "POST") return Response.json({ code: "CONSOLE_SITE_INVITE_INVALID", message: "An invite lasts 1, 7, 30 days." }, { status: 400 })
+      return Response.json({ sessions: [], invites: [], grants: [{ id: "comments-read", label: "Read comments" }], members: [], url: "https://console.example.com/go/x", expiresAt: "2026-11-23T00:10:00.000Z" })
+    })
+    state.info.value = { protocol: 1, name: "Shop", sections: ["kv"], operations: ["kv.list", "site.access"] }
+    const site = await import("../src/console/runtime/client/site-access.ts")
+    expect(site.usesConsoleSiteAccess()).toBe(true)
+    expect(await site.readSiteAccess()).toEqual({ sessions: [], invites: [], grants: [{ id: "comments-read", label: "Read comments" }] })
+    expect(await site.phoneLink()).toEqual(expect.objectContaining({ url: "https://console.example.com/go/x" }))
+    const refused = await site.inviteGuest({ name: "Grace", grants: ["comments-read"], expiresInDays: 7 }).catch((error: unknown) => error)
+    expect(site.isSiteAccessProblem(refused) && [refused.status, refused.message]).toEqual([400, "An invite lasts 1, 7, 30 days."])
+    await site.revokeSession("g/1")
+    await site.revokeInvite("i-1")
+    expect(calls).toEqual([
+      ["/api/projects/p-1/site", "GET", undefined],
+      ["/api/projects/p-1/site/codes", "POST", {}],
+      ["/api/projects/p-1/site/invites", "POST", { name: "Grace", grants: ["comments-read"], expiresInDays: 7 }],
+      ["/api/projects/p-1/site/sessions/g%2F1", "DELETE", undefined],
+      ["/api/projects/p-1/site/invites/i-1", "DELETE", undefined],
+    ])
+  })
+
+  it("keeps the site.* operations of an app that does not answer site.access", async () => {
+    const sent: [string, string, unknown][] = []
+    const { state } = await account(async (url, init) => {
+      const { operation, input } = operationRpcRequest(init.body)
+      sent.push([url, operation, input])
+      if (operation === "site.sessions") return Response.json({ ok: false, code: "AUTH_CONSOLE_UNAVAILABLE", message: "Auth could not list site browsers.", status: 409 }, { status: 409 })
+      return Response.json({ ok: true, value: { invites: [], grants: [{ id: "comments-read", label: "Read comments" }], url: "https://app.example.com/portal/_vitehub/rpc?ticket=x", expiresAt: "2026-11-23T00:10:00.000Z" } })
+    })
+    state.info.value = { protocol: 1, name: "Shop", sections: ["kv"], operations: ["kv.list"] }
+    const site = await import("../src/console/runtime/client/site-access.ts")
+    expect(site.usesConsoleSiteAccess()).toBe(false)
+    const read = await site.readSiteAccess()
+    expect([read.sessions, read.grants, read.sessionsError?.code]).toEqual([[], [{ id: "comments-read", label: "Read comments" }], "AUTH_CONSOLE_UNAVAILABLE"])
+    expect(await site.phoneLink()).toEqual(expect.objectContaining({ url: "https://app.example.com/portal/_vitehub/rpc?ticket=x" }))
+    await site.revokeSession("g/1")
+    await site.revokeInvite("i-1")
+    expect(sent.sort()).toEqual([
+      ["/p/p-1/_vitehub/rpc", "site.grants", {}],
+      ["/p/p-1/_vitehub/rpc", "site.invites", {}],
+      ["/p/p-1/_vitehub/rpc", "site.link", { qr: true }],
+      ["/p/p-1/_vitehub/rpc", "site.revoke-invite", { id: "i-1" }],
+      ["/p/p-1/_vitehub/rpc", "site.revoke-session", { id: "g/1" }],
+      ["/p/p-1/_vitehub/rpc", "site.sessions", {}],
+    ])
   })
 
   it("keeps the hash of the app page, which the browser kept through the /_vitehub redirect", async () => {

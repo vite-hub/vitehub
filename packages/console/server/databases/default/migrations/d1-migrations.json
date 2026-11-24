@@ -3,5 +3,6 @@
   "20261111050000_keep_sign_in_method": "0001_keep_sign_in_method.sql",
   "20261111144000_sign_project_calls": "0002_sign_project_calls.sql",
   "20261113093416_comments": "0003_comments.sql",
-  "20261115091657_cli_auth": "0004_cli_auth.sql"
+  "20261115091657_cli_auth": "0004_cli_auth.sql",
+  "20261123162439_site_access": "0005_site_access.sql"
 }
