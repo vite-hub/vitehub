@@ -108,13 +108,9 @@ function wrangler() {
 }
 
 function wranglerTargets(config, url) {
-  const routes = config.routes ?? []
-  const customDomain = route => typeof route !== "string" && route.custom_domain === true
-  const patterns = routes.filter(route => !customDomain(route)).map(route => typeof route === "string" ? route : `${route.pattern}${route.zone_name ? ` (zone name: ${route.zone_name})` : ""}`)
-  const domains = routes.filter(customDomain).map(route => `${route.pattern} (custom domain)`)
+  const routes = (config.routes ?? []).map(route => typeof route === "string" ? route : `${route.pattern}${route.custom_domain ? " (custom domain)" : ""}`)
   const crons = (config.triggers?.crons ?? []).map(cron => `schedule: ${cron}`)
-  const workersDev = config.workers_dev ?? routes.length === 0
-  return [...(workersDev ? [url] : []), ...patterns, ...domains, ...crons]
+  return [...(config.workers_dev ?? routes.length === 0 ? [url] : []), ...routes, ...crons]
 }
 
 function vercel() {

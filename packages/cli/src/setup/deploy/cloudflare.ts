@@ -145,12 +145,10 @@ async function readWranglerOutput(file: string): Promise<WranglerOutputEntry[]> 
  * with `https://`, and a custom domain without it, such as `example.com (custom domain)`. A route pattern, a cron
  * schedule, a queue consumer, and a custom domain with `production: disabled` have no URL to request.
  */
-export function wranglerTargetUrl(targets: readonly string[]): string | undefined {
-  for (const target of targets) {
-    if (target.startsWith("https://")) {
-      if (URL.canParse(target)) return target
-      continue
-    }
+export function wranglerTargetUrl(targets: unknown): string | undefined {
+  for (const target of Array.isArray(targets) ? targets : []) {
+    if (typeof target !== "string") continue
+    if (target.startsWith("https://") && URL.canParse(target)) return target
     const domain = /^([^\s*/]+) \(custom domain[ )]/u.exec(target)?.[1]
     if (domain && !target.includes("production: disabled") && URL.canParse(`https://${domain}`)) return `https://${domain}`
   }
@@ -233,9 +231,8 @@ export async function cloudflareAdapter(context: DeployContext): Promise<DeployA
           if (result.exitCode !== 0) throw hostCliFailed(context.preview ? "wrangler versions upload" : "wrangler deploy", result, context.secrets)
           const entry = (await readWranglerOutput(outputFile)).findLast(item => item.type === (context.preview ? "version-upload" : "deploy"))
           const text = `${result.stdout}\n${result.stderr}`
-          const targets = Array.isArray(entry?.targets) ? entry.targets.filter(target => typeof target === "string") : []
           const url = entry
-            ? (context.preview ? optionalString(entry.preview_url) : wranglerTargetUrl(targets))
+            ? (context.preview ? optionalString(entry.preview_url) : wranglerTargetUrl(entry.targets))
             : findUrl(text, /\.workers\.dev$/u)
           const version = optionalString(entry?.version_id)
           const claimUrl = /Claim URL:\s*(https:\/\/\S+)/u.exec(text)?.[1]
