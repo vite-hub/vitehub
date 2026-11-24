@@ -112,6 +112,29 @@ describe("nuxt-safe-runtime-config on a Nitro 3 app with a vite.config", () => {
     }
   })
 
+  it("unseals each rewritten read of a secret so the code keeps the raw value", async () => {
+    const cwd = await mkdtemp(join(fixtures, ".nitro3-"))
+    try {
+      await cp(join(fixtures, "nitro3-module/input"), cwd, { recursive: true })
+      const header = "import { defineHandler } from 'nitro'\nimport { useRuntimeConfig } from 'nitro/runtime-config'\n\n"
+      await writeFile(join(cwd, "routes/member.ts"), `${header}export default defineHandler(() => {\n  const config = useRuntimeConfig()\n  return { bound: config.apiSecret.length, direct: useRuntimeConfig().apiSecret.length, greeting: config.greeting }\n})\n`)
+      await writeFile(join(cwd, "routes/pattern.ts"), `${header}export default defineHandler(() => {\n  const { apiSecret: secret, greeting } = useRuntimeConfig()\n  return { secret, greeting }\n})\n`)
+      await writeFile(join(cwd, "routes/fallback.ts"), `${header}export default defineHandler(() => {\n  const { apiSecret = 'dev-secret-value-0000' } = useRuntimeConfig()\n  return { apiSecret }\n})\n`)
+      const run = await runCodemod("nuxt-safe-runtime-config", { cwd, dryRun: true })
+      const after = (path: string) => run.result.edits.find(edit => edit.path === path)?.after
+      expect(after("routes/member.ts")).toContain("return { bound: config.apiSecret.unseal().length, direct: useServerEnv().apiSecret.unseal().length, greeting: config.greeting }")
+      expect(after("routes/pattern.ts")).toContain("const { greeting } = useServerEnv(), secret = useServerEnv().apiSecret.unseal()")
+      expect(after("routes/health.ts")).toContain("const apiSecret = useServerEnv().apiSecret.unseal()")
+      expect(after("routes/fallback.ts")).toBeUndefined()
+      const unsealed = run.result.followUps.filter(entry => entry.message.includes("The codemod calls .unseal() here"))
+      expect(unsealed.map(entry => `${entry.file}:${entry.line}`).sort()).toEqual(["routes/health.ts:5", "routes/member.ts:6", "routes/member.ts:6", "routes/pattern.ts:5"])
+      expect(run.result.followUps.find(entry => entry.file === "routes/fallback.ts")).toMatchObject({ line: 5, message: expect.stringContaining("reads the secret apiSecret with a default value") })
+    }
+    finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
   it("stops when the vite.config already uses vitehub()", async () => {
     const cwd = await mkdtemp(join(fixtures, ".nitro3-"))
     try {

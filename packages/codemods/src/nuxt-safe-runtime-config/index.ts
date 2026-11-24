@@ -469,7 +469,10 @@ async function migrateNitro(cwd: string): Promise<CodemodResult> {
       secretFollowUps.push({ file: viteFile, line: envLine(field), message: `${accessor} is secret, a ${secretType(field)}. No rewritten file reads it. Call .unseal() where code needs the raw value.` })
     }
     for (const read of reads) {
-      secretFollowUps.push({ file: read.file, line: read.line, message: `${accessor} is secret, a ${secretType(field)}. Call .unseal() where this code needs the raw value.` })
+      const message = read.unsealed
+        ? `${accessor} is secret, a ${secretType(field)}. The codemod calls .unseal() here, so this code keeps the raw value. If the code only passes the value on, remove .unseal() to keep it sealed.`
+        : `${accessor} is secret, a ${secretType(field)}. Call .unseal() where this code needs the raw value.`
+      secretFollowUps.push({ file: read.file, line: read.line, message })
     }
   }
 

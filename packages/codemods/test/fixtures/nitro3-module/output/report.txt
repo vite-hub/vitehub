@@ -12,7 +12,7 @@ Files to change (6):
 Manual follow-ups (3):
   1. vite.config.ts:11 apiSecret had the value "", which its $schema rejects: Invalid length: Expected >=16 but received 0. The module treats this validation failure as fatal, so the codemod kept no default and Env requires NITRO_API_SECRET.
   2. vite.config.ts:8 ViteHub needs a host, so the codemod set host: "node" in vitehub(). Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.
-  3. routes/health.ts:5 useServerEnv().apiSecret is secret, a SecretEnv of the schema output. Call .unseal() where this code needs the raw value.
+  3. routes/health.ts:5 useServerEnv().apiSecret is secret, a SecretEnv of the schema output. The codemod calls .unseal() here, so this code keeps the raw value. If the code only passes the value on, remove .unseal() to keep it sealed.
 
 Notes:
   - Each declaration reads its NITRO_* name with env.source(). Env reads the canonical name VITEHUB_<PATH> first, for example VITEHUB_API_SECRET before NITRO_API_SECRET.

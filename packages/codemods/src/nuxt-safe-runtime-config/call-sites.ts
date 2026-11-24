@@ -37,6 +37,8 @@ export interface SecretRead {
   field: EnvField
   file: string
   line: number
+  /** Set when the codemod wrote `.unseal()` at this read, so the code keeps the raw value. */
+  unsealed: boolean
 }
 
 export interface CallSiteResult {
@@ -207,6 +209,11 @@ interface Rewrite {
   edits: Array<{ from: number, to: number, text: string }>
   needsServer: boolean
   needsPublic: boolean
+  secretReads: SecretRead[]
+}
+
+function unsealCall(field: EnvField): string {
+  return !field.required && field.default === undefined ? "?.unseal()" : ".unseal()"
 }
 
 class BlockRewriter {
@@ -286,7 +293,11 @@ class BlockRewriter {
         this.state.remainingCalls++
         continue
       }
-      for (const edit of rewrite.edits) this.state.output.overwrite(this.block.offset + edit.from, this.block.offset + edit.to, edit.text)
+      for (const edit of rewrite.edits) {
+        if (edit.from === edit.to) this.state.output.appendLeft(this.block.offset + edit.from, edit.text)
+        else this.state.output.overwrite(this.block.offset + edit.from, this.block.offset + edit.to, edit.text)
+      }
+      this.state.secretReads.push(...rewrite.secretReads)
       needsServer ||= rewrite.needsServer
       needsPublic ||= rewrite.needsPublic
       this.rewrittenCallees.add(call.callee)
@@ -386,16 +397,26 @@ class BlockRewriter {
     return undefined
   }
 
-  /** Records the secret fields that a server read reaches, including the secrets in a group it reads whole. */
-  private recordSecretReads(target: Target, segments: readonly string[], lineNumber: number): void {
+  /** The secret fields that a server read reaches, including the secrets in a group it reads whole. */
+  private secretFields(target: Target, segments: readonly string[]): EnvField[] {
     const fields = target.kind === "field"
       ? [target.field]
       : target.kind === "server-group"
         ? this.resolver.fieldsUnder(segments)
         : []
-    for (const field of fields) {
-      if (field.secret) this.state.secretReads.push({ field, file: this.state.file, line: lineNumber })
-    }
+    return fields.filter(field => field.secret)
+  }
+
+  private secretRead(field: EnvField, lineNumber: number, unsealed: boolean): SecretRead {
+    return { field, file: this.state.file, line: lineNumber, unsealed }
+  }
+
+  private declineSecretGroup(target: Target, segments: readonly string[], lineNumber: number): boolean {
+    if (!this.nitro || target.kind !== "server-group") return false
+    const secrets = this.secretFields(target, segments)
+    if (!secrets.length) return false
+    this.follow(lineNumber, `Reads ${segments.join(".")} whole, and it holds the secret ${secrets.map(field => pathLabel(field)).join(", ")}. useServerEnv() returns a secret as a SecretEnv, not as its raw value. Rewrite this ${this.callName} call by hand with useServerEnv(), and call .unseal() where the code needs the raw value.`)
+    return true
   }
 
   private calleeEdit(call: CallExpression, name: string): { from: number, to: number, text: string } {
@@ -420,6 +441,7 @@ class BlockRewriter {
         this.follow(access.read.line, `${target.message} Then rewrite this useSafeRuntimeConfig() call by hand.`)
         return undefined
       }
+      if (this.declineSecretGroup(target, access.read.segments, access.read.line)) return undefined
       reads.push({ read: access.read, target })
     }
     const isPublic = (target: Target) => target.kind === "public-root" || (target.kind === "field" && target.field.section === "public")
@@ -433,8 +455,15 @@ class BlockRewriter {
       if (!this.nitro) this.follow(callLine, "useSafeRuntimeConfig() result is not read. Remove it or rewrite it by hand.")
       return undefined
     }
-    for (const entry of serverReads) this.recordSecretReads(entry.target, entry.read.segments, entry.read.line)
     const edits: Rewrite["edits"] = []
+    const secretReads: SecretRead[] = []
+    for (const { read, target } of serverReads) {
+      const secrets = this.secretFields(target, read.segments)
+      const unseal = this.nitro && target.kind === "field" && target.field.secret
+      const last = unseal ? read.members[target.consumed - 1] : undefined
+      if (unseal && last) edits.push({ from: end(last), to: end(last), text: unsealCall(target.field) })
+      secretReads.push(...secrets.map(field => this.secretRead(field, read.line, Boolean(last))))
+    }
     const publicOnly = !serverReads.length
     const publicBase = publicOnly && binding.kind === "identifier" ? binding.name : "usePublicEnv()"
     for (const entry of publicReads) {
@@ -445,15 +474,15 @@ class BlockRewriter {
       edits.push({ from: this.objectStart(read), to: end(last), text })
     }
     if (binding.kind === "direct") {
-      if (publicOnly) return { edits, needsServer: false, needsPublic: true }
-      return { edits: [this.calleeEdit(call, "useServerEnv")], needsServer: true, needsPublic: false }
+      if (publicOnly) return { edits, needsServer: false, needsPublic: true, secretReads }
+      return { edits: [this.calleeEdit(call, "useServerEnv"), ...edits], needsServer: true, needsPublic: false, secretReads }
     }
     if (publicOnly) {
       edits.push({ from: start(call), to: end(call), text: "usePublicEnv()" })
-      return { edits, needsServer: false, needsPublic: true }
+      return { edits, needsServer: false, needsPublic: true, secretReads }
     }
     edits.push(this.calleeEdit(call, "useServerEnv"))
-    return { edits, needsServer: true, needsPublic: publicReads.length > 0 }
+    return { edits, needsServer: true, needsPublic: publicReads.length > 0, secretReads }
   }
 
   private nitroRewritable(accesses: readonly Access[]): boolean {
@@ -511,6 +540,8 @@ class BlockRewriter {
       return undefined
     }
     const serverProperties: ObjectProperty[] = []
+    const unsealedProperties: Array<{ property: ObjectProperty, field: EnvField, local: string }> = []
+    const secretReads: SecretRead[] = []
     let publicProperty: ObjectProperty | undefined
     for (const property of pattern.properties) {
       const key = property.type === "ObjectProperty" ? keyName(property.key, property.computed) : undefined
@@ -552,7 +583,17 @@ class BlockRewriter {
         this.follow(this.lineOf(property), `Reads ${target.label}, which stays in runtimeConfig. Read it with useRuntimeConfig() and rewrite this pattern by hand.`)
         return undefined
       }
-      this.recordSecretReads(target, [key], this.lineOf(property))
+      if (this.declineSecretGroup(target, [key], this.lineOf(property))) return undefined
+      if (this.nitro && target.kind === "field" && target.field.secret) {
+        if (property.value.type !== "Identifier") {
+          this.follow(this.lineOf(property), `The pattern reads the secret ${key} with a default value or a nested pattern. useServerEnv() returns it as a SecretEnv, not as its raw value. Rewrite this ${this.callName} call by hand, and call .unseal() where the code needs the raw value.`)
+          return undefined
+        }
+        unsealedProperties.push({ property, field: target.field, local: property.value.name })
+        secretReads.push(this.secretRead(target.field, this.lineOf(property), true))
+        continue
+      }
+      secretReads.push(...this.secretFields(target, [key]).map(field => this.secretRead(field, this.lineOf(property), false)))
       serverProperties.push(property)
     }
     const context = this.state.context
@@ -560,7 +601,14 @@ class BlockRewriter {
       this.follow(callLine, "App code destructures private keys. Server Env is for server code only. Move the read to a server route.")
       return undefined
     }
-    if (!publicProperty) return { edits: [this.calleeEdit(call, "useServerEnv")], needsServer: true, needsPublic: false }
+    const serverPattern = `{ ${serverProperties.map(property => code.slice(start(property), end(property))).join(", ")} }`
+    const callText = `useServerEnv${code.slice(end(call.callee), end(call))}`
+    if (unsealedProperties.length) {
+      const declarators = unsealedProperties.map(({ field, local }) => `${local} = ${callText}.${field.envPath.join(".")}${unsealCall(field)}`)
+      if (serverProperties.length) declarators.unshift(`${serverPattern} = ${callText}`)
+      return { edits: [{ from: start(declarator), to: end(declarator), text: declarators.join(", ") }], needsServer: true, needsPublic: false, secretReads }
+    }
+    if (!publicProperty) return { edits: [this.calleeEdit(call, "useServerEnv")], needsServer: true, needsPublic: false, secretReads }
     const publicPattern = code.slice(start(publicProperty.value), end(publicProperty.value))
     if (!serverProperties.length) {
       return {
@@ -570,14 +618,14 @@ class BlockRewriter {
         ],
         needsServer: false,
         needsPublic: true,
+        secretReads,
       }
     }
-    const serverPattern = `{ ${serverProperties.map(property => code.slice(start(property), end(property))).join(", ")} }`
-    const callText = `useServerEnv${code.slice(end(call.callee), end(call))}`
     return {
       edits: [{ from: start(declarator), to: end(declarator), text: `${serverPattern} = ${callText}, ${publicPattern} = usePublicEnv()` }],
       needsServer: true,
       needsPublic: true,
+      secretReads,
     }
   }
 
