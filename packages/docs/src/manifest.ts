@@ -215,18 +215,24 @@ function docsManifestOf(options: DocsManifestOptions, listed: readonly DocsConte
   };
   const prefix = base === "/" ? "" : `${base.slice(1)}/`;
   const rootFile = `${prefix}index.md`;
-  const sectionIds = [
-    ...new Set(
-      [...files.keys()]
-        .filter((file) => file.startsWith(prefix) && file.slice(prefix.length).includes("/"))
-        .map((file) => file.slice(prefix.length).split("/")[0]!),
-    ),
-  ];
-  const sections = sectionIds
-    .map((id, index): DocsSection => {
+  const sectionFiles = new Map<string, string[]>();
+  const standaloneFiles: string[] = [];
+  for (const file of files.keys()) {
+    if (file === rootFile) continue;
+    const slash = file.startsWith(prefix) ? file.indexOf("/", prefix.length) : -1;
+    if (slash === -1) {
+      standaloneFiles.push(file);
+      continue;
+    }
+    const id = file.slice(prefix.length, slash);
+    const group = sectionFiles.get(id);
+    if (group) group.push(file);
+    else sectionFiles.set(id, [file]);
+  }
+  const sections = [...sectionFiles]
+    .map(([id, entries], index): DocsSection => {
       const sectionPrefix = `${prefix}${id}/`;
-      const pages = [...files.keys()]
-        .filter((file) => file.startsWith(sectionPrefix))
+      const pages = entries
         .map((file) => {
           const pageId = idOf(file.slice(sectionPrefix.length));
           return read(
@@ -262,11 +268,7 @@ function docsManifestOf(options: DocsManifestOptions, listed: readonly DocsConte
   }
     })
     .sort((left, right) => left.order - right.order || left.title.localeCompare(right.title));
-  const pages = [...files.keys()]
-    .filter(
-      (file) =>
-        !file.startsWith(prefix) || (!file.slice(prefix.length).includes("/") && file !== rootFile),
-    )
+  const pages = standaloneFiles
     .map((file) => read(file, "", docsPagePath(file)))
     .sort((left, right) => left.path.localeCompare(right.path));
   const manifest: DocsManifest = {
