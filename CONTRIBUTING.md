@@ -266,7 +266,15 @@ Review the version, package changes, CI result, and release notes before merging
 
 Before the publish job publishes a package, it checks each package that npm does not yet show at the release version. The package must exist on npm, and npm must accept the identity of `release.yml` in a trusted publisher OIDC exchange. The job discards the token. If a check fails, the job lists each failed package and publishes nothing. The exchange checks identity, not permission to publish directly: a stage-only publisher can pass preflight and fail later, after other packages have published.
 
-If merge verification fails permanently before a tag is created, merge a correction PR directly after the failed release merge. Then manually run **prepare release** on `main` with `recover_failed_release` enabled and its `recovery_pr` number. Recovery runs the full gate and tags that reviewed correction commit with the original unpublished version, even if later commits have reached `main`. Use the ordinary rerun path for transient failures.
+If merge verification fails before the tag exists, rerun the failed jobs when the failure is transient. Otherwise, roll back the release:
+
+1. Cancel all queued and running **prepare release** runs that could tag this release, including manual `recover_failed_release` runs. Wait for them to stop. Do not start or rerun verification or legacy recovery for the discarded release once you choose rollback.
+2. Confirm the tag still does not exist on GitHub, for example with `git ls-remote --tags origin refs/tags/vX.Y.Z`. If the tag exists, do not revert. Use [Recover a failed npm publication](#recover-a-failed-npm-publication) instead.
+3. Delete the old `release/vX.Y.Z` branch to get fresh CI on the reopened PR. Revert the release PR and merge the revert only after the first two steps are complete.
+
+The release PR opens again at the same version, and fixes merge as normal PRs. The tag job checks `main` before creating the tag, but a run that already passed that check can still create it. That's why the rollback must wait for in-flight runs to stop.
+
+The older recovery path still works while no other PR has merged after the failed release merge: merge a correction PR directly after it, then manually run **prepare release** on `main` with `recover_failed_release` enabled and its `recovery_pr` number. Recovery runs the full gate and tags that reviewed correction commit with the original unpublished version.
 
 An organization owner must allow GitHub Actions to create and approve pull requests in the organization Actions settings. Repository administrators must then enable **Settings → Actions → General → Allow GitHub Actions to create and approve pull requests**. Without both settings, uppt pushes the release branch but cannot open the release PR. The `npm-release` environment must restrict deployments to `v*` tags and require the chosen reviewers before the first automated release. Nuxt Better Auth and Vite Doctor use npm staged publishing; ViteHub continues its current direct trusted publication until staged publishing and its approval flow are configured for every public package.
 
