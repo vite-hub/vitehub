@@ -1,4 +1,4 @@
-nuxt-safe-runtime-config: migrated 3 Env declarations (0 public, 3 server) from $schema (schema.ts) to vitehub() in vite.config.ts.
+nuxt-safe-runtime-config: moved here because nitro.config.ts uses `nuxt-safe-runtime-config/nitro` and the schema has transforms on `port`. Migrated 3 Env declarations (0 public, 3 server) from $schema (schema.ts) to vitehub() in vite.config.ts.
 Dry run: no files were written.
 
 Files to change (6):

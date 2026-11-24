@@ -500,6 +500,18 @@ describe("defaults that the field schema rejects", () => {
   })
 })
 
+describe("rules that change the value", () => {
+  it.each([
+    ["Valibot", v.object({ origins: v.pipe(v.string(), v.transform(value => value.split(","))), region: v.pipe(v.string(), v.check(value => value.length > 1)) })],
+    ["Zod", z.object({ origins: z.string().trim(), region: z.string().refine(value => value.length > 1) })],
+    ["Zod 3", z3.object({ origins: z3.preprocess(value => value, z3.string()), region: z3.string().refine(value => value.length > 1) })],
+  ])("names only the %s rules that change the value as transforms", (_label, schema) => {
+    const issues = schemaIssues(schema)
+    expect([...issues.keys()].sort()).toEqual(["origins", "region"])
+    expect([...issues.transforms]).toEqual(["origins"])
+  })
+})
+
 describe("fields that Env reads differently", () => {
   async function plan(schema: unknown, runtimeConfig: Map<string, { literal: string | number | boolean }>, checks: { validateAtBuild: boolean, validateAtRuntime: boolean }) {
     return planFromJsonSchema({ schema, schemaExports: true, jsonSchema: await schemaToJsonSchema(schema), issues: schemaIssues(schema), runtimeConfig, ...checks })

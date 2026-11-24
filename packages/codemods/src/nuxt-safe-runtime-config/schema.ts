@@ -174,17 +174,23 @@ const valibotJsonValidations = new Set([
   "value", "values",
 ])
 
-function addIssue(issues: Map<string, string[]>, path: readonly string[], issue: string): void {
-  const key = path.join(".")
-  issues.set(key, [...(issues.get(key) ?? []), issue])
+/** Rules that JSON Schema cannot hold, by dotted path, and the paths whose rules change the value. */
+export class SchemaIssues extends Map<string, string[]> {
+  readonly transforms = new Set<string>()
 }
 
-function valibotIssues(schema: unknown, path: string[], issues: Map<string, string[]>): void {
+function addIssue(issues: SchemaIssues, path: readonly string[], issue: string, changesValue = false): void {
+  const key = path.join(".")
+  issues.set(key, [...(issues.get(key) ?? []), issue])
+  if (changesValue) issues.transforms.add(key)
+}
+
+function valibotIssues(schema: unknown, path: string[], issues: SchemaIssues): void {
   if (!isRecord(schema)) return
   if (Array.isArray(schema.pipe)) {
     for (const action of schema.pipe.slice(1)) {
       if (!isRecord(action) || typeof action.type !== "string") continue
-      if (action.kind === "transformation") addIssue(issues, path, `the Valibot ${action.type} action`)
+      if (action.kind === "transformation") addIssue(issues, path, `the Valibot ${action.type} action`, true)
       else if (action.kind === "validation" && !valibotJsonValidations.has(action.type)) addIssue(issues, path, action.type === "check" ? "a Valibot check" : `the Valibot ${action.type} check`)
     }
   }
@@ -203,13 +209,13 @@ function zodDefinition(schema: unknown): JsonObject | undefined {
   return isRecord(schema) && isRecord(schema._zod) && isRecord(schema._zod.def) ? schema._zod.def : undefined
 }
 
-function zodIssues(schema: unknown, path: string[], issues: Map<string, string[]>): void {
+function zodIssues(schema: unknown, path: string[], issues: SchemaIssues): void {
   const definition = zodDefinition(schema)
   if (!definition) return
   for (const check of Array.isArray(definition.checks) ? definition.checks : []) {
     const kind = zodDefinition(check)?.check
     if (kind === "custom") addIssue(issues, path, "a Zod refinement")
-    if (kind === "overwrite") addIssue(issues, path, "a Zod overwrite")
+    if (kind === "overwrite") addIssue(issues, path, "a Zod overwrite", true)
   }
   const type = definition.type
   if (type === "object" && isRecord(definition.shape)) {
@@ -217,11 +223,11 @@ function zodIssues(schema: unknown, path: string[], issues: Map<string, string[]
   }
   else if (type === "pipe") {
     const output = zodDefinition(definition.out)
-    addIssue(issues, path, output?.type === "transform" ? "a Zod transform" : "a Zod pipe")
+    addIssue(issues, path, output?.type === "transform" ? "a Zod transform" : "a Zod pipe", output?.type === "transform")
     zodIssues(definition.in, path, issues)
   }
   else if (type === "transform") {
-    addIssue(issues, path, "a Zod transform")
+    addIssue(issues, path, "a Zod transform", true)
   }
   else if (type === "custom" || type === "lazy") {
     addIssue(issues, path, `a Zod ${type} schema`)
@@ -234,12 +240,12 @@ function zodIssues(schema: unknown, path: string[], issues: Map<string, string[]
 // Checks that zod3ToJsonSchema writes as JSON Schema keywords. Other checks need follow-ups.
 const zod3JsonChecks = new Set(["url", "email", "uuid", "min", "max", "length", "regex", "int"])
 
-function zod3Issues(schema: unknown, path: string[], issues: Map<string, string[]>): void {
+function zod3Issues(schema: unknown, path: string[], issues: SchemaIssues): void {
   const definition = zod3Definition(schema)
   if (!definition) return
   for (const check of Array.isArray(definition.checks) ? definition.checks : []) {
     if (!isRecord(check) || typeof check.kind !== "string") continue
-    if (["trim", "toLowerCase", "toUpperCase"].includes(check.kind)) addIssue(issues, path, `a Zod ${check.kind} transform`)
+    if (["trim", "toLowerCase", "toUpperCase"].includes(check.kind)) addIssue(issues, path, `a Zod ${check.kind} transform`, true)
     else if (!zod3JsonChecks.has(check.kind)) addIssue(issues, path, `the Zod ${check.kind} check`)
   }
   const type = definition.typeName
@@ -254,7 +260,7 @@ function zod3Issues(schema: unknown, path: string[], issues: Map<string, string[
   }
   if (type === "ZodEffects") {
     const effect = isRecord(definition.effect) ? definition.effect.type : undefined
-    addIssue(issues, path, effect === "refinement" ? "a Zod refinement" : effect === "preprocess" ? "a Zod preprocess" : "a Zod transform")
+    addIssue(issues, path, effect === "refinement" ? "a Zod refinement" : effect === "preprocess" ? "a Zod preprocess" : "a Zod transform", effect !== "refinement")
     zod3Issues(definition.schema, path, issues)
   }
   else if (type === "ZodPipeline") {
@@ -289,12 +295,12 @@ function arktypeNarrows(json: unknown): boolean {
   return Object.values(json).some(arktypeNarrows)
 }
 
-function arktypeIssues(schema: unknown, path: string[], issues: Map<string, string[]>): void {
+function arktypeIssues(schema: unknown, path: string[], issues: SchemaIssues): void {
   if (!isRecordOrFunction(schema) || !isRecordOrFunction(schema.internal)) return
   const json = schema.json
   const object = schema.internal.kind !== "morph" && isRecord(json) && json.domain === "object" && json.proto === undefined
   if (!object) {
-    if (schema.internal.includesTransform === true) addIssue(issues, path, "an ArkType morph")
+    if (schema.internal.includesTransform === true) addIssue(issues, path, "an ArkType morph", true)
     if (arktypeNarrows(json)) addIssue(issues, path, "an ArkType narrow")
     return
   }
@@ -306,8 +312,8 @@ function arktypeIssues(schema: unknown, path: string[], issues: Map<string, stri
 }
 
 /** Rules that JSON Schema cannot hold, such as transforms and custom checks, by dotted path. `""` is the schema root. */
-export function schemaIssues(schema: unknown): Map<string, string[]> {
-  const issues = new Map<string, string[]>()
+export function schemaIssues(schema: unknown): SchemaIssues {
+  const issues = new SchemaIssues()
   if (isValibotSchema(schema)) valibotIssues(schema, [], issues)
   else if (zodDefinition(schema)) zodIssues(schema, [], issues)
   else if (zod3Definition(schema)) zod3Issues(schema, [], issues)

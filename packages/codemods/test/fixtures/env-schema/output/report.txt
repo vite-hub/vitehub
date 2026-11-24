@@ -1,4 +1,4 @@
-nuxt-safe-runtime-config: migrated 7 Env declarations (3 public, 4 server) from envSchema (.env.example) to vite-hub/nuxt.
+nuxt-safe-runtime-config: moved here because the app validates with envSchema (`.env.example`). Migrated 7 Env declarations (3 public, 4 server) from envSchema (.env.example) to vite-hub/nuxt.
 Dry run: no files were written.
 
 Files to change (5):
