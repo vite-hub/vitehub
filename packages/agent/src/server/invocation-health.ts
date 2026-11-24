@@ -51,6 +51,7 @@ export async function failInterruptedAgentInvocations(
       if (!canRecover()) return false
       const current = await store.getSummary(invocation.id)
       if (!canRecover() || (current?.status !== "pending" && current?.status !== "running")) return false
+      if (!await options.recover(current) || !canRecover()) return false
       updated = await store.update(invocation.id, { error: { message }, status: "failed", timestamp }, claimId)
     }
     finally {
