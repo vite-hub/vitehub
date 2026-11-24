@@ -78,3 +78,5 @@ A GitHub-only helper got a provider for another Forge.
 ### FORGE_R0009
 
 A GitHub-only helper got a reference that is not a numbered pull request, or an empty input.
+
+See the dedicated pages for [`FORGE_RESPONSE_INVALID`](/docs/forge/diagnostics/forge_response_invalid) and [`FORGE_UNSUPPORTED`](/docs/forge/diagnostics/forge_unsupported).

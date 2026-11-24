@@ -362,12 +362,13 @@ ${name === "default" ? "" : `  name: ${JSON.stringify(name)},\n`}  schema: {
       cloudflare: native("cloudflare", "Workers KV", "Cloudflare Workers KV binding."),
       deno: native("deno-kv", "Deno KV", "Native Deno KV through Deno.openKv()."),
       dev: native("fs-lite", "fs-lite", "Local filesystem-backed KV for development.", "single-host"),
-      netlify: explicit("kv.driver", "Upstash / Redis", "Set `kv.driver` to `upstash`, `redis`, or `database`, or set Upstash REST credentials at build time. No Netlify-native KV output is provided. Without them, KV uses a Postgres Default Database, else `fs-lite` files that other function instances cannot read."),
+      netlify: explicit("kv.driver", "Upstash / Redis", "Set `kv.driver` (or `kv.stores.default.driver` when using multiple stores) to `upstash`, `redis`, or `database`, or set Upstash REST credentials at build time. No Netlify-native KV output is provided. Without them, KV uses a Postgres Default Database, else `fs-lite` files that other function instances cannot read."),
       node: native("fs-lite", "Redis / Postgres / fs-lite", "A table in a Postgres Default Database, else local files. Redis requires kv: { driver: 'redis' }; REDIS_URL supplies its URL on every server. Upstash with REST credentials at build time.", "single-host"),
       vercel: native("upstash", "Upstash", "Upstash Redis with KV REST credentials."),
     },
     id: "kv",
     packages: ["@vite-hub/kv"],
+    providerPackages: { driver: { upstash: ["@upstash/redis"] } },
     summary: "Key-value storage with one API on every host.",
     title: "KV",
   }),
@@ -558,7 +559,7 @@ export function featurePackages(id: FeatureId, value: unknown, host: ViteHubHost
   const definition = features[id]
   const options = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined
   const stores = options?.stores
-  const values = id === "blob" && stores && typeof stores === "object" && !Array.isArray(stores)
+  const values = (id === "blob" || id === "kv") && stores && typeof stores === "object" && !Array.isArray(stores)
     ? [value, ...Object.values(stores)]
     : [value]
   const selected = values.flatMap(value => Object.entries(definition.providerPackages ?? {}).flatMap(([key, choices]) => {
