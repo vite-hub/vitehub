@@ -16,6 +16,7 @@ Import framework APIs from `vite-hub` paths. Pick `resend`, `cloudflare`, or `lo
 | `vite-hub/email` | `email` (`email.send()`, `email.canSend`), `createEmail` | `EmailAddress`, `EmailAddressList`, `EmailAttachment`, `EmailEnvelope`, `EmailMessage`, `EmailSendMessage`, `EmailTemplateMessage`, `EmailTemplateName`, `EmailTemplateRegistry`, `RenderedEmail`, `EmailDriver`, `EmailDriverFactory`, `EmailDriverSource`, `EmailDefinition`, `EmailClient`, `EmailSendResult`, `EmailErrorCode` |
 | `vite-hub/runtime` | `Result`, `ResultError` | Shared `[error, data]` contract of runtime operations. |
 | `vite-hub/email/markdown` | `renderEmailMarkdown` | `RenderEmailMarkdownOptions`, `RenderedEmail` |
+| `vite-hub/email/vue` | `EmailSubject` | `EmailVueContext` |
 | `@vite-hub/email/drivers/*` | Programmatic provider drivers | Built-in Resend, Cloudflare Email, and log drivers. |
 | `@vite-hub/email/test` | `createTestEmail`, `createMemoryEmailDriver` | `TestEmailClient`, `MemoryEmailDriver` |
 | `@vite-hub/email/vite` | `hubEmail`, `emailConsoleSection` | `EmailOptions`, `EmailOutboxOptions`, `EmailVitePlugin`, `EmailVitePluginAPI` |
@@ -103,12 +104,13 @@ export async function sendWelcome(name: string, to: string) {
 
 ### Send a template
 
-Put templates under `server/emails`. ViteHub finds Markdown files in all
-subfolders. A file or folder whose name starts with `_`, such as
-`server/emails/_partials/footer.md`, is a partial: ViteHub does not discover it
-as a template or include it automatically. To reuse a partial, load the trusted
-Markdown in your application and pass it as data to `:insert`, for example
-`:insert{:markdown="data.footer"}`. Pass the template name as `template` and its
+Put templates under `server/emails`. ViteHub finds Markdown (`.md`) and
+[Vue](#vue-templates) (`.vue`) files in all subfolders. A file or folder whose
+name starts with `_`, such as `server/emails/_partials/footer.md`, is a partial:
+ViteHub does not discover it as a template or include it automatically. To reuse
+a Markdown partial, load the trusted Markdown in your application and pass it as
+data to `:insert`, for example `:insert{:markdown="data.footer"}`. A Vue template
+imports its `_` partials as components. Pass the template name as `template` and its
 values as `data`. `email.send()` renders the template once to a subject, an HTML
 body, and a text body, then sends the message.
 
@@ -166,6 +168,67 @@ When `data` does not fit at runtime, `send()` returns
 `EMAIL_TEMPLATE_RENDER_FAILED`. A name that no template has throws
 `EMAIL_TEMPLATE_NOT_FOUND`. A message with `template` cannot also set `html` or
 `text`. `createEmail()` clients do not render templates.
+
+### Vue templates
+
+A `.vue` file under `server/emails` is also a template. ViteHub compiles it with
+the `@vitejs/plugin-vue` of your Vite config, and renders it on the server with
+`vue/server-renderer`. Install `vue` in the app. Nuxt adds the plugin for you.
+In a Vite or Nitro app, add `vue()` from `@vitejs/plugin-vue` to the Vite
+`plugins`.
+
+```vue [server/emails/invite.vue] fragment
+<script setup lang="ts">
+import { EmailSubject } from 'vite-hub/email/vue'
+import Layout from './_layout.vue'
+
+defineProps<{ name: string, team: string, trial?: boolean }>()
+</script>
+
+<template>
+  <Layout>
+    <EmailSubject>Join {{ team }}</EmailSubject>
+    <h1>Hi {{ name }}</h1>
+    <p>Join <strong>{{ team }}</strong> today.</p>
+    <p v-if="trial">Your trial is active.</p>
+  </Layout>
+</template>
+```
+
+```vue [server/emails/_layout.vue] fragment
+<template>
+  <table role="presentation"><tbody><tr><td><slot /></td></tr></tbody></table>
+  <p>Sent by Acme</p>
+</template>
+```
+
+```ts [server/invite.ts] fragment
+const [error] = await email.send({
+  template: 'invite',
+  data: { name: 'Ada', team: 'Docs', trial: true },
+  from: 'verified-sender@example.com',
+  to,
+  subject: 'Join Docs',
+})
+```
+
+- The props of the component are the `data` of the template. TypeScript checks
+  `data` against `defineProps`.
+- `<EmailSubject>` sets the rendered subject to the text of its slot and adds
+  nothing to the HTML. A component may not render the subject on every path,
+  so TypeScript requires `subject` on Vue template sends. A subject supplied
+  in the message overrides the rendered subject.
+- `_layout.vue` is a partial, so it is not a template. Templates import partials
+  as Vue components.
+- Import each component and function that the template uses. Email templates
+  compile apart from the app, so Nuxt auto-imports do not apply to them.
+- ViteHub removes the Vue comment markers from `html`, and makes `text` from
+  the HTML: headings, bold text, links, and lists keep their Markdown markers.
+
+The build stops with `EMAIL_VUE_MISSING` when the app cannot import `vue`, and
+with `EMAIL_VUE_PLUGIN_MISSING` when the Vite config has no
+`@vitejs/plugin-vue`. A server with Vue templates bundles `vue` and
+`vue/server-renderer`.
 
 `server/emails/monthly/recap.md` is the template `monthly/recap`. To render a
 template without sending it, import `#vitehub/emails/monthly/recap`. It

@@ -257,9 +257,9 @@ export function useTranslations(): Translations {
   const unknown = (locale: string) => i18nErrorDiagnostics.I18N_UNKNOWN_LOCALE({ locale, locales: translated })
 
   const sources = state.options.workspace.sources ?? {}
-  const drafts = async () => {
+  const drafts = async (locales: readonly string[]) => {
     const workspace = writable(state)
-    const [published, draft] = await Promise.all([recordsAt(workspace, publishedRef, translated), recordsAt(workspace, draftRef, translated)])
+    const [published, draft] = await Promise.all([recordsAt(workspace, publishedRef, locales), recordsAt(workspace, draftRef, locales)])
     const visible = (records: Record<string, TranslationRecords>) => Object.fromEntries(
       Object.entries(records).map(([locale, messages]) => [locale, Object.fromEntries(Object.entries(messages).filter(([, record]) => isVisible(record)))]),
     )
@@ -272,7 +272,7 @@ export function useTranslations(): Translations {
       return state.live?.revision ?? "build"
     },
     async status() {
-      const { published, draft } = await drafts()
+      const { published, draft } = await drafts(translated)
       const ids = Object.keys(sources)
       return translated.map((locale) => {
         const done = ids.filter(id => published[locale]?.[id])
@@ -284,11 +284,13 @@ export function useTranslations(): Translations {
     async missing(locale, options) {
       const entry = match(locale)
       if (!entry) return [unknown(locale), undefined]
-      const { published, draft } = await drafts()
+      const { published, draft } = await drafts([entry])
       const records = { ...published[entry], ...draft[entry] }
       const previous = findPreviousTranslations(sources, records)
       const ids = Object.keys(sources).filter(id => !(id in records)).sort()
-      const start = options?.cursor ? Math.max(0, ids.indexOf(options.cursor) + 1) : 0
+      const cursor = options?.cursor
+      const after = cursor === undefined ? 0 : ids.findIndex(id => id > cursor)
+      const start = after === -1 ? ids.length : after
       const limit = Math.max(1, Math.min(options?.limit ?? 50, 200))
       const page = ids.slice(start, start + limit)
       const items = page.map((id): MissingTranslation => {

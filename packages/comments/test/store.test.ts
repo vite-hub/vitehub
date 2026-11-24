@@ -1,6 +1,6 @@
 import { createClient } from "@libsql/client"
 import { drizzle } from "drizzle-orm/libsql"
-import { afterEach, beforeEach, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createCommentsStore } from "../src/operations-core/store.ts"
 import { ada, anchor, commentsMigration, grace } from "./harness.ts"
@@ -168,4 +168,139 @@ it("checks for surviving replies and the current resolver after locking the thre
   finally {
     client.close()
   }
+})
+
+describe.each(["batch", "statements"] as const)("people search with %s reads", (driver) => {
+  async function peopleStore() {
+    const client = createClient({ url: ":memory:" })
+    await client.executeMultiple(commentsMigration)
+    const calls = { count: 0 }
+    const limits = { threadsPerMessageRead: Number.POSITIVE_INFINITY }
+    const ids: string[] = []
+    const statementsOf = (key: string | symbol, args: unknown[]) => (key === "batch" ? args[0] : [args[0]]) as { sql: string, args?: unknown[] }[]
+    const counted = new Proxy(client, {
+      get(target, key) {
+        const value: unknown = Reflect.get(target, key)
+        if (typeof value !== "function") return value
+        return (...args: unknown[]) => {
+          if (key === "execute" || key === "batch") {
+            calls.count++
+            const tooLarge = statementsOf(key, args).some(statement => /from "vitehub_comment_messages" where/.test(statement.sql)
+              && (statement.args ?? []).filter(arg => typeof arg === "string" && ids.includes(arg)).length > limits.threadsPerMessageRead)
+            if (tooLarge) return Promise.reject(new Error("D1_ERROR: the result is too large"))
+          }
+          return Reflect.apply(value, target, args)
+        }
+      },
+    }) satisfies Client
+    const database = drizzle({ client: counted })
+    const db = driver === "batch" ? database : new Proxy(database, { get: (target, key, receiver) => key === "batch" ? undefined : Reflect.get(target, key, receiver) })
+    // SAFETY: The libSQL Drizzle database implements the batch contract that ViteHub Databases expose.
+    const store = createCommentsStore(db as unknown as CommentsDatabase)
+    const lin = { id: "lin", name: "Lin" }
+    for (let index = 0; index < 60; index++) {
+      const created = await store.createThread({ ...thread(`Thread ${index}`), author: { ...ada, name: `Ada ${index}` } })
+      ids.push(created.id)
+      if (index === 2) await store.addMessage(created.id, message("Reply", grace))
+      if (index % 2) await store.addMessage(created.id, message("Reply", lin))
+    }
+    return { calls, client, ids, limits, store }
+  }
+
+  async function deleteThread(client: Client, id: string) {
+    await client.execute({ sql: "DELETE FROM vitehub_comment_messages WHERE thread_id = ?", args: [id] })
+    await client.execute({ sql: "DELETE FROM vitehub_comment_threads WHERE id = ?", args: [id] })
+  }
+
+  it("finds the newest readable name of each person, checks a denied thread once, and reads candidate threads together", async () => {
+    const { calls, client, ids, store } = await peopleStore()
+    try {
+      const checked: string[] = []
+      const evenThreads = async (found: { id: string }) => {
+        checked.push(found.id)
+        return ids.indexOf(found.id) % 2 === 0
+      }
+      const checkedAgain = () => checked.filter((id, index) => checked.indexOf(id) !== index)
+      calls.count = 0
+      expect(await store.knownUsers("", 16, evenThreads)).toEqual([{ id: "ada", name: "Ada 58" }, { id: "grace", name: "Grace" }])
+      expect(checkedAgain().every(id => ids.indexOf(id) % 2 === 0 && checked.filter(other => other === id).length === 2)).toBe(true)
+      expect(calls.count).toBeLessThanOrEqual(driver === "batch" ? 9 : 16)
+
+      checked.length = 0
+      calls.count = 0
+      expect(await store.knownUsersByIds(["lin", "grace", "ada"], evenThreads)).toEqual([{ id: "ada", name: "Ada 58" }, { id: "grace", name: "Grace" }])
+      expect(checkedAgain().every(id => ids.indexOf(id) % 2 === 0 && checked.filter(other => other === id).length === 2)).toBe(true)
+      expect(calls.count).toBeLessThanOrEqual(driver === "batch" ? 8 : 15)
+    }
+    finally {
+      client.close()
+    }
+  })
+
+  it("reads one thread when the newest candidate is readable", async () => {
+    const { calls, client, store } = await peopleStore()
+    try {
+      calls.count = 0
+      expect(await store.knownUsers("ada", 1, async () => true)).toEqual([{ id: "ada", name: "Ada 59" }])
+      expect(calls.count).toBe(driver === "batch" ? 2 : 3)
+    }
+    finally {
+      client.close()
+    }
+  })
+
+  it("skips a candidate thread that is deleted during the search", async () => {
+    const { client, ids, store } = await peopleStore()
+    try {
+      const deleted = ids[58]!
+      const readable = async (found: { id: string }) => {
+        if (found.id === ids[59]) {
+          await deleteThread(client, deleted)
+          return false
+        }
+        return true
+      }
+      expect(await store.knownUsers("ada", 1, readable)).toEqual([{ id: "ada", name: "Ada 57" }])
+    }
+    finally {
+      client.close()
+    }
+  })
+
+  it.each(["knownUsers", "knownUsersByIds"] as const)("%s skips a thread that was read with an earlier one and deleted before its check ends", async (lookup) => {
+    const { client, ids, store } = await peopleStore()
+    try {
+      const readable = async (found: { id: string }) => {
+        if (found.id === ids[59]) return false
+        if (found.id === ids[58]) {
+          await deleteThread(client, ids[57]!)
+          return false
+        }
+        return true
+      }
+      const found = lookup === "knownUsers" ? await store.knownUsers("ada", 1, readable) : await store.knownUsersByIds(["ada"], readable)
+      expect(found).toEqual([{ id: "ada", name: "Ada 56" }])
+    }
+    finally {
+      client.close()
+    }
+  })
+
+  it.each(["knownUsers", "knownUsersByIds"] as const)("%s reads one thread at a time when a read of several threads is too large", async (lookup) => {
+    const { client, ids, limits, store } = await peopleStore()
+    try {
+      limits.threadsPerMessageRead = 1
+      const checked: string[] = []
+      const readable = async (found: { id: string }) => {
+        checked.push(found.id)
+        return found.id !== ids[59] && found.id !== ids[58]
+      }
+      const found = lookup === "knownUsers" ? await store.knownUsers("ada", 1, readable) : await store.knownUsersByIds(["ada"], readable)
+      expect(found).toEqual([{ id: "ada", name: "Ada 57" }])
+      expect(checked.slice(0, 3)).toEqual([ids[59], ids[58], ids[57]])
+    }
+    finally {
+      client.close()
+    }
+  })
 })
