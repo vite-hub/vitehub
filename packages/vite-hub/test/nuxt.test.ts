@@ -3079,6 +3079,18 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     await expect(viteHubNuxtModule({ console: withPill, host: "node" }, createNuxt(false).nuxt)).rejects.toThrow("Remove console.pill")
   })
 
+  it("sets the self-hosted Console origin from console.url in the Vite define and the Nitro replace", async () => {
+    const { nuxt, runNitroConfigHook } = createNuxt(false)
+    await viteHubNuxtModule({ console: { ...productionConsole, url: "https://console.example.com/" }, host: "node" }, nuxt)
+    const nitroConfig = { replace: { __VITEHUB_EXISTING_REPLACEMENT__: "existing" } }
+    await runNitroConfigHook(nitroConfig)
+    expect(nuxt.options.vite.define).toMatchObject({ __VITEHUB_CONSOLE_URL__: JSON.stringify("https://console.example.com") })
+    expect(nitroConfig.replace).toMatchObject({
+      __VITEHUB_CONSOLE_URL__: JSON.stringify("https://console.example.com"),
+      __VITEHUB_EXISTING_REPLACEMENT__: "existing",
+    })
+  })
+
   it.each([false, undefined] as const)("leaves application OAuth discovery routes alone with console.auth %j", async (auth) => {
     const application = createNuxt(auth === false)
     const applicationHandlers = [

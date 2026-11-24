@@ -155,7 +155,7 @@ export function resolveConsoleOptions(value: unknown): ConsoleOptions | undefine
   }
   const url: unknown = Reflect.get(value, "url")
   if (url !== undefined && consoleOrigin(url) === undefined) {
-    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: `[vitehub] console.url must be the https:// origin of a ViteHub Console without a path, such as "https://console.example.com", or http://localhost for a Console on this computer. Got ${JSON.stringify(url)}.` })
+    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: `[vitehub] console.url must be the https:// origin of a ViteHub Console without a path, such as "https://console.example.com", or http://localhost for a Console on this computer.` })
   }
   // SAFETY: `auth`, `impersonation`, `sections`, and `url` are checked above. The other fields keep their documented types and are checked where they are read.
   return value as ConsoleOptions

@@ -51,7 +51,7 @@ import { consoleContributedSections, consoleDocumentEditorSectionIds, discoverCo
 import { addConsoleRpcHandler } from "./console/nitro.ts"
 import { resolveConsoleSiteAccess } from "./console/site-access.ts"
 import { serializeConsoleRefresh } from "./console/refresh.ts"
-import { assertConsoleAccess, assertConsoleProductionAuth, resolveConsoleOptions, consoleInvocationRootPlugin, consoleAppModuleId, consoleOperationContributions, resolveConsoleAccessBuild, resolveGeneratedConsoleApp, type ConsoleInvocationRootState } from "./console/vite.ts"
+import { assertConsoleAccess, assertConsoleProductionAuth, resolveConsoleOptions, resolveConsoleUrl, consoleInvocationRootPlugin, consoleAppModuleId, consoleOperationContributions, resolveConsoleAccessBuild, resolveGeneratedConsoleApp, type ConsoleInvocationRootState } from "./console/vite.ts"
 
 import type { BundleVitePlugin, NuxtPageLike } from "@vite-hub/bundle/vite"
 import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
@@ -1468,9 +1468,12 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   typesPlugin?.api?.setPrepareSources?.(sourcePlugin?.api?.prepareSources)
   await typesPlugin?.api?.prepareTypes?.({ projectRoot })
 
+  const consoleUrl = resolveConsoleUrl(consoleOptions)
+  const consoleUrlDefine = consoleUrl === undefined ? {} : { __VITEHUB_CONSOLE_URL__: JSON.stringify(consoleUrl) }
   viteConfig.define = {
     ...viteConfig.define,
     __VITEHUB_APP_BASE_URL__: JSON.stringify(nuxt.options.app?.baseURL || "/"),
+    ...consoleUrlDefine,
   }
   viteConfig[VITEHUB_GENERATED_ROOT] = join(nuxt.options.buildDir, "vitehub")
   viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT] = true
@@ -1530,6 +1533,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   })
   const nitro3ExternalLists = new WeakMap<object, readonly unknown[]>()
   nuxt.hook?.("nitro:config", async (config) => {
+    if (consoleUrl !== undefined) config.replace = { ...isRecord(config.replace) ? config.replace : {}, ...consoleUrlDefine }
     // An explicit false becomes a selective list below; retain its policy when the same config is replayed.
     const previousExternalList = nitro3ExternalLists.get(config)
     if (previousExternalList && config.noExternals === previousExternalList) config.noExternals = false
