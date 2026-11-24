@@ -97,8 +97,13 @@ The Console is the [`@vite-hub/console`](https://github.com/vite-hub/vitehub/tre
 Set `console.url` in the app to the origin of your Console. `/_vitehub`, the Console links of the app, the Site access sign-in, and the Console segment of the Comments pill then go to your Console and not to `https://console.vitehub.dev`:
 
 ```ts [vite.config.ts]
-vitehub({
-  console: { url: 'https://console.example.com' },
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({
+    console: { url: 'https://console.example.com' },
+  })],
 })
 ```
 
