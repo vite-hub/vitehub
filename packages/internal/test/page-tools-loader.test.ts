@@ -762,6 +762,23 @@ describe("loadViteHubPageTools", () => {
     expect(location.search).toBe("?vitehub=comments")
   })
 
+  it.each([
+    ["/guide?vitehub=comments", "/next?vitehub=comments", "/next?vitehub=comments"],
+    ["/guide?vitehub=comments", "/guide?vitehub=console", "/guide?vitehub=console"],
+    ["/guide", "/guide?vitehub=comments", "/guide?vitehub=comments"],
+    ["/guide?vitehub=comments&comment=3", "/guide?vitehub=comments&tab=2#intro", "/guide?tab=2#intro"],
+  ])("scopes activation cleanup from %s to its own link when the URL becomes %s", async (initial, next, expected) => {
+    page(initial)
+    const pending = Promise.withResolvers<Response>()
+    vi.stubGlobal("fetch", vi.fn(() => pending.promise))
+    const loading = loadViteHubPageTools({ load: modules().load })
+    history.pushState({ next }, "", next)
+    pending.resolve(Response.json({ tools: [comments, consoleTool] }))
+    await loading
+    expect(location.pathname + location.search + location.hash).toBe(expected)
+    expect(history.state).toEqual({ next })
+  })
+
   it("does not call a restored tool linked", async () => {
     page("/")
     const sessionPath = "/restored/_vitehub/page/session"
