@@ -422,6 +422,51 @@ describe("Browser Definitions", () => {
     expect(release.mock.invocationCallOrder[0]).toBeLessThan(close.mock.invocationCallOrder[0]!)
   })
 
+  it("closes a page session that finishes opening after another open fails", async () => {
+    let finishAttach!: () => void
+    const attached = new Promise<void>(resolve => {
+      finishAttach = resolve
+    })
+    const release = vi.fn(async () => {})
+    const close = vi.fn(async () => {})
+    const client = {
+      open: vi.fn()
+        .mockImplementationOnce(async () => ({
+          id: "browser-1",
+          attach: vi.fn(async () => {
+            await attached
+            return {
+              client: {
+                on: vi.fn(() => () => {}),
+                send: vi.fn(async (method: string) => method === "Target.getTargets"
+                  ? { targetInfos: [{ targetId: "page", type: "page" }] }
+                  : method === "Target.attachToTarget" ? { sessionId: "page-1" } : {}),
+              },
+              release,
+            }
+          }),
+          close,
+          inspect: vi.fn(),
+        }))
+        .mockImplementationOnce(async () => {
+          throw new Error("too many browsers")
+        }),
+    } as unknown as BrowserClient
+    const definition = defineBrowser(async (_input, { browser }) => {
+      await Promise.all([browser.open(), browser.open()])
+    })
+
+    const invocation = executeBrowserDefinition(definition, undefined, { client })
+    const settled = invocation.then(() => "resolved", () => "rejected")
+    await new Promise(resolve => setTimeout(resolve, 0))
+    finishAttach()
+    expect(await settled).toBe("rejected")
+    await expect(invocation).rejects.toThrow("too many browsers")
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(release).toHaveBeenCalledOnce()
+    expect(close).toHaveBeenCalledOnce()
+  })
+
   it("does not retry session cleanup after a successful handler", async () => {
     const release = vi.fn(async () => {
       throw new Error("release failed")

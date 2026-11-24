@@ -106,6 +106,7 @@ interface BrowserDefinitionRuntimeOptions {
 
 class BrowserDefinitionBrowserImpl implements BrowserDefinitionBrowser {
   private readonly sessions: Array<ManagedBrowserPageSession<PlaywrightBrowserConnection>> = []
+  private readonly opening = new Set<Promise<BrowserPageSession>>()
 
   constructor(private readonly options: BrowserDefinitionRuntimeOptions) {}
 
@@ -120,6 +121,17 @@ class BrowserDefinitionBrowserImpl implements BrowserDefinitionBrowser {
   }
 
   async open(options?: BrowserDriverOpenOptions): Promise<BrowserPageSession> {
+    const opening = this.openSession(options)
+    this.opening.add(opening)
+    try {
+      return await opening
+    }
+    finally {
+      this.opening.delete(opening)
+    }
+  }
+
+  private async openSession(options?: BrowserDriverOpenOptions): Promise<BrowserPageSession> {
     const providerSession = await (this.options.client ?? resolveConfiguredClient()).open(options)
     let control: BrowserControl<CDPClient> | undefined
     try {
@@ -153,6 +165,7 @@ class BrowserDefinitionBrowserImpl implements BrowserDefinitionBrowser {
   }
 
   async close(): Promise<void> {
+    while (this.opening.size > 0) await Promise.allSettled(this.opening)
     const errors: unknown[] = []
     for (const session of [...this.sessions].reverse()) {
       try {
