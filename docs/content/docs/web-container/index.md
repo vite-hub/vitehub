@@ -22,11 +22,12 @@ pnpm add vite-hub @vite-hub/web-container
 | --- | --- | --- |
 | `vite-hub/web-container` | Browser | Boot a container, mount files, run commands, read the preview, and load snapshots. |
 | `@vite-hub/web-container/vite` | Vite config | Make pages that boot a container cross-origin isolated. |
+| `@vite-hub/web-container/vue` | Browser, Vue | Run an app with `useWebContainer()` and keep its state in Vue refs. |
 | `vite-hub/web-container/snapshot` | Node, at build time | Prebuild `node_modules` locally or in CI so the container skips `npm install`. |
 | `vite-hub/web-container/env` | Any | Detect code running inside a WebContainer. |
 | `vite-hub/web-container/connect` | Any | Describe the accounts a reader can connect and map them to `env`. |
 
-Every `vite-hub/web-container/*` path re-exports the matching path from `@vite-hub/web-container`. The Vite plugin has only the `@vite-hub/web-container/vite` path.
+Every `vite-hub/web-container/*` path re-exports the matching path from `@vite-hub/web-container`. The Vite plugin and Vue composable have only the `@vite-hub/web-container/vite` and `@vite-hub/web-container/vue` paths.
 
 ## Use without ViteHub
 
