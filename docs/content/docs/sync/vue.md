@@ -199,7 +199,7 @@ The rows of other people show within about a second. Each tab that shows and is 
 
 Each write belongs to the account that was signed in when it was made: the user that `identify` returns, else the user of ViteHub Auth, else the scope. When another person signs in on the device, the old writes wait in IndexedDB. They do not show in `rows`, do not count in `queued`, and are never sent with the other person's session. When the first person signs in again, they go out.
 
-Rows stay in the browser after a sign-out unless the app clears them. `clearSync()` empties every synced table and subset in every tab, and drops the writes that wait, also those of other accounts. They reject with `SYNC_CLEARED`.
+Rows stay in the browser after a sign-out unless the app clears them. `clearSync()` empties every synced table and subset in every tab, and drops the writes that wait, also those of other accounts. They reject with `SYNC_CLEARED`. Unconfirmed writes from an old stored copy also reject with `SYNC_CLEARED` if another tab or the browser deletes, upgrades, or closes the local IndexedDB database; see [Browser storage](/docs/sync/limits-and-errors#browser-storage).
 
 With ViteHub Auth in Nuxt, `signOut()` of `useUserSession()` calls `clearSync({ keepWrites: true })` for you, after the server ended the session and before the next page opens. Signing in again also retries writes from subsets that are no longer open. A write made before the first pull waits for the same Auth user; that user's first pull establishes the Sync account, including for definitions with `identify`. To drop every queued write on sign-out instead, add `onSignOut(() => clearSync())` in a plugin: it runs after the one of ViteHub. In a Vue app without Nuxt, add it once with `onSignOut()`:
 
