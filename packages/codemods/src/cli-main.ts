@@ -26,7 +26,7 @@ function helpText(): string {
     "",
     "Options:",
     "  --dry-run       Print the planned edits and write nothing.",
-    "  --nuxt-nightly  Set nuxt to npm:nuxt-nightly@5x in package.json if a planned migration needs vite-hub/nuxt and the app is on a Nuxt version before 5.",
+    "  --nuxt-nightly  Set nuxt to npm:nuxt-nightly@5x in package.json if a planned migration needs vite-hub/nuxt and the app is on a Nuxt version before 4.7.",
     "                  Without it, the command stops without changing project files.",
     "  --help          Show this list.",
     "",

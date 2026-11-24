@@ -19,7 +19,7 @@ export interface CodemodResult {
   /** One line that tells what the codemod did. */
   summary: string
   edits: FileEdit[]
-  requiresNuxt5?: boolean
+  requiresNitro3?: boolean
   followUps: FollowUp[]
   /** Facts about the migration that need no action in a specific file. */
   notes: string[]

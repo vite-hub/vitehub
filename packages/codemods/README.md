@@ -18,11 +18,17 @@ The command finds every module in the app that a codemod supports and runs those
 
 The report lists, for each codemod, why it ran and what it did, then the files it changed, a numbered list of manual follow-ups with `file:line`, notes, and the commands to run next. A codemod that cannot migrate the app changes nothing and says why; the others still run.
 
-The codemods that add `vite-hub/nuxt`, such as `nuxt-safe-runtime-config` and `nuxthub`, need Nuxt 5, because ViteHub supports Nuxt 5 and Nitro 3 only. When `package.json` requires an older Nuxt, directly or through a pnpm `catalog:` in `pnpm-workspace.yaml`, the command stops before it writes anything, also with `--dry-run`, and exits with `1`. Add `--nuxt-nightly` to set `"nuxt": "npm:nuxt-nightly@5x"` in `package.json` and migrate in the same run. The codemods do not install packages. Nuxt 5 also stops auto-importing Nitro helpers such as `defineEventHandler` in server code. Set `experimental: { nitroAutoImports: true }` to keep them, or import them as the Nuxt 5 build error lists.
+The codemods that add `vite-hub/nuxt`, such as `nuxt-safe-runtime-config` and `nuxthub`, need Nitro 3, which runs on Nuxt 4.7 with the `nitro` package, or on Nuxt 5. The command reads the `nuxt` range in `package.json`, directly or through a pnpm `catalog:` in `pnpm-workspace.yaml`:
+
+- Nuxt 5, such as `npm:nuxt-nightly@5x`: no change.
+- Nuxt 4.7, such as `^4.7.0`: it adds `"nitro": "^3.0.261103-rc"` to `dependencies` when `package.json` does not list `nitro`, and the report notes it.
+- A range that allows a version before 4.7, such as `^4.2.0`: it stops before it writes anything, also with `--dry-run`, and exits with `1`. Upgrade with `pnpm add nuxt@^4.7.0 nitro`, or add `--nuxt-nightly` to set `"nuxt": "npm:nuxt-nightly@5x"` in `package.json` and migrate in the same run.
+
+The codemods do not change the Nuxt version without `--nuxt-nightly`, and do not install packages. Nuxt 5 stops auto-importing Nitro helpers such as `defineEventHandler` in server code. Set `experimental: { nitroAutoImports: true }` to keep them, or import them as the Nuxt 5 build error lists.
 
 The migration uses a unique scratch directory and preserves existing `.vitehub-migrate` directories. If a codemod would edit a symbolic link or a file inside a linked directory, it stops without applying that codemod's edits. Running one codemod does the same. Replace the link with a local file or directory before retrying.
 
-The command exits with `0` when every codemod completes, also when they report follow-ups, and when no codemod applies. A plain Vite or Node app needs no `nuxt.config`. It exits with `1` when a codemod could not migrate, when a codemod that adds `vite-hub/nuxt` finds Nuxt 4 or older without `--nuxt-nightly`, when the folder has neither `package.json` nor `nuxt.config`, or when `nuxt.config` does not parse.
+The command exits with `0` when every codemod completes, also when they report follow-ups, and when no codemod applies. A plain Vite or Node app needs no `nuxt.config`. It exits with `1` when a codemod could not migrate, when a codemod that adds `vite-hub/nuxt` finds a Nuxt version before 4.7 without `--nuxt-nightly`, when the folder has neither `package.json` nor `nuxt.config`, or when `nuxt.config` does not parse.
 
 ## Upgrade ViteHub
 
@@ -38,7 +44,7 @@ vitehub migrate [dir] [--dry-run]
 npx @vite-hub/codemods nuxt-safe-runtime-config [dir] [--dry-run] [--nuxt-nightly]
 ```
 
-The command runs only the named codemod. Run it with `--help` to list the codemods. It exits with `1` when the codemod cannot migrate, for example when it cannot find or parse `nuxt.config`. It stops on Nuxt 4 or older the same way as the full migration, and `--nuxt-nightly` works the same way.
+The command runs only the named codemod. Run it with `--help` to list the codemods. It exits with `1` when the codemod cannot migrate, for example when it cannot find or parse `nuxt.config`. It checks the Nuxt version the same way as the full migration, and `--nuxt-nightly` works the same way.
 
 | Codemod | Moves |
 | --- | --- |

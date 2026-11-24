@@ -10,8 +10,8 @@ const codes = {
     fix: "Change the file, the option, or the argument that the message names, then run the codemod again. Add `--dry-run` to see the edits before it writes them.",
   },
   CODEMODS_NUXT_UNSUPPORTED: {
-    why: ({ codemods, nuxt, source }: { codemods: readonly string[], nuxt: string, source: string }): string => `${codemods.join(", ")} add${codemods.length === 1 ? "s" : ""} vite-hub/nuxt, which needs Nuxt 5, Nitro 3, and H3 2. package.json requires nuxt "${nuxt}"${source}, so the build of the migrated app would fail. No file was written.`,
-    fix: "Move the app to Nuxt 5 first. Or run the command again with `--nuxt-nightly`: it sets `\"nuxt\": \"npm:nuxt-nightly@5x\"` in package.json and migrates the app.",
+    why: ({ codemods, nuxt, source }: { codemods: readonly string[], nuxt: string, source: string }): string => `${codemods.join(", ")} add${codemods.length === 1 ? "s" : ""} vite-hub/nuxt, which needs Nitro 3. Nitro 3 runs on Nuxt 4.7 with the nitro package, or on Nuxt 5. package.json requires nuxt "${nuxt}"${source}, which allows a Nuxt version before 4.7, so the build of the migrated app would fail. No file was written.`,
+    fix: "Upgrade to Nuxt 4.7 and add Nitro 3 with `pnpm add nuxt@^4.7.0 nitro`, then run the command again. Or run the command again with `--nuxt-nightly`: it sets `\"nuxt\": \"npm:nuxt-nightly@5x\"` in package.json and migrates the app.",
   },
   CODEMODS_UNKNOWN: {
     why: ({ available, name }: { available: readonly string[], name: string }): string => `Unknown codemod "${name}". Available: ${available.join(", ")}.`,

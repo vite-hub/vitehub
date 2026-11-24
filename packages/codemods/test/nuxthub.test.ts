@@ -6,7 +6,7 @@ import { subset } from "semver"
 import { glob } from "tinyglobby"
 import { afterAll, describe, expect, it } from "vitest"
 
-import { formatReport, runCodemod, runMigration } from "../src/index.ts"
+import { formatMigrationReport, formatReport, runCodemod, runMigration } from "../src/index.ts"
 import { codemodsRange, withVersionPlaceholder } from "./fixture-version.ts"
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url))
@@ -250,6 +250,19 @@ describe("nuxthub", () => {
         ],
       ]
     `)
+  })
+
+  it("adds nitro on Nuxt 4.7 and does not say that Nuxt turns server auto-imports off", async () => {
+    const directory = await app("nuxt-4-7", {
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['@nuxthub/core'], hub: { kv: true } })\n",
+      "package.json": JSON.stringify({ dependencies: { "@nuxthub/core": "^0.10.0", "nuxt": "^4.7.0" } }, null, 2),
+    })
+    const migration = await runMigration({ cwd: directory, dryRun: true })
+    const manifest = JSON.parse(migration.edits.find(edit => edit.path === "package.json")?.after ?? "{}")
+    expect(manifest.dependencies).toMatchObject({ nitro: "^3.0.261103-rc", nuxt: "^4.7.0" })
+    const report = formatMigrationReport(migration)
+    expect(report).toContain("The codemod imports them from vite-hub/* in each server file, so the files keep working on Nuxt 5")
+    expect(report).not.toContain("Nuxt 5 turns server auto-imports off, so")
   })
 
   it("reports overrides that give every package h3 1", async () => {

@@ -2,17 +2,25 @@ import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 
-import { intersects, minVersion, parse, Range, validRange } from "semver"
+import { intersects, lt, minVersion, parse, Range, validRange } from "semver"
 import { parseDocument } from "yaml"
 
 import { codemodError, codemodsErrorDiagnostics } from "../error-diagnostics.ts"
 import { readDependencies } from "./detect.ts"
 
-import type { FileEdit } from "../types.ts"
-
 export const nuxtNightlyRange = "npm:nuxt-nightly@5x"
 
+/** The `nitro` range that `vite-hub` accepts. With `nitro` in package.json, Nuxt 4.7 builds the server with Nitro 3. */
+export const nitroRange = "^3.0.261103-rc"
+
+const firstNitro3Nuxt = "4.7.0"
 const sections = ["dependencies", "devDependencies"] as const
+
+type Manifest = Record<string, unknown>
+
+function isRecord(value: unknown): value is Manifest {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
 
 function catalogEntry(value: unknown, key: string): unknown {
   return value instanceof Map ? value.get(key) : undefined
@@ -45,19 +53,35 @@ function admitsNuxt5(range: string): boolean {
   })
 }
 
-async function findOldNuxt(cwd: string): Promise<{ nuxt: string, source: string } | undefined> {
+interface NuxtRange {
+  nuxt: string
+  source: string
+  range: string
+}
+
+async function readNuxtRange(cwd: string): Promise<NuxtRange | undefined> {
   const nuxt = (await readDependencies(cwd)).get("nuxt")
   if (!nuxt) return
   const catalog = /^catalog:(.*)$/.exec(nuxt)?.[1]
   const version = catalog === undefined ? nuxt : await readPnpmCatalogVersion(cwd, "nuxt", catalog.trim() || "default")
   if (!version) return
   const range = validRange(version.replace(/^npm:nuxt(?:-nightly)?@/, ""))
-  if (!range || admitsNuxt5(range)) return
-  return { nuxt, source: version === nuxt ? "" : `, which pnpm-workspace.yaml sets to "${version}"` }
+  if (!range) return
+  return { nuxt, range, source: version === nuxt ? "" : `, which pnpm-workspace.yaml sets to "${version}"` }
 }
 
-/** Sets `nuxt` to Nuxt 5 nightly in each package.json section that lists it. */
-export function setNuxtNightly(packageJson: string): string {
+function allowsNitro2Nuxt(range: string): boolean {
+  const lowest = minVersion(range)
+  return !lowest || lt(lowest, firstNitro3Nuxt)
+}
+
+/** False when package.json requires a Nuxt version before 5, directly or through a pnpm `catalog:`. */
+export async function allowsNuxt5(cwd: string): Promise<boolean> {
+  const found = await readNuxtRange(cwd)
+  return !found || admitsNuxt5(found.range)
+}
+
+function rewriteManifest(packageJson: string, change: (manifest: Manifest) => void): string {
   let manifest: unknown
   try {
     manifest = JSON.parse(packageJson)
@@ -65,31 +89,59 @@ export function setNuxtNightly(packageJson: string): string {
   catch (error) {
     throw codemodError(`Cannot parse package.json: ${error instanceof Error ? error.message : String(error)}`)
   }
-  for (const section of sections) {
-    const dependencies: unknown = typeof manifest === "object" && manifest !== null ? Reflect.get(manifest, section) : undefined
-    if (typeof dependencies === "object" && dependencies !== null && "nuxt" in dependencies) Reflect.set(dependencies, "nuxt", nuxtNightlyRange)
-  }
+  if (!isRecord(manifest)) throw codemodError("package.json must contain an object.")
+  change(manifest)
   const indent = /^[ \t]+/m.exec(packageJson)?.[0] ?? "  "
   return `${JSON.stringify(manifest, null, indent)}${packageJson.endsWith("\n") ? "\n" : ""}`
 }
 
-export interface NuxtUpgrade {
-  /** The package.json edit that sets Nuxt 5 nightly. */
-  edit: FileEdit & { before: string, after: string }
+/** Sets `nuxt` to Nuxt 5 nightly in each package.json section that lists it. */
+export function setNuxtNightly(packageJson: string): string {
+  return rewriteManifest(packageJson, (manifest) => {
+    for (const section of sections) {
+      const dependencies = manifest[section]
+      if (isRecord(dependencies) && "nuxt" in dependencies) dependencies.nuxt = nuxtNightlyRange
+    }
+  })
+}
+
+/** Adds `nitro` to `dependencies` when no section lists it. */
+export function addNitro(packageJson: string): string {
+  return rewriteManifest(packageJson, (manifest) => {
+    if (sections.some((section) => {
+      const dependencies = manifest[section]
+      return isRecord(dependencies) && "nitro" in dependencies
+    })) return
+    const dependencies = isRecord(manifest.dependencies) ? manifest.dependencies : {}
+    manifest.dependencies = Object.fromEntries(Object.entries({ ...dependencies, nitro: nitroRange }).sort(([left], [right]) => left.localeCompare(right)))
+  })
+}
+
+export interface Nitro3Plan {
+  /** Changes package.json so that Nuxt builds the server with Nitro 3. */
+  update: (packageJson: string) => string
   note: string
 }
 
 /**
- * Checks that the app runs Nuxt 5 before a codemod adds `vite-hub/nuxt`. On an older Nuxt it throws
- * `CODEMODS_NUXT_UNSUPPORTED`, or, with `nuxtNightly`, plans the package.json edit that moves the app to Nuxt 5 nightly.
+ * Checks that the app builds its server with Nitro 3 before a codemod adds `vite-hub/nuxt`. On Nuxt 4.7 without
+ * `nitro` in package.json, it plans to add `nitro`. On a Nuxt range that allows a version before 4.7, it throws
+ * `CODEMODS_NUXT_UNSUPPORTED`, or, with `nuxtNightly`, plans to move the app to Nuxt 5 nightly.
  */
-export async function planNuxtUpgrade(cwd: string, codemods: readonly string[], nuxtNightly: boolean): Promise<NuxtUpgrade | undefined> {
-  const old = await findOldNuxt(cwd)
-  if (!old) return
-  if (!nuxtNightly) throw codemodsErrorDiagnostics.CODEMODS_NUXT_UNSUPPORTED({ codemods, ...old })
-  const before = await readFile(join(cwd, "package.json"), "utf8")
+export async function planNitro3(cwd: string, codemods: readonly string[], nuxtNightly: boolean): Promise<Nitro3Plan | undefined> {
+  const found = await readNuxtRange(cwd)
+  if (!found || admitsNuxt5(found.range)) return
+  if (!allowsNitro2Nuxt(found.range)) {
+    if ((await readDependencies(cwd)).has("nitro")) return
+    return {
+      update: addNitro,
+      note: `package.json now lists nitro "${nitroRange}" in dependencies. With it, Nuxt 4.7 builds the server with Nitro 3 and H3 2, which vite-hub/nuxt needs. Install it with the other packages.`,
+    }
+  }
+  const { nuxt, source } = found
+  if (!nuxtNightly) throw codemodsErrorDiagnostics.CODEMODS_NUXT_UNSUPPORTED({ codemods, nuxt, source })
   return {
-    edit: { path: "package.json", before, after: setNuxtNightly(before) },
-    note: `package.json now requires nuxt "${nuxtNightlyRange}" in place of "${old.nuxt}", because vite-hub/nuxt needs Nuxt 5. Nuxt 5 stops auto-importing Nitro helpers such as defineEventHandler in server code. Set experimental: { nitroAutoImports: true } to keep them while you migrate, or import them as the Nuxt 5 build error lists.`,
+    update: setNuxtNightly,
+    note: `package.json now requires nuxt "${nuxtNightlyRange}" in place of "${nuxt}", because vite-hub/nuxt needs Nitro 3, and a Nuxt version before 4.7 runs Nitro 2. Nuxt 5 stops auto-importing Nitro helpers such as defineEventHandler in server code. Set experimental: { nitroAutoImports: true } to keep them while you migrate, or import them as the Nuxt 5 build error lists.`,
   }
 }

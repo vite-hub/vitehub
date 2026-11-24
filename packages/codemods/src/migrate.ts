@@ -6,7 +6,7 @@ import { codemods } from "./registry.ts"
 import { applyEdit, checkEditPath, editLabel } from "./runner.ts"
 import { findNuxtConfigName, readNuxtConfig } from "./shared/nuxt-config.ts"
 import { nodeVersionNote } from "./shared/node-version.ts"
-import { planNuxtUpgrade, setNuxtNightly } from "./shared/nuxt-version.ts"
+import { planNitro3 } from "./shared/nuxt-version.ts"
 import { codemodError, isCodemodError } from "./error-diagnostics.ts"
 
 import type { Codemod, CodemodResult, Detection, FileEdit, FollowUp } from "./types.ts"
@@ -18,7 +18,7 @@ export interface RunMigrationOptions {
   dryRun?: boolean
   /** The codemods to detect and run, in order. Defaults to every codemod. `vitehub migrate` passes `upgradeCodemods`. */
   codemods?: readonly Codemod[]
-  /** On a Nuxt version before 5, set `nuxt` to `npm:nuxt-nightly@5x` in package.json instead of stopping. */
+  /** On a Nuxt version before 4.7, set `nuxt` to `npm:nuxt-nightly@5x` in package.json instead of stopping. */
   nuxtNightly?: boolean
 }
 
@@ -37,7 +37,7 @@ export interface Migration {
   steps: MigrationStep[]
   /** The combined edits of every step that succeeded, against the files as they were before the migration. */
   edits: FileEdit[]
-  /** Facts about the migration that no codemod owns, such as the Nuxt version that `nuxtNightly` set. */
+  /** Facts about the migration that no codemod owns, such as the `nitro` package that it added on Nuxt 4.7. */
   notes: string[]
   /** Names of the codemods that the migration checked. */
   supported: string[]
@@ -65,9 +65,9 @@ async function readOptional(path: string): Promise<string | undefined> {
 /**
  * Detects every supported module in the project and runs its codemod. The codemods run one after another on a
  * scratch copy, so each one sees the edits of the ones before it. A codemod that fails adds an error and changes
- * nothing; the others still run. Writes the combined edits unless `dryRun` is set. Throws `CODEMODS_NUXT_UNSUPPORTED`
- * before it changes project files when a successful plan needs `vite-hub/nuxt` on a Nuxt version before 5, unless
- * `nuxtNightly` is set.
+ * nothing; the others still run. Writes the combined edits unless `dryRun` is set. When a successful plan adds
+ * `vite-hub/nuxt`, it adds `nitro` to package.json on Nuxt 4.7, and throws `CODEMODS_NUXT_UNSUPPORTED` before it
+ * changes project files on a Nuxt version before 4.7, unless `nuxtNightly` is set.
  */
 export async function runMigration(options: RunMigrationOptions = {}): Promise<Migration> {
   const cwd = resolve(options.cwd ?? process.cwd())
@@ -119,15 +119,15 @@ export async function runMigration(options: RunMigrationOptions = {}): Promise<M
         steps.push({ codemod, detection, error: unscratch(error.message) })
       }
     }
-    const needsNuxt5 = steps.filter(({ result }) => result?.requiresNuxt5).map(({ codemod }) => codemod.name)
-    const upgrade = needsNuxt5.length ? await planNuxtUpgrade(cwd, needsNuxt5, options.nuxtNightly ?? false) : undefined
-    if (upgrade) {
-      const { path } = upgrade.edit
+    const needsNitro3 = steps.filter(({ result }) => result?.requiresNitro3).map(({ codemod }) => codemod.name)
+    const nitro3 = needsNitro3.length ? await planNitro3(cwd, needsNitro3, options.nuxtNightly ?? false) : undefined
+    if (nitro3) {
+      const path = "package.json"
       await checkEditPath(scratch, path)
       const manifest = await readFile(join(scratch, path), "utf8")
-      await applyEdit(scratch, { path, before: manifest, after: setNuxtNightly(manifest) })
+      await applyEdit(scratch, { path, before: manifest, after: nitro3.update(manifest) })
       touched.add(path)
-      notes.push(upgrade.note)
+      notes.push(nitro3.note)
     }
     const edits: FileEdit[] = []
     for (const path of [...touched].sort()) {

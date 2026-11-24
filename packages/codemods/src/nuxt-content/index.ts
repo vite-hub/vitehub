@@ -255,7 +255,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   return {
     summary: `moved ${collections.length} collection${collections.length === 1 ? "" : "s"} from ${file} to ${target}${added.host ? `, host "${added.host}"` : ""}.`,
     edits,
-    requiresNuxt5: true,
+    requiresNitro3: true,
     followUps,
     notes: [
       "Each collection became a read-only glob() Source with the same files and paths. Content serves them at /api/content and reads them with content.get(path) and content.list().",

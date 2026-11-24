@@ -55,7 +55,7 @@ The command finds every module in the app that a codemod supports and runs those
 | [`cli-get-list`](/docs/codemods/upgrade-vitehub#cli-get-list) | `vitehub` read commands in scripts and CI: `show` and `info` to `get`, `env inspect` and `env status` to `env list`, `schedule runs` to `runs list` |
 | [`cli-agent-tree`](/docs/codemods/upgrade-vitehub#cli-agent-tree) | `vitehub` Agent calls in scripts and CI: `agents …`, `invocations …`, and `conversations export` move under `vitehub agent` |
 
-ViteHub supports Nuxt 5 and Nitro 3 only. A codemod that adds `vite-hub/nuxt` stops on a Nuxt version before 5 and writes nothing. Add `--nuxt-nightly` to move the app to `npm:nuxt-nightly@5x` in the same run. The codemods do not install packages.
+ViteHub needs Nitro 3: Nuxt 4.7 with the `nitro` package, or Nuxt 5. A codemod that adds `vite-hub/nuxt` adds `nitro` to `package.json` on Nuxt 4.7. On a Nuxt version before 4.7, it stops and writes nothing. Upgrade with `pnpm add nuxt@^4.7.0 nitro`, or add `--nuxt-nightly` to move the app to `npm:nuxt-nightly@5x` in the same run. The codemods do not install packages.
 
 ::card-group
   :::card{title="Get started" icon="i-lucide-rocket" to="/docs/codemods/get-started"}

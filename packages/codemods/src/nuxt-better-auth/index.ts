@@ -393,7 +393,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   return {
     summary: `moved ${servers} Auth config${servers === 1 ? "" : "s"} to server/auth.ts and ${pageRules.length} auth route rule${pageRules.length === 1 ? "" : "s"} to page meta${host ? `, host "${host}"` : ""}.`,
     edits,
-    requiresNuxt5: true,
+    requiresNitro3: true,
     followUps,
     notes,
     nextSteps: [

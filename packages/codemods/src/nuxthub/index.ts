@@ -2,6 +2,7 @@ import packageJson from "../../package.json" with { type: "json" }
 import { detectNuxtModule } from "../shared/detect.ts"
 import { readNuxtConfig } from "../shared/nuxt-config.ts"
 import { nuxtServerLayout } from "../shared/nuxt-server-layout.ts"
+import { allowsNuxt5 } from "../shared/nuxt-version.ts"
 import { editPackageJson } from "../shared/package-json.ts"
 import { editConfig, moduleName, readDatabaseOptions, readHub } from "./config.ts"
 import { casingFollowUp, findLayerSchemas, moveSchema } from "./database.ts"
@@ -99,7 +100,9 @@ async function migrate({ cwd, dependencyRoot = cwd }: CodemodContext): Promise<C
 
   const enabled = [features.database && "database", features.kv && "kv", features.blob && "blob", features.cache && "cache"].filter(Boolean)
   const notes = [
-    "NuxtHub auto-imported kv, blob, db, and schema in server code. Nuxt 5 turns server auto-imports off, so the codemod imports them from vite-hub/* in each server file. Set experimental: { nitroAutoImports: true } in nuxt.config to auto-import them again.",
+    await allowsNuxt5(cwd)
+      ? "NuxtHub auto-imported kv, blob, db, and schema in server code. Nuxt 5 turns server auto-imports off, so the codemod imports them from vite-hub/* in each server file. Set experimental: { nitroAutoImports: true } in nuxt.config to auto-import them again."
+      : "NuxtHub auto-imported kv, blob, db, and schema in server code. The codemod imports them from vite-hub/* in each server file, so the files keep working on Nuxt 5, which turns server auto-imports off.",
     "Local data stays in .data/. ViteHub reads .vitehub/data/. The follow-ups list the commands that copy it.",
   ]
   if (features.database) notes.push("NuxtHub's server/db/migrations/ stays in place for reference. ViteHub writes new migrations to server/databases/default/migrations/ and does not apply them during dev or build. Delete the old folder after the baseline.")
@@ -108,7 +111,7 @@ async function migrate({ cwd, dependencyRoot = cwd }: CodemodContext): Promise<C
   return {
     summary: `moved ${enabled.length ? enabled.join(", ") : "no features"} from hub to vitehub${configResult.host ? ` with host "${configResult.host}"` : ""}, rewrote ${sources.imports} import${sources.imports === 1 ? "" : "s"} and ${sources.calls} KV and Blob call${sources.calls === 1 ? "" : "s"}${schema?.moved.size ? `, and moved the schema to server/databases/default/` : ""}.`,
     edits,
-    requiresNuxt5: true,
+    requiresNitro3: true,
     followUps: [...configResult.followUps, ...await findGlobalH3Overrides(cwd), ...await findNuxtHubModuleFollowUps(cwd, config, dependencyRoot), ...wrangler.followUps, ...(schema?.followUps ?? []), ...databaseCodeFollowUps, ...sources.followUps, ...dataFollowUps(run, { database, d1: wrangler.d1, kv: features.kv && !configResult.redisKV, blob: features.blob, cloudflare, kvBinding: configResult.written.kv?.binding ?? "KV" })],
     notes,
     nextSteps: [

@@ -274,7 +274,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   return {
     summary: `moved ${migrated} cron job${migrated === 1 ? "" : "s"} from ${jobsDirectory} to server/schedules${added ? `, host "${added}"` : ""}.`,
     edits,
-    requiresNuxt5: true,
+    requiresNitro3: true,
     followUps: [...configFollowUps, ...followUps],
     notes,
     nextSteps: [
