@@ -419,6 +419,8 @@ describe("Agent invocation console", () => {
   it("refuses an app route in the Nitro routes option on a Console path", () => {
     expect(() => addConsoleRpcHandler({ routes: { "/portal/_vitehub/rpc": "./server/rpc.ts" } }, "/runtime", "/portal/"))
       .toThrow("the Nitro routes option uses that path")
+    expect(() => addConsoleRpcHandler({ routes: { "/portal/_vitehub/rpc/": "./server/rpc.ts" } }, "/runtime", "/portal/"))
+      .toThrow("the Nitro routes option uses that path")
     expect(() => addConsoleRpcHandler({ routes: { "/portal/_vitehub/other": "./server/other.ts" } }, "/runtime", "/portal/")).not.toThrow()
   })
 
