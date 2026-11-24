@@ -16,7 +16,7 @@ const codemods = join(packageRoot, "dist/cli.js")
 const secret = "e2e-synthetic-secret-value"
 const variables = {
   NUXT_API_SECRET: secret,
-  NUXT_ALLOWED_ORIGINS: "https://a.example.com,https://b.example.com",
+  NUXT_ALLOWED_ORIGINS: JSON.stringify(["https://a.example.com", "https://b.example.com"]),
   NUXT_MAX_RETRIES: "7",
   NUXT_FEATURE_ENABLED: "true",
   NUXT_PUBLIC_API_BASE: "https://override.example.com",
@@ -99,14 +99,14 @@ for (const entry of await readdir(lab)) {
 }
 const report = run(process.execPath, [codemods, "nuxt-safe-runtime-config", migrated], { cwd: packageRoot })
 console.log(report)
-ok(report.includes("server/api/config.get.ts:8 useServerEnv().apiSecret is secret"), "The report lists the secret read")
+ok(report.includes("server/api/config.get.ts:10 useServerEnv().apiSecret is secret"), "The report lists the secret read")
 ok(report.includes("server/env.schema.ts (new)"), "The codemod writes the schema module")
 
 console.log("3. Type-check the migrated app. The secret read that the report lists fails until it is unsealed.")
 const unsealed = spawnSync(process.execPath, [nuxt, "typecheck"], { cwd: migrated, encoding: "utf8", env: cleanEnvironment() })
 const typeErrors = `${unsealed.stdout}${unsealed.stderr}`
 ok(unsealed.status !== 0, "The migrated app must not type-check before the secret follow-up")
-ok(typeErrors.includes("server/api/config.get.ts(11,36): error TS2339: Property 'length' does not exist on type 'SecretEnv<string>'."), typeErrors)
+ok(typeErrors.includes("server/api/config.get.ts(12,36): error TS2339: Property 'length' does not exist on type 'SecretEnv<string>'."), typeErrors)
 console.log(typeErrors.split("\n").filter(text => text.includes("error TS")).join("\n"))
 
 console.log("4. Apply the reported follow-up: unseal the secret where the route needs its length.")

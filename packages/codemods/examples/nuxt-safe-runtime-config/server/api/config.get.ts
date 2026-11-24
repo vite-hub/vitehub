@@ -1,3 +1,5 @@
+import { defineEventHandler } from 'nitro/h3'
+
 export default defineEventHandler((event) => {
   const config = useSafeRuntimeConfig(event)
   return {
