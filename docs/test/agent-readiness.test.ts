@@ -82,15 +82,16 @@ describe("agent-ready HTTP contracts", () => {
     const lockfile = readFileSync(resolve(docsRoot, "../pnpm-lock.yaml"), "utf8");
     const workspace = readFileSync(resolve(docsRoot, "../pnpm-workspace.yaml"), "utf8");
     const cliPackage = JSON.parse(readFileSync(resolve(docsRoot, "../packages/cli/package.json"), "utf8"));
+    const docsPackage = JSON.parse(readFileSync(resolve(docsRoot, "../packages/docs/package.json"), "utf8"));
 
     expect(workspace).toMatch(/^ +nuxt: npm:nuxt-nightly@5\./m);
-    expect(workspace).toContain('nuxt: ">=5.0.0-0"');
     expect(lockfile).toMatch(/^ {2}nuxt-nightly@5\.[^:]+:$/m);
     expect(lockfile).toMatch(/^ {2}nitro@3\.[^:]+:$/m);
     expect(lockfile).toMatch(/^ {2}'@nuxt\/devtools@3\.[^']+':$/m);
     expect(config).toMatch(/devtools:\s*{\s*enabled:\s*false/);
     expect(cliPackage.peerDependencies.nuxt).toBe("^4.7.0 || >=5.0.0-0");
     expect(cliPackage.peerDependenciesMeta.nuxt).toEqual({ optional: true });
+    expect(docsPackage.peerDependencies.nuxt).toBe("^4.7.0 || >=5.0.0-0");
   });
 });
 
