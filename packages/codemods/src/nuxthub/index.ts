@@ -122,6 +122,7 @@ export const nuxthub: Codemod = {
   name: "nuxthub",
   description: "Move a Nuxt app from NuxtHub 0.10 (@nuxthub/core) to ViteHub KV, Blob, Database, and cache through vite-hub/nuxt.",
   usage: "[dir]",
+  requiresNuxt5: true,
   detect: ({ cwd }) => detectNuxtModule(cwd, moduleName, ["hub"]),
   run: migrate,
 }

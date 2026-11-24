@@ -5,7 +5,9 @@ import { createTwoFilesPatch } from "diff"
 
 import { codemods } from "./registry.ts"
 import { codemodError, codemodsErrorDiagnostics } from "./error-diagnostics.ts"
+import { planNuxtUpgrade, setNuxtNightly } from "./shared/nuxt-version.ts"
 
+import type { NuxtUpgrade } from "./shared/nuxt-version.ts"
 import type { Codemod, CodemodResult, FileEdit } from "./types.ts"
 
 export interface RunCodemodOptions {
@@ -13,6 +15,8 @@ export interface RunCodemodOptions {
   cwd?: string
   /** Plan the edits and write nothing. */
   dryRun?: boolean
+  /** On a Nuxt version before 5, set `nuxt` to `npm:nuxt-nightly@5x` in package.json instead of stopping. */
+  nuxtNightly?: boolean
 }
 
 export interface CodemodRun {
@@ -63,7 +67,8 @@ export function findCodemod(name: string): Codemod | undefined {
 
 /**
  * Runs one codemod. Writes its edits unless `dryRun` is set. Throws `CODEMODS_BLOCKED` when it cannot migrate, also when an
- * edit is a symbolic link or is inside one.
+ * edit is a symbolic link or is inside one, and `CODEMODS_NUXT_UNSUPPORTED` when it adds `vite-hub/nuxt` to an app on a
+ * Nuxt version before 5 without `nuxtNightly`.
  */
 export async function runCodemod(name: string, options: RunCodemodOptions = {}): Promise<CodemodRun> {
   const codemod = findCodemod(name)
@@ -72,13 +77,21 @@ export async function runCodemod(name: string, options: RunCodemodOptions = {}):
   }
   const cwd = resolve(options.cwd ?? process.cwd())
   const dryRun = options.dryRun ?? false
-  const result = await codemod.run({ cwd })
+  const upgrade = codemod.requiresNuxt5 ? await planNuxtUpgrade(cwd, [codemod.name], options.nuxtNightly ?? false) : undefined
+  const planned = await codemod.run({ cwd })
+  const result = upgrade ? withNuxtUpgrade(planned, upgrade) : planned
   // Check on a dry run too, so it fails where the real run would.
   for (const edit of result.edits) await checkEditPath(cwd, edit.path)
   if (!dryRun) {
     for (const edit of result.edits) await applyEdit(cwd, edit)
   }
   return { codemod, cwd, dryRun, result }
+}
+
+function withNuxtUpgrade(result: CodemodResult, upgrade: NuxtUpgrade): CodemodResult {
+  const edits = result.edits.map(edit => edit.path === upgrade.edit.path && edit.after !== null ? { ...edit, after: setNuxtNightly(edit.after) } : edit)
+  if (!result.edits.some(edit => edit.path === upgrade.edit.path)) edits.push(upgrade.edit)
+  return { ...result, edits, notes: [upgrade.note, ...result.notes] }
 }
 
 /** Marks a new or deleted file in a file list. */

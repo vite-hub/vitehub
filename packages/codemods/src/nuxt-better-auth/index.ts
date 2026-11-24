@@ -423,6 +423,7 @@ export const nuxtBetterAuth: Codemod = {
   name: "nuxt-better-auth",
   description: "Move a Nuxt app from @nuxtjs/better-auth to ViteHub Auth through vite-hub/nuxt.",
   usage: "[dir]",
+  requiresNuxt5: true,
   detect,
   run: migrate,
 }

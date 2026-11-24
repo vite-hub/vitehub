@@ -310,6 +310,7 @@ export const nuxtSafeRuntimeConfig: Codemod = {
   name: moduleName,
   description: "Move a Nuxt app from nuxt-safe-runtime-config to ViteHub Env through vite-hub/nuxt.",
   usage: "[dir]",
+  requiresNuxt5: true,
   detect: ({ cwd }) => detectNuxtModule(cwd, moduleName, ["safeRuntimeConfig"]),
   run: migrate,
 }

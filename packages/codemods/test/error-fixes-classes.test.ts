@@ -13,7 +13,7 @@ afterEach(async () => {
 })
 
 it("gives each codemods code a fix and its own docs page", () => {
-  for (const error of [codemodsErrorDiagnostics.CODEMODS_BLOCKED({ problem: "p" }), codemodsErrorDiagnostics.CODEMODS_UNKNOWN({ available: ["a"], name: "b" })]) {
+  for (const error of [codemodsErrorDiagnostics.CODEMODS_BLOCKED({ problem: "p" }), codemodsErrorDiagnostics.CODEMODS_NUXT_UNSUPPORTED({ codemods: ["nuxthub"], nuxt: "^4.2.0", source: "" }), codemodsErrorDiagnostics.CODEMODS_UNKNOWN({ available: ["a"], name: "b" })]) {
     expect(error.fix).toMatch(/\S/)
     expect(error.docs).toBe(`https://vitehub.dev/docs/codemods/diagnostics/${error.code.toLowerCase()}`)
   }

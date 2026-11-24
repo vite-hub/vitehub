@@ -173,6 +173,7 @@ export const resend: Codemod = {
   name: "resend",
   description: "Move nuxt-resend and Resend SDK emails.send() calls to ViteHub Email through vite-hub/nuxt.",
   usage: "[dir]",
+  requiresNuxt5: true,
   detect: async ({ cwd }) => {
     const module = await detectNuxtModule(cwd, moduleName)
     if (module) return module

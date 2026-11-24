@@ -3,7 +3,7 @@
   "private": true,
   "dependencies": {
     "@vite-hub/env": "^<version>",
-    "nuxt": "^4.5.2",
+    "nuxt": "npm:nuxt-nightly@5x",
     "vite-hub": "^<version>"
   }
 }

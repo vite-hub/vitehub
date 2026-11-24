@@ -287,6 +287,7 @@ export const nuxtCron: Codemod = {
   name: moduleName,
   description: "Move nuxt-cron jobs to ViteHub Schedule Definitions through vite-hub/nuxt.",
   usage: "[dir]",
+  requiresNuxt5: true,
   detect: ({ cwd }) => detectNuxtModule(cwd, moduleName, ["cron"]),
   run: migrate,
 }

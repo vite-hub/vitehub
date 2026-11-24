@@ -150,6 +150,7 @@ export const t3Env: Codemod = {
   name: "t3-env",
   description: `Move a Nuxt app from ${packageName} createEnv() to ViteHub Env through vite-hub/nuxt.`,
   usage: "[dir]",
+  requiresNuxt5: true,
   detect: async ({ cwd }) => {
     if ((await readDependencies(cwd)).has(packageName)) return { reason: `package.json depends on ${packageName}` }
     const modules = await findEnvModules(cwd)

@@ -21,7 +21,7 @@
     "@vite-hub/kv": "^<version>",
     "drizzle-kit": "1.0.0-rc.5 || ^1.0.0",
     "drizzle-orm": "1.0.0-rc.5 || ^1.0.0",
-    "nuxt": "^4.3.0",
+    "nuxt": "npm:nuxt-nightly@5x",
     "vite-hub": "^<version>"
   },
   "devDependencies": {

@@ -43,7 +43,7 @@ The report has one part for each codemod that ran:
 
 Do each follow-up, then run the commands from the report. The codemods do not install packages.
 
-The report also warns if `package.json` requires a Nuxt version older than 5. The codemods do not upgrade Nuxt. Nuxt 5 also stops auto-importing Nitro helpers like `defineEventHandler` in server code. Set `experimental: { nitroAutoImports: true }` to keep them, or import them as the Nuxt 5 build error lists.
+If `package.json` requires Nuxt 4 or older, a codemod that adds `vite-hub/nuxt` stops before it writes anything. Run the command again with `--nuxt-nightly` to set `"nuxt": "npm:nuxt-nightly@5x"` in `package.json` and migrate in the same run. The report then names the change in its notes. Nuxt 5 also stops auto-importing Nitro helpers like `defineEventHandler` in server code. Set `experimental: { nitroAutoImports: true }` to keep them, or import them as the Nuxt 5 build error lists.
 
 ## Run one codemod
 

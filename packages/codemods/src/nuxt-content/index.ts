@@ -271,6 +271,7 @@ export const nuxtContent: Codemod = {
   name: "nuxt-content",
   description: "Move Nuxt Content collections from content.config.ts to ViteHub Content Sources through vite-hub/nuxt.",
   usage: "[dir]",
+  requiresNuxt5: true,
   async detect(context) {
     // A Docus site moves with the docus codemod, which keeps its pages and theme.
     if (await docus.detect(context)) return undefined

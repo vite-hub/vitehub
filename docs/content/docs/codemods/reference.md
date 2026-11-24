@@ -9,8 +9,8 @@ icon: i-lucide-book-open
 ## Command
 
 ```bash [Terminal]
-npx @vite-hub/codemods [dir] [--dry-run]
-npx @vite-hub/codemods <codemod> [dir] [--dry-run]
+npx @vite-hub/codemods [dir] [--dry-run] [--nuxt-nightly]
+npx @vite-hub/codemods <codemod> [dir] [--dry-run] [--nuxt-nightly]
 ```
 
 The package installs the binary `vitehub-codemods`. It requires Node.js 24.15 or newer.
@@ -20,6 +20,7 @@ The package installs the binary `vitehub-codemods`. It requires Node.js 24.15 or
 | `<codemod>` | Run only this codemod. Without it, the command detects every codemod that applies and runs them all. |
 | `dir` | The application directory. Defaults to the current directory. |
 | `--dry-run` | Print the planned edits as diffs and the report, and write nothing. |
+| `--nuxt-nightly` | When `package.json` requires Nuxt 4 or older, set `nuxt` to `npm:nuxt-nightly@5x` and migrate. Without it, a codemod that adds `vite-hub/nuxt` stops on Nuxt 4. |
 | `--help`, `-h` | List the codemods and the options. |
 
 ### Exit codes
@@ -27,9 +28,11 @@ The package installs the binary `vitehub-codemods`. It requires Node.js 24.15 or
 | Code | When |
 | --- | --- |
 | `0` | Every codemod completed, also when it reported follow-ups, or no codemod applies. |
-| `1` | A codemod could not migrate, the directory has neither `package.json` nor `nuxt.config`, `nuxt.config` does not parse, the directory does not exist, or an argument is unknown. |
+| `1` | A codemod could not migrate, a codemod that adds `vite-hub/nuxt` found Nuxt 4 or older without `--nuxt-nightly` (`CODEMODS_NUXT_UNSUPPORTED`), the directory has neither `package.json` nor `nuxt.config`, `nuxt.config` does not parse, the directory does not exist, or an argument is unknown. |
 
 ### How a migration runs
+
+Before a codemod that adds `vite-hub/nuxt` runs, the command reads the `nuxt` range in `package.json`, or the version that a pnpm `catalog:` sets in `pnpm-workspace.yaml`. When that range allows no Nuxt 5 version, the command stops before it writes anything, also with `--dry-run`. With `--nuxt-nightly`, it sets `nuxt` to `npm:nuxt-nightly@5x` in `package.json` first, and the report notes the change. The upgrade codemods that `vitehub migrate` runs do not add `vite-hub/nuxt`, so they do not check the Nuxt version.
 
 If a codemod would edit a symbolic link or a file inside a linked directory, it stops without its edits. This applies with or without a codemod name, and also with `--dry-run`. Replace the link with a local file or directory before you retry.
 
@@ -52,8 +55,8 @@ console.log(formatMigrationReport(migration))
 
 | Export | Description |
 | --- | --- |
-| `runMigration({ cwd?, dryRun?, codemods? })` | Detects and runs every codemod of `codemods` (default: all) that applies. Resolves with `{ cwd, dryRun, steps, edits, warnings, supported }`. Each step has its `codemod`, its `detection`, and a `result` or an `error`. |
-| `runCodemod(name, { cwd?, dryRun? })` | Runs one codemod and resolves with `{ codemod, cwd, dryRun, result }`. Throws `CODEMODS_BLOCKED`, or `CODEMODS_UNKNOWN` for an unknown name, when it cannot migrate. |
+| `runMigration({ cwd?, dryRun?, codemods?, nuxtNightly? })` | Detects and runs every codemod of `codemods` (default: all) that applies. Resolves with `{ cwd, dryRun, steps, edits, notes, supported }`. Throws `CODEMODS_NUXT_UNSUPPORTED` before it writes anything when a codemod that adds `vite-hub/nuxt` finds Nuxt 4 or older and `nuxtNightly` is not set. Each step has its `codemod`, its `detection`, and a `result` or an `error`. |
+| `runCodemod(name, { cwd?, dryRun?, nuxtNightly? })` | Runs one codemod and resolves with `{ codemod, cwd, dryRun, result }`. Throws `CODEMODS_BLOCKED`, `CODEMODS_NUXT_UNSUPPORTED`, or `CODEMODS_UNKNOWN` for an unknown name, when it cannot migrate. |
 | `detectCodemods(cwd, candidates?)` | The codemods that apply to the app, each with the reason. |
 | `formatReport(run)`, `formatMigrationReport(migration, nextSteps?)` | The text report that the CLI prints. `nextSteps` adds steps after those of the codemods. |
 | `formatDiff({ edits })` | The edits as unified diffs. |
@@ -74,6 +77,7 @@ A codemod is a `Codemod` object:
 | `usage` | The arguments after the name, for the help output. |
 | `detect(context)` | Tells whether the app uses what the codemod migrates, with a reason. It must be fast and must not throw for an app that does not use it. |
 | `run(context)` | Plans the edits and the follow-ups. It must not write files. The runner writes them, or prints them in a dry run. |
+| `requiresNuxt5` | Set it to `true` when the codemod adds `vite-hub/nuxt`. The runner then stops on Nuxt 4 or older, or sets Nuxt 5 nightly with `nuxtNightly`. |
 
 Add the codemod to `packages/codemods/src/registry.ts`. The order there is the order in which the migration runs the codemods. Shared `nuxt.config` and `package.json` helpers are in `packages/codemods/src/shared`.
 

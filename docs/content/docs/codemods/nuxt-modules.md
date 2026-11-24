@@ -9,10 +9,14 @@ icon: i-lucide-package
 These codemods move a Nuxt app from a community module to the ViteHub feature that does the same work, through `vite-hub/nuxt`. `npx @vite-hub/codemods` detects the modules that the app uses. To run one codemod, pass its name:
 
 ```bash [Terminal]
-npx @vite-hub/codemods nuxt-safe-runtime-config [dir] [--dry-run]
+npx @vite-hub/codemods nuxt-safe-runtime-config [dir] [--dry-run] [--nuxt-nightly]
 ```
 
-ViteHub supports Nuxt 5 only. The codemods do not upgrade Nuxt. The report warns when `package.json` requires an older version.
+These codemods add `vite-hub/nuxt`, which needs Nuxt 5. When `package.json` requires Nuxt 4 or older, the command stops, writes nothing, and exits with `1`. Add `--nuxt-nightly` to set `"nuxt": "npm:nuxt-nightly@5x"` in `package.json` and migrate in the same run:
+
+```bash [Terminal]
+npx @vite-hub/codemods nuxt-safe-runtime-config --nuxt-nightly
+```
 
 ## nuxt-safe-runtime-config
 

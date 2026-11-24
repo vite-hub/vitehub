@@ -255,7 +255,7 @@ describe("nuxthub", () => {
   it("reports overrides that give every package h3 1", async () => {
     const directory = await app("overrides", {
       "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['@nuxthub/core'], hub: { kv: true } })\n",
-      "package.json": JSON.stringify({ dependencies: { "@nuxthub/core": "^0.10.0", "nuxt": "^4.0.0" }, pnpm: { overrides: { h3: "^1.15.0" } }, resolutions: { "nuxt-csurf>h3": "1.15.11" } }, null, 2),
+      "package.json": JSON.stringify({ dependencies: { "@nuxthub/core": "^0.10.0", "nuxt": "npm:nuxt-nightly@5x" }, pnpm: { overrides: { h3: "^1.15.0" } }, resolutions: { "nuxt-csurf>h3": "1.15.11" } }, null, 2),
       "pnpm-workspace.yaml": "overrides:\n  'nuxt-csurf>h3': 1.15.11\n  h3: '1.15.11' # csurf\n",
     })
     const run = await runCodemod("nuxthub", { cwd: directory, dryRun: true })
