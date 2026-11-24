@@ -135,6 +135,7 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
       "@takumi-rs/core",
     ],
   },
+  email: { ignoreDependencies: ["@vitejs/plugin-vue"] },
   env: { ignoreDependencies: ["nuxt"] },
   i18n: { ignoreDependencies: ["@diglot/cli"] },
   internal: {

@@ -177,6 +177,35 @@ describe.each([
   })
 })
 
+it("releases the reservation when the final write of a keyed submission fails", async () => {
+  const client = createClient({ url: ":memory:" })
+  await client.executeMultiple(`${formsTables.join(";\n")};`)
+  const database = drizzle({ client })
+  let failNextUpdate = true
+  const store = createDrizzleFormsStore(() => failNextUpdate
+    ? new Proxy(database, {
+        get(target, property, receiver) {
+          if (property !== "update") return Reflect.get(target, property, receiver)
+          failNextUpdate = false
+          return () => { throw new Error("disk I/O error") }
+        },
+      })
+    : database)
+  const key = crypto.randomUUID()
+  const onSubmit = vi.fn(async () => {})
+  const form = defineForm({ schema: v.object({ message: v.string() }), onSubmit })
+  const send = () => handleFormRequest("contact", form, new Request("https://site.test/form", { method: "POST", headers: { "content-type": "application/json", "idempotency-key": key }, body: JSON.stringify({ message: "Hi" }) }), { store, log: () => {} })
+
+  const failed = await send()
+  expect(failed.status).toBe(500)
+  expect(await failed.json()).toMatchObject({ code: "FORMS_R0001" })
+
+  const retry = await send()
+  expect(retry.status).toBe(201)
+  expect(await retry.json()).toEqual({ id: key })
+  expect(await store.list()).toMatchObject([{ id: key, status: "open" }])
+})
+
 it("names the migration when the table is missing", async () => {
   const store = createDrizzleFormsStore(drizzle({ client: createClient({ url: ":memory:" }) }))
   const [error] = await createFormsInbox(store).list()

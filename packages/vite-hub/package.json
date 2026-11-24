@@ -477,6 +477,11 @@
       "import": "./dist/email/test.js",
       "default": "./dist/email/test.js"
     },
+    "./email/vue": {
+      "types": "./dist/email/vue.d.ts",
+      "import": "./dist/email/vue.js",
+      "default": "./dist/email/vue.js"
+    },
     "./env": {
       "types": "./dist/env.d.ts",
       "import": "./dist/env.js",
