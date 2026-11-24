@@ -121,7 +121,7 @@ import { acknowledgeWebhookAdmission, drainDeferredWebhookAdmissions, openWebhoo
 import type { WebhookInbox } from "./webhook-inbox.ts"
 import {
   agentChannelDeliveryMessageIdentity,
-  agentChannelDeliveryPayloadFingerprint,
+  agentChannelDeliveryPayloadFingerprints,
   agentChannelDeliverySourceId,
   agentChannelDeliverySourceValue,
   agentChannelDeliveryTracker,
@@ -7652,11 +7652,11 @@ async function handleChatSdkMessages(
         const queuedThread = individualMessages ? createChatSdkMessageThread(chat, thread.adapter, state.state, thread, queuedMessage, options) : thread
         const queuedMessageId = agentChannelDeliverySourceValue(queuedMessage.id)
         const queuedDeliveryId = individualMessages ? lockTracker.queuedDeliveryId(queuedMessage) : undefined
-        const payloadFingerprint = individualMessages && !queuedDeliveryId ? await agentChannelDeliveryPayloadFingerprint(queuedMessage.raw).catch(() => undefined) : undefined
+        const payloadFingerprints = individualMessages && !queuedDeliveryId ? await agentChannelDeliveryPayloadFingerprints(queuedMessage.raw).catch(() => []) : []
         const queuedDelivery = queuedDeliveryId
           ? await resumeAgentChannelDelivery(state.state, queuedDeliveryId)
           : individualMessages
-          ? (payloadFingerprint ? await resumeAgentChannelDeliveryPayload(state.state, chatRegistrationOrigin(registration), payloadFingerprint) : undefined) ||
+          ? (await resumeAgentChannelDeliveryPayload(state.state, chatRegistrationOrigin(registration), payloadFingerprints)) ||
             (queuedMessageId
               ? (await resumeAgentChannelDeliveryMessage(state.state, chatRegistrationOrigin(registration), queuedMessage.threadId, queuedMessageId)) ||
                 (queuedMessage !== message
@@ -9952,7 +9952,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       await deliveryState.state.connect()
       const webhookPayload = parseWebhookPayload(rawBody)
       const messageIdentity = agentChannelDeliveryMessageIdentity(registration.provider, webhookPayload)
-      const payloadFingerprint = await agentChannelDeliveryPayloadFingerprint(webhookPayload)
+      const payloadFingerprints = await agentChannelDeliveryPayloadFingerprints(webhookPayload)
       let channelDeliveryPromise: Promise<AgentChannelDeliveryTracker> | undefined
       const resolveChannelDelivery = async () => {
         channelDeliveryPromise ??= (async () => {
@@ -9974,11 +9974,9 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
               messageIdentity.messageId,
             ).catch((error) => logChannelDeliveryAliasFailure(delivery, "message", error))
           }
-          if (payloadFingerprint) {
-            await bindAgentChannelDeliveryPayload(deliveryState.state, delivery, chatRegistrationOrigin(registration), payloadFingerprint).catch((error) =>
-              logChannelDeliveryAliasFailure(delivery, "payload", error),
-            )
-          }
+          await bindAgentChannelDeliveryPayload(deliveryState.state, delivery, chatRegistrationOrigin(registration), payloadFingerprints).catch((error) =>
+            logChannelDeliveryAliasFailure(delivery, "payload", error),
+          )
           return delivery
         })()
         return await channelDeliveryPromise
