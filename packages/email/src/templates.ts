@@ -19,13 +19,13 @@ async function listEmailTemplates(root: string, directory = root): Promise<strin
     if (entry.name.startsWith("_")) continue
     const path = resolve(directory, entry.name)
     if (entry.isDirectory() && !entry.isSymbolicLink()) files.push(...await listEmailTemplates(root, path))
-    else if (entry.isFile() && entry.name.endsWith(".md")) files.push(path)
+    else if (entry.isFile() && /\.(?:md|vue)$/.test(entry.name)) files.push(path)
   }
   return files
 }
 
 function templateName(root: string, file: string): string {
-  return relative(root, file).replace(/\\/g, "/").replace(/\.md$/, "")
+  return relative(root, file).replace(/\\/g, "/").replace(/\.(?:md|vue)$/, "")
 }
 
 /** One template under a `server/emails` root. */
@@ -35,8 +35,8 @@ export interface EmailTemplate {
 }
 
 /**
- * Lists Markdown templates under each root, recursively. The name is the path without `.md`. Files and folders that
- * start with `_` are partials, so they are not templates.
+ * Lists Markdown (`.md`) and Vue (`.vue`) templates under each root, recursively. The name is the path without the
+ * extension. Files and folders that start with `_` are partials, so they are not templates.
  */
 export async function discoverEmailTemplates(templatesRoots: string[]): Promise<EmailTemplate[]> {
   const templates = new Map<string, string>()
