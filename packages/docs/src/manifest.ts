@@ -7,7 +7,7 @@ import { parseFrontmatter } from "comark/parse"
 import yaml from "comark-content/plugins/yaml"
 
 import { docsErrorDiagnostics } from "./error-diagnostics.ts"
-import { docsManifestPages, docsPanelOf, docsPanelPages, normalizeDocsBase } from "./navigation.ts"
+import { docsManifestPages, normalizeDocsBase } from "./navigation.ts"
 import { docsPageOf, docsPagePath } from "./page.ts"
 import { docsFrontmatter, docsPageSchema, docsSectionSchema } from "./schema.ts"
 
@@ -215,18 +215,24 @@ function docsManifestOf(options: DocsManifestOptions, listed: readonly DocsConte
   };
   const prefix = base === "/" ? "" : `${base.slice(1)}/`;
   const rootFile = `${prefix}index.md`;
-  const sectionIds = [
-    ...new Set(
-      [...files.keys()]
-        .filter((file) => file.startsWith(prefix) && file.slice(prefix.length).includes("/"))
-        .map((file) => file.slice(prefix.length).split("/")[0]!),
-    ),
-  ];
-  const sections = sectionIds
-    .map((id, index): DocsSection => {
+  const sectionFiles = new Map<string, string[]>();
+  const standaloneFiles: string[] = [];
+  for (const file of files.keys()) {
+    if (file === rootFile) continue;
+    const slash = file.startsWith(prefix) ? file.indexOf("/", prefix.length) : -1;
+    if (slash === -1) {
+      standaloneFiles.push(file);
+      continue;
+    }
+    const id = file.slice(prefix.length, slash);
+    const group = sectionFiles.get(id);
+    if (group) group.push(file);
+    else sectionFiles.set(id, [file]);
+  }
+  const sections = [...sectionFiles]
+    .map(([id, entries], index): DocsSection => {
       const sectionPrefix = `${prefix}${id}/`;
-      const pages = [...files.keys()]
-        .filter((file) => file.startsWith(sectionPrefix))
+      const pages = entries
         .map((file) => {
           const pageId = idOf(file.slice(sectionPrefix.length));
           return read(
@@ -262,11 +268,7 @@ function docsManifestOf(options: DocsManifestOptions, listed: readonly DocsConte
   }
     })
     .sort((left, right) => left.order - right.order || left.title.localeCompare(right.title));
-  const pages = [...files.keys()]
-    .filter(
-      (file) =>
-        !file.startsWith(prefix) || (!file.slice(prefix.length).includes("/") && file !== rootFile),
-    )
+  const pages = standaloneFiles
     .map((file) => read(file, "", docsPagePath(file)))
     .sort((left, right) => left.path.localeCompare(right.path));
   const manifest: DocsManifest = {
@@ -343,16 +345,32 @@ function appPage(full: DocsPage): DocsAppPage {
 export function docsAppManifest(manifest: DocsManifest, options: { panels: boolean }): { manifest: DocsManifest<DocsAppPage>, panels: DocsAppPanel[] } {
   const panels: DocsAppPanel[] = []
   const sections = manifest.sections.map((section) => {
-    const overviews = section.pages.filter(page => page.panel)
-    const nested = overviews.some(panel => overviews.some(outer => panel.id.startsWith(`${outer.id}/`)))
-    if (!options.panels || !overviews.length || nested) return { ...section, pages: section.pages.map(appPage) }
-    for (const panel of overviews) {
-      const pages = docsPanelPages(section, panel).filter(page => page.id !== panel.id)
-      if (pages.length) panels.push({ path: panel.path, section: section.id, pages: pages.map(appPage) })
+    const children = new Map<string, DocsAppPage[]>()
+    if (options.panels) {
+      for (const page of section.pages) {
+        if (page.panel) children.set(page.id, [])
+      }
     }
-    const pages = section.pages.filter(page => page.panel || !docsPanelOf(section, page)).map(page => page.panel
-      ? { ...appPage(page), panelSize: docsPanelPages(section, page).filter(candidate => candidate.navigation && candidate.id !== page.id).length }
-      : appPage(page))
+    function parentPanelPages(id: string): DocsAppPage[] | undefined {
+      for (let slash = id.lastIndexOf("/"); slash >= 0; slash = id.lastIndexOf("/")) {
+        id = id.slice(0, slash)
+        const pages = children.get(id)
+        if (pages) return pages
+      }
+    }
+    if (!children.size || [...children.keys()].some(id => parentPanelPages(id))) {
+      return { ...section, pages: section.pages.map(appPage) }
+    }
+    const pages: DocsAppPage[] = []
+    for (const page of section.pages) {
+      (parentPanelPages(page.id) ?? pages).push(appPage(page))
+    }
+    for (const page of pages) {
+      const entries = children.get(page.id)
+      if (!entries) continue
+      page.panelSize = entries.filter(entry => entry.navigation).length
+      if (entries.length) panels.push({ path: page.path, section: section.id, pages: entries })
+    }
     return { ...section, pages }
   })
   return {

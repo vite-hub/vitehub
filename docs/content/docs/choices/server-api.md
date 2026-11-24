@@ -63,12 +63,14 @@ Each group takes these settings:
 Call `resolve()` in a route, queue worker, or test. It returns `[error, selection]` and never throws.
 
 ```ts [server/api/forecast/choices.post.ts] fragment
+import { defineEventHandler, HTTPError, readBody } from "h3"
 import { forecast } from "../../utils/forecast-choices"
 
 export default defineEventHandler(async (event) => {
   await requireUserSession(event) // your auth
-  const { text } = await readBody(event)
-  const [error, selection] = await forecast.resolve(text)
+  const body = await readBody<{ text?: string }>(event)
+  if (typeof body?.text !== 'string' || !body.text) throw new HTTPError({ status: 400, message: 'Text is required.' })
+  const [error, selection] = await forecast.resolve(body.text)
   if (error) throw new HTTPError({ status: 422, message: error.message })
   return selection
 })

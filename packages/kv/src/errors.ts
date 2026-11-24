@@ -2,8 +2,9 @@ import { isRuntimeDiagnostic, toResultError } from "@vite-hub/runtime"
 
 import type { Result, ResultError } from "@vite-hub/runtime"
 
-import type { KVErrorCode, KVListOptions, KVListPage, KVOperation, KVPageOptions } from "./types.ts"
+import type { KVErrorCode, KVListOptions, KVListPage, KVOperation, KVPageOptions, KVSetOptions } from "./types.ts"
 import { kvConfigErrorCodes, kvErrorDiagnostics } from "./error-diagnostics.ts"
+import { ttlSeconds } from "./runtime/ttl.ts"
 
 export function kvClearOptionsError(options: unknown): ResultError<"KV_INVALID_CLEAR_OPTIONS"> | undefined {
   if (options === undefined) return
@@ -78,3 +79,21 @@ export const kvKeyLimitCodes: readonly ["KV_KEY_TOO_LONG"] = ["KV_KEY_TOO_LONG"]
 
 /** Codes that a Cloudflare KV store returns for a write above the host limits. */
 export const kvWriteLimitCodes: readonly ["KV_KEY_TOO_LONG", "KV_VALUE_TOO_LARGE"] = ["KV_KEY_TOO_LONG", "KV_VALUE_TOO_LARGE"]
+
+/** The codes that `set()` and `setMany()` return: the write limits and an invalid option or `ttl`. */
+export const kvSetCodes: readonly ["KV_KEY_TOO_LONG", "KV_VALUE_TOO_LARGE", "KV_INVALID_OPTION", "KV_INVALID_TTL"] = [...kvWriteLimitCodes, "KV_INVALID_OPTION", "KV_INVALID_TTL"]
+
+/**
+ * The `ttl` of a write in seconds, or `undefined` when the caller sets none.
+ * Throws `KV_INVALID_OPTION` for any option other than `ttl`, and `KV_INVALID_TTL` for a `ttl` that is not a positive time.
+ */
+export function kvSetTTL(operation: "set" | "setIfAbsent" | "setMany", options: KVSetOptions | undefined): number | undefined {
+  if (options === undefined) return
+  for (const option of Object.keys(options)) {
+    if (option !== "ttl") throw kvErrorDiagnostics.KV_INVALID_OPTION({ operation, option })
+  }
+  if (options.ttl === undefined) return
+  const ttl = ttlSeconds(options.ttl)
+  if (ttl === undefined) throw kvErrorDiagnostics.KV_INVALID_TTL()
+  return ttl
+}

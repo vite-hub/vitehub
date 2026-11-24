@@ -620,6 +620,58 @@ export default {
     expect(stdout.output()).toContain("  provision")
   })
 
+  it.each([{ args: [] }, { args: ["--help"] }, { args: ["-h"] }])("prints the commands that need no project when root help cannot load the project ($args)", async ({ args }) => {
+    const stdout = stream()
+    const stderr = stream()
+    const loadConfig = vi.fn(async () => {
+      throw new Error("SWEEP_CONFIG_WAS_LOADED")
+    })
+    const runtimeNamespaces = [{ description: "Runtime commands.", features: [], name: "sandbox" }]
+
+    expect(await runViteHubCli({ args, cwd: "/app", loadConfig, runtimeNamespaces, stderr, stdout })).toBe(1)
+    expect(stderr.output()).toContain("SWEEP_CONFIG_WAS_LOADED\n")
+    expect(stderr.output()).toContain("only `deploy`, `provision run`, and `provision status` load the config")
+    const help = stdout.output()
+    expect(help).toContain("  status       Show the host")
+    expect(help).toContain("  sandbox      Runtime commands.")
+    expect(help).toContain("  provision")
+    expect(help).toContain("  env")
+    expect(help).not.toContain("  inspect")
+  })
+
+  it.each([{ args: ["env", "--help"] }, { args: ["env", "-h"] }])("prints the env commands that need no config when env help cannot load the project ($args)", async ({ args }) => {
+    const stdout = stream()
+    const stderr = stream()
+    const loadConfig = vi.fn(async () => {
+      throw new Error("SWEEP_CONFIG_WAS_LOADED")
+    })
+
+    expect(await runViteHubCli({ args, cwd: "/app", loadConfig, stderr, stdout })).toBe(1)
+    expect(stderr.output()).toContain("SWEEP_CONFIG_WAS_LOADED\n")
+    expect(stdout.output()).toContain("Usage: vitehub env <feature>")
+    expect(stdout.output().match(/^ {2}\S+/gm)).toEqual(["  diff", "  push", "  pull"])
+  })
+
+  it("lists project env commands in env help when the project loads", async () => {
+    const stdout = stream()
+    const loadConfig = vi.fn(async () => ({
+      plugins: [{ vitehub: { cli: { namespaces: [{ description: "Server Env inspection workflows.", features: [{ name: "list", run: vi.fn() }], name: "env" }] } } }],
+      root: "/repo",
+    }))
+
+    expect(await runViteHubCli({ args: ["env", "--help"], cwd: "/app", loadConfig, stdout })).toBe(0)
+    expect(stdout.output()).toContain("Server Env inspection workflows.")
+    expect(stdout.output().match(/^ {2}\S+/gm)).toEqual(["  list", "  diff", "  push", "  pull"])
+  })
+
+  it.each([{ args: ["blob", "--help"] }, { args: ["env"] }])("keeps a project load failure for other commands ($args)", async ({ args }) => {
+    const loadConfig = vi.fn(async () => {
+      throw new Error("SWEEP_CONFIG_WAS_LOADED")
+    })
+
+    await expect(runViteHubCli({ args, cwd: "/app", loadConfig, stderr: stream(), stdout: stream() })).rejects.toThrow("SWEEP_CONFIG_WAS_LOADED")
+  })
+
   it("lists a namespace once when a runtime namespace replaces a project one", async () => {
     const stdout = stream()
     const loadConfig = vi.fn(async () => ({

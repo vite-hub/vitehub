@@ -5,6 +5,7 @@ import { isPlainObject } from "@vite-hub/internal/object"
 import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobDriverPutCondition, BlobDriverSignOptions, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, ResolvedVercelBlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 import isBlob from "../internal/is-blob.ts"
+import { fromProviderListCursor, toProviderListCursor, unconsumedListCursor } from "../internal/provider-list-cursor.ts"
 import { blobSizeToBytes } from "../internal/size.ts"
 
 // Vercel needs the object key and upload ID on every multipart call, so the public upload ID carries both.
@@ -290,19 +291,21 @@ export function createBundledVercelBlobDriver(options: ResolvedVercelBlobStoreCo
       }
     },
     async list(listOptions = {}) {
-      const folded = listOptions.folded
+      const { folded, cursor, limit } = listOptions
+      const empty = limit === 0
       const result = await list<"folded" | undefined>({
         ...auth,
-        cursor: listOptions.cursor,
-        limit: listOptions.limit,
+        cursor: toProviderListCursor(cursor),
+        limit: empty ? 1 : limit,
         ...(folded ? { mode: "folded" } : {}),
         prefix: listOptions.prefix,
       })
+      const heldBlob = empty && result.blobs.length > 0
       return {
-        blobs: result.blobs.map(toBlobObject),
-        cursor: result.cursor,
+        blobs: empty ? [] : result.blobs.map(toBlobObject),
+        cursor: heldBlob ? unconsumedListCursor(cursor) : fromProviderListCursor(result.cursor),
         ...(folded && "folders" in result ? { folders: result.folders } : {}),
-        hasMore: result.hasMore,
+        hasMore: heldBlob || result.hasMore,
       }
     },
     put: (pathname, body, putOptions = {}) => write(pathname, body, putOptions),

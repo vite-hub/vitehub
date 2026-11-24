@@ -36,7 +36,7 @@ const root = ${JSON.stringify(root)}
 const plugin = hubWorkflow({ sqlite: { path: ":memory:" } }, { hosting: "node-server" })
 await plugin.config.handler({ root }, { command: "build", mode: "production" })
 await plugin.configResolved({ root })
-const startup = await readFile(root + "/.vitehub/nitro/workflow/dev-plugin.mjs", "utf8")
+const startup = await readFile(root + "/.vitehub/nitro/workflow/build-plugin.mjs", "utf8")
 const workerPath = workflowRuntimeModule("openworkflow-worker")
 assert.ok(startup.includes(JSON.stringify(workerPath)))
 assert.ok(!workerPath.includes("/src/"))
@@ -44,7 +44,7 @@ const state = await import(pathToFileURL(workflowRuntimeModule("state")))
 const { createOpenWorkflowWorker, installOpenWorkflow } = await import(pathToFileURL(workerPath))
 const { resetOpenWorkflowRuntime } = await import(pathToFileURL(workerPath.replace("openworkflow-worker.js", "openworkflow.js")))
 state.setWorkflowRuntimeConfig({ driver: "openworkflow", sqlite: { path: ":memory:" } })
-const { default: registry } = await import("./.vitehub/nitro/workflow/dev-registry.mjs")
+const { default: registry } = await import("./.vitehub/nitro/workflow/build-registry.mjs")
 state.setWorkflowRuntimeRegistry(registry)
 const hooks = []
 const app = { hooks: { hook: (_name, callback) => hooks.push(callback) } }
@@ -79,7 +79,7 @@ console.log("packaged worker and dispatch passed")
     expect(result.stdout).toContain("packaged worker and dispatch passed")
     await build({
       absWorkingDir: root,
-      entryPoints: [join(root, ".vitehub/nitro/workflow/dev-plugin.mjs")],
+      entryPoints: [join(root, ".vitehub/nitro/workflow/build-plugin.mjs")],
       bundle: true,
       packages: "external",
       platform: "node",

@@ -3,7 +3,7 @@ import { resolvePublicUrl } from "@vite-hub/runtime"
 import { useDatabase } from "vite-hub/database"
 
 import { databaseConsoleMcpRecords } from "../../../../src/mcp-client-records.ts"
-import { answerConsoleMcpCall, consoleMcpCallProject, consoleMcpMaxRequestBytes, consoleMcpReplyStatus } from "../../../../src/mcp-client-rpc.ts"
+import { answerConsoleMcpCall, consoleMcpCallProject, consoleMcpReplyStatus, readConsoleMcpRequest } from "../../../../src/mcp-client-rpc.ts"
 import { consoleMcpCallbackPath } from "../../../../src/mcp-client-types.ts"
 import { memberConsoleProject } from "../../../../src/projects.ts"
 import { consoleSecretProblem, consoleSecretVariable } from "../../../../src/token-box.ts"
@@ -23,8 +23,8 @@ export default consoleTeamRoute(async (request, caller) => {
   if (!routeProject) return projectNotFound()
   const spent = await spendForwardBudget(caller, id)
   if (spent) return consoleDiagnosticProblem(429, spent.diagnostic, { "retry-after": String(spent.retryAfter) })
-  const text = await request.text()
-  if (new TextEncoder().encode(text).byteLength > consoleMcpMaxRequestBytes) return consoleProblem(413, "CONSOLE_REQUEST_INVALID", "The call is too large. Send tool arguments under 256 KiB.")
+  const text = await readConsoleMcpRequest(request)
+  if (text === undefined) return consoleProblem(413, "CONSOLE_REQUEST_INVALID", "The call is too large. Send tool arguments under 256 KiB.")
   let body: unknown
   try {
     body = JSON.parse(text)

@@ -28,7 +28,7 @@ export const consoleOperationModules: readonly ConsoleOperationModule[] = [
   { export: "documentConsoleOperations", module: generatedModules.consoleDocumentOperations, enabled: ({ documents }) => documents, load: async () => (await import("../content/console/operations.ts")).documentConsoleOperations },
   { export: "envConsoleOperations", module: generatedModules.consoleEnvOperations, enabled: ({ sections }) => sections.includes("env"), load: async () => (await import("../env/console/operations.ts")).envConsoleOperations },
   { export: "logsConsoleOperations", module: generatedModules.consoleLogsOperations, enabled: ({ sections }) => sections.includes("logs"), load: async () => (await import("../logs/console/operations.ts")).logsConsoleOperations },
-  { export: "mediaConsoleOperations", module: generatedModules.consoleMediaOperations, enabled: ({ documents }) => documents, load: async () => (await import("../blob/console/operations.ts")).mediaConsoleOperations },
+  { export: "mediaConsoleOperations", module: generatedModules.consoleMediaOperations, enabled: ({ documents, sections }) => documents && sections.includes("blob"), load: async () => (await import("../blob/console/operations.ts")).mediaConsoleOperations },
   { export: "siteAccessOperations", module: generatedModules.consoleSiteAccessOperations, enabled: ({ site }) => site, load: async () => (await import("./runtime/server/site-access-operation.ts")).siteAccessOperations },
   { export: "workspaceConsoleOperations", module: generatedModules.consoleWorkspaceOperations, enabled: ({ sections }) => sections.includes("workspaces"), load: async () => (await import("../workspace/console/operations.ts")).workspaceConsoleOperations },
 ]

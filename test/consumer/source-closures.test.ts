@@ -80,8 +80,6 @@ function workspaceConfig(overrides: Record<string, string>) {
     "  \"ai\": \"7.0.130\"",
     "  \"js-base64\": \"3.9.4\"",
     "  \"@napi-rs/wasm-runtime\": \"1.1.6\"",
-    "  \"@nestjs/common\": \"11.2.3\"",
-    "  \"@nestjs/core\": \"11.2.3\"",
     ...Object.entries(overrides)
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([name, spec]) => `  ${JSON.stringify(name)}: ${JSON.stringify(spec)}`),
@@ -136,7 +134,7 @@ describe("packed Source capability closures", () => {
           private: true,
           type: "module",
           dependencies: { "@modelcontextprotocol/sdk": "1.32.2", "vite-hub": overrides["vite-hub"] },
-          devDependencies: { "drizzle-orm": "1.0.0-rc.5", typescript: "6.0.3", wrangler: "4.112.0" },
+          devDependencies: { "drizzle-orm": "1.0.0-rc.6", typescript: "6.0.3", wrangler: "4.112.0" },
         }, null, 2)),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(overrides)),
         writeFile(join(appDir, "tsconfig.json"), JSON.stringify({

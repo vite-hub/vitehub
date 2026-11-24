@@ -11,6 +11,33 @@ type OperationRpcFailure = Extract<OperationRpcReply, { e: unknown }>["e"]
 /** The largest request body of an MCP client call: a tool call carries up to 256 KiB of arguments. */
 export const consoleMcpMaxRequestBytes = 300 * 1_024
 
+/**
+ * Reads the body of an MCP client call as text. It stops reading and cancels the body once it passes
+ * `consoleMcpMaxRequestBytes`, and returns undefined then, so a large body is not buffered in full.
+ */
+export async function readConsoleMcpRequest(request: Request, maximumBytes = consoleMcpMaxRequestBytes): Promise<string | undefined> {
+  if (!request.body) return ""
+  const reader = request.body.getReader()
+  const decoder = new TextDecoder()
+  let text = ""
+  let bytes = 0
+  try {
+    while (true) {
+      const chunk = await reader.read()
+      if (chunk.done) return text + decoder.decode()
+      bytes += chunk.value.byteLength
+      if (bytes > maximumBytes) {
+        await reader.cancel().catch(() => undefined)
+        return undefined
+      }
+      text += decoder.decode(chunk.value, { stream: true })
+    }
+  }
+  finally {
+    reader.releaseLock()
+  }
+}
+
 const id = z.string().min(1).max(64)
 const optionalText = z.string().max(4_096).optional()
 const prompt = z.literal("login").optional()

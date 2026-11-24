@@ -667,18 +667,11 @@ function compileOneGlob(glob: string) {
   const segments = normalized.split("/")
   const firstWildcard = segments.findIndex(segment => /[*?]/.test(segment))
   const base = segments.slice(0, firstWildcard).map(segment => `${segment}/`).join("")
-  let pattern = ""
-  for (let index = 0; index < normalized.length; index++) {
-    const char = normalized[index]!
-    if (char === "*" && normalized[index + 1] === "*") {
-      const slash = normalized[index + 2] === "/"
-      pattern += slash ? "(?:[^/]+/)*" : ".*"
-      index += slash ? 2 : 1
-    }
-    else if (char === "*") pattern += "[^/]*"
-    else if (char === "?") pattern += "[^/]"
-    else pattern += escapeRegExp(char)
-  }
+  const pattern = segments.map((segment, index) => {
+    if (segment === "**") return "(?:[^/]+/)*"
+    const name = segment.replace(/\*+|\?|[^*?]+/g, part => part === "?" ? "[^/]" : part.startsWith("*") ? "[^/]*" : escapeRegExp(part))
+    return index < segments.length - 1 ? `${name}/` : name
+  }).join("")
   return { base, extension, glob, regex: new RegExp(`^${pattern}$`) }
 }
 

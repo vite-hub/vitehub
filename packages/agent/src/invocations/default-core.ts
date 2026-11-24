@@ -54,6 +54,15 @@ export interface DefaultAgentInvocationsD1 {
   env: () => Promise<Record<string, unknown>> | Record<string, unknown>
 }
 
+/**
+ * A ViteHub Database that stores the default journal. A Node production build sets it when the default Database uses
+ * Postgres. `store` creates the Database store with the retention limits of the journal.
+ */
+export interface DefaultAgentInvocationsDatabaseStore {
+  name: string
+  store: (limits: Pick<AgentRetentionPolicy, "maxAge" | "maxRecords">) => AgentInvocationStore
+}
+
 /** Loads the libSQL driver of the default journal: `() => import("@vite-hub/agent/internal/default-invocations-libsql")`. */
 export type DefaultAgentInvocationsLibsql = () => Promise<{ openDefaultLibsqlJournal: typeof openDefaultLibsqlJournal }>
 
@@ -64,6 +73,8 @@ export interface DefaultAgentInvocationsOptions {
   databaseUrl?: string
   /** Store the journal in this D1 binding. `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` selects libSQL instead. */
   d1?: DefaultAgentInvocationsD1
+  /** Store the journal in this ViteHub Database. `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` selects libSQL instead. */
+  database?: DefaultAgentInvocationsDatabaseStore
   /** Runtime env vars. Defaults to `process.env`. */
   env?: Readonly<Record<string, string | undefined>>
   /**
@@ -75,7 +86,7 @@ export interface DefaultAgentInvocationsOptions {
   observations?: AgentInvocationObservationOptions
   /**
    * Limits for terminal records. The SQLite and libSQL journal keeps every terminal record by default.
-   * The D1 journal defaults to 30 days and 10,000 records, and does not support `maxSize`.
+   * The D1 and Database journals default to 30 days and 10,000 records, and do not support `maxSize`.
    */
   retention?: AgentRetentionPolicy
 }
@@ -98,7 +109,7 @@ export type DefaultAgentInvocationsDatabase =
 
 export interface DefaultAgentInvocationsLocation {
   authToken?: string
-  /** `d1:<binding>`, `memory:` on a Worker without a durable store, or the resolved libSQL URL. */
+  /** `d1:<binding>`, `database:<name>`, `memory:` on a Worker without a durable store, or the resolved libSQL URL. */
   url: string
 }
 
@@ -111,6 +122,7 @@ function runtimeEnv(options: Pick<DefaultAgentInvocationsOptions, "env">): Reado
 /** The selected store before the file system is read. `url` is undefined for the default file. */
 type DefaultAgentInvocationsTarget =
   | { kind: "d1", url: string }
+  | { kind: "database", url: string }
   | { kind: "memory", url: "memory:" }
   | { authToken?: string, kind: "remote", url: string }
   | { cwd?: true, kind: "file", url?: string }
@@ -119,6 +131,7 @@ function selectTarget(options: Omit<DefaultAgentInvocationsOptions, "observation
   const env = runtimeEnv(options)
   const configuredUrl = env[defaultAgentInvocationsUrlEnv]?.trim()
   if (!configuredUrl && options.d1) return { kind: "d1", url: `d1:${options.d1.binding}` }
+  if (!configuredUrl && options.database) return { kind: "database", url: `database:${options.database.name}` }
   const url = configuredUrl || options.databaseUrl
   if (url && !/^file:/i.test(url)) {
     const authToken = env[defaultAgentInvocationsAuthTokenEnv]
@@ -225,6 +238,14 @@ function d1Journal(d1: DefaultAgentInvocationsD1, options: DefaultAgentInvocatio
   return invocations
 }
 
+function databaseJournal(database: DefaultAgentInvocationsDatabaseStore, options: DefaultAgentInvocationsOptions): AgentInvocations {
+  const { maxSize, ...limits } = options.retention ?? {}
+  if (maxSize !== undefined && maxSize !== false) {
+    throw agentDiagnostics.AGENT_R1027({ message: `[vitehub] agent.invocations.retention.maxSize is not supported by the journal in the ${database.name} Database, because the Database holds other tables. Use maxAge or maxRecords, or set agent.invocations.databaseUrl to a SQLite file.` })
+  }
+  return journal(database.store(limits), options.observations)
+}
+
 function libsqlJournal(target: DefaultAgentInvocationsTarget, options: DefaultAgentInvocationsCoreOptions): AgentInvocations {
   const loadLibsql = options.libsql
   if (!loadLibsql) throw agentDiagnostics.AGENT_R1036()
@@ -260,11 +281,13 @@ function libsqlJournal(target: DefaultAgentInvocationsTarget, options: DefaultAg
  * `defaultAgentInvocationsMetadataContent` attributes.
  * - Local SQLite at `.vitehub/data/agent-invocations.sqlite`, or the `databaseUrl` libSQL URL.
  * - D1 when `d1` is set and `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` is not.
+ * - The `database` ViteHub Database when it is set and `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` is not.
  * - Memory on a Worker without D1 or a configured URL. An explicit `file:` URL throws `AGENT_R1029`.
  */
 export function createDefaultAgentInvocations(options: DefaultAgentInvocationsCoreOptions): AgentInvocations {
   const target = selectTarget(options)
   if (options.d1 && target.kind === "d1") return d1Journal(options.d1, options)
+  if (options.database && target.kind === "database") return databaseJournal(options.database, options)
   if (target.kind === "memory") return journal(createMemoryAgentInvocationStore(), options.observations)
   return libsqlJournal(target, options)
 }

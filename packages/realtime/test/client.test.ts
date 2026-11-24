@@ -1,4 +1,7 @@
+import * as decoding from "lib0/decoding"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import * as awarenessProtocol from "y-protocols/awareness"
+import * as Y from "yjs"
 
 import { connectRealtimeRoom } from "../src/client.ts"
 
@@ -61,6 +64,46 @@ describe("prebuilt presence clients", () => {
     finally {
       secure.destroy()
       local.destroy()
+    }
+  })
+
+  it("removes a field from the state that peers see when it is set to null, and keeps the other fields", () => {
+    const sockets: Array<{ open: () => void, sent: Uint8Array[] }> = []
+    vi.stubGlobal("window", { location: { protocol: "https:", host: "site.test" } })
+    vi.stubGlobal("WebSocket", class {
+      static readonly OPEN = 1
+      readonly OPEN = 1
+      readyState = 0
+      onopen?: () => void
+      sent: Uint8Array[] = []
+      constructor() { sockets.push(this) }
+      open() {
+        this.readyState = 1
+        this.onopen?.()
+      }
+
+      send(bytes: Uint8Array) { this.sent.push(bytes) }
+      close() {}
+    })
+    const room = connectRealtimeRoom("comments", "pages/home", { identity: { id: "ana", name: "Ana" } })
+    const peer = new awarenessProtocol.Awareness(new Y.Doc())
+    try {
+      sockets[0]!.open()
+      room.setLocal("cursor", { x: 1, y: 2 })
+      room.setLocal("selection", "p-3")
+      room.setLocal("cursor", null)
+      for (const frame of sockets[0]!.sent) {
+        const decoder = decoding.createDecoder(frame)
+        if (decoding.readVarUint(decoder) === 1) awarenessProtocol.applyAwarenessUpdate(peer, decoding.readVarUint8Array(decoder), "server")
+      }
+      const seen = peer.getStates().get(room.clientId)
+      expect(seen).toMatchObject({ selection: "p-3", user: { id: "ana", name: "Ana" } })
+      expect(seen).not.toHaveProperty("cursor")
+      expect(room.awareness.getLocalState()).not.toHaveProperty("cursor")
+    }
+    finally {
+      room.destroy()
+      peer.doc.destroy()
     }
   })
 })

@@ -48,8 +48,8 @@ ${nuxt ? "Start from a Nuxt 5 application. Use pnpm 11.5 or newer and install Nu
 ${nuxt ? "Requires Node.js 24.15 or newer on 24.x, or 26 or newer." : "Requires Node.js 24.15 or newer."}
 
 \`\`\`sh
-pnpm add vite-hub @vite-hub/database drizzle-orm@1.0.0-rc.5
-pnpm add -D @vite-hub/cli drizzle-kit@1.0.0-rc.5${nuxt ? "" : " vite@^8 nitro@3.0.261102-rc"}
+pnpm add vite-hub @vite-hub/database drizzle-orm@1.0.0-rc.6
+pnpm add -D @vite-hub/cli drizzle-kit@1.0.0-rc.6${nuxt ? "" : " vite@^8 nitro@3.0.261102-rc"}
 pnpm vitehub database generate
 pnpm vitehub database migrate
 pnpm ${nuxt ? "nuxt" : "vite"} dev
