@@ -9,11 +9,13 @@
 
 Read the [WebContainer docs](https://vitehub.dev/docs/web-container) for a tutorial, snapshots, and the API reference.
 
-Install this owner package directly, or import the main, `/snapshot`, `/env`, and `/connect` paths from `vite-hub/web-container` when your app already uses the `vite-hub` framework distribution. The Vite plugin and Vue composable are always imported from `@vite-hub/web-container/vite` and `@vite-hub/web-container/vue`.
+Install `@vite-hub/web-container` even if your app already uses `vite-hub`:
 
 ```sh
 pnpm add @vite-hub/web-container
 ```
+
+You can import the main entry and the `/snapshot`, `/env`, and `/connect` subpaths from either `@vite-hub/web-container` or `vite-hub/web-container`. The Vite plugin and Vue composable are only available from `@vite-hub/web-container/vite` and `@vite-hub/web-container/vue`.
 
 | Entry | Runs in | Use it to |
 | --- | --- | --- |
@@ -137,7 +139,7 @@ import { useWebContainer } from "@vite-hub/web-container/vue"
 const app = useWebContainer({ files: { "package.json": "...", "server.js": "..." } })
 ```
 
-- `useWebContainer({ files, assets?, snapshot?, install?, start?, port?, previewScript?, env?, immediate? })` boots when the component mounts, installs, and starts the dev server. Pass `snapshot: () => fetchSnapshot(urls)` with `install: false` to skip the install; the function runs only when the workspace boots. Only the server on `port` (default `3000`, given to the dev server as `PORT`), or on `env.PORT`, becomes the preview. Pass `port` when the dev server listens on another port. `assets` holds binary files by path, such as `{ "weights.bin": bytes }`; each boot mounts them next to `files`, and edits never touch them. It returns `status`, `steps` (with timings), `support`, `failure` (`unsupported`, `boot`, `install`, or `server`, with the exit code), `files`, `modified`, `fs`, `previewUrl`, `logs`, and `online`.
+- `useWebContainer({ files, assets?, snapshot?, install?, start?, port?, previewScript?, env?, immediate? })` boots when the component mounts, installs, and starts the dev server. Pass `snapshot: () => fetchSnapshot(urls)` with `install: false` to skip the install; the function runs only when the workspace boots. `port` (default `3000`) supplies the default `PORT` for the dev server. `env.PORT` overrides it. Only the server on the resulting port becomes the preview. `assets` holds binary files by path, such as `{ "weights.bin": bytes }`; each boot mounts them next to `files`, and edits never touch them. It returns `status`, `steps` (with timings), `support`, `failure` (`unsupported`, `boot`, `install`, or `server`, with the exit code), `files`, `modified`, `fs`, `previewUrl`, `logs`, and `online`.
 - `setFiles(files, { mode: "merge" | "replace" })` writes to the container and rejects when a write fails. Edits made before the mount ends are written when it ends. `reset()` puts back the original files. `install()` runs the install again, and `restart()` restarts the dev server.
 - `env` is read on each run, so pass a getter or a computed, such as `useConnectStore().env(connect)` from `@vite-hub/ui/workspace`.
 - `logs` retains the latest output, up to 65,536 characters and 1,000 chunks. Older output is dropped. Its array carries an `offset` counting dropped characters; pass it directly to `WorkspaceTerminal` to keep writes incremental across rollover. Ordinary arrays still append by prefix and clear the terminal when replaced.

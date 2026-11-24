@@ -79,10 +79,12 @@ Returns `true` when `pathname` matches one of the route patterns. Also exported 
 | --- | --- |
 | `webContainerVitePlugin({ routes })` | The Vite plugin that `vitehub({ webContainer })` adds. It sets the isolation headers on `routes` in `vite dev` and `vite preview`, and adds Nitro route rules for them. Each route starts with `/`. `/playground` matches that path only, and `/playground/**` matches it and every path below it. Throws without a route. |
 | `resolveWebContainerRoutes(options)` | Checks `routes` and returns a copy. Throws `WEB_CONTAINER_ROUTES_MISSING` or `WEB_CONTAINER_ROUTE_INVALID` for a missing or relative route. |
-| `webContainerRouteRules(routes, existing?)` | The Nitro route rules that the plugin adds. Merges into `existing` rules when passed. |
+| `webContainerRouteRules(routes, existing?)` | Returns only the generated Nitro route rules. Copies other properties and headers from matching `existing` rules, then sets the isolation headers. Does not modify `existing`. |
 | `webContainerHeaders` | `{ "Cross-Origin-Embedder-Policy": "credentialless", "Cross-Origin-Opener-Policy": "same-origin" }`. |
 | `hubWebContainer()` | Removed. Throws `WEB_CONTAINER_PLUGIN_MOVED`. Use `vitehub({ webContainer: { routes } })`. |
 | `matchesWebContainerRoute(pathname, routes)` | Returns `true` when `pathname` matches one of the route patterns. |
+
+To keep rules for other paths, spread `existing` first and the returned rules second, as the plugin does: `{ ...existing, ...webContainerRouteRules(routes, existing) }`.
 
 ## `vite-hub/web-container/snapshot`
 
@@ -131,7 +133,7 @@ Boots a WebContainer, installs and starts the app, and keeps its state in Vue re
 | `snapshot` | `Uint8Array \| ArrayBuffer \| (() => Promise<Uint8Array \| ArrayBuffer>)` | | Snapshot mounted before `files`. A function runs on each boot. |
 | `install` | `WebContainerCommand \| false` | `"install"` | Command that installs dependencies, or `false` to skip install. |
 | `start` | `WebContainerCommand \| false` | `"dev"` | Command that starts the dev server, or `false` to boot and install only. |
-| `port` | `number` | `3000` | Port that the dev server listens on, passed as `PORT`. |
+| `port` | `number` | `3000` | Default `PORT` for the dev server. `env.PORT` overrides it. Only the server on the resulting port becomes the preview. |
 | `previewScript` | `string` | | JavaScript that runs first in every HTML page of the preview. |
 | `env` | `MaybeRefOrGetter<Record<string, string> \| undefined>` | | Environment variables read again on each install and start run. |
 | `immediate` | `boolean` | `true` | Boot when the component mounts. Set `false` to call `boot()` yourself. |
