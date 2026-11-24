@@ -199,17 +199,8 @@ function stringRejection(node: JsonObject, value: string): string | undefined {
   return undefined
 }
 
-function decimalParts(value: number) {
-  const [mantissa = "", exponent = "0"] = String(value).split("e")
-  const [whole = "", fraction = ""] = mantissa.split(".")
-  return { digits: BigInt(whole + fraction), scale: Number(exponent) - fraction.length }
-}
-
-function isDecimalMultiple(value: number, divisor: number): boolean {
-  const left = decimalParts(value)
-  const right = decimalParts(divisor)
-  const scale = Math.min(left.scale, right.scale)
-  return (left.digits * 10n ** BigInt(left.scale - scale)) % (right.digits * 10n ** BigInt(right.scale - scale)) === 0n
+function provesNotMultiple(value: number, divisor: number): boolean {
+  return Number.isSafeInteger(value) && Number.isSafeInteger(divisor) && divisor > 0 && value % divisor !== 0
 }
 
 function numberRejection(node: JsonObject, value: number): string | undefined {
@@ -218,7 +209,7 @@ function numberRejection(node: JsonObject, value: number): string | undefined {
   if (typeof node.maximum === "number" && value > node.maximum) return `maximum ${node.maximum}`
   if (typeof node.exclusiveMinimum === "number" && value <= node.exclusiveMinimum) return `exclusive minimum ${node.exclusiveMinimum}`
   if (typeof node.exclusiveMaximum === "number" && value >= node.exclusiveMaximum) return `exclusive maximum ${node.exclusiveMaximum}`
-  if (typeof node.multipleOf === "number" && node.multipleOf > 0 && Number.isFinite(node.multipleOf) && Number.isFinite(value) && !isDecimalMultiple(value, node.multipleOf)) return `multiple of ${node.multipleOf}`
+  if (typeof node.multipleOf === "number" && provesNotMultiple(value, node.multipleOf)) return `multiple of ${node.multipleOf}`
   return undefined
 }
 
@@ -243,4 +234,42 @@ export async function defaultRejection(check: DefaultCheck): Promise<string | un
   if (typeof check.value === "string") return stringRejection(check.node, check.value)
   if (typeof check.value === "number") return numberRejection(check.node, check.value)
   return undefined
+}
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return isRecordOrFunction(value) && typeof value.then === "function"
+}
+
+function hasAsyncPart(value: unknown, seen: Set<unknown>): boolean {
+  if (seen.has(value) || (!Array.isArray(value) && !isRecord(value))) return false
+  seen.add(value)
+  if (isRecord(value) && value.async === true && typeof value.kind === "string") return true
+  return Object.values(value).some(entry => hasAsyncPart(entry, seen))
+}
+
+function validateSync(schema: FieldSchema, input: unknown): { value: unknown } | "async" | undefined {
+  let result: unknown
+  try {
+    result = schema["~standard"].validate(input)
+  }
+  catch {
+    return undefined
+  }
+  if (isPromiseLike(result)) {
+    Promise.resolve(result).catch(() => undefined)
+    return "async"
+  }
+  return isRecord(result) && !Array.isArray(result.issues) && "value" in result ? { value: result.value } : undefined
+}
+
+/** True when the schema has a Valibot async part, or returns a Promise for one of `inputs`. Env runs schemas synchronously. */
+export function isAsyncSchema(schema: FieldSchema, inputs: readonly unknown[]): boolean {
+  if (schema["~standard"].vendor === "valibot" && hasAsyncPart(schema, new Set())) return true
+  return inputs.some(input => validateSync(schema, input) === "async")
+}
+
+/** True when the schema returns a value for missing input, such as `v.optional(schema, default)` or `.default()`. */
+export function hasSchemaDefault(schema: FieldSchema): boolean {
+  const result = validateSync(schema, undefined)
+  return typeof result === "object" && result.value !== undefined
 }

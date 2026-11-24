@@ -44,10 +44,19 @@ export interface ConfigEditResult {
   lineOf: LineResolver
 }
 
+function defaultCode(value: NonNullable<EnvField["default"]>, style: CodeStyle): string {
+  if (Array.isArray(value)) return `[${value.map(item => item === null ? "null" : defaultCode(item, style)).join(", ")}]`
+  if (typeof value === "object") {
+    const entries = Object.entries(value).map(([key, item]) => `${propertyKey(key, style)}: ${item === null ? "null" : defaultCode(item, style)}`)
+    return entries.length ? `{ ${entries.join(", ")} }` : "{}"
+  }
+  return literal(value, style)
+}
+
 /** Renders one Env declaration. `schema` is the code of the field schema, such as `env.schemaFrom(...)`. */
 export function declarationCode(field: EnvField, envName: string, style: CodeStyle, schema?: string): string {
   const options: string[] = []
-  if (field.default !== undefined) options.push(`default: ${literal(field.default, style)}`)
+  if (field.default !== undefined) options.push(`default: ${defaultCode(field.default, style)}`)
   if (field.section === "public") options.push(`mode: ${quoteString("build", style)}`)
   if (!field.required && field.default === undefined) options.push("optional: true")
   if (schema && field.kind !== "json") options.push(`schema: ${schema}`)

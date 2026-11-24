@@ -130,4 +130,15 @@ deepStrictEqual(before.config, { allowedOrigins: ["https://a.example.com", "http
 ok(before.page.includes("API base: https://override.example.com"), "The original page renders the public value")
 ok(after.page.includes("API base: https://override.example.com"), "The migrated page renders the Public Env value")
 ok(!(await outputText(join(migrated, ".output"))).includes(secret), "The migrated build output does not contain the secret")
+
+console.log("6. Start both apps without NUXT_ALLOWED_ORIGINS. Both use the runtimeConfig default.")
+const unset = { NUXT_ALLOWED_ORIGINS: undefined }
+const beforeDefault = await serve(lab, 4395, unset)
+const afterDefault = await serve(migrated, 4396, unset)
+console.log("before without NUXT_ALLOWED_ORIGINS:", JSON.stringify(beforeDefault.config))
+console.log("after without NUXT_ALLOWED_ORIGINS: ", JSON.stringify(afterDefault.config))
+equal(beforeDefault.status, 200)
+equal(afterDefault.status, 200)
+deepStrictEqual(afterDefault.config, beforeDefault.config)
+deepStrictEqual(beforeDefault.config.allowedOrigins, ["https://example.com"])
 console.log("The migrated app returns the same typed values.")

@@ -8,13 +8,20 @@ Files to change (5):
   server/api/info.get.ts
   server/utils/session.ts
 
-Manual follow-ups (6):
-  1. nuxt.config.ts:15 sessionPassword had the value "dev-only-password", which its $schema rejects: String must contain at least 32 character(s). The module treats this validation failure as fatal, so the codemod kept no default and Env requires NUXT_SESSION_PASSWORD.
-  2. nuxt.config.ts:11 public.posthog.host is nested. Public Env is flat, so read it as usePublicEnv().posthogHost.
-  3. nuxt.config.ts:12 public.posthog.sampleRate accepts null. Env has no null value, so the field is optional and is undefined when the variable is not set.
-  4. nuxt.config.ts:12 public.posthog.sampleRate is nested. Public Env is flat, so read it as usePublicEnv().posthogSampleRate.
-  5. nuxt.config.ts:7 ViteHub needs a host, so the codemod set vitehub.host to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.
-  6. server/utils/session.ts:2 useServerEnv().sessionPassword is secret, a SecretEnv of the schema output. Call .unseal() where this code needs the raw value.
+Manual follow-ups (13):
+  1. nuxt.config.ts:15 sessionPassword: the module ran its $schema only during the build (validateAtRuntime: false). Env runs it when the server reads NUXT_SESSION_PASSWORD, so a value that the build did not check now stops the request.
+  2. nuxt.config.ts:15 sessionPassword had the value "dev-only-password", which its $schema rejects: String must contain at least 32 character(s). The module treats this validation failure as fatal, so the codemod kept no default and Env requires NUXT_SESSION_PASSWORD.
+  3. nuxt.config.ts:16 timeoutMs: Env reads NUXT_TIMEOUT_MS as JSON before its schema runs. Set it to a JSON number, such as 3000. Spellings such as 0xBB8, +3000, or .5 now fail.
+  4. nuxt.config.ts:16 timeoutMs: the module ran its $schema only during the build (validateAtRuntime: false). Env runs it when the server reads NUXT_TIMEOUT_MS, so a value that the build did not check now stops the request.
+  5. nuxt.config.ts:18 cacheTtl: Env reads NUXT_CACHE_TTL as JSON before its schema runs. Set it to a JSON number, such as 3000. Spellings such as 0xBB8, +3000, or .5 now fail.
+  6. nuxt.config.ts:18 cacheTtl: the module ran its $schema only during the build (validateAtRuntime: false). Env runs it when the server reads NUXT_CACHE_TTL, so a value that the build did not check now stops the request.
+  7. nuxt.config.ts:19 redirectUrl: the module ran its $schema only during the build (validateAtRuntime: false). Env runs it when the server reads NUXT_REDIRECT_URL, so a value that the build did not check now stops the request.
+  8. nuxt.config.ts:11 public.posthog.host is nested. Public Env is flat, so read it as usePublicEnv().posthogHost.
+  9. nuxt.config.ts:12 public.posthog.sampleRate accepts null. Env has no null value, so the field is optional and is undefined when the variable is not set.
+  10. nuxt.config.ts:12 public.posthog.sampleRate is nested. Public Env is flat, so read it as usePublicEnv().posthogSampleRate.
+  11. nuxt.config.ts:12 public.posthog.sampleRate: Env reads NUXT_PUBLIC_POSTHOG_SAMPLE_RATE as JSON before its schema runs. Set it to a JSON number, such as 3000. Spellings such as 0xBB8, +3000, or .5 now fail.
+  12. nuxt.config.ts:7 ViteHub needs a host, so the codemod set vitehub.host to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.
+  13. server/utils/session.ts:2 useServerEnv().sessionPassword is secret, a SecretEnv of the schema output. Call .unseal() where this code needs the raw value.
 
 Notes:
   - Each declaration reads its NUXT_* name with env.source(). Env reads the canonical name VITEHUB_<PATH> first, for example VITEHUB_API_SECRET before NUXT_API_SECRET.

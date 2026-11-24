@@ -21,7 +21,7 @@ export default defineNuxtConfig({
         featureEnabled: env.boolean({ default: false, source: env.source('NUXT_FEATURE_ENABLED') }),
         logLevel: env.enum(['debug', 'info', 'warn'], { default: 'info', source: env.source('NUXT_LOG_LEVEL') }),
         allowedOrigins: env({ default: 'https://example.com', schema: env.schemaFrom('./server/env.schema.ts', 'allowedOrigins'), source: env.source('NUXT_ALLOWED_ORIGINS') }),
-        tags: env.json(env.schemaFrom('./server/env.schema.ts', 'tags'), { source: env.source('NUXT_TAGS') }),
+        tags: env.json(env.schemaFrom('./server/env.schema.ts', 'tags'), { default: ['a'], source: env.source('NUXT_TAGS') }),
         stripe: {
           secretKey: env({ default: '', secret: true, source: env.source('NUXT_STRIPE_SECRET_KEY') }),
           accountId: env({ default: 'acct_123', source: env.source('NUXT_STRIPE_ACCOUNT_ID') }),
