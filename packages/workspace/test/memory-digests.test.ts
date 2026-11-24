@@ -54,3 +54,14 @@ it("forks inspected files and updates their digests independently", async () => 
     { path: "file.txt", type: "modified", before: { digest: digest("original") }, after: { digest: digest("fork") } },
   ])
 })
+
+it("reports the byte size of the current content after replacement", async () => {
+  const store = createMemoryWorkspaceStore()
+  await store.writeFile("file.txt", { path: "file.txt", content: "abc" })
+  expect((await store.stat("file.txt"))?.size).toBe(3)
+  await store.writeFile("file.txt", { path: "file.txt", content: "é😀" })
+  expect((await store.stat("file.txt"))?.size).toBe(6)
+  expect((await store.list())[0]?.size).toBe(6)
+  await store.writeFile("file.txt", { path: "file.txt", content: new Uint8Array(4) })
+  expect((await store.snapshot()).entries["file.txt"]?.size).toBe(4)
+})

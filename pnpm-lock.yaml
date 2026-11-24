@@ -2020,6 +2020,9 @@ importers:
       '@better-auth/passkey':
         specifier: catalog:auth
         version: 1.7.15(70ea9c824adc5de32c12d7251315bda0)
+      '@modelcontextprotocol/sdk':
+        specifier: catalog:ai
+        version: 1.32.2(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.6.7)
       '@vite-hub/auth':
         specifier: workspace:*
         version: link:../auth
@@ -2044,6 +2047,9 @@ importers:
       nostics:
         specifier: catalog:runtime
         version: 1.4.0
+      undici:
+        specifier: 8.12.2
+        version: 8.12.2
       vite-hub:
         specifier: workspace:*
         version: link:../vite-hub
@@ -2588,6 +2594,9 @@ importers:
       '@vite-hub/workflow':
         specifier: workspace:*
         version: link:../workflow
+      '@vitejs/plugin-vue':
+        specifier: ^6.0.10
+        version: 6.0.10(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(vue@3.5.44(typescript@6.0.3))
       esbuild:
         specifier: catalog:tooling
         version: 0.28.2
@@ -2606,6 +2615,9 @@ importers:
       vitest:
         specifier: catalog:tooling
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(@vitest/browser-preview@4.1.11)(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(happy-dom@21.0.3)
+      vue:
+        specifier: 3.5.44
+        version: 3.5.44(typescript@6.0.3)
 
   packages/env:
     dependencies:

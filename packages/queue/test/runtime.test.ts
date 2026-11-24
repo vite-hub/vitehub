@@ -9,6 +9,7 @@ import { Headers as ForeignHeaders, Request as ForeignRequest } from "undici"
 import { createCloudflareQueueBatchHandler, createCloudflareQueueClient } from "../src/providers/cloudflare.ts"
 import { queueErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { getCloudflareQueueBindingName } from "../src/integrations/cloudflare.ts"
+import { getCloudflareQueueName } from "../src/internal/cloudflare-resource-name.ts"
 import { createVercelQueueClient } from "../src/providers/vercel.ts"
 import { handleHostedVercelQueueCallback, hostedVercelWaitUntil } from "../src/runtime/hosted.ts"
 import { dynamicQueue } from "../src/runtime/client.ts"
@@ -684,6 +685,29 @@ describe("cloudflare queue runtime", () => {
     }, {}, { waitUntil: vi.fn() })).rejects.toMatchObject({ code: "QUEUE_DEFINITION_NOT_FOUND" })
   })
 
+  it.each([
+    ["a prefixed name", { queue: { namePrefix: "preview-", driver: "cloudflare" as const } }, "preview-queue--77656c636f6d65", "welcome", "welcome"],
+    ["a bounded name", { queue: { namePrefix: `${"deployment".repeat(8)}-`, driver: "cloudflare" as const } }, getCloudflareQueueName("welcome", `${"deployment".repeat(8)}-`), "welcome", "welcome"],
+    ["a generated mapping", { definitions: { "preview-queue--77656c636f6d65": "welcome" } }, "preview-queue--77656c636f6d65", "welcome", "welcome"],
+    ["a non-ASCII name", { queue: { namePrefix: "preview-", driver: "cloudflare" as const } }, "preview-queue--636166c3a9", "café", "preview-queue--636166c3a9"],
+  ])("identifies the queue in delivery reports of %s", async (_case, options, physicalName, definitionName, reportedName) => {
+    const report = vi.spyOn(console, "error").mockImplementation(() => {})
+    const handler = vi.fn(async () => { throw new Error("SMTP down") })
+    const worker = createQueueCloudflareWorker({ ...options, registry: { [definitionName]: async () => ({ default: { handler } }) } })
+    const retry = vi.fn()
+
+    await worker.queue({
+      ackAll: vi.fn(),
+      messages: [{ ack: vi.fn(), attempts: 1, body: {}, id: "1", retry }],
+      queue: physicalName,
+      retryAll: vi.fn(),
+    }, {}, { waitUntil: vi.fn() })
+
+    expect(handler).toHaveBeenCalledOnce()
+    expect(retry).toHaveBeenCalledOnce()
+    expect(report.mock.calls[0]?.[1]).toMatchObject({ queue: reportedName })
+  })
+
   it("derives bounded physical names from manual worker registries", async () => {
     const handler = vi.fn(async () => {})
     const worker = createQueueCloudflareWorker({
@@ -942,6 +966,23 @@ describe("vercel provider", () => {
       { delaySeconds: 60, idempotencyKey: expect.stringMatching(/^queue_/), payload: { email: "ava@example.com" }, retentionSeconds: 61 },
       { delaySeconds: 5, idempotencyKey: "welcome-ben", payload: { email: "ben@example.com" }, retentionSeconds: 61 },
     ])
+  })
+
+  it.each([Number.NaN, -60, Number.POSITIVE_INFINITY])("returns RUNTIME_DURATION_INVALID for a retention of %s seconds and does not call Vercel", async (retention) => {
+    const send = vi.fn(async () => ({ messageId: "message-1" }))
+    const sendBatch = vi.fn(async () => [{ messageId: "message-1", status: "sent" as const }])
+    const client = await createVercelQueueClient({
+      client: { handleCallback: vi.fn(), send, sendBatch },
+      driver: "vercel",
+      topic: "topic--77656c636f6d65",
+    })
+
+    const [sendError] = await client.send({}, { retention })
+    const [batchError] = await client.sendBatch([{ body: {} }], { retention })
+    expect(sendError).toMatchObject({ code: "RUNTIME_DURATION_INVALID", why: expect.stringContaining(`\`retention\` is ${retention}`) })
+    expect(batchError).toMatchObject({ code: "RUNTIME_DURATION_INVALID" })
+    expect(send).not.toHaveBeenCalled()
+    expect(sendBatch).not.toHaveBeenCalled()
   })
 
   it("returns QUEUE_PROVIDER_FAILED with the per-job results when Vercel rejects a batch job", async () => {

@@ -45,6 +45,7 @@ interface SyncStored {
 
 /** One atomic change of the stored copy of a name. */
 interface SyncStorageChange {
+  epoch?: number
   meta?: SyncMeta
   /** Drops every row before `put`. */
   reset?: boolean
@@ -71,6 +72,7 @@ interface SyncWriteResult {
 /** Where a store keeps its rows and its outbox. `id` names one Sync route. */
 interface SyncStorage {
   readonly persisted: boolean
+  readonly epoch: number
   read: (id: string) => Promise<SyncStored>
   /** The meta and the outbox, without the rows. */
   readQueue: (id: string) => Promise<Omit<SyncStored, "rows">>
@@ -86,6 +88,8 @@ interface SyncStorage {
    */
   clear: (options?: { keepWrites?: boolean }) => Promise<void>
 }
+
+const storageLost = new Error("The stored Sync copy was lost.")
 
 /** How long the storage keeps the result of an action that no tab read, in milliseconds. */
 const resultLifetime = 10 * 60_000
@@ -125,6 +129,7 @@ function createMemoryStorage(): SyncStorage {
   const entry = (id: string) => names.get(id) ?? { meta: undefined, rows: new Map<SyncKey, SyncRow>(), writes: [] }
   return {
     persisted: false,
+    epoch: 0,
     async read(id) {
       const { meta, rows, writes } = entry(id)
       return structuredClone({ meta, rows: [...rows], writes })
@@ -178,5 +183,5 @@ function createMemoryStorage(): SyncStorage {
   }
 }
 
-export { addedWrites, applyQueueChange, applyRowChange, createMemoryStorage, resultLifetime }
+export { addedWrites, applyQueueChange, applyRowChange, createMemoryStorage, resultLifetime, storageLost }
 export type { SyncMeta, SyncNewWrite, SyncQueuedWrite, SyncStorage, SyncStorageChange, SyncStored, SyncWriteResult }

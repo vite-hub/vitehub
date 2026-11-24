@@ -85,8 +85,8 @@ const mcpDisconnect = defineConsoleOperation({
 
 const mcpItems = defineConsoleOperation({
   cli: { positional: ["id", "kind"] },
-  description: "List the tools, resources, resource templates, or prompts of an MCP connection, one page at a time.",
-  input: v.strictObject({ cursor: optionalText, id, kind: listKind }),
+  description: "List all the tools, resources, resource templates, or prompts of an MCP connection.",
+  input: v.strictObject({ id, kind: listKind }),
   kind: "read",
   name: "mcp-client.items",
   run: async (input, context) => (await server()).listConsoleMcpItems(caller(context), input),

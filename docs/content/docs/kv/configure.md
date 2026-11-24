@@ -74,7 +74,7 @@ export default defineConfig({
 | --- | --- |
 | `kv: false` | Turns KV off. |
 | `kv: { driver: 'fs-lite', base?: string }` | Saves values as local files. Default `base`: `.vitehub/data/kv` for the default store and `.vitehub/data/kv-stores/<store>` for a named store, so stores never share keys. |
-| `kv: { driver: 'cloudflare', binding?: string, namespaceId?: string }` | Uses Cloudflare KV. Default `binding`: `KV`. `namespaceId` can come from `KV_NAMESPACE_ID`. |
+| `kv: { driver: 'cloudflare', binding?: string, namespaceId?: string, namespaceName?: string }` | Uses Cloudflare KV. Default `binding`: `KV`. `namespaceId` can come from `KV_NAMESPACE_ID`. |
 | `kv: { driver: 'deno-kv', path?: string }` | Uses native Deno KV through `Deno.openKv()`. |
 | `kv: { driver: 'redis', url?: string, base?: string }` | Uses a Redis server over TCP. Default `url`: `env:REDIS_URL`, which the server reads when the store starts. `env:<NAME>` reads another variable. A literal URL goes into the build output. `base` prefixes the keys. Default `base`: `vitehub:kv:<store>`, so keys that are not ViteHub's stay apart, and `kv.clear()` deletes only this store. Two ViteHub apps on one Redis database share the default, so give each app its own database or `base`. |
 | `kv: { driver: 'database', database?: string }` | Keeps the keys in the table `vitehub_kv` of a Database. Default `database`: `default`. The store creates the table when it is missing. Works on Postgres, libSQL, and Cloudflare D1. |

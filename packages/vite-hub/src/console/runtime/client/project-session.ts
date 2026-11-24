@@ -44,9 +44,10 @@ export type ConsoleProjectGate =
   | { kind: "home", page: ConsoleAccountPage }
   /**
    * An `/open` link from `GET /_vitehub` of an app: the Console asks the app for a Site access link and goes back to
-   * `page` of the app, signed in.
+   * `page` of the app, signed in. With `visit`, the link came from the Console's `/visit`, `state` is the state hash of
+   * the app, and the Console signs a Site access token itself.
    */
-  | { kind: "site", page: string, state: string }
+  | { kind: "site", page: string, state: string, visit?: true }
   /** The Console could not sign the browser in to the app of a `/_vitehub` link. `linked` is false for an app of no team project. */
   | { kind: "site-refused", url: string, page: string, linked: boolean, message?: string }
   | { kind: "ready" }
@@ -432,7 +433,8 @@ function comparableProjectUrl(value: string): string | undefined {
 
 /**
  * The app and the page of a link from `hostedConsoleUrl()`, `/open?project=<app URL>&path=<Console path>`, among the
- * projects of the team. `undefined` when the link names no project of the team, or a path that is not a Console page.
+ * projects of the team. An `app=<id>` parameter picks the project when two teams link the same URL, as the Console's
+ * `/visit` sends it. `undefined` when the link names no project of the team, or a path that is not a Console page.
  */
 export function consoleOpenLink(search: string, projects: readonly { id: string, url: string }[]): { id: string, path: string } | undefined {
   const query = new URLSearchParams(search)
@@ -441,22 +443,25 @@ export function consoleOpenLink(search: string, projects: readonly { id: string,
   // A Console path starts with one `/`. Another form could leave the Console origin.
   if (!project || !raw.startsWith("/") || raw.startsWith("//") || raw.includes("\\")) return undefined
   const path = raw.replace(/^\/_vitehub(?=\/|$)/, "") || "/"
-  const match = projects.find(candidate => comparableProjectUrl(candidate.url) === project)
+  const id = query.get("app")
+  const match = projects.find(candidate => comparableProjectUrl(candidate.url) === project && (!id || candidate.id === id))
   return match ? { id: match.id, path } : undefined
 }
 
 /**
  * The app page and state of an `/open` link from `GET /_vitehub`, `/open?project=<app URL>&site=<page>&state=<state>`,
- * or `undefined` for another link. `page` is a path of the app below its base, such as `/runs/42`.
+ * or from the Console's `/visit`, `/open?project=<app URL>&site=<page>&visit=<state hash>`, or `undefined` for another
+ * link. `page` is a path of the app below its base, such as `/runs/42`.
  */
-export function consoleSiteLink(search: string): { url: string, page: string, state: string } | undefined {
+export function consoleSiteLink(search: string): { url: string, page: string, state: string, visit?: true } | undefined {
   const query = new URLSearchParams(search)
   const url = comparableProjectUrl(query.get("project") ?? "")
   const page = query.get("site")
-  const state = query.get("state") ?? ""
+  const visit = query.get("visit")
+  const state = visit ?? query.get("state") ?? ""
   if (!url || page === null || !/^[\w-]{43}$/.test(state)) return undefined
   if (!page.startsWith("/") || page.startsWith("//") || page.includes("\\")) return undefined
-  return { url, page, state }
+  return { url, page, state, ...(visit === null ? {} : { visit: true as const }) }
 }
 
 /**
@@ -470,8 +475,9 @@ export function consoleOpenReturnPath(home: string, search: string): string | un
   const path = query.get("path") ?? "/"
   if (!comparableProjectUrl(project) || !path.startsWith("/") || path.startsWith("//") || path.includes("\\")) return undefined
   const site = consoleSiteLink(search)
-  const back = site ? `&site=${encodeURIComponent(site.page)}&state=${site.state}` : ""
-  return `${home.replace(/\/+$/, "")}/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}${back}`
+  const back = site ? `&site=${encodeURIComponent(site.page)}&${site.visit ? "visit" : "state"}=${site.state}` : ""
+  const app = query.get("app")
+  return `${home.replace(/\/+$/, "")}/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}${back}${app ? `&app=${encodeURIComponent(app)}` : ""}`
 }
 
 /** The `/invite/<id>` page: the invitation id, or `undefined` on another page. */
@@ -588,7 +594,7 @@ function startAccountState(account: ConsoleAccount | undefined, options: Console
     else if (site) siteGate = { kind: "site-refused", url: site.url, page: site.page, linked: false }
     // An app of another team, or one that is gone, opens Home instead of another app.
     else if (requested || openLink) missingApp = true
-    if (site && opened) siteGate = { kind: "site", page: site.page, state: site.state }
+    if (site && opened) siteGate = { kind: "site", page: site.page, state: site.state, ...(site.visit ? { visit: site.visit } : {}) }
     const remembered = rememberedAccountProject(account.teamId)
     storage = accountProjectStorage(account, account.projects.find(project => project.id === remembered)?.id ?? account.projects[0]?.id)
   }
@@ -681,8 +687,20 @@ export function siteTicketUrl(value: unknown, projectUrl: string): string | unde
 }
 
 /**
- * Sign the browser in to the app of a `/_vitehub` link: ask the app for a Site access link bound to the state of that
- * route, and replace this page with it, so Back does not open the used link again. A refusal shows why.
+ * The token link of a `POST /api/projects/<id>/site/token` answer, or `undefined` when it is not
+ * `<app>/_vitehub/site?token=vst1.…` of the app that the Console opened.
+ */
+export function siteTokenRedirect(value: unknown, projectUrl: string): string | undefined {
+  const app = comparableProjectUrl(projectUrl)
+  const url = typeof value === "string" && app ? URL.parse(value) : null
+  if (!url || `${url.origin}${url.pathname}` !== `${app}/_vitehub/site` || !/^vst1\.[A-Z0-9_]{1,64}\.[\w-]+\.[\w-]+$/.test(url.searchParams.get("token") ?? "")) return undefined
+  return url.href
+}
+
+/**
+ * Sign the browser in to the app of a `/_vitehub` link, and replace this page with the link, so Back does not open the
+ * used link again. A link from the Console's `/visit` gets a Site access token from the Console. A link of an older app
+ * asks the app for a Site access link bound to the state of its route. A refusal shows why.
  */
 export async function openConsoleSite(): Promise<void> {
   const projects = useState()
@@ -692,18 +710,29 @@ export async function openConsoleSite(): Promise<void> {
   const refuse = (message: string) => {
     projects.gate.value = { kind: "site-refused", url: current.url, page: gate.page, linked: true, message }
   }
-  let answer: unknown
+  let url: string | undefined
   try {
-    const [{ requestConsoleOperation }, { siteAccessOperations }] = await Promise.all([import("./request"), import("../site-access")])
-    answer = await requestConsoleOperation(siteAccessOperations.link, { path: gate.page, state: gate.state })
+    if (gate.visit) {
+      const response = await fetch(`/api/projects/${encodeURIComponent(current.id)}/site/token`, {
+        body: JSON.stringify({ path: gate.page, state: gate.state }),
+        credentials: "same-origin",
+        headers: { accept: "application/json", "content-type": "application/json" },
+        method: "POST",
+      })
+      if (!response.ok) throw await consoleResponseError(response)
+      url = siteTokenRedirect(Reflect.get(Object(await response.json()), "url"), current.url)
+    }
+    else {
+      const [{ requestConsoleOperation }, { siteAccessOperations }] = await Promise.all([import("./request"), import("../site-access")])
+      url = siteTicketUrl(Reflect.get(Object(await requestConsoleOperation(siteAccessOperations.link, { path: gate.page, state: gate.state })), "url"), current.url)
+    }
   }
   catch (error) {
     refuse(error instanceof Error ? error.message : "Try again.")
     return
   }
-  const url = siteTicketUrl(Reflect.get(Object(answer), "url"), current.url)
   if (!url) {
-    refuse("The app did not return a sign-in link of its own.")
+    refuse(gate.visit ? "The Console did not return a sign-in link of this app." : "The app did not return a sign-in link of its own.")
     return
   }
   const location: unknown = Reflect.get(globalThis, "location")

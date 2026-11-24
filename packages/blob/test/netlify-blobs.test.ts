@@ -274,6 +274,19 @@ describe("Netlify Blobs driver", () => {
     expect(store.getMetadata).not.toHaveBeenCalled()
   })
 
+  it("reports folders on a folded zero-limit page and keeps them for the next page", async () => {
+    mockListPages({ first: { blobs: [{ etag: "one", key: "one.txt" }], directories: ["folder/"] } })
+    const driver = createDriver(options)
+
+    const probe = await driver.list({ folded: true, limit: 0 })
+    expect(probe).toMatchObject({ blobs: [], folders: ["folder/"], hasMore: true })
+    await expect(driver.list({ cursor: probe.cursor, folded: true, limit: 1 })).resolves.toMatchObject({
+      blobs: [{ pathname: "one.txt" }],
+      folders: ["folder/"],
+      hasMore: false,
+    })
+  })
+
   it("retries transient list failures", async () => {
     const cancel = vi.fn()
     vi.stubGlobal("fetch", vi.fn()

@@ -135,6 +135,7 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
       "@takumi-rs/core",
     ],
   },
+  email: { ignoreDependencies: ["@vitejs/plugin-vue"] },
   env: { ignoreDependencies: ["nuxt"] },
   i18n: { ignoreDependencies: ["@diglot/cli"] },
   internal: {
@@ -200,7 +201,7 @@ const config: KnipConfiguration = {
       .map(match => `import ${JSON.stringify(match[1])};`).join("\n"),
   },
   ignoreDependencies: ["cloudflare"],
-  ignoreUnresolved: [/^#vitehub\//, /^#docs\//, "#app", "#console-page"],
+  ignoreUnresolved: [/^#vitehub\//, /^#docs\//, "#app", "#console-assets", "#console-outbound-fetch", "#console-page"],
   ignoreBinaries: ["crabbox"],
   workspaces: {
     ".": {

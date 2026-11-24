@@ -24,7 +24,9 @@ icon: i-lucide-circle-alert
 
 ## Errors
 
-A config error throws when the build starts. A runtime error comes back as `[error, undefined]`. Each error has a `code`, `why`, `fix`, and a `docs` link to its heading on this page.
+A config error throws when the build starts. A failed call that returns a result gives `[error, undefined]`. Each diagnostic has a `code`, `why`, `fix`, and a `docs` link to its page in [i18n diagnostics](/docs/i18n/diagnostics).
+
+If the live catalog is [invalid](/docs/i18n/diagnostics/i18n_live_catalog_invalid) or [unavailable](/docs/i18n/diagnostics/i18n_live_catalog_unavailable), the browser logs a warning instead of returning an error. `setLocale()` can still select the locale using the build catalog.
 
 ### I18N_INVALID_LOCALES
 

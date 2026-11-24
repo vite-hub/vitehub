@@ -193,9 +193,10 @@ describe("forgeBlob", () => {
 
 describe("forgeCommitFiles", () => {
   function commitRoutes(update: () => Response) {
+    let blobs = 0
     return githubRoutes({
       [`GET /repos/acme/app/git/commits/${parentSha}`]: () => Response.json({ sha: parentSha, tree: { sha: "base-tree" } }),
-      "POST /repos/acme/app/git/blobs": () => Response.json({ sha: "new-blob" }, { status: 201 }),
+      "POST /repos/acme/app/git/blobs": () => Response.json({ sha: `blob-${++blobs}` }, { status: 201 }),
       "POST /repos/acme/app/git/trees": () => Response.json({ sha: "new-tree" }, { status: 201 }),
       "POST /repos/acme/app/git/commits": () => Response.json({ sha: "new-commit" }, { status: 201 }),
       "PATCH /repos/acme/app/git/refs/heads/main": update,
@@ -230,7 +231,7 @@ describe("forgeCommitFiles", () => {
     expect(fake.calls.find(call => call.method === "PATCH")?.body).toEqual({ force: false, sha: "authored-commit" })
   })
 
-  it("writes Git file modes through the Git database and moves the branch without force", async () => {
+  it("uploads identical bytes once and preserves each path and mode in the tree", async () => {
     const fake = commitRoutes(() => Response.json({ object: { sha: "new-commit" } }))
     const provider = await forgeProvider({ forge: "github", token: "secret", fetch: fake.fetch })
 
@@ -238,20 +239,31 @@ describe("forgeCommitFiles", () => {
       branch: "main",
       changes: [
         { content: "target.md", mode: "120000", path: "link.md" },
-        { content: "plain", path: "plain.md" },
+        { content: Uint8Array.of(0, 255), path: "data.bin" },
         { content: null, path: "old.md" },
+        { content: Buffer.from("target.md"), mode: "100755", path: "run" },
+        { content: Uint8Array.of(0, 254), path: "other.bin" },
+        { content: Uint8Array.of(0, 255), path: "copy.bin" },
       ],
       expectedHead: parentSha,
       message: "write files",
     })
 
     expect(sha).toBe("new-commit")
+    expect(fake.calls.filter(call => call.path.endsWith("/git/blobs")).map(call => call.body)).toEqual([
+      { content: Buffer.from("target.md").toString("base64"), encoding: "base64" },
+      { content: "AP8=", encoding: "base64" },
+      { content: "AP4=", encoding: "base64" },
+    ])
     expect(fake.calls.find(call => call.method === "POST" && call.path.endsWith("/git/trees"))?.body).toEqual({
       base_tree: "base-tree",
       tree: [
-        { mode: "120000", path: "link.md", sha: "new-blob", type: "blob" },
-        { mode: "100644", path: "plain.md", sha: "new-blob", type: "blob" },
+        { mode: "120000", path: "link.md", sha: "blob-1", type: "blob" },
+        { mode: "100644", path: "data.bin", sha: "blob-2", type: "blob" },
         { mode: "100644", path: "old.md", sha: null, type: "blob" },
+        { mode: "100755", path: "run", sha: "blob-1", type: "blob" },
+        { mode: "100644", path: "other.bin", sha: "blob-3", type: "blob" },
+        { mode: "100644", path: "copy.bin", sha: "blob-2", type: "blob" },
       ],
     })
     expect(fake.calls.find(call => call.method === "PATCH")?.body).toEqual({ force: false, sha: "new-commit" })

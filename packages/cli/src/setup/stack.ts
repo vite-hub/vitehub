@@ -63,7 +63,8 @@ export async function deriveSetupStack(project: SetupProject, status: SetupStatu
 
   const collect = (id: FeatureId, keys: string[], value: JsonValue): void => {
     const path = [id, ...keys].join(".")
-    if (keys.some(credentialKey)) {
+    const mcpAccessMode = path === "mcp.auth" && keys.length === 1 && (typeof value === "boolean" || value === "optional")
+    if (!mcpAccessMode && keys.some(credentialKey)) {
       omits.push({ path, reason: "credential-option" })
       return
     }

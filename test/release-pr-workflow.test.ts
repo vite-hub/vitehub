@@ -25,7 +25,8 @@ describe("release PR workflow", () => {
     expect(workflow).toContain('gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "$RELEASE_TAG"')
     expect(workflow).toContain(".head.repo.full_name == .base.repo.full_name")
     expect(workflow).toContain('git merge-base --is-ancestor "$parent_sha" "$tag_sha"')
-    expect(workflow).toContain('if [[ -z "$tag_sha" || "$tag_sha" == "$GITHUB_SHA" ]]')
+    expect(workflow).toContain('version="$(node -p "require(\'./package.json\').version")"')
+    expect(workflow).toContain('if [[ -z "$tag_sha" ]]; then')
     expect(workflow).toContain("gh pr close \"$pr\" --repo \"$GITHUB_REPOSITORY\" --delete-branch")
     expect(workflow).toContain("steps.pending-release.outputs.pending != 'true'")
     expect(workflow).toContain('checkout: "false"')
@@ -56,6 +57,58 @@ describe("release PR workflow", () => {
     expect(workflow).not.toContain("commit -m")
     expect(workflow).not.toContain("push origin")
     expect(workflow).not.toContain("--lockfile-only")
+  })
+
+  it.each([
+    { scenario: "main at a tagged version", tagged: true, openPrs: "", pending: false, closed: [] },
+    { scenario: "main at a tagged version with a newer release PR", tagged: true, openPrs: "7|new-head", pending: false, closed: [] },
+    { scenario: "main at an untagged version", tagged: false, openPrs: "", pending: true, closed: [] },
+    { scenario: "main at an untagged version with a release PR", tagged: false, openPrs: "7|new-head", pending: true, closed: ["7"] },
+  ])("reconciles the release from main's version with $scenario", ({ tagged, openPrs, pending, closed }) => {
+    const steps = parseDocument(workflow).getIn(["jobs", "proposal", "steps"], true)
+    if (!isSeq(steps)) throw new Error("Missing release proposal steps")
+    const step = steps.items.find(item => isMap(item) && item.get("name") === "Reconcile the latest release merge")
+    const script = isMap(step) ? step.get("run") : undefined
+    if (typeof script !== "string") throw new TypeError("Missing release reconcile script")
+
+    const directory = mkdtempSync(join(tmpdir(), "vitehub-release-reconcile-"))
+    const output = join(directory, "output")
+    writeFileSync(output, "")
+    try {
+      const log = execFileSync("bash", ["--noprofile", "--norc", "-c", `
+        node() { echo 0.5.0; }
+        bash() {
+          [[ "$1" == .github/scripts/lookup-release-tag.sh ]] || return 1
+          if [[ "$2" == v0.5.0 && -n "$TAGGED" ]]; then echo tag-sha; fi
+        }
+        git() { [[ "$1:$2:$3:$4" == merge-base:--is-ancestor:new-parent:tag-sha ]] && return 1; return 0; }
+        gh() {
+          case "$1:$2" in
+            api:*/pulls?state=open*) [[ -n "$OPEN_PRS" ]] && echo "$OPEN_PRS"; return 0 ;;
+            api:*/commits/new-head) echo new-parent ;;
+            pr:close) printf 'close %s\\n' "$3" ;;
+            *) return 1 ;;
+          esac
+        }
+        ${script}
+      `], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          GITHUB_OUTPUT: output,
+          GITHUB_REPOSITORY: "vite-hub/vitehub",
+          OPEN_PRS: openPrs,
+          TAGGED: tagged ? "1" : "",
+        },
+      })
+      expect(readFileSync(output, "utf8")).toBe(pending ? "pending=true\n" : "")
+      expect(log.split("\n").filter(line => line.startsWith("close ")).map(line => line.slice(6))).toEqual(closed)
+      if (pending) expect(log).toContain("::notice::main is at 0.5.0 and v0.5.0 is not tagged.")
+      else expect(log).not.toContain("::notice::")
+    }
+    finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
 
   const fullRun = { id: 42, head_sha: "candidate-sha", event: "workflow_dispatch", status: "completed", conclusion: "success" }

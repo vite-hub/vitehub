@@ -61,7 +61,7 @@ Build errors throw when Vite reads the config. When the build cannot pick the Da
 A failure in `onComment`, `onMention`, or the pull request sync never fails the comment. With the evlog Nitro module, added through `vitehub({ observability })` or by hand, Comments logs each one with a `comments` field:
 
 ```json
-{ "path": "/api/_vitehub/comments/threads", "status": 201, "level": "warn", "comments": { "hook": "onComment", "thread": "thr_7f3c", "code": "EMAIL_REFUSED" } }
+{ "path": "/_vitehub/comments/threads", "status": 200, "level": "warn", "comments": { "hook": "onComment", "thread": "thr_7f3c", "code": "EMAIL_REFUSED" } }
 ```
 
 | Field | Meaning |
