@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -1278,15 +1278,19 @@ describe("Database Nuxt integration", () => {
     }
   })
 
-  it("watches the project files of contributed tables, not built-in modules, dependencies, or paths in strings", async () => {
-    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-watch-"))
+  it.each(["absolute path", "file URL"])("watches linked contribution files via %s, not built-ins, dependencies, or paths in strings", async (moduleForm) => {
+    const rootDir = await mkdtemp(join(await realpath(tmpdir()), "vitehub-db-nuxt-watch-"))
     const buildDir = join(rootDir, ".nuxt")
     const schema = join(rootDir, "lib/history-schema.mjs")
-    const contributor = { name: "history-owner/vite", vitehub: { databases: [{ definition: { export: "historySchema", module: schema }, name: "history" }] } }
+    const linkedPackage = join(rootDir, "node_modules/history")
+    const linkedSchema = join(linkedPackage, "history-schema.mjs")
+    const module = moduleForm === "file URL" ? pathToFileURL(linkedSchema).href : linkedSchema
+    const contributor = { name: "history-owner/vite", vitehub: { databases: [{ definition: { export: "historySchema", module }, name: "history" }] } }
     const { hooks, nuxt } = createNuxt({ buildDir, dev: true, rootDir, vite: { plugins: [contributor] } })
     try {
       await mkdir(join(rootDir, "lib"), { recursive: true })
       await mkdir(join(rootDir, "node_modules/history-orm"), { recursive: true })
+      await symlink(dirname(schema), linkedPackage, "junction")
       await writeFile(join(rootDir, "node_modules/history-orm/package.json"), JSON.stringify({ exports: "./index.mjs", name: "history-orm", type: "module" }))
       await writeFile(join(rootDir, "node_modules/history-orm/index.mjs"), "export const table = name => { if (!name) throw new Error('Cannot import from\"/\"'); return name }\n")
       await writeFile(join(rootDir, "lib/columns.mjs"), "export const columns = { id: 'text' }\n")
