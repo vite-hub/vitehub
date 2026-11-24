@@ -348,6 +348,7 @@ const nitroRuntimeResolverNames = new Set([
 ])
 
 const nitroServerTransformNames = new Set([
+  "@vite-hub/env/vite",
   "@vite-hub/i18n/vite",
   "@vite-hub/schedule/vite",
   "@vite-hub/workflow/vite",

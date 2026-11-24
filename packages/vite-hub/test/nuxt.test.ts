@@ -1324,6 +1324,20 @@ describe("ViteHub Nuxt integration", () => {
     expect(Reflect.apply(handler(resolver?.load), {}, ["\0#vitehub/schedule/registry"])).toBe("export default { 'daily-report': {} }")
   })
 
+  it("rewrites the Server Env import of Agent Channels in Nitro-only replay", async () => {
+    mocks.vitehub.mockReturnValue([hubEnv()])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    Object.assign(nuxt.options, { experimental: { nitroViteEnvironment: false } })
+    await viteHubNuxtModule({ env: {} }, nuxt)
+    const config: { rollupConfig?: { plugins?: Plugin[] } } = {}
+    await runNitroConfigHook(config)
+    const transform = config.rollupConfig?.plugins?.find(plugin => plugin.name === "vite-hub/nuxt-runtime-resolver:@vite-hub/env/vite")?.transform
+    if (!transform || typeof transform === "function") throw new TypeError("Expected a filtered Env transform.")
+    expect(transform.filter).toEqual({ code: "/* @vitehub-env */" })
+    const code = "const serverEnvModuleId = \"#vitehub/env/server\"\nawait import(/* @vite-ignore */ /* @vitehub-env */ serverEnvModuleId)"
+    expect(await Reflect.apply(transform.handler, {}, [code, "/node_modules/@vite-hub/agent/dist/channels.js"])).toBe("const serverEnvModuleId = \"#vitehub/env/server\"\nawait import(\"#vitehub/env/server\")")
+  })
+
   it("checks direct folder Agent imports before the catalog loads in Nuxt 5's separate Nitro 3 build", async () => {
     const root = await mkdtemp(resolve(import.meta.dirname, ".nuxt-agent-workspace-"))
     try {
