@@ -1278,6 +1278,31 @@ describe("Database Nuxt integration", () => {
     }
   })
 
+  it("watches the project files of contributed tables, not built-in modules, dependencies, or paths in strings", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-watch-"))
+    const buildDir = join(rootDir, ".nuxt")
+    const schema = join(rootDir, "lib/history-schema.mjs")
+    const contributor = { name: "history-owner/vite", vitehub: { databases: [{ definition: { export: "historySchema", module: schema }, name: "history" }] } }
+    const { hooks, nuxt } = createNuxt({ buildDir, dev: true, rootDir, vite: { plugins: [contributor] } })
+    try {
+      await mkdir(join(rootDir, "lib"), { recursive: true })
+      await mkdir(join(rootDir, "node_modules/history-orm"), { recursive: true })
+      await writeFile(join(rootDir, "node_modules/history-orm/package.json"), JSON.stringify({ exports: "./index.mjs", name: "history-orm", type: "module" }))
+      await writeFile(join(rootDir, "node_modules/history-orm/index.mjs"), "export const table = name => { if (!name) throw new Error('Cannot import from\"/\"'); return name }\n")
+      await writeFile(join(rootDir, "lib/columns.mjs"), "export const columns = { id: 'text' }\n")
+      await writeFile(schema, "import { join } from \"node:path\"\nimport { table } from \"history-orm\"\nimport { columns } from \"./columns.mjs\"\nexport const historySchema = { historyRefs: table(join('history', 'refs')), columns }\n")
+      await hubDatabase()(undefined, nuxt)
+      await callHook(hooks, "nitro:config", {})
+      const watched = nuxt.options.watch as string[]
+      expect(watched).toEqual(expect.arrayContaining([schema, join(rootDir, "lib/columns.mjs")]))
+      expect(watched.filter(path => path === "/" || path.includes("node:") || path.includes("node_modules"))).toEqual([])
+    }
+    finally {
+      await callHook(hooks, "close", {})
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
   it("gives contributed tables the implicit default Database in the Nitro development runtime when the app has no Definition", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-implicit-"))
     const buildDir = join(rootDir, ".nuxt")
