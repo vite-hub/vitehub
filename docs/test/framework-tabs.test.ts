@@ -23,6 +23,7 @@ const singleFramework: Record<string, string> = {
   "frameworks-hosts/nuxt.md nuxt.config.ts": "The page is about the Nuxt module.",
   "getting-started/migrate-from-nuxthub.md nuxt.config.ts": "The page migrates a NuxtHub app, which is a Nuxt app.",
   "codemods/nuxt-modules.md nuxt.config.ts": "The codemods migrate Nuxt modules, so they rewrite nuxt.config.ts only.",
+  "codemods/nuxt-modules.md vite.config.ts": "The Nitro 3 section shows the vite.config.ts that the codemod writes for a Nitro app.",
   "kv/server-api.md nuxt.config.ts": "nuxt-og-image and nuxt-security are Nuxt modules.",
   "agents/build-a-chat-app.md nuxt.config.ts": "The tutorial builds a Nuxt app with Nuxt UI.",
   "console/access.md nuxt.config.ts": "Nuxt route rules for @nuxtjs/robots have no Vite form.",
