@@ -53,12 +53,44 @@ Apps do not add the Console link to their pages. The Comments pill loads its **C
  })
 ```
 
-```diff [vite.config.ts]
- vitehub({
--  console: { pill: false },
-+  console: true,
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```diff [nuxt.config.ts]
+ export default defineNuxtConfig({
+   modules: ['vite-hub/nuxt'],
+   vitehub: {
+-    console: { pill: false },
++    console: true,
+   },
  })
 ```
+:::
+:::tabs-item{label="Nitro"}
+```diff [vite.config.ts]
+ export default defineConfig({
+   plugins: [
+     vitehub({
+-      console: { pill: false },
++      console: true,
+     }),
+     nitro(),
+   ],
+ })
+```
+:::
+:::tabs-item{label="Vite"}
+```diff [vite.config.ts]
+ export default defineConfig({
+   plugins: [
+     vitehub({
+-      console: { pill: false },
++      console: true,
+     }),
+   ],
+ })
+```
+:::
+::
 
 An app without Comments opens through the Console at `https://console.vitehub.dev`.
 
