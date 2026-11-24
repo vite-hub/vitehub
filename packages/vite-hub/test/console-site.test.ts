@@ -6,6 +6,7 @@ import { siteStateHash, signSiteToken } from "@vite-hub/internal/site-token"
 
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
+import { consoleOperationRegistry, installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import { installConsolePill } from "../src/console/runtime/server/pill.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import siteAccessRoute from "../src/console/runtime/server/site.ts"
@@ -294,8 +295,8 @@ describe("the /_vitehub/** route", () => {
     const site = await withComments.fetch(new Request(`${origin}/_vitehub/site?return=%2Fdocs`))
     expect(new URL(site.headers.get("location") ?? "").pathname).toBe("/visit")
     expect(site.headers.get("set-cookie")).toMatch(/__Host-vitehub-site-state=/)
-    const opened = await withoutComments.fetch(new Request(`${origin}/_vitehub/site?return=%2Fdocs`))
-    expect(Object.fromEntries(new URL(opened.headers.get("location") ?? "").searchParams)).toEqual({ project: origin, path: "/site?return=%2Fdocs" })
+    expect((await withoutComments.fetch(new Request(`${origin}/_vitehub/site?return=%2Fdocs`))).status).toBe(404)
+    expect((await withoutComments.fetch(new Request(`${origin}/portal/_vitehub/site`))).status).toBe(404)
     expect((await withComments.fetch(new Request(`${origin}/_vitehub/site`, { method: "POST", headers: { origin } }))).status).toBe(204)
     expect((await withoutComments.fetch(new Request(`${origin}/_vitehub/site`, { method: "POST", headers: { origin } }))).status).toBe(404)
   })
@@ -326,5 +327,18 @@ describe("site.access", () => {
   it("gives only the roles that console.authorize grants, read-only without site write", async () => {
     installConsoleAccess({ mode: "token", authorize: () => ({ sections: ["site:read"], grants: ["comments-read"] }) })
     expect((await call("site.access")).value).toEqual({ write: false, roles: [{ id: "comments-read", label: "Read comments" }] })
+  })
+
+  it("is not registered in an app without Comments, so Agent operations() and the RPC do not have it", async () => {
+    installConsoleSections("console-site", ["logs"])
+    installConsoleOperations([], { site: false })
+    try {
+      expect(consoleOperationRegistry().list().map(operation => operation.name)).not.toContain("site.access")
+      expect(Reflect.get(Object((await call("project.get")).value), "operations")).not.toContain("site.access")
+      expect((await call("site.access")).status).toBe(404)
+    }
+    finally {
+      installConsoleOperations([])
+    }
   })
 })

@@ -49,7 +49,7 @@ it("loads colocated Skills into the production Console definition", async () => 
     expect(installOperations).not.toHaveBeenCalled()
     expect(install).not.toHaveBeenCalled()
     installRuntime?.()
-    expect(installOperations).toHaveBeenCalledWith([], { invoke: true })
+    expect(installOperations).toHaveBeenCalledWith([], { invoke: true, site: false })
     expect(install).toHaveBeenCalledWith([expect.objectContaining({ fallbackName: "bot-dev" })], expect.objectContaining({ invoke: true, projectRoot: root }))
     const installed = install.mock.calls[0]?.[0]?.[0]?.definition
     expect(installed?.[Symbol.for("vitehub.agent.colocatedSkills")]).toMatchObject({

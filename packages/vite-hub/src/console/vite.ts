@@ -17,6 +17,7 @@ import { discoverConsoleBuildCatalog } from "./build.ts"
 import { consoleRuntimeRoot, writeConsoleAppModule, type ConsoleAccessBuild, type ConsoleAppModuleOptions } from "./app-module.ts"
 import { serializeConsoleRefresh } from "./refresh.ts"
 import { addConsoleRpcHandler } from "./nitro.ts"
+import { resolveConsoleSiteAccess, type ConsoleSiteComments } from "./site-access.ts"
 import { consoleOperationFeaturesFilter, transformConsoleOperationFeatures } from "./operation-features.ts"
 import { consoleDevAccessNotice } from "./dev-access-notice.ts"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
@@ -168,11 +169,11 @@ export interface ConsoleVitePluginOptions {
   /** Serve the development RPC and Setup without the full Console. */
   rpcOnly?: boolean
   /**
-   * Serve Site access at `/_vitehub/site`, and send `/_vitehub` to the page of the app with the pill. On in an app with
-   * Comments, which reads the person of the site cookie and shows the pill. Without it, `/_vitehub` opens the ViteHub
-   * Console.
+   * The `comments` option of `vitehub()`. With the Comments pill, from this option or `server/comments.ts`, the app
+   * serves Site access at `/_vitehub/site`, sends `/_vitehub` to the page of the app with the pill, and has the `site`
+   * section. Without it, `/_vitehub` opens the ViteHub Console.
    */
-  siteAccess?: boolean
+  comments?: ConsoleSiteComments
   contentImportBase?: string
   blobStores?: readonly string[]
   console?: ConsoleOptions
@@ -200,13 +201,15 @@ export interface ConsoleInvocationRootState {
 function configureConsoleNitroRoutes(
   nitro: ConsoleNitroConfig,
   baseURL: string,
-  siteAccess = false,
+  siteAccess: boolean,
+  app: string | undefined,
 ): ReturnType<typeof createNitroServerKit> {
   // Nitro serves its routes below its own `baseURL`, so the routes get only the part of the Vite base that Nitro does not
   // add. Without a Nitro `baseURL`, this is the whole Vite base.
   const mount = viteHubPageToolsBase({ base: baseURL, nitro }).mount
   const kit = createNitroServerKit({ ...nitro, handlers: Array.isArray(nitro.handlers) ? [...nitro.handlers] : [] })
   addConsoleRpcHandler(kit.config, consoleRuntimeRoot, mount, { siteAccess })
+  if (app) kit.config.alias = { ...kit.config.alias instanceof Object ? kit.config.alias : {}, [consoleAppModuleId]: app }
   return kit
 }
 
@@ -279,6 +282,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
   const consoleBuildCatalogs = new Map<string, Awaited<ReturnType<typeof discoverConsoleBuildCatalog>>>()
   let baseURL = "/"
   let applicationBase = "/"
+  const siteAccess = () => projectRoot !== undefined && resolveConsoleSiteAccess(options.comments, { projectRoot, serverDirs })
 
   function consoleAccess(): ConsoleAccessBuild | undefined {
     if (!resolvedConsoleConfiguration || !root) return
@@ -298,7 +302,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       sections,
       ...(development ? {} : { target: { ...(options.host ? { host: options.host } : {}), framework: { name: "nitro" as const, ...(nitroVersion ? { version: nitroVersion } : {}) } } }),
       navigationSections: options.rpcOnly ? sections.filter(section => section === "setup") : undefined,
-      ...(options.rpcOnly ? {} : { site: true }),
+      ...(options.rpcOnly || !siteAccess() ? {} : { site: true }),
     }
   }
 
@@ -426,7 +430,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       const nitro: ConsoleNitroConfig = consoleConfig.nitro
         ? { ...consoleConfig.nitro }
         : {}
-      const nitroConfig = { ...configureConsoleNitroRoutes(nitro, applicationBase, options.siteAccess).config }
+      const nitroConfig = { ...configureConsoleNitroRoutes(nitro, applicationBase, siteAccess(), generatedApp).config }
       consoleConfig.nitro = nitroConfig
       const consoleUrl = resolveConsoleUrl(configured)
       if (!consoleUrl) return
@@ -473,10 +477,10 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
         sections = sections.filter(section => section !== "sandbox-tasks")
         if (sandboxTask) sections = [...sections, "sandbox-tasks"]
       }
-      viteConfig.nitro = { ...configureConsoleNitroRoutes(viteConfig.nitro ??= {}, viteHubPageToolsBase(config).base, options.siteAccess).config }
       generatedApp = resolveGeneratedConsoleApp(projectRoot, development)
       // SAFETY: VITEHUB_SERVER_DIRS is ViteHub-owned config state populated with string paths.
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]
+      viteConfig.nitro = { ...configureConsoleNitroRoutes(viteConfig.nitro ??= {}, viteHubPageToolsBase(config).base, siteAccess(), generatedApp).config }
       if (!cliDiscovery) await refreshConsoleCatalog()
     },
     configureServer(server) {

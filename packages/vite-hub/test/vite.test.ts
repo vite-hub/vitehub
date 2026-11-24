@@ -447,7 +447,7 @@ describe("vitehub", () => {
         ]),
       })
       await expect(readFile(join(root, ".vitehub/nitro/console/app-dev.mjs"), "utf8")).resolves.toContain(
-        `installConsoleSections(${JSON.stringify(root)}, ["setup","env","agents","skills","usage","channels","site"])`,
+        `installConsoleSections(${JSON.stringify(root)}, ["setup","env","agents","skills","usage","channels"])`,
       )
     }
     finally {
@@ -866,7 +866,7 @@ describe("vitehub", () => {
         auth: "vite-hub/auth/agent",
         blob: "vite-hub/blob",
         connections: false,
-        console: false,
+        console: expect.stringMatching(/console\/runtime\/server\/agent-capability\.(?:ts|js)$/),
         db: "@vite-hub/database/runtime/registry",
         email: "vite-hub/email",
         i18n: false,
@@ -937,6 +937,10 @@ describe("vitehub", () => {
     }))
     const workflowCallsBefore = integrationMocks.hubWorkflow.mock.calls.length
     vitehub({ agent: true, host: "node" })
+    expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
+      runtimeCapabilityImports: expect.objectContaining({ console: expect.stringMatching(/console\/runtime\/server\/agent-capability\.(?:ts|js)$/), db: false }),
+    }))
+    vitehub({ agent: true, console: false, host: "node" })
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
       runtimeCapabilityImports: expect.objectContaining({ console: false, db: false }),
     }))
