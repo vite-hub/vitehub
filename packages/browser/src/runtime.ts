@@ -120,7 +120,13 @@ class BrowserDefinitionBrowserImpl implements BrowserDefinitionBrowser {
     return await runBrowserAction(action, input)
   }
 
-  async open(options?: BrowserDriverOpenOptions): Promise<BrowserPageSession> {
+  open(options?: BrowserDriverOpenOptions): Promise<BrowserPageSession> {
+    const opening = this.openSession(options)
+    void opening.catch(() => {})
+    return opening
+  }
+
+  private async openSession(options?: BrowserDriverOpenOptions): Promise<BrowserPageSession> {
     this.throwIfEnded()
     const providerSession = await (this.options.client ?? resolveConfiguredClient()).open(options)
     let control: BrowserControl<CDPClient> | undefined

@@ -498,6 +498,33 @@ describe("Browser Definitions", () => {
     expect(close).toHaveBeenCalledOnce()
   })
 
+  it("closes an ignored late open without an unhandled rejection", async () => {
+    let finishAcquire!: () => void
+    const acquired = new Promise<void>(resolve => {
+      finishAcquire = resolve
+    })
+    let finishClose!: () => void
+    const closed = new Promise<void>(resolve => {
+      finishClose = resolve
+    })
+    const attach = vi.fn()
+    const client = {
+      async open() {
+        await acquired
+        return { id: "browser-1", attach, close: async () => finishClose(), inspect: vi.fn() }
+      },
+    } as unknown as BrowserClient
+
+    await executeBrowserDefinition(defineBrowser(async (_input, { browser }) => {
+      void browser.open()
+    }), undefined, { client })
+
+    finishAcquire()
+    await closed
+    await new Promise(resolve => setImmediate(resolve))
+    expect(attach).not.toHaveBeenCalled()
+  })
+
   it("rejects an open that starts after the Browser Definition ends", async () => {
     const client = { open: vi.fn() } as unknown as BrowserClient
     let ended: BrowserDefinitionBrowser | undefined
