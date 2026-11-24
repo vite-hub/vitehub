@@ -135,6 +135,26 @@ describe("nuxt-safe-runtime-config on a Nitro 3 app with a vite.config", () => {
     }
   })
 
+  it("keeps a field with an async validator in the Nitro runtimeConfig", async () => {
+    const cwd = await mkdtemp(join(fixtures, ".nitro3-"))
+    try {
+      await cp(join(fixtures, "nitro3-module/input"), cwd, { recursive: true })
+      await writeFile(join(cwd, "schema.ts"), "import * as v from 'valibot'\n\nexport default v.objectAsync({\n  apiSecret: v.pipe(v.string(), v.minLength(16)),\n  greeting: v.pipeAsync(v.string(), v.checkAsync(async value => value.length > 1)),\n  port: v.pipe(v.string(), v.transform(Number), v.number(), v.minValue(1)),\n})\n")
+      const run = await runCodemod("nuxt-safe-runtime-config", { cwd, dryRun: true })
+      const after = (path: string) => run.result.edits.find(edit => edit.path === path)?.after ?? ""
+      expect(after("nitro.config.ts")).toContain("runtimeConfig: { greeting: 'hello' }")
+      expect(after("vite.config.ts")).not.toContain("greeting:")
+      expect(after("routes/greeting.ts")).toBe("")
+      const report = formatReport(run)
+      expect(report).toContain("nitro.config.ts:4 greeting has an async validator")
+      expect(report).toContain("routes/greeting.ts:6 useRuntimeConfig() reads port, which moved to Env")
+      expect(report).toContain("It stays in runtimeConfig. Read it with useRuntimeConfig(), or move it to Env by hand.")
+    }
+    finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
   it("stops when the vite.config already uses vitehub()", async () => {
     const cwd = await mkdtemp(join(fixtures, ".nitro3-"))
     try {
