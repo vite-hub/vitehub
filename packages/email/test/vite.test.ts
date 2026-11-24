@@ -117,7 +117,7 @@ describe("hubEmail", () => {
 
   it("owns generated template module paths", () => {
     expect(resolveEmailTemplateModulePath("/tmp/templates", "#vitehub/emails/monthly/detail"))
-      .toBe("/tmp/templates/monthly%2Fdetail.mjs")
+      .toBe("/tmp/templates/monthly~2Fdetail.mjs")
     expect(resolveEmailTemplateModulePath("/tmp/templates", "other/module")).toBeUndefined()
     expect(() => resolveEmailTemplateModulePath("/tmp/templates", "#vitehub/emails/../secret"))
       .toThrow("is not valid")
@@ -398,15 +398,15 @@ describe("hubEmail", () => {
     ].join("\n"))
     await expect(readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
       .rejects.toMatchObject({ code: "ENOENT" })
-    expect(await readFile(join(root, ".vitehub", "email", "preview.mjs"), "utf8")).toMatch(/export const renderEmailTemplate = async \(source, data\) => \(await import\(".+\/markdown\.ts"\)\)\.renderEmailMarkdown\(source, \{ data \}\)/)
+    expect(await readFile(join(root, ".vitehub", "email", "preview.mjs"), "utf8")).toMatch(/export const renderEmailTemplate = async \(source, data, name\) => Object\.hasOwn\(vueTemplates, name\)\n.+\n  : \(await import\(".+\/markdown\.ts"\)\)\.renderEmailMarkdown\(source, \{ data \}\)/)
     await expect(plugin.api.prepareTypes({ materialize: true, projectRoot: root }))
       .resolves.toEqual({
         "monthly-recap": join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"),
-        "monthly-recap/index.mjs/detail": join(root, ".vitehub", "email", "templates", "monthly-recap%2Findex.mjs%2Fdetail.mjs"),
+        "monthly-recap/index.mjs/detail": join(root, ".vitehub", "email", "templates", "monthly-recap~2Findex.mjs~2Fdetail.mjs"),
       })
     expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
       .toContain("Hello there")
-    expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap%2Findex.mjs%2Fdetail.mjs"), "utf8"))
+    expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap~2Findex.mjs~2Fdetail.mjs"), "utf8"))
       .toContain("Nested detail")
     await rm(template)
     await rm(nestedTemplate)
@@ -689,7 +689,7 @@ describe("hubEmail", () => {
     await writeFile(join(secondServerDir, "emails", "first", "second.md"), "Second")
     const plugin = hubEmail({ driver: "resend" })
     await expect(plugin.api.prepareTypes({ materialize: true, projectRoot: root, serverDirs: [firstServerDir, secondServerDir] })).resolves.toEqual({
-      "first/second": join(root, ".vitehub", "email", "templates", "first%2Fsecond.mjs"),
+      "first/second": join(root, ".vitehub", "email", "templates", "first~2Fsecond.mjs"),
       first: join(root, ".vitehub", "email", "templates", "first.mjs"),
     })
   })
