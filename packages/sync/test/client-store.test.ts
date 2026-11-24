@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest"
 
-import { createMemoryStorage } from "../src/client/storage.ts"
+import { createMemoryStorage, storageLost } from "../src/client/storage.ts"
 import { SyncError } from "../src/client/types.ts"
 import { syncLiveRoute } from "../src/protocol.ts"
 import { accountOf, createFakeSyncServer, scopeIdOf } from "./client-fake-server.ts"
@@ -423,6 +423,73 @@ describe("writes", () => {
     release()
     await write
     expect(log).toEqual(["persist start", "persist end", "send"])
+  })
+
+  it("drops a push answer of a lost copy, and sends the writes queued after the loss", async () => {
+    const h = setup()
+    seed(h, [{ id: "a", ownerId: "ada", title: "Milk" }])
+    let copy = createMemoryStorage()
+    let epoch = 0
+    const storage: SyncStorage = {
+      persisted: true,
+      get epoch() { return epoch },
+      read: id => copy.read(id),
+      readQueue: id => copy.readQueue(id),
+      async write(id, change) {
+        if (change.epoch !== undefined && change.epoch !== epoch) throw storageLost
+        return copy.write(id, change)
+      },
+      takeResults: ids => copy.takeResults(ids),
+      queuedIds: () => copy.queuedIds(),
+      clear: options => copy.clear(options),
+    }
+    let held: Promise<void> | undefined
+    let reached = () => undefined as void
+    let release = () => undefined as void
+    const one = h.open({
+      storage,
+      fetch: async (input, init) => {
+        const response = await h.server.fetch(input, init)
+        const wait = init?.method === "POST" && !isLive(input) ? held : undefined
+        if (wait) {
+          held = undefined
+          reached()
+          await wait
+        }
+        return response
+      },
+    })
+    await one.store.refresh()
+    held = new Promise<void>((resolve) => { release = resolve })
+    const answered = new Promise<void>((resolve) => { reached = resolve })
+    const first = one.store.insert({ title: "First" })
+    first.then(undefined, () => undefined)
+    await answered
+    const [sent] = (await copy.readQueue("/_vitehub/sync/todos")).writes
+    copy = createMemoryStorage()
+    epoch++
+    let down = true
+    const two = h.open({ storage, fetch: (input, init) => down ? Promise.reject(new TypeError("Failed to fetch")) : h.server.fetch(input, init) })
+    const second = two.store.insert({ title: "Second" })
+    let queued = await copy.readQueue("/_vitehub/sync/todos")
+    while (!queued.writes.length) {
+      await new Promise(resolve => setTimeout(resolve, 1))
+      queued = await copy.readQueue("/_vitehub/sync/todos")
+    }
+    expect(queued.writes[0]!.seq).toBe(sent!.seq)
+    const third = one.store.insert({ title: "Third" })
+    release()
+    await expect(first).rejects.toMatchObject({ code: "SYNC_CLEARED" })
+    await third
+    down = false
+    await two.store.refresh()
+    await second
+    expect([...h.server.rows.values()].map(row => row.title).sort()).toEqual(["First", "Milk", "Second", "Third"])
+    await one.store.refresh()
+    expect(one.store.getState().rows.map(row => row.title).sort()).toEqual(["First", "Milk", "Second", "Third"])
+    const saved = await copy.read("/_vitehub/sync/todos")
+    expect(saved.rows.map(([, value]) => value.title).sort()).toEqual(["First", "Milk", "Second", "Third"])
+    expect(saved.writes).toEqual([])
   })
 
   it("sends one push at a time, with every queued write in order", async () => {
@@ -1102,6 +1169,37 @@ describe("actions across stores", () => {
     await new Promise(resolve => setTimeout(resolve, 5))
     expect(todos.getState().queued).toBe(2)
     expect(shown!.get("c1")).toMatchObject({ body: "First!" })
+  })
+
+  it("rolls back an offline action in a linked subset when the stored copy is lost", async () => {
+    const h = setup()
+    const comments = createFakeSyncServer("comments")
+    comments.live = false
+    let epoch = 0
+    const storage = { ...createMemoryStorage(), get epoch() { return epoch } }
+    const { store: todos } = h.open({ storage, actions: {
+      complete(local, { id }) {
+        local.sync("comments").insert({ id: "c1", todoId: id, body: "First" })
+      },
+    } })
+    const { store: shown } = h.open({ storage, name: "comments", fetch: comments.fetch, where: { todoId: "t1" } })
+    await Promise.all([todos.refresh(), shown.refresh()])
+    h.server.offline = true
+    comments.offline = true
+    const action = todos.actions.complete({ id: "t1" })
+    const rejected = expect(action).rejects.toMatchObject({ code: "SYNC_CLEARED" })
+    await until(() => todos.getState().status === "offline")
+    expect(shown.get("c1")).toMatchObject({ body: "First" })
+    expect(shown.pending("c1")).toBe(true)
+
+    await storage.clear()
+    epoch++
+    await todos.refresh()
+    await rejected
+    await shown.refresh()
+    expect(shown.getState().status).toBe("offline")
+    expect(shown.get("c1")).toBeUndefined()
+    expect(h.server.applied).toHaveLength(0)
   })
 
   it("reads the other store for an optimistic function also before anything read that store", async () => {

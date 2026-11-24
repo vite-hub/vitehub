@@ -4,10 +4,10 @@ import { readEnv } from "@vite-hub/internal/env"
 import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 
 import { normalizeKVOptions } from "../config.ts"
-import { kvClearOptionsError, kvKeyLimitCodes, kvListLimitInvalid, kvResult, kvWriteLimitCodes, listKVKeys } from "../errors.ts"
+import { kvClearOptionsError, kvKeyLimitCodes, kvListLimitInvalid, kvResult, kvSetCodes, kvSetTTL, listKVKeys } from "../errors.ts"
 import type { Result } from "@vite-hub/runtime"
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
-import type { KVDriver, KVErrorCode, KVOperation, KVSetOptions, KVStorage, KVStoreName, KVStoreOptions, ReadonlyKVStorage, ResolvedKVModuleOptions } from "../types.ts"
+import type { KVDriver, KVErrorCode, KVOperation, KVStorage, KVStoreName, KVStoreOptions, ReadonlyKVStorage, ResolvedKVModuleOptions } from "../types.ts"
 import { createHostedKVStorage, resolveHostedKVStore, type RuntimeStorage } from "./hosted-storage.ts"
 import type { KVDatabasesLoader } from "./driver.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
@@ -122,17 +122,6 @@ async function runKVOperation<TResult, TCode extends KVErrorCode = never>(
   return kvResult(operation, name, () => run(storage), codes)
 }
 
-function readSetTTL(operation: "set" | "setIfAbsent" | "setMany", options: KVSetOptions | undefined): number | undefined {
-  if (options === undefined) return
-  for (const option of Object.keys(options)) {
-    if (option !== "ttl") throw kvErrorDiagnostics.KV_INVALID_OPTION({ operation, option })
-  }
-  if (options.ttl === undefined) return
-  const ttl = ttlSeconds(options.ttl)
-  if (ttl === undefined) throw kvErrorDiagnostics.KV_INVALID_TTL()
-  return ttl
-}
-
 function createKVStorage(name = "default"): KVStorage {
   return {
     async clear(options) {
@@ -171,20 +160,20 @@ function createKVStorage(name = "default"): KVStorage {
     },
     async set(key, value, options) {
       return runKVOperation("set", name, async (storage) => {
-        const ttl = readSetTTL("set", options)
+        const ttl = kvSetTTL("set", options)
         return storage.setItem(key, value, ttl === undefined ? undefined : { ttl })
-      }, [...kvWriteLimitCodes, "KV_INVALID_OPTION", "KV_INVALID_TTL"])
+      }, kvSetCodes)
     },
     async setMany(entries, options) {
       return runKVOperation("setMany", name, async (storage) => {
-        const ttl = readSetTTL("setMany", options)
+        const ttl = kvSetTTL("setMany", options)
         return storage.setMany(entries, ttl === undefined ? undefined : { ttl })
-      }, [...kvWriteLimitCodes, "KV_INVALID_OPTION", "KV_INVALID_TTL"])
+      }, kvSetCodes)
     },
     async setIfAbsent(key, value, options) {
       return runKVOperation("setIfAbsent", name, async (storage) => {
         if (!storage.setIfAbsentItem) throw kvErrorDiagnostics.KV_UNSUPPORTED_OPERATION({ operation: "setIfAbsent", store: name })
-        return storage.setIfAbsentItem(key, value, readSetTTL("setIfAbsent", options))
+        return storage.setIfAbsentItem(key, value, kvSetTTL("setIfAbsent", options))
       }, ["KV_INVALID_OPTION", "KV_INVALID_TTL", "KV_INVALID_VALUE", "KV_UNSUPPORTED_OPERATION"])
     },
     store: selectKVStore,

@@ -8,6 +8,7 @@ import { codemods } from "./registry.ts"
 import { applyEdit, checkEditPath, editLabel } from "./runner.ts"
 import { readDependencies } from "./shared/detect.ts"
 import { findNuxtConfigName, readNuxtConfig } from "./shared/nuxt-config.ts"
+import { nodeVersionNote } from "./shared/node-version.ts"
 import { codemodError, isCodemodError } from "./error-diagnostics.ts"
 
 import type { Codemod, CodemodResult, Detection, FileEdit, FollowUp } from "./types.ts"
@@ -42,16 +43,11 @@ export interface Migration {
   supported: string[]
 }
 
-/** Folders that the migration does not copy into its scratch directory. */
 const skippedFolders = new Set([".git", ".nuxt", ".output", ".data", ".vercel", ".netlify", ".wrangler", "node_modules"])
 
 /** Scratch directory prefix inside the project, so packages and the lockfile resolve as they do from the project. */
 export const scratchFolder = ".vitehub-migrate"
 
-/**
- * Reads the version of a package in a pnpm catalog, such as `catalog:` or `catalog:frameworks`, from the nearest
- * pnpm-workspace.yaml. Reads the block form that pnpm writes, as `catalog:` and `catalogs:` keys at the root.
- */
 async function readPnpmCatalogVersion(cwd: string, name: string, catalog: string): Promise<string | undefined> {
   let directory = cwd
   while (!existsSync(join(directory, "pnpm-workspace.yaml"))) {
@@ -123,11 +119,12 @@ export async function runMigration(options: RunMigrationOptions = {}): Promise<M
   const candidates = options.codemods ?? codemods
   const supported = candidates.map(codemod => codemod.name)
   const warnings = await projectWarnings(cwd)
+  const nodeNote = nodeVersionNote()
+  if (nodeNote) warnings.push(nodeNote)
   const found = await detectCodemods(cwd, candidates)
   const initialDetections = new Map(found.map(({ codemod, detection }) => [codemod, detection]))
   const steps: MigrationStep[] = []
   if (!found.length) {
-    // A plain Vite or Node app has no nuxt.config. Still name a nuxt.config that does not parse, and a folder that is no app.
     if (findNuxtConfigName(cwd)) await readNuxtConfig(cwd)
     else if (!existsSync(join(cwd, "package.json"))) throw codemodError(`Cannot find package.json or nuxt.config in ${cwd}. Pass the app directory as the first argument.`)
     return { cwd, dryRun, steps, edits: [], warnings, supported }
@@ -135,12 +132,10 @@ export async function runMigration(options: RunMigrationOptions = {}): Promise<M
   const touched = new Set<string>()
   const scratch = await mkdtemp(join(cwd, `${scratchFolder}-`))
   try {
-    // fs.cp refuses to copy a directory into itself, so copy each top-level entry.
     for (const entry of await readdir(cwd)) {
       if (skippedFolders.has(entry) || entry === scratchFolder || entry.startsWith(`${scratchFolder}-`)) continue
       await cp(join(cwd, entry), join(scratch, entry), { recursive: true, filter: source => !skippedFolders.has(basename(source)) })
     }
-    // Messages name files in the scratch copy. Show the project paths instead.
     const unscratch = (text: string) => text.replaceAll(scratch, cwd)
     for (const codemod of candidates) {
       const detection = codemod.detectAfterEdits && touched.size
@@ -156,7 +151,6 @@ export async function runMigration(options: RunMigrationOptions = {}): Promise<M
           notes: planned.notes.map(unscratch),
           nextSteps: planned.nextSteps.map(unscratch),
         }
-        // Reject the full batch before writing: copied symlinks can still point at the original files.
         for (const edit of result.edits) await checkEditPath(scratch, edit.path)
         for (const edit of result.edits) {
           await applyEdit(scratch, edit)

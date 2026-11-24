@@ -1,6 +1,12 @@
+import { resolve } from "node:path"
+
 interface VercelConfigJson {
   routes: Array<{ handle: string } | { dest: string, src: string }>
   version: 3
+}
+
+export function createDefaultVercelOutputRoot(rootDir: string): string {
+  return resolve(rootDir, ".vercel", "output")
 }
 
 export function createVercelConfigJson(): VercelConfigJson {

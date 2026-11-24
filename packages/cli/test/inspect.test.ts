@@ -54,6 +54,7 @@ function inspectPlugins(rootDir: string) {
           providerOutput: [
             { description: "Rate Limit manifest", owner: "rate-limit", path: join(rootDir, ".vitehub/rate-limit/manifest.json") },
             { description: "Generated Cloudflare Worker config", owner: "vite-hub", path: join(rootDir, "dist/server/wrangler.json") },
+            { description: "Deployment manifest", owner: "vite-hub", path: join(rootDir, "dist/deployment.json") },
           ],
         },
       },
@@ -147,7 +148,7 @@ describe("vitehub inspect", () => {
     const result = await run(rootDir, ["inspect", "output"])
 
     expect(result.exitCode).toBe(0)
-    expect(result.stdout).toContain("Provider Output: 1 of 3 present")
+    expect(result.stdout).toContain("Provider Output: 1 of 4 present")
     expect(result.stdout).toContain("  .vitehub/rate-limit/manifest.json  (rate-limit) Rate Limit manifest")
     expect(result.stdout).toContain("Not generated:")
     expect(result.stdout).toContain("  .vitehub/provision.json  (cli)")
@@ -179,6 +180,41 @@ describe("vitehub inspect", () => {
       type: "file",
     })
     expect(parsed.providerOutput.find((entry: { path: string }) => entry.path === ".vitehub/provision.json")).toMatchObject({ exists: false, owner: "cli" })
+  })
+
+  it("keeps the boolean secret flags of deployment.json env entries and redacts credentials", async () => {
+    const rootDir = await createTempDir()
+    await mkdir(join(rootDir, "dist"), { recursive: true })
+    await mkdir(join(rootDir, ".vitehub/rate-limit"), { recursive: true })
+    await writeFile(join(rootDir, "dist/deployment.json"), JSON.stringify({
+      env: [
+        { hasDefault: false, names: ["VITEHUB_SECRET"], owners: ["env"], required: false, secret: true },
+        { hasDefault: true, names: ["PUBLIC_URL"], required: true, secret: false },
+        { hasDefault: false, names: ["LEAKED"], required: false, secret: "sk_live_value" },
+      ],
+      host: "node",
+      services: { database: { token: "db-token-value", url: "libsql://user:db-password@example.com" } },
+    }))
+    await writeFile(join(rootDir, ".vitehub/rate-limit/manifest.json"), JSON.stringify({ env: [{ secret: true }] }))
+    const result = await run(rootDir, ["inspect", "output", "--json"])
+
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).not.toContain("sk_live_value")
+    expect(result.stdout).not.toContain("db-token-value")
+    expect(result.stdout).not.toContain("db-password")
+    const parsed = JSON.parse(result.stdout)
+    const manifest = parsed.providerOutput.find((entry: { path: string }) => entry.path === "dist/deployment.json")
+    expect(manifest.content).toEqual({
+      env: [
+        { hasDefault: false, names: ["VITEHUB_SECRET"], owners: ["env"], required: false, secret: true },
+        { hasDefault: true, names: ["PUBLIC_URL"], required: true, secret: false },
+        { hasDefault: false, names: ["LEAKED"], required: false, secret: "[redacted]" },
+      ],
+      host: "node",
+      services: { database: { token: "[redacted]", url: "[redacted]" } },
+    })
+    const other = parsed.providerOutput.find((entry: { path: string }) => entry.path === ".vitehub/rate-limit/manifest.json")
+    expect(other.content).toEqual({ env: [{ secret: "[redacted]" }] })
   })
 
   it("preserves provisioned resource names in Provider Output JSON", async () => {

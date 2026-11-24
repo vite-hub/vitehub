@@ -59,7 +59,7 @@ Room errors happen after the WebSocket opens, so the server closes the connectio
 With the evlog Nitro module, added through `vitehub({ observability })` or by hand, Realtime puts each refused connection and each refused save, checkpoint, or refresh on the request's wide event, in a `realtime` field:
 
 ```json
-{ "path": "/api/_vitehub/realtime/pages/guides/welcome.md", "status": 403, "realtime": { "definition": "pages", "room": "guides/welcome.md", "refused": "authorize", "status": 403 } }
+{ "path": "/_vitehub/realtime/pages/guides/welcome.md", "status": 403, "realtime": { "definition": "pages", "room": "guides/welcome.md", "refused": "authorize", "status": 403 } }
 ```
 
 | Field | Meaning |
@@ -126,7 +126,7 @@ No browser is in the room after `wait` milliseconds, 5 seconds by default, or th
 
 ### REALTIME_ROOM_REFUSED
 
-The browser answered with an error: its handler threw, it has no `onRequest()` handler, or its answer is over 1 MiB. `error.why` has its reason.
+The browser answered with an error: its handler threw, it has no `onRequest()` handler, or its answer is over 1 MiB. Also returned when a `scope: "user"` call omits `user`, or when the Durable Object answers with an unexpected HTTP status. `error.why` has its reason.
 
 ### REALTIME_ROOM_REQUESTS_OFF
 

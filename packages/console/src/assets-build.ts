@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto"
 import { existsSync, readdirSync, readFileSync } from "node:fs"
+import { createRequire } from "node:module"
 import { dirname, join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -14,6 +15,9 @@ export const consolePageAssetFiles = { "account.js": "dist/console/runtime/page-
 
 /** The folder of the skills and their `index.json` in the `vite-hub` package. */
 export const consoleSkillsFolder = "dist/console-skills"
+
+/** The folder of the hosted Comments embed in the `@vite-hub/comments` package. */
+export const hostedCommentsFolder = "dist/hosted"
 
 /** The folder of the installed `vite-hub` package. */
 export function viteHubPackageRoot(): string {
@@ -43,5 +47,21 @@ export function readConsoleAssets(): ConsoleAssets {
     return [name, { hash: createHash("sha256").update(source).digest("hex").slice(0, 16), source }]
   }))
   const { version } = z.object({ version: z.string().min(1) }).parse(JSON.parse(read("package.json")))
-  return { page, skills, version }
+  return { page, skills, hostedComments: readHostedComments(), version }
+}
+
+/** The folder of the `@vite-hub/comments` package that the installed `vite-hub` package uses. */
+export function commentsPackageRoot(): string {
+  return dirname(createRequire(join(viteHubPackageRoot(), "package.json")).resolve("@vite-hub/comments/package.json"))
+}
+
+function readHostedComments(): Record<string, string> {
+  const folder = join(commentsPackageRoot(), hostedCommentsFolder)
+  const entry = join(folder, "hosted-comments.js")
+  if (!existsSync(entry)) throw consoleErrorDiagnostics.CONSOLE_VITE_HUB_BUILD_MISSING({ file: entry })
+  return Object.fromEntries(readdirSync(folder, { recursive: true, withFileTypes: true })
+    .filter(entry => entry.isFile() && entry.name.endsWith(".js"))
+    .map(entry => relative(folder, join(entry.parentPath, entry.name)).replaceAll("\\", "/"))
+    .sort()
+    .map(path => [path, readFileSync(join(folder, path), "utf8")]))
 }

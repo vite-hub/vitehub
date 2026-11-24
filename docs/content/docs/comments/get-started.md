@@ -24,7 +24,7 @@ In this tutorial, you add Comments to a Vite app and pin a comment on a page. Th
 Install Comments, Valibot, and Drizzle. Comments uses the `drizzle-orm` of your app:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/comments drizzle-orm@1.0.0-rc.5 valibot
+pnpm add @vite-hub/comments drizzle-orm@1.0.0-rc.6 valibot
 ```
 
 Add the `comments()` plugin to `vite.config.ts`. Keep the other plugins of your app. This example uses Vue, but `comments()` does not need Vue.

@@ -1,19 +1,22 @@
 import { readFile } from "node:fs/promises"
 import { join, posix } from "node:path"
 
-import { end, indentAt, isReference, keyName, line, parseProgram, start, walk } from "@vite-hub/internal/ast"
+import { detectStyle, end, indentAt, isReference, keyName, line, parseProgram, start, walk } from "@vite-hub/internal/ast"
 import { parse as parseSfc } from "@vue/compiler-sfc"
 import MagicString from "magic-string"
 import { glob } from "tinyglobby"
 
+import { bindingResolver } from "../shared/binding-resolver.ts"
 import { blockBindings } from "../shared/bindings.ts"
 import { moduleSource } from "../shared/module-source.ts"
 import { unwrapExpression } from "../shared/nuxt-config.ts"
+import { addServerImports, appServerImports, freeReferences, serverLayoutFollowUps, unknownServerImports } from "../shared/server-imports.ts"
 import { relativeSpecifier } from "./database.ts"
 
 import type { CallExpression, File, MemberExpression } from "@babel/types"
 import type { Node } from "@vite-hub/internal/ast"
 import type { FileEdit, FollowUp } from "../types.ts"
+import type { NuxtServerLayout } from "../shared/nuxt-server-layout.ts"
 import type { HubFeatures } from "./config.ts"
 import type { SchemaMove } from "./database.ts"
 
@@ -59,6 +62,7 @@ export interface SourceInput {
   schema?: SchemaMove
   /** Files that the codemod handles elsewhere, such as nuxt.config and moved schema files. */
   skip: ReadonlySet<string>
+  layout: NuxtServerLayout
 }
 
 export interface SourceResult {
@@ -135,14 +139,16 @@ interface CallSite {
 }
 
 /** Rewrites the KV and Blob calls of one server module to check the `[error, value]` tuple. */
-function rewriteCalls(file: string, code: string, program: File, output: MagicString, receivers: Map<string, Feature>, followUps: FollowUp[]): number {
+function rewriteCalls(file: string, code: string, program: File, output: MagicString, receivers: Map<string, Feature>, implicit: ReadonlySet<string>, followUps: FollowUp[]): number {
   const names = new Set<string>()
+  const resolve = bindingResolver(program)
   walk(program, (node) => {
     if (node.type === "Identifier") names.add(node.name)
   })
   const sites: CallSite[] = []
   walk(program, (node, ancestors) => {
     if (node.type !== "Identifier" || !receivers.has(node.name)) return
+    if (implicit.has(node.name) && resolve(node)) return
     const parent = ancestors.at(-1)
     if (!isReference(node, parent) || parent?.type === "TSTypeQuery") return
     const feature = receivers.get(node.name)!
@@ -256,7 +262,11 @@ function hasWhereCallback(ancestors: readonly Node[]): boolean {
 }
 
 export async function rewriteSources(input: SourceInput): Promise<SourceResult> {
-  const { cwd, features, schema } = input
+  const { cwd, features, schema, layout } = input
+  const { names: appNames, unknown } = await appServerImports(cwd, layout)
+  const serverDirectories = layout.layers.flatMap(layer => layer.server ?? [])
+  const names = new Set([features.kv && "kv", features.blob && "blob", ...features.database ? ["db", "schema"] : []].filter(name => typeof name === "string"))
+  const appOwned = new Set(appNames.keys())
   const files = await glob(["**/*.{ts,mts,cts,js,mjs,cjs,tsx,jsx,vue}"], {
     cwd,
     ignore: ["**/node_modules/**", "**/.nuxt/**", "**/.output/**", "**/.data/**", "**/.vitehub/**", "**/.wrangler/**", "**/dist/**", "nuxt.config.*"],
@@ -264,14 +274,14 @@ export async function rewriteSources(input: SourceInput): Promise<SourceResult> 
   const movedOld = new Map<string, string>()
   for (const [target, old] of schema?.moved ?? []) movedOld.set(old.replace(/\.(?:ts|mts|js|mjs)$/, "").replace(/\/index$/, ""), target.replace(/\.(?:ts|mts|js|mjs)$/, "").replace(/\/index$/, ""))
   if (schema?.oldModule && schema.schemaModule) movedOld.set(schema.oldModule, schema.schemaModule)
-  const result: SourceResult = { edits: [], followUps: [], imports: 0, calls: 0 }
+  const result: SourceResult = { edits: [], followUps: serverLayoutFollowUps(layout), imports: 0, calls: 0 }
   for (const file of files.sort()) {
     if (input.skip.has(file)) continue
     const source = await readFile(join(cwd, file), "utf8")
-    if (!/hub:|@nuxthub\/|hub[A-Z]\w*\(|\b(?:kv|blob|db)[.[]|useUpload|useMultipartUpload|db\/schema/.test(source)) continue
+    const server = serverDirectories.some(dir => dir === "." || file.startsWith(`${dir}/`))
+    if (!/hub:|@nuxthub\/|hub[A-Z]\w*\(|useUpload|useMultipartUpload|db\/schema/.test(source) && !(server && /\b(?:kv|blob|db|schema)\b/.test(source))) continue
     const output = new MagicString(source)
     const followUps: FollowUp[] = []
-    const server = file.split("/").includes("server")
     let blocks: Block[]
     try {
       blocks = scriptBlocks(file, source)
@@ -292,6 +302,7 @@ export async function rewriteSources(input: SourceInput): Promise<SourceResult> 
       const bindings = blockBindings(program)
       const receivers = new Map<string, Feature>()
       const databases = new Set<string>()
+      const implicit = new Set<string>()
       walk(program, (node) => {
         const literal = moduleSource(node)
         if (!literal) return
@@ -336,16 +347,27 @@ export async function rewriteSources(input: SourceInput): Promise<SourceResult> 
           receivers.delete(name)
         }
       }
-      // NuxtHub auto-imports kv and blob in server code, and ViteHub does too.
       if (server && script) {
-        for (const feature of ["kv", "blob"] as const) if (features[feature] && !bindings.has(feature)) receivers.set(feature, feature)
-        if (features.database && !bindings.has("db")) databases.add("db")
+        if (unknown.size) {
+          const uncertain = [...freeReferences(program, names).keys()].filter(name => !appOwned.has(name))
+          if (uncertain.length) followUps.push({ file, message: unknownServerImports(unknown, uncertain) })
+        }
+        else {
+          const { added } = addServerImports({ code: block.code, program, output, offset: block.offset, style: detectStyle(block.code, program), skip: appOwned, names })
+          for (const { name } of added) {
+            implicit.add(name)
+            if (name === "kv" || name === "blob") receivers.set(name, name)
+            if (name === "db") databases.add(name)
+          }
+        }
       }
       if (receivers.size && script) {
-        result.calls += rewriteCalls(file, source, program, output, receivers, followUps)
+        result.calls += rewriteCalls(file, source, program, output, receivers, implicit, followUps)
       }
+      const resolve = bindingResolver(program)
       walk(program, (node, ancestors) => {
-        if (node.type === "MemberExpression" && keyName(node.property, node.computed) === "query" && node.object.type === "Identifier" && databases.has(node.object.name)) {
+        if (node.type === "MemberExpression" && keyName(node.property, node.computed) === "query" && node.object.type === "Identifier" && databases.has(node.object.name)
+          && (!implicit.has(node.object.name) || !resolve(node.object))) {
           followUps.push({ file, line: at(node), message: hasWhereCallback(ancestors)
             ? "This query passes a function as where. Drizzle 1.0 reads where as an object, such as where: { id: 1 }, or where: { RAW: (table, { eq }) => eq(table.id, 1) }. Rewrite it, and check ownership filters and nested queries before running this call. orderBy functions still work. See https://orm.drizzle.team/docs/relations-v1-v2."
             : "Drizzle 1.0 changes relational queries. Check this query, migrate declared relations with defineRelations(), pass them to the Database Definition, and check nested queries before running this call. See https://orm.drizzle.team/docs/relations-v1-v2." })

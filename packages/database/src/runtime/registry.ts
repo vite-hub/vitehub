@@ -75,6 +75,7 @@ function deferred<T extends object>(resolve: () => T, bindMethods = false): T {
       const descriptor = Reflect.getOwnPropertyDescriptor(resolve(), property)
       return descriptor && { ...descriptor, configurable: true }
     },
+    getPrototypeOf: () => Reflect.getPrototypeOf(resolve()),
     has: (_, property) => Reflect.has(resolve(), property),
     ownKeys: () => Reflect.ownKeys(resolve()),
   })

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { promisify } from "node:util"
 
@@ -37,11 +37,11 @@ async function buildApp(component: string, specifier: string): Promise<AppBundle
     `createApp({ render: () => h(${component}, { patch: "", value: "# Hello" }) }).mount("#app")`,
     "",
   ].join("\n"))
-  const { stdout } = await promisify(execFile)(process.execPath, [join(import.meta.dirname, "fixtures/ui-markdown-bundle.mjs"), root], {
+  await promisify(execFile)(process.execPath, [join(import.meta.dirname, "fixtures/ui-markdown-bundle.mjs"), root], {
     env: { ...process.env, NODE_ENV: "production" },
     maxBuffer: 1024 * 1024,
   })
-  return JSON.parse(stdout)
+  return JSON.parse(await readFile(join(root, "bundle-report.json"), "utf8"))
 }
 
 describe("Markdown from the UI root entry", () => {

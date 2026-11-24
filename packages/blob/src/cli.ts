@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto"
 import { readFile, rename, rm, stat, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 
+import type { Stats } from "node:fs"
+
 import * as v from "valibot"
 
 import { askOnTerminal, listSeedFiles, parseCliPositiveInteger, readCliOptionValue, readViteHubDevTargetOption, writeCliFailure } from "@vite-hub/internal/cli"
@@ -56,6 +58,15 @@ interface ParsedBlobArgs {
 }
 
 const usageError = (message: string) => blobErrorDiagnostics.BLOB_R0029({ message })
+
+const missingPathError = v.object({ code: v.picklist(["ENOENT", "ENOTDIR"]) })
+
+const codedError = v.object({ code: v.string(), fix: v.optional(v.string()) })
+
+function cliFailure(error: unknown): ViteHubCliFailure {
+  const coded = v.safeParse(codedError, error)
+  return { ...(coded.success ? { code: coded.output.code, ...(coded.output.fix ? { fix: coded.output.fix } : {}) } : {}), message: error instanceof Error ? error.message : String(error) }
+}
 
 const blobDevTargetErrors = {
   invalidInlineTimeout: usageError,
@@ -185,8 +196,15 @@ function parseArgs(command: BlobCommand, args: readonly string[]): ParsedBlobArg
 
 /** Reads the upload file. The size check runs before the read, so a large file is not loaded. */
 async function readUpload(path: string): Promise<{ data: string } | ViteHubCliFailure> {
-  const info = await stat(path).catch(() => undefined)
-  if (!info?.isFile()) return { message: `File not found: ${path}` }
+  let info: Stats
+  try {
+    info = await stat(path)
+  }
+  catch (error) {
+    if (v.is(missingPathError, error)) return cliFailure(usageError(`File not found: ${path}`))
+    return { message: `Could not read ${path}: ${error instanceof Error ? error.message : String(error)}` }
+  }
+  if (!info.isFile()) return cliFailure(usageError(`File not found: ${path}`))
   if (info.size > blobDevMaximumUploadBytes) {
     return {
       code: "BLOB_UPLOAD_TOO_LARGE",
@@ -374,7 +392,7 @@ async function runBlobCommand(command: BlobCommand, args: string[], context: Blo
   }
   catch (error) {
     const terminator = args.indexOf("--")
-    if (args.slice(0, terminator < 0 ? args.length : terminator).includes("--json")) return writeCliFailure(true, context, { message: error instanceof Error ? error.message : String(error) })
+    if (args.slice(0, terminator < 0 ? args.length : terminator).includes("--json")) return writeCliFailure(true, context, cliFailure(error))
     context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
     writeUsage(command, context.stderr)
     return 1
@@ -391,7 +409,7 @@ async function runBlobCommand(command: BlobCommand, args: string[], context: Blo
   let data: string | undefined
   if (command.file) {
     const upload = await readUpload(resolve(context.cwd, parsed.file!))
-    if (!("data" in upload)) return writeCliFailure(parsed.json, context, upload)
+    if (!("data" in upload)) return writeCliFailure(parsed.json, context, parsed.json ? upload : { message: upload.message })
     data = upload.data
   }
   const input: Record<string, unknown> = {}

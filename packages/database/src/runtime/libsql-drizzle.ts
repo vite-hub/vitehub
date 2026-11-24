@@ -21,12 +21,6 @@ export function createLibsqlDrizzle<TRelations extends AnyRelations = EmptyRelat
   const logger: Logger | undefined = config.logger === true ? new DefaultLogger() : config.logger || undefined
   // SAFETY: `drizzle()` uses the same empty object when it has no relations, and `EmptyRelations` is `{}`.
   const relations = config.relations ?? ({} as TRelations)
-  const session = new LibSQLSession(client, dialect, relations, { cache: config.cache, logger, paramsInErrors: config.paramsInErrors }, undefined)
-  const db = Object.assign(new LibSQLDatabase<TRelations>("async", dialect, session, relations), { $client: client })
-  const cache = config.cache
-  if (cache) {
-    // `construct()` sets the same undeclared `$cache`, so `db.$cache.invalidate()` works as it does on `drizzle()`.
-    Object.assign(db, { $cache: Object.assign(cache, { invalidate: cache.onMutate.bind(cache) }) })
-  }
-  return db
+  const session = new LibSQLSession(client, dialect, relations, { logger, paramsInErrors: config.paramsInErrors }, undefined)
+  return Object.assign(new LibSQLDatabase<TRelations>("async", dialect, session, relations), { $client: client })
 }

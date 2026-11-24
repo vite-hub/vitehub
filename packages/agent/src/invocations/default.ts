@@ -19,6 +19,7 @@ export type {
   DefaultAgentInvocationsD1Database,
   DefaultAgentInvocationsD1Statement,
   DefaultAgentInvocationsDatabase,
+  DefaultAgentInvocationsDatabaseStore,
   DefaultAgentInvocationsLocation,
   DefaultAgentInvocationsOptions,
 } from "./default-core.ts"
@@ -29,6 +30,7 @@ export type {
  * `defaultAgentInvocationsMetadataContent` attributes.
  * - Local SQLite at `.vitehub/data/agent-invocations.sqlite`, or the `databaseUrl` libSQL URL.
  * - D1 when `d1` is set and `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` is not.
+ * - The `database` ViteHub Database when it is set and `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` is not.
  * - Memory on a Worker without D1 or a configured URL. An explicit `file:` URL throws `AGENT_R1029`.
  */
 export function createDefaultAgentInvocations(options: DefaultAgentInvocationsOptions): AgentInvocations {

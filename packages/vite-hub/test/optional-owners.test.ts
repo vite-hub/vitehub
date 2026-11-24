@@ -18,22 +18,26 @@ it("names the matching pkg.pr.new preview of ViteHub packages when vite-hub is a
   }
   expect(installArguments(["@vite-hub/database", "drizzle-orm"], manifest)).toEqual([
     `https://pkg.pr.new/vite-hub/vitehub/@vite-hub/database@${sha}`,
-    "drizzle-orm",
+    "drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0",
   ])
 })
 
-it("keeps plain package names when vite-hub comes from npm", () => {
+it("keeps ViteHub package names and gives Drizzle its supported range when vite-hub comes from npm", () => {
   const manifest = { dependencies: { "@vite-hub/env": "0.1.0" }, version: "0.1.0" }
-  expect(installArguments(["@vite-hub/database", "drizzle-orm"], manifest)).toEqual(["@vite-hub/database", "drizzle-orm"])
+  expect(installArguments(["@vite-hub/database", "drizzle-orm", "drizzle-kit"], manifest)).toEqual(["@vite-hub/database", "drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0", "drizzle-kit@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"])
 })
 
 it("tells a Connections app to install the Connections and Database packages", () => {
   expect(missingFeaturePackagesError(["connections"]).message).toContain("The connections feature needs @vite-hub/connections, @vite-hub/database, drizzle-orm.")
 })
 
+it("tells an Auth app to install the Drizzle release that Auth requires", () => {
+  expect(missingFeaturePackagesError(["auth"]).message).toContain('The auth feature needs @vite-hub/auth, better-auth, drizzle-orm. Install them in your app with: pnpm add @vite-hub/auth better-auth "drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"')
+})
+
 it("installs every package that it names, also one that another dependency provides", () => {
   // The repository installs both packages, as an app does when only drizzle-orm is missing.
-  expect(missingFeaturePackagesError(["console agents"]).message).toContain("The console agents feature needs @libsql/client, drizzle-orm. Install them in your app with: pnpm add @libsql/client drizzle-orm")
+  expect(missingFeaturePackagesError(["console agents"]).message).toContain('The console agents feature needs @libsql/client, drizzle-orm. Install them in your app with: pnpm add @libsql/client "drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"')
 })
 
 it.each([
@@ -136,20 +140,21 @@ describe("unsupportedPackageVersionsWarning", () => {
 })
 
 describe("unsupportedPeerPackagesError", () => {
-  const manifest = { peerDependencies: { "ai": "^7.0.0", "drizzle-orm": "1.0.0-rc.5 || ^1.0.0" }, version: "0.3.1" }
+  const manifest = { peerDependencies: { "ai": "^7.0.0", "drizzle-orm": "1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0" }, version: "0.3.1" }
   const versions = (installed: Record<string, string>) => (name: string): string | undefined => installed[name]
 
   it("names drizzle-orm 0.x, the supported range, and the quoted install", () => {
     // pnpm satisfies the optional peer with the 0.44.7 that the lockfile or another dependency has, and only warns.
     expect(unsupportedPeerPackagesError(["ai", "drizzle-orm"], versions({ "ai": "5.0.0", "drizzle-orm": "0.44.7" }), manifest)).toMatchObject({
       code: "VITE_HUB_PEER_VERSION_UNSUPPORTED",
-      fix: expect.stringContaining("pnpm add 'drizzle-orm@1.0.0-rc.5 || ^1.0.0'"),
-      why: expect.stringMatching(/^drizzle-orm 0\.44\.7 is installed, but vite-hub 0\.3\.1 supports drizzle-orm@1\.0\.0-rc\.5 \|\| \^1\.0\.0\. .*drizzle-orm\/libsql\/codecs/),
+      fix: expect.stringContaining('pnpm add "drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"'),
+      why: expect.stringMatching(/^drizzle-orm 0\.44\.7 is installed, but vite-hub 0\.3\.1 supports drizzle-orm@1\.0\.0-rc\.5 \|\| 1\.0\.0-rc\.6 \|\| \^1\.0\.0\. .*drizzle-orm\/libsql\/codecs/),
     })
   })
 
   it("accepts drizzle-orm in range and leaves other packages to the warning", () => {
     expect(unsupportedPeerPackagesError(["drizzle-orm"], versions({ "drizzle-orm": "1.0.0-rc.5" }), manifest)).toBeUndefined()
+    expect(unsupportedPeerPackagesError(["drizzle-orm"], versions({ "drizzle-orm": "1.0.0-rc.6" }), manifest)).toBeUndefined()
     expect(unsupportedPeerPackagesError(["drizzle-orm"], versions({ "drizzle-orm": "1.0.2" }), manifest)).toBeUndefined()
     expect(unsupportedPeerPackagesError(["ai"], versions({ ai: "5.0.0" }), manifest)).toBeUndefined()
   })
@@ -399,6 +404,11 @@ describe("host packages", () => {
     expect(hostFeaturePackages(["queue"], "node", { queue: { driver: "postgres" } })).toEqual({ queue: ["postgres"] })
     expect(hostFeaturePackages(["workflow"], "vercel", { workflow: { driver: "openworkflow" } })).toEqual({})
     expect(hostFeaturePackages(["queue", "workflow"], "node", { queue: true, workflow: true })).toEqual({})
+  })
+
+  it("leaves the SMTP nodemailer check to Email, which knows when the app loads it", () => {
+    expect(hostFeaturePackages(["email"], "node", { email: { driver: "smtp" } })).toEqual({})
+    expect(hostFeaturePackages(["email"], "cloudflare", { email: { driver: "smtp" } })).toEqual({})
   })
 
   it("stops a Vercel Workflow build that misses @vercel/functions with the install command", async () => {

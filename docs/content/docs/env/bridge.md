@@ -23,7 +23,7 @@ A user, Agent, or service gets only the permissions you grant for each key. Env 
 ### Install
 
 ```bash [Terminal]
-pnpm add vite-hub drizzle-orm@1.0.0-rc.5
+pnpm add vite-hub drizzle-orm@1.0.0-rc.6
 ```
 
 The SQLite adapter needs `drizzle-orm`. If you use the owner package, install `@vite-hub/env` and import from `@vite-hub/env/<subpath>`.

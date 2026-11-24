@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/database",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Vite-first Drizzle database primitives for ViteHub.",
   "keywords": [
     "cloudflare",
@@ -159,8 +159,8 @@
   },
   "peerDependencies": {
     "@electric-sql/pglite": "catalog:database",
-    "drizzle-kit": "1.0.0-rc.5 || ^1.0.0",
-    "drizzle-orm": "1.0.0-rc.5 || ^1.0.0",
+    "drizzle-kit": "1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0",
+    "drizzle-orm": "1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0",
     "pg": "catalog:database",
     "postgres": "catalog:database",
     "vite": "catalog:vite-compat"

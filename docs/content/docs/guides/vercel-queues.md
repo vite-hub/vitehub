@@ -9,6 +9,10 @@ icon: i-simple-icons-vercel
 
 Install `@vercel/queue`, set `host: 'vercel'` in `vitehub()`, and add one file per queue in `server/queues/`. The files turn Queue on. A route calls `sendQueue()` to send a job and replies at once. The build writes one private Vercel Function per queue with a `queue/v2beta` trigger, and Vercel calls it for each job.
 
+::warning
+ViteHub's nightly Vercel smoke currently misses both Queue completion markers. Verify that the handler runs on your deployment before relying on it. See the [host support matrix](/docs/frameworks-hosts/support-matrix#test-status).
+::
+
 ## What Vercel Queues is
 
 [Vercel Queues](https://vercel.com/docs/queues) is Vercel's message queue, in beta on all plans. A producer sends a message to a topic. A consumer function gets it, and Vercel retries until the consumer acknowledges it or it expires. Delivery is at least once.

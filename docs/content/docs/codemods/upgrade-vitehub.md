@@ -12,9 +12,28 @@ ViteHub is early, and its public API still changes. When an API changes, a codem
 vitehub migrate [dir] [--dry-run]
 ```
 
-It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, `channels`, `auth-accessors`, `workspace-repo`, `kv-list-prefix`, `cli-url-flag`, `cli-yes-flag`, `cms-roles`, `choices-package`, `cli-get-list`, and `cli-agent-tree`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
+It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, `channels`, `auth-accessors`, `workspace-repo`, `kv-list-prefix`, `cli-url-flag`, `cli-yes-flag`, `cms-roles`, `choices-package`, `cli-get-list`, `cli-agent-tree`, and `nuxt-server-imports`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
 
 After the upgrade, run Vite Doctor. Rule [`VHUB0003`](/docs/reference/doctor-rules#vhub0003) finds Result calls, such as `await email.send(...)`, whose error the code drops.
+
+## Upgrade from 0.4.1 to 0.5.0
+
+[Update ViteHub](/docs/getting-started/installation#update-vitehub) and its feature packages together. Preview the changes with `vitehub migrate --dry-run`, then run `vitehub migrate` and review its manual follow-ups.
+
+- **Channels.** Import Channel Definitions from `vite-hub/channels` and built-in adapters from `vite-hub/channels/adapters`. Install `@vite-hub/channels` for Channel Definitions, and install `@vite-hub/agent` too when you import built-in adapters, including Agent web chat. See [the Channels codemod](#channels).
+- **Agent Invocations.** On Node, a production build uses the Postgres `default` Database for the default journal unless you configured another store or file. To use Postgres, run `vitehub database generate` and commit the journal migration before building. Run `vitehub database migrate` against the production Database before starting the server. To keep reading the old history, set `agent.invocations.databaseUrl` to the absolute `file:` URL of the existing journal. ViteHub does not copy SQLite records into Postgres. See [journal storage](/docs/agents/invocation-storage#use-the-default-journal).
+- **Email templates.** Rename sendable templates with a file or folder name that starts with `_`. ViteHub skips those paths. For example, rename `_welcome.md` to `welcome.md`, then update the names in `email.send()` and `#vitehub/emails/` imports. Template modules now return `{ subject?, html, text }` instead of the filled Markdown string. Use `text` to get that string. For `renderEmailMarkdown()`, rename imports of the result type from `RenderedEmailMarkdown` to `RenderedEmail`. Keep only the optional string `subject` in Markdown frontmatter. Other keys now fail validation. See [Email templates](/docs/email/server-api#send-a-template).
+- **Auth.** Replace `Can` and `Cannot` with [`AuthPermission`](/docs/auth/abilities#check-a-rule-in-vue). Rename `do` to `check`, pass the arguments as a tuple in `args` instead of `with`, and move the content of `Cannot` to the `#denied` slot. On Node, `advanced.trustedProxyHeaders` still controls the Auth origin, but it no longer changes the client address. If Auth rate limits used forwarded addresses, set `trustProxy: true` only after you [configure a trusted reverse proxy](/docs/frameworks-hosts/node-self-hosted#run-behind-a-reverse-proxy).
+- **Content editor.** If you use `vite-hub/content/editor` or live editing, [install the Tiptap packages](/docs/content/editing-together#live-editing) in your app. The Content peers are now optional, so the package manager may no longer install them for you.
+- **Cloudflare.** If the build reports `VITE_HUB_CLOUDFLARE_RESOURCE_MISSING`, restore the generated resource named in the error. Check the project Wrangler config and any Nitro hooks or modules that modify it. See the [resource check](/docs/frameworks-hosts/cloudflare#resource-check).
+- **Database.** If a build reports `DATABASE_CONTRIBUTED_TABLES_NOT_GENERATED`, run `vitehub database generate` and commit the new migrations before building. Apply those migrations to the production Database before starting the app. See [contributed migrations](/docs/database/configure#contribute-sql-migrations).
+- **Console.** With `publicUrl` set, the page tools pill and `/_vitehub` work on that origin. Set the preview deployment's own `publicUrl` if you use page tools there. See [Console site access](/docs/console/site-access#open-the-console-from-your-pages).
+- **Agent Chat State.** If you remove an explicit `messages.state` store, [migrate unscoped Chat State](/docs/cli/agents#move-unscoped-chat-state) before switching to default storage. Run the command without `--apply` to inspect which keys will move.
+- **Comments.** Pass `{ threadId }` instead of `{ id }` to the [`comments.get` operation](/docs/comments/operations/server-api) and `CommentsTransport.get()`.
+- **Choices.** [`SingleSelection.confidence`](/docs/choices/concepts) is now the probability of the selected value, not the margin over other options. Review any cutoffs that use it and check `value` for `null` before you act. When `value` is `null`, `confidence` is `0`.
+- **WebContainer.** Replace `hubWebContainer({ routes })` with `vitehub({ webContainer: { routes } })`. For the UI workspace, use `Workspace` with the `webContainer()` or `render()` runner. See [isolation headers](/docs/web-container/configure#isolation-headers) and [Workspace](/docs/ui/workspace).
+- **CLI.** Update scripts that read one record to use `get` and scripts that read many to use `list`. Agent commands now live under `vitehub agent`. See [CLI reads](#cli-get-list) and [Agent commands](#cli-agent-tree).
+- **Nuxt.** Import ViteHub server helpers explicitly, or opt in to [Nuxt server auto-imports](/docs/frameworks-hosts/nuxt-server-auto-imports). The [codemod](#nuxt-server-imports) adds imports.
 
 ## define-forms
 
@@ -388,9 +407,12 @@ The codemod removes legacy `auth.redirects` only after it can move the settings 
 
 ## channels
 
-`channels` moves Channel imports off the removed `vite-hub/agent/channels` path, and replaces the removed Agent `http()` adapter. The adapters, such as `slack()`, `github()`, `webhook()`, `stripe()`, and `channelAdapter()`, come from `vite-hub/channels/adapters`. `defineChannel()`, `defineChannelTrigger()`, `ignored()`, `retryLater()`, and `rejected()` come from `vite-hub/channels`, which needs no `@vite-hub/agent`. Use `webhook()` for an HTTP sender, or `channelAdapter("http", options)` to keep the kind and State of an old `http()` Channel.
+`channels` moves Channel imports off the removed `vite-hub/agent/channels` path, and replaces the removed Agent `http()` adapter. Built-in adapters, such as `slack()`, `github()`, `webhook()`, `stripe()`, and `channelAdapter()`, come from `vite-hub/channels/adapters` and need `@vite-hub/agent`. `defineChannel()`, `defineChannelTrigger()`, `ignored()`, `retryLater()`, and `rejected()` come from `vite-hub/channels`, which needs `@vite-hub/channels` and no `@vite-hub/agent`. Use `webhook()` for an HTTP sender, or `channelAdapter("http", options)` to keep the kind and State of an old `http()` Channel.
+
+The codemod does not change `package.json`. Install `@vite-hub/channels` in the app, also when an Agent has only an inline Channel, such as `webChat()`. Without it, the build stops with `VITE_HUB_R0136`.
 
 ```bash [Terminal]
+pnpm add @vite-hub/channels
 npx @vite-hub/codemods channels [dir] [--dry-run]
 ```
 
@@ -634,3 +656,38 @@ The codemod leaves old Console deletes untouched. Migrate them by hand to `viteh
 Old `invocations list` and `get` calls also need a manual migration. Check `--help` for supported filters and options: Console cursors are not returned by `list`, and `get` prints a flat record with `--json` and does not support observation paging. Use the Console RPC to keep the original request and response contract.
 
 Use `agent get <name> --dev --url <app>` for an explicit Dev Loop URL (even on a custom hostname), and `--url <app>` alone for a Console (even on localhost). When an old `agents status` call has no `--url`, supply the URL of the same app.
+
+## nuxt-server-imports
+
+On Nuxt 5, the `vite-hub/nuxt` module auto-imports its server helpers only when the app turns on Nuxt's server auto-imports. `nuxt-server-imports` adds an explicit import to each server file that uses a helper without one:
+
+```bash [Terminal]
+npx @vite-hub/codemods nuxt-server-imports [dir] [--dry-run]
+```
+
+```diff [server/api/welcome.post.ts]
+ import { createError, defineEventHandler, readBody } from 'nitro/h3'
++import { kv } from 'vite-hub/kv'
++import { sendQueue } from 'vite-hub/queue'
+
+ export default defineEventHandler(async (event) => {
+   const body = await readBody<{ email?: unknown }>(event)
+   const email = typeof body?.email === 'string' ? body.email.trim() : ''
+   if (!email) throw createError({ status: 400, message: 'Email is required.' })
+   const [queueError] = await sendQueue('welcome', { email })
+   if (queueError) throw queueError
+   try {
+     const [kvError] = await kv.set(`welcome:${email}`, 'queued')
+     if (kvError) throw kvError
+   } catch (error) {
+     console.error('Could not save the welcome queue status.', error)
+   }
+   return { queued: true }
+ })
+```
+
+The codemod reads the server directory of the app and of each local layer. It uses the helper list of [Nuxt server auto-imports](/docs/frameworks-hosts/nuxt-server-auto-imports). It joins a name with an existing import of the same entry, and it leaves a name that the file declares or imports.
+
+It preserves names that Nuxt still auto-imports from your app, such as `db` re-exported by `server/utils/index.ts` or an entry in `nitro.imports`. The report lists them. If the app or one of its layers enables the ViteHub auto-imports and no option disables injection, the codemod leaves the files unchanged. If it cannot determine the settings or the source of a binding statically, it reports what to check instead of guessing.
+
+`vitehub migrate` runs it last, so it imports the names that the other codemods write. The report also names the files that use Nitro and H3 helpers, such as `defineEventHandler`, without an import. Import them as the Nuxt 5 build error lists.

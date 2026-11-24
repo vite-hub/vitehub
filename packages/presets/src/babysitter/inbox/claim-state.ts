@@ -30,8 +30,9 @@ export function snapshotPullRequest(snapshot: Snapshot): PullRequest {
   }
 }
 
-export function claimStopReason(claim: Claim, current: Snapshot | undefined, acceptedSelfHead?: string): string | undefined {
-  if (!current || current.lease !== claim.token || current.leaseUntil <= Date.now()) return 'Pull request lease lost.'
+/** `now` comes from the inbox clock (`PullRequestInbox.now()`), the clock that wrote `leaseUntil`. */
+export function claimStopReason(claim: Claim, current: Snapshot | undefined, acceptedSelfHead?: string, now = Date.now()): string | undefined {
+  if (!current || current.lease !== claim.token || current.leaseUntil <= now) return 'Pull request lease lost.'
   if (current.status === 'terminal' || current.pr?.state === 'closed') return 'Pull request is no longer open.'
   const expectedHead = claim.snapshot.pr?.head?.sha
   if (current.pr?.head?.sha !== (acceptedSelfHead ?? expectedHead)) return 'Pull request head changed.'
@@ -43,20 +44,21 @@ export function createClaimStopCheck(
   claim: Claim,
   readCurrent: () => Promise<Snapshot | undefined>,
   readProviderHead: () => Promise<string | undefined>,
+  now: () => number = Date.now,
 ): () => Promise<string | undefined> {
   let acceptedSelfHead: string | undefined
   return async (): Promise<string | undefined> => {
     const observed = await readCurrent()
-    const reason = claimStopReason(claim, observed, acceptedSelfHead)
+    const reason = claimStopReason(claim, observed, acceptedSelfHead, now())
     if (reason !== 'Pull request head changed.') return reason
     // A previous proof must not authorize rollback to the original claim head.
     if (acceptedSelfHead && observed?.pr?.head?.sha === claim.snapshot.pr?.head?.sha) return reason
     let providerHead: string | undefined
     try { providerHead = await readProviderHead() }
-    catch { return claimStopReason(claim, await readCurrent(), acceptedSelfHead) }
+    catch { return claimStopReason(claim, await readCurrent(), acceptedSelfHead, now()) }
     // A closed PR, lease loss, or another push may arrive during Git I/O.
     const current = await readCurrent()
-    const latestReason = claimStopReason(claim, current, acceptedSelfHead)
+    const latestReason = claimStopReason(claim, current, acceptedSelfHead, now())
     if (latestReason !== 'Pull request head changed.') return latestReason
     if (!providerHead || current?.pr?.head?.sha !== providerHead) return latestReason
     // Persist this proof for the lifetime of the pass so provider cleanup
