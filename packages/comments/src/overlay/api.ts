@@ -6,19 +6,24 @@ import { createCommentSendTransport } from "../send-transport.ts"
 
 import type { CommentSendTransport } from "../client-send.ts"
 
-import type { RestTransport } from "../rest-transport.ts"
+import type { CommentsRestAnswer, RestTransport } from "../rest-transport.ts"
 import type { CommentContext, CommentCreateInput, CommentsGitHubAccess, CommentSubject, CommentUser } from "../types.ts"
 
 export interface CommentsSession {
   user: CommentUser | null
   /** For a person signed in with GitHub: their login, and whether they can push to the repository. */
   github?: CommentsGitHubAccess
-  can: { read: boolean, comment: boolean, resolve: boolean, delete?: boolean }
-  /** The GitHub sign-in, when the person may not read yet and the site offers it. */
-  signIn?: { provider: "github", url: string }
+  /** `change: false` keeps every message as it was sent: no one edits or deletes one, not even their own. */
+  can: { read: boolean, comment: boolean, resolve: boolean, delete?: boolean, change?: false }
+  /**
+   * The GitHub sign-in, when the person may not read yet and the site offers it. With `newTab`, `url` is complete and
+   * opens in a new tab, and the page stays.
+   */
+  signIn?: { provider: "github" | "console", url: string }
   /** Signs out of the GitHub sign-in of Comments. */
   signOut?: string
   realtime: boolean
+  attachments?: false
   /** `false` when the app shows its own presence, so the overlay shows no faces and no cursors. */
   presence?: false
   content: boolean
@@ -68,22 +73,42 @@ export function saveGuest(name: string): { id: string, name: string } {
 
 const send = createCommentsRestRequest({ route, guest: readGuest })
 
+/** The error part of an API answer, from the diagnostic that a failed request throws. */
+export function apiError(error: unknown): CommentsApiError {
+  if (error instanceof Diagnostic) return { code: error.code, why: error.message, ...(error.fix ? { fix: error.fix } : {}) }
+  throw error
+}
+
 async function call<T>(path: string, init: RequestInit = {}): Promise<ApiResult<T>> {
   try {
     return [undefined, (await send<T>(path, init)).data]
   }
   catch (error) {
-    // createCommentsRestRequest() throws only diagnostics for a failed request.
-    if (error instanceof Diagnostic) return [{ code: error.code, why: error.message, ...(error.fix ? { fix: error.fix } : {}) }, undefined]
-    throw error
+    return [apiError(error), undefined]
   }
+}
+
+/**
+ * Where the overlay reads its session and threads when they do not come from the Comments API of the page, such as
+ * the hosted embed, whose Console frame makes every request.
+ */
+export interface CommentsOverlayBackend {
+  session: (page: string) => Promise<ApiResult<CommentsSession>>
+  transport: (onAnswer: (answer: CommentsRestAnswer<unknown>) => void) => RestTransport
+}
+
+let backend: CommentsOverlayBackend | undefined
+
+/** Sends the session and thread requests of the overlay to `next`. Call it before the overlay starts. */
+export function useCommentsOverlayBackend(next: CommentsOverlayBackend): void {
+  backend = next
 }
 
 const post = (body: unknown): RequestInit => ({ method: "POST", body: JSON.stringify(body) })
 
 /** The routes that are not comment threads: who the person is on a page, and the Content fields of inline edits. */
 export const api = {
-  session: (page: string) => call<CommentsSession>(`/session?page=${encodeURIComponent(page)}`),
+  session: (page: string) => backend ? backend.session(page) : call<CommentsSession>(`/session?page=${encodeURIComponent(page)}`),
   field: (field: string, page: string) => call<CommentsField>(`/fields?page=${encodeURIComponent(page)}&field=${encodeURIComponent(field)}`),
   saveField: (input: { field: string, value: string, ifDigest: string }, page: string) => call<{ field: string, value: string, digest: string }>(`/fields?page=${encodeURIComponent(page)}`, post(input)),
 }
@@ -105,11 +130,8 @@ export interface OverlayTransportOptions {
  * the page.
  */
 export function createOverlayTransport(options: OverlayTransportOptions): RestTransport {
-  const rest = createRestTransport({
-    base: route.slice(0, -commentsRoute.length),
-    guest: readGuest,
-    onAnswer: answer => answer.people.length && options.onPeople(answer.people),
-  })
+  const onAnswer = (answer: CommentsRestAnswer<unknown>) => answer.people.length && options.onPeople(answer.people)
+  const rest = backend ? backend.transport(onAnswer) : createRestTransport({ base: route.slice(0, -commentsRoute.length), guest: readGuest, onAnswer })
   const changed = <A extends unknown[], T>(run: (...input: A) => Promise<T>) => async (...input: A): Promise<T> => {
     const value = await run(...input)
     options.onChange()

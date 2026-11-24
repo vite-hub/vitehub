@@ -11,7 +11,7 @@ import { createSiteState, siteStateHash, verifySiteToken } from "@vite-hub/inter
 import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 import type { OperationRpcTestResult } from "../../internal/test-utils/operation-rpc.ts"
-import type { ConsoleDatabase, ConsoleProject } from "../src/projects.ts"
+import type { ConsoleDatabase, LinkedConsoleProject } from "../src/projects.ts"
 
 const state = vi.hoisted(() => ({ db: undefined as unknown, user: null as { id: string } | null }))
 
@@ -25,6 +25,9 @@ const { createConsoleApiKey } = await import("../src/api-keys.ts")
 const { createConsoleProjectStore } = await import("../src/projects.ts")
 const { default: siteApi } = await import("../server/api/projects/[id]/site/[...path].ts")
 const { default: siteOverview } = await import("../server/api/projects/[id]/site/index.ts")
+const { default: commentsApi } = await import("../server/api/projects/[id]/comments-access/[...path].ts")
+const { default: commentsOverview } = await import("../server/api/projects/[id]/comments-access/index.ts")
+const { default: commentsInvite } = await import("../server/routes/comments/invite/[secret].ts")
 const { default: visit } = await import("../server/routes/visit.ts")
 const { default: invitePage } = await import("../server/routes/i/[id].ts")
 const { default: codePage } = await import("../server/routes/go/[code].ts")
@@ -73,9 +76,10 @@ async function setup() {
   await client.execute({ sql: "insert into member (id, organization_id, user_id, role, created_at) values (?, ?, ?, ?, ?)", args: ["m1", "t-ada", "u-ada", "owner", now] })
   const project = (await createConsoleProjectStore(db as ConsoleDatabase, consoleSecret, "t-ada").create({ url: "https://app.example.com/portal", createdBy: "u-ada" }))!
   const { key: apiKey } = (await createConsoleApiKey(db as ConsoleDatabase, { userId: "u-ada", teamId: "t-ada", name: "Test" }))!
-  const api = async (method: string, path: string, body?: unknown) => {
-    const request = new Request(`${consoleOrigin}/api/projects/${project.id}/site${path}`, { method, headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
-    const response = await (path ? siteApi : siteOverview).fetch(request)
+  const api = async (method: string, path: string, body?: unknown, surface = "site") => {
+    const request = new Request(`${consoleOrigin}/api/projects/${project.id}/${surface}${path}`, { method, headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
+    const endpoints = surface === "site" ? { item: siteApi, list: siteOverview } : { item: commentsApi, list: commentsOverview }
+    const response = await (path ? endpoints.item : endpoints.list).fetch(request)
     return { status: response.status, body: await response.json() as Record<string, unknown> }
   }
   return { client, project, api }
@@ -92,7 +96,7 @@ async function visitApp(cookie: string | undefined, project?: string) {
   return { response, appState, location: response.headers.get("location") ?? "" }
 }
 
-async function verifyAt(project: ConsoleProject, location: string, appState: string) {
+async function verifyAt(project: LinkedConsoleProject, location: string, appState: string) {
   const url = new URL(location)
   expect(`${url.origin}${url.pathname}`).toBe("https://app.example.com/portal/_vitehub/site")
   const keys = readConsolePublicKeys({ [project.keyVariable]: project.publicKey })
@@ -101,6 +105,49 @@ async function verifyAt(project: ConsoleProject, location: string, appState: str
 }
 
 describe("Site access in the Console", () => {
+  it("creates, opens, and revokes a hosted Comments invite without a call to the app", async () => {
+    const { api, project } = await setup()
+    const invite = { name: "Grace", grants: ["comments-write"], expiresInDays: 1 }
+    expect((await api("POST", "/invites", { ...invite, grants: ["comments-delete"] }, "comments-access")).status).toBe(400)
+    const created = await api("POST", "/invites", invite, "comments-access")
+    expect(created.status).toBe(201)
+    const link = new URL(String(created.body.url))
+    expect(link.pathname).toMatch(/^\/comments\/invite\/[\w-]{43}$/)
+    const opened = await commentsInvite.fetch(new Request(link))
+    expect(opened.status).toBe(303)
+    expect(opened.headers.get("location")).toBe(`${project.url}?comment=`)
+    expect(cookieOf(opened)).toMatch(new RegExp(`^__Host-vitehub-comments-pass-${project.id}=[\\w-]{43}$`))
+    expect((await commentsInvite.fetch(new Request(link))).status).toBe(410)
+    const { body } = await api("GET", "", undefined, "comments-access")
+    expect(body.sessions).toMatchObject([{ kind: "guest", person: { name: "Grace" }, grants: ["comments-write"] }])
+    const session = (body.sessions as { id: string }[])[0]!
+    expect((await api("DELETE", `/sessions/${session.id}`, undefined, "comments-access")).status).toBe(200)
+    expect((await api("GET", "", undefined, "comments-access")).body.sessions).toEqual([])
+    expect(app.calls).toEqual([])
+  })
+
+  it("lets only owners and admins invite and remove hosted Comments guests", async () => {
+    const { client, project, api } = await setup()
+    const created = await api("POST", "/invites", { name: "Grace", grants: ["comments-write"], expiresInDays: 1 }, "comments-access")
+    expect(created.status).toBe(201)
+    await client.execute({ sql: "insert into member (id, organization_id, user_id, role, created_at) values (?, ?, ?, ?, ?)", args: ["m2", "t-ada", "u-bob", "member", Date.now()] })
+    const { key } = (await createConsoleApiKey(state.db as ConsoleDatabase, { userId: "u-bob", teamId: "t-ada", name: "Bob" }))!
+    const asBob = async (method: string, path: string, body?: unknown) => {
+      const request = new Request(`${consoleOrigin}/api/projects/${project.id}/comments-access${path}`, { method, headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
+      return (path ? commentsApi : commentsOverview).fetch(request)
+    }
+    expect((await asBob("GET", "")).status).toBe(200)
+    const invite = (created.body.invite as { id: string }).id
+    for (const [method, path, body] of [["POST", "/invites", { name: "Eve", grants: ["comments-resolve", "comments-write"], expiresInDays: 30 }], ["DELETE", `/invites/${invite}`], ["DELETE", "/sessions/any"]] as const) {
+      const response = await asBob(method, path, body)
+      expect(response.status, `${method} ${path}`).toBe(403)
+      expect(await response.json()).toMatchObject({ code: "CONSOLE_SITE_FORBIDDEN" })
+    }
+    expect((await api("GET", "", undefined, "comments-access")).body.invites).toMatchObject([{ id: invite }])
+    await client.execute({ sql: "update member set role = 'admin' where id = 'm2'", args: [] })
+    expect((await asBob("DELETE", `/invites/${invite}`)).status).toBe(200)
+  })
+
   it("opens a guest invite once, and signs tokens with the roles of the invite", async () => {
     const { client, project, api } = await setup()
     const created = await api("POST", "/invites", { name: "Grace", grants: ["comments-write"], expiresInDays: 7, path: "/docs" })
