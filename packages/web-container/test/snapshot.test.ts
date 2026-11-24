@@ -12,6 +12,12 @@ import { createNodeModulesSnapshot, packSnapshot } from "../src/snapshot.ts"
 const api = vi.hoisted(() => ({ boot: vi.fn() }))
 vi.mock("@webcontainer/api", () => ({ WebContainer: api }))
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>(done => { resolve = done })
+  return { promise, resolve }
+}
+
 function container(listed: boolean) {
   const events = new EventEmitter()
   const written = new Map<string, string>()
@@ -166,8 +172,8 @@ describe("snapshots", () => {
     const secondUrl = "https://docs.test/a.1.bin"
     const urls = [firstUrl, secondUrl]
     memoryCache(partialCache ? [[firstUrl, new Response(prefix)]] : [])
-    const { promise: downloading, resolve: started } = Promise.withResolvers<void>()
-    const { promise: damaged, resolve: finishDamaged } = Promise.withResolvers<Response>()
+    const { promise: downloading, resolve: started } = deferred<void>()
+    const { promise: damaged, resolve: finishDamaged } = deferred<Response>()
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {
       if (url === firstUrl) return new Response(prefix)
       started()
