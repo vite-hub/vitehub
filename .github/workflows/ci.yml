@@ -615,6 +615,13 @@ jobs:
           cat "$RUNNER_TEMP/report.txt"
           grep -F "vite-hub needs Node 24.15+; this shell runs 22.12.0." "$RUNNER_TEMP/report.txt"
           node packages/codemods/dist/cli.js "$fixture" --dry-run
+          current="$RUNNER_TEMP/current-app"
+          mkdir "$current"
+          printf '%s\n' 'export default defineNuxtConfig({ modules: ["vite-hub/nuxt"] })' > "$current/nuxt.config.ts"
+          node packages/codemods/dist/cli.js "$current" --dry-run > "$RUNNER_TEMP/current-report.txt"
+          cat "$RUNNER_TEMP/current-report.txt"
+          grep -F "Nothing to migrate" "$RUNNER_TEMP/current-report.txt"
+          grep -F "vite-hub needs Node 24.15+; this shell runs 22.12.0." "$RUNNER_TEMP/current-report.txt"
 
   # The workspace and every package except @vite-hub/codemods require Node.js
   # 24.15. Other jobs run the newest Node.js 24. This job runs the tests for built-ins that change between
