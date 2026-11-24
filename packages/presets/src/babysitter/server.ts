@@ -467,9 +467,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           throw error;
         }
       },
-      async write(path, body) {
+      async write(path, body, method = "POST") {
         const { provider } = await forge(repository, signal);
-        return (await provider.request<unknown>("POST", `/${path}`, { body, signal })).data;
+        return (await provider.request<unknown>(method, `/${path}`, { body, signal })).data;
       },
     };
   }
@@ -483,7 +483,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       await pullRequestInbox.setMeta(mainRepairKey(repository), Date.now() + mainRepairIntervalMs, signal);
       signal.throwIfAborted();
       mainRepairRunning.add(repository);
-      void track(repairBaseBranch(mainRepairGitHub(repository, AbortSignal.timeout(5 * 60_000)), { repository, branchPrefix: mainRepairPrefix, mainRepair, event: schedulerEvent })
+      void track(repairBaseBranch(mainRepairGitHub(repository, AbortSignal.timeout(5 * 60_000)), { repository, branchPrefix: mainRepairPrefix, repairAuthor: verifiedHostIdentity, mainRepair, event: schedulerEvent })
         .catch(async (error: unknown) => {
           await noteForgeQuota(error, "main-repair");
           schedulerError("babysitter.main_repair.failed", error, { repository });
