@@ -9,7 +9,7 @@ icon: i-lucide-rocket
 In this tutorial, you run the codemods on an app, read the report, and finish the manual follow-ups. At the end, the app uses the current ViteHub API.
 
 > [!NOTE] Before you start
-> You need Node.js 24.15 or newer. Commit your work first so `git diff` shows every edit the codemods make.
+> The codemods run on Node.js 22.12 or newer. The migrated app needs Node.js 24.15 or newer for `vite-hub`, and the report says so when your shell runs an older Node.js. Commit your work first so `git diff` shows every edit the codemods make.
 
 ## Preview the edits
 

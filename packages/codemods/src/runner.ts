@@ -5,6 +5,7 @@ import { createTwoFilesPatch } from "diff"
 
 import { codemods } from "./registry.ts"
 import { codemodError, codemodsErrorDiagnostics } from "./error-diagnostics.ts"
+import { nodeVersionNote } from "./shared/node-version.ts"
 import { planNuxtUpgrade, setNuxtNightly } from "./shared/nuxt-version.ts"
 
 import type { NuxtUpgrade } from "./shared/nuxt-version.ts"
@@ -79,7 +80,9 @@ export async function runCodemod(name: string, options: RunCodemodOptions = {}):
   const dryRun = options.dryRun ?? false
   const planned = await codemod.run({ cwd })
   const upgrade = planned.requiresNuxt5 ? await planNuxtUpgrade(cwd, [codemod.name], options.nuxtNightly ?? false) : undefined
-  const result = upgrade ? withNuxtUpgrade(planned, upgrade) : planned
+  const upgraded = upgrade ? withNuxtUpgrade(planned, upgrade) : planned
+  const nodeNote = nodeVersionNote()
+  const result = nodeNote ? { ...upgraded, notes: [...upgraded.notes, nodeNote] } : upgraded
   // Check on a dry run too, so it fails where the real run would.
   for (const edit of result.edits) await checkEditPath(cwd, edit.path)
   if (!dryRun) {
