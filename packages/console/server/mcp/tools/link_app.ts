@@ -4,7 +4,7 @@ import { z } from "zod"
 import { linkProject } from "../../utils/console.ts"
 import { consoleToolAnswer, mcpTeamCaller } from "../../utils/mcp.ts"
 
-import type { ConsoleProject } from "../../../src/projects.ts"
+import type { LinkedConsoleProject } from "../../../src/projects.ts"
 
 export default defineMcpTool({
   title: "Link an app",
@@ -17,7 +17,7 @@ export default defineMcpTool({
   handler: async (input, { caller }) => {
     const member = await mcpTeamCaller(caller)
     // SAFETY: A `201` of `linkProject()` has the new project.
-    const { project } = await consoleToolAnswer(await linkProject(member, input)) as { project: ConsoleProject }
+    const { project } = await consoleToolAnswer(await linkProject(member, input)) as { project: LinkedConsoleProject }
     return {
       app: project,
       variable: `${project.keyVariable}=${project.publicKey}`,

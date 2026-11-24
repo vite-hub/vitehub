@@ -343,6 +343,12 @@ function escapeRegExp(value: string): string {
 // `vite-hub` files that framework aliases point to. It never answers a relative import or a virtual module.
 const frameworkDependencyIds = [/^[^./\0]/, new RegExp(`^${escapeRegExp(fileURLToPath(frameworkPackageRoot))}`)]
 const blobImports = new RegExp(`^(?:${["vite-hub/blob", frameworkProviderImportAliases["vite-hub/blob"]].filter(id => id !== undefined).map(escapeRegExp).join("|")})$`)
+const disabledWorkspaceBlobId = "\0vite-hub/workspace-blob-disabled"
+const blobUnavailableMessage = "[vitehub] Blob is unavailable for this host. Configure an explicit Blob store before using Blob APIs or Agent Capabilities."
+
+function workspaceStoreEntry() {
+  return isPackageInstalled("@vite-hub/workspace") ? fileURLToPath(import.meta.resolve("@vite-hub/workspace/blob-database")).replace(/\\/g, "/") : undefined
+}
 
 // Generated server modules import Nitro and H3 by name. An app that lists only vite-hub cannot resolve them from its
 // root without hoisting, so these imports fall back to the Nitro that vite-hub installs, and to that Nitro's H3.
@@ -437,7 +443,8 @@ function frameworkDependencyResolver(
       filter: { id: frameworkDependencyIds },
       handler(id, importer, resolveOptions) {
         if (!blobEnabled && id === "@vite-hub/blob") {
-          throw viteHubErrorDiagnostics.VITE_HUB_R0075({ message: "[vitehub] Blob is unavailable for this host. Configure an explicit Blob store before using Blob APIs or Agent Capabilities." })
+          if (importer && importer === workspaceStoreEntry()) return disabledWorkspaceBlobId
+          throw viteHubErrorDiagnostics.VITE_HUB_R0075({ message: blobUnavailableMessage })
         }
         for (const specifier in providerImportAliases) {
           const frameworkFacade = frameworkProviderImportAliases[specifier]
@@ -458,6 +465,12 @@ function frameworkDependencyResolver(
         return fileURLToPath(import.meta.resolve(id))
       },
     },
+    load: {
+      filter: { id: /^\0vite-hub\/workspace-blob-disabled$/ },
+      handler() {
+        return `export const blob = undefined; throw Object.assign(new Error(${JSON.stringify(blobUnavailableMessage)}), { code: "VITE_HUB_R0075" })`
+      },
+    },
   }
 }
 
@@ -466,7 +479,8 @@ export interface AgentOptions extends AgentPluginOptions {
   /**
    * Invocation journal for Agent Definitions from `vite-hub/agent` that do not set `invocations`. The Console reads it.
    * Omit it, or pass `{ databaseUrl, observations, retention }`, for the default journal: local SQLite at
-   * `.vitehub/data/agent-invocations.sqlite`, or the D1 binding of the default Database in a Cloudflare production build.
+   * `.vitehub/data/agent-invocations.sqlite`, the D1 binding of the default Database in a Cloudflare production build,
+   * or the Postgres `default` Database in a Node production build.
    * `"database"` uses the app's ViteHub Database. `"memory"` keeps records in the server process. `false` records no journal.
    * Requires Nitro-hosted Agents. Netlify and `runtime: "deno"` require `false` and journals on each Agent Definition.
    */
@@ -1707,7 +1721,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
       const facade = frameworkProviderImportAliases[specifier]
       if (facade) databaseRuntimeImports.set(facade, specifier)
     }
-    plugins.push(databaseDisabledPlugin(databaseRuntimeImports, options.database === false))
+    plugins.push(databaseDisabledPlugin(databaseRuntimeImports, options.database === false, workspaceStoreEntry()))
   }
   plugins.push(unavailableServicesPlugin(plan, { browser: Boolean(options.browser), realtime: Boolean(options.realtime) }))
   if (plan.host === "cloudflare") plugins.push(cloudflareShSyntaxPlugin(), cloudflarePkceChallengePlugin(), cloudflareRedirectsFileVitePlugin())
@@ -2068,7 +2082,6 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
   // Database. Inert without the preset.
   if (ownerModules.cmsVite) plugins.push(ownerModules.cmsVite.hubCms({
     imports: {
-      blob: "vite-hub/blob",
       blobDatabase: "vite-hub/workspace/blob-database",
       contentDatabase: "vite-hub/content/database",
       database: "@vite-hub/database/runtime/registry",

@@ -245,6 +245,11 @@ export async function openConsoleProject(): Promise<void> {
     return
   }
   const version = ++probeVersion
+  const project = projects.account.value?.projects.find(project => project.id === current.id)
+  if (project && project.publicKey === null) {
+    projects.gate.value = { kind: "setup", project }
+    return
+  }
   projects.gate.value = { kind: "opening" }
   // The boot sent `project.get` while the account loaded. Its answer counts only for the app that opens.
   const early = earlyProbe
@@ -745,9 +750,9 @@ export function openAccountProject(id: string): void {
 }
 
 /** Link an app to the active team, then open it. Until the app keeps the hash of its token, it opens on the setup step. */
-export async function linkAccountProject(url: string, label?: string): Promise<void> {
+export async function linkAccountProject(url: string, label?: string, kind?: "site"): Promise<void> {
   const { linkConsoleAccountProject } = await import("./account")
-  const project = await linkConsoleAccountProject(url.trim(), label?.trim() || undefined)
+  const project = await linkConsoleAccountProject(url.trim(), label?.trim() || undefined, kind)
   rememberAccountProject(useState().account.value?.teamId, project.id)
   reloadConsoleAccount()
 }

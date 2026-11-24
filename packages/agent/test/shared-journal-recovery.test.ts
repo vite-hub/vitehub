@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
+import { createMemoryLeaseStore } from "@vite-hub/runtime"
 import { Chat, Message } from "chat"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -12,6 +13,7 @@ import { createLibsqlAgentInvocationStore } from "../src/invocations/sqlite.ts"
 import { createChannelWebhookRouteHandler, drainInlineChatInvocations } from "../src/server/internal.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
 
+import type { LeaseStore } from "@vite-hub/runtime"
 import type { Adapter, ChatInstance, WebhookOptions } from "chat"
 
 // Each test opens libSQL files and runs Chat turns, which takes a moment.
@@ -134,8 +136,8 @@ async function startProcess(files: Awaited<ReturnType<typeof sharedFiles>>, prom
       expect(response.status).toBe(200)
     },
     /** Starts the webhook queue like the server plugin does when this process starts, with its recovery. */
-    boot() {
-      stops.push(handler.resume({ ...routeOptions, recoverInterruptedBefore: Date.now() }))
+    boot(options: { recoverySweep?: { leases: LeaseStore, intervalMs?: number, withoutQueue?: boolean } } = {}) {
+      stops.push(handler.resume({ ...routeOptions, ...options, recoverInterruptedBefore: Date.now() }))
     },
   }
 }
@@ -274,5 +276,23 @@ describe("recovery at boot on processes that share one journal and one State", (
     await vi.waitFor(() => expect(prompts).toHaveLength(2), { timeout: 10_000 })
     expect(prompts[1]).toContain("[Retry after interruption]")
     await vi.waitFor(async () => expect(await restarted.state.get(indexKey)).toBeNull(), { timeout: 5_000 })
+  })
+
+  it.each([false, true])("fails an Invocation that another process left running under a recovery Lease (without queue: %s)", async (withoutQueue) => {
+    const files = await sharedFiles()
+    const prompts: string[] = []
+    const leases = createMemoryLeaseStore()
+    const processes = await Promise.all([startProcess(files, prompts), startProcess(files, prompts)])
+    for (const instance of processes) instance.boot({ recoverySweep: { intervalMs: 100, leases, withoutQueue } })
+    await new Promise(resolve => setTimeout(resolve, 300))
+    const sweeps = processes.map(instance => vi.spyOn(instance.store, "list"))
+
+    const startedAt = new Date(Date.now() - 60_000).toISOString()
+    const id = await agentInvocationId("crashed-run", "support")
+    await processes[0]!.store.create({ agentName: "support", createdAt: startedAt, id, observations: [], startedAt, status: "running", traceId: "crashed-run", updatedAt: startedAt })
+    expect(await processes[0]!.store.claim(id, "crashed-process", 1)).toBe(true)
+
+    await vi.waitFor(async () => expect(await processes[1]!.store.getSummary(id)).toMatchObject({ status: "failed" }), { timeout: 2_000 })
+    expect(sweeps.filter(list => list.mock.calls.length > 0)).toHaveLength(1)
   })
 })

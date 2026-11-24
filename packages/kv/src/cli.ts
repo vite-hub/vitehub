@@ -204,9 +204,18 @@ function normalizedDecimal(source: string): string {
   return `${negative ? "-" : ""}${significant}e${scale}`
 }
 
+async function readValueFile(path: string, cwd: string): Promise<string> {
+  try {
+    return await readFile(resolve(cwd, path), "utf8")
+  }
+  catch (error) {
+    throw kvErrorDiagnostics.KV_CLI_USAGE({ problem: `Could not read the file ${path}: ${error instanceof Error ? error.message : String(error)}` })
+  }
+}
+
 async function readValue(parsed: ParsedKVArgs, cwd: string): Promise<unknown> {
   const raw = parsed.value!
-  const text = raw.startsWith("@") ? await readFile(resolve(cwd, raw.slice(1)), "utf8") : raw
+  const text = raw.startsWith("@") ? await readValueFile(raw.slice(1), cwd) : raw
   if (!parsed.jsonValue) return text
   try {
     const value: unknown = JSON.parse(text, (_key, value: unknown, context?: { source?: string }) => {
@@ -238,6 +247,8 @@ type KVCommandResult =
   | { operation: "has", value: KVDevHasResult }
   | { operation: "set", value: KVDevSetResult }
   | { operation: "delete", value: KVDevDeleteResult }
+
+const codedError = v.object({ code: v.string(), fix: v.optional(v.string()) })
 
 const targetFields = { key: v.string(), store: v.string() }
 const positiveNumber = v.pipe(v.number(), v.finite(), v.gtValue(0))
@@ -319,7 +330,10 @@ async function runKVCommand(command: KVCommand, args: string[], context: KVCliCo
   }
   catch (error) {
     const terminator = args.indexOf("--")
-    if (args.slice(0, terminator < 0 ? args.length : terminator).includes("--json")) return writeCliFailure(true, context, { message: error instanceof Error ? error.message : String(error) })
+    if (args.slice(0, terminator < 0 ? args.length : terminator).includes("--json")) {
+      const coded = v.safeParse(codedError, error)
+      return writeCliFailure(true, context, { ...(coded.success ? coded.output : {}), message: error instanceof Error ? error.message : String(error) })
+    }
     context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
     writeUsage(command, context.stderr)
     return 1

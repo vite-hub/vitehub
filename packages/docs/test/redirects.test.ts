@@ -42,7 +42,6 @@ describe("docsRedirectProblems", () => {
       { from: "/docs/old/", to: "/docs/kv/configure#ttl" },
       { from: "/raw/docs/old.md", to: "/raw/docs/kv.md" },
       { from: "/docs/older", to: "/docs/old" },
-      // The app owns paths outside the docs, so the docs do not check them.
       { from: "/docs/playground", to: "/playground" },
     ])).toEqual([])
   })
@@ -77,6 +76,42 @@ describe("docsRedirectProblems", () => {
     ])
   })
 
+  it("passes a redirect from another spelling of a page to that page", () => {
+    expect(docsRedirectProblems(manifest, docsRedirects({
+      "/docs/kv/index/": { redirect: "/docs/kv" },
+      "/docs/kv/index": { redirect: "/docs/kv#intro" },
+      "/docs/kv/configure/": { redirect: "/docs/kv/configure" },
+      "/docs/old": { redirect: "/docs/kv" },
+    }))).toEqual([])
+    expect(docsRedirectProblems(manifest, [{ from: "/docs/kv/", to: "/docs/kv/index/" }, { from: "/docs/kv/index/", to: "/docs/kv/" }])).toEqual([
+      "The redirect from /docs/kv/ hides the page docs/kv/index.md. Remove the route rule, or move the page.",
+      "The redirect from /docs/kv/ comes back to /docs/kv and never reaches a page. Point one of its route rules to a page.",
+      "The redirect from /docs/kv/index/ comes back to /docs/kv/index and never reaches a page. Point one of its route rules to a page.",
+    ])
+    expect(docsRedirectProblems(manifest, [{ from: "/docs/gone/", to: "/docs/gone" }])).toEqual([
+      "The redirect from /docs/gone/ goes to /docs/gone, which is not a docs page. Point it to a page, or remove the route rule.",
+    ])
+    expect(docsRedirectProblems(manifest, [{ from: "/docs/kv/index/", to: "/docs/kv" }, { from: "/docs/kv", to: "/docs/kv/index/" }])).toEqual([
+      "The redirect from /docs/kv/index/ comes back to /docs/kv/index and never reaches a page. Point one of its route rules to a page.",
+      "The redirect from /docs/kv hides the page docs/kv/index.md. Remove the route rule, or move the page.",
+      "The redirect from /docs/kv comes back to /docs/kv and never reaches a page. Point one of its route rules to a page.",
+    ])
+  })
+
+  it("keeps index alias rules separate from rules on the canonical page", () => {
+    expect(docsRedirectProblems(manifest, [
+      { from: "/docs/kv/index/", to: "/docs/kv/configure" },
+      { from: "/docs/legacy", to: "/docs/kv/index#intro" },
+      { from: "/docs/old", to: "/docs/kv" },
+    ])).toEqual([])
+    expect(docsRedirectProblems(manifest, [
+      { from: "/docs/old", to: "/docs/kv" },
+      { from: "/docs/kv/index/", to: "/docs/missing" },
+    ])).toEqual([
+      "The redirect from /docs/kv/index/ goes to /docs/missing, which is not a docs page. Point it to a page, or remove the route rule.",
+    ])
+  })
+
   it("checks targets inside sections on a site whose docs base is /", async () => {
     const root = await createDocsManifest({ dir: resolve(import.meta.dirname, "fixtures/content/docs"), base: "/" })
     expect(docsRedirectProblems(root, [{ from: "/old", to: "/kv/removed" }])).toHaveLength(1)
@@ -104,8 +139,6 @@ describe("docsRedirectProblems", () => {
         { from: "/feed", to: "/api/feed.xml" },
         { from: "/export", to: "/api/export#csv" },
       ], routes)).toEqual([])
-      // A route does not answer a path it does not match, a POST route does not answer a navigation, Nitro serves no
-      // `/index` path, and a query does not hide a missing page.
       expect(docsRedirectProblems(site, [
         { from: "/files", to: "/api/files/1/raw" },
         { from: "/form", to: "/api/form" },

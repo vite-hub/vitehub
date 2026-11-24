@@ -60,6 +60,17 @@ it('an oversized job log keeps its tail and counts the lines it dropped', () => 
  assert.match(compact, /^\[\d+ earlier log lines omitted\]\n/)
  assert.ok(compact.endsWith('ERR_PNPM_PEER_DEP_ISSUES Unmet peer dependencies'))
 })
+it('keeps the bounded tail of a long final log line with or without a newline', () => {
+ for (const ending of ['', '\n']) {
+  const log = 'setup\n' + 'x'.repeat(1000) + 'final diagnostic' + ending
+  const compact = compactCiLog(log, 40)
+  assert.equal(compact, '[1 earlier log lines omitted]\n…' + log.slice(-40))
+ }
+ assert.equal(compactCiLog('setup\n😀DONE', 5), '[1 earlier log lines omitted]\n…DONE')
+ assert.equal(compactCiLog('setup\n😀DONE', 6), '[1 earlier log lines omitted]\n😀DONE')
+ const whole = 'x'.repeat(40)
+ assert.equal(compactCiLog('setup\n' + whole, 40), '[1 earlier log lines omitted]\n' + whole)
+})
 it('pending, skipped, success and old-head checks never fetch job metadata or logs', async () => {
  const { inbox, claim } = await fixture([check({ id: 1, status: 'queued', conclusion: null }), check({ id: 2, conclusion: 'success' }), check({ id: 3, conclusion: 'skipped' }), check({ id: 4, head_sha: 'old' })])
  await hydrateFailedCiEvidence(inbox, claim, { readJson: async () => assert.fail('no metadata request'), readLog: async () => assert.fail('no log request') })

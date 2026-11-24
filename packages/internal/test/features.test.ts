@@ -1,9 +1,20 @@
+import { readFileSync } from "node:fs"
+
 import { describe, expect, it } from "vitest"
 
 import type { ViteHubHost } from "../src/deployment.ts"
 import { resolveDeploymentPlan } from "../src/deployment.ts"
 import type { FeatureId } from "../src/features.ts"
-import { featureHosts, featureIds, featurePackages, features, featureSupport, impliedFeatures } from "../src/features.ts"
+import { featureHosts, featureIds, featurePackages, features, featureSupport, impliedFeatures, installSpecifier, isOwnerCheckedPackage } from "../src/features.ts"
+
+interface OwnerManifest {
+  peerDependencies: Record<string, string>
+  peerDependenciesMeta?: Record<string, { optional?: boolean }>
+}
+
+function manifest(name: string): OwnerManifest {
+  return JSON.parse(readFileSync(new URL(`../../${name}/package.json`, import.meta.url), "utf8"))
+}
 
 const presets: ViteHubHost[] = ["cloudflare", "deno", "netlify", "node", "vercel"]
 
@@ -15,6 +26,39 @@ describe("feature catalog", () => {
     expect(featurePackages(feature, true, "vercel")).toContain(sdk)
     expect(featurePackages(feature, { driver: "vercel" }, "vercel")).toContain(sdk)
     expect(featurePackages(feature, { driver }, "vercel")).not.toContain(sdk)
+  })
+
+  it("adds nodemailer only for the SMTP Email driver off Cloudflare, and leaves its check to Email", () => {
+    expect(featurePackages("email", { driver: "smtp" }, "node")).toEqual(["@vite-hub/email", "nodemailer"])
+    expect(featurePackages("email", { driver: "smtp" }, "cloudflare")).toEqual(["@vite-hub/email"])
+    expect(featurePackages("email", { driver: "resend" }, "node")).toEqual(["@vite-hub/email"])
+    expect(featurePackages("email", true, "cloudflare")).toEqual(["@vite-hub/email"])
+    expect(isOwnerCheckedPackage("email", "nodemailer")).toBe(true)
+    expect(isOwnerCheckedPackage("email", "@vite-hub/email")).toBe(false)
+  })
+
+  it("installs Drizzle in the peer range of every owner, which holds the release of the workspace catalog", () => {
+    const catalog = readFileSync(new URL("../../../pnpm-workspace.yaml", import.meta.url), "utf8")
+    for (const name of ["drizzle-orm", "drizzle-kit"]) {
+      const version = catalog.match(new RegExp(`^\\s+${name}: (\\S+)$`, "mu"))?.[1]
+      expect(version, name).toBeDefined()
+      const specifier = installSpecifier(name)
+      expect(specifier.startsWith(`${name}@`), specifier).toBe(true)
+      const range = specifier.slice(name.length + 1)
+      expect(range.split(" || "), name).toContain(version)
+      for (const owner of ["vite-hub", "database", "auth"]) {
+        const peer = manifest(owner).peerDependencies[name]
+        if (peer) expect(peer, `${owner} ${name}`).toBe(range)
+      }
+    }
+    expect(installSpecifier("@vite-hub/database")).toBe("@vite-hub/database")
+  })
+
+  it("lists drizzle-orm for Auth, which requires it as a peer", () => {
+    expect(features.auth.packages).toContain("drizzle-orm")
+    const auth = manifest("auth")
+    expect(auth.peerDependencies["drizzle-orm"]).toBeDefined()
+    expect(auth.peerDependenciesMeta?.["drizzle-orm"]?.optional).not.toBe(true)
   })
 
   it("has one definition per feature id, keyed by its id", () => {

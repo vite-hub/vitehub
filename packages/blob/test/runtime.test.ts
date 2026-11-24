@@ -945,6 +945,27 @@ describe("blob runtime", () => {
     expect(list.folders).toEqual(["images/", "notes/"])
   })
 
+  const folderNames = ["a/", "B/", "_/", "\u00E4/", "Z/"]
+  const codeUnitFolderOrder = ["B/", "Z/", "_/", "a/", "\u00E4/"]
+
+  it("orders R2 folders by code unit, as the fs driver does", async () => {
+    setBlobRuntimeConfig({ store: { binding: "BLOB", bucketName: "assets", driver: "cloudflare" } })
+    setActiveCloudflareEnv({ BLOB: createMemoryBucket() })
+    for (const folder of folderNames) expectBlobSuccess(await blob.put(`${folder}file.txt`, "x"))
+
+    expect(expectBlobSuccess(await blob.list({ folded: true })).folders).toEqual(codeUnitFolderOrder)
+  })
+
+  it.each(["slash", false] as const)("orders files-sdk folders by code unit with delimiter %j", async (delimiter) => {
+    filesSdkMock.delimiter = delimiter
+    filesSdkMock.list.mockResolvedValueOnce(delimiter
+      ? { items: [], prefixes: folderNames }
+      : { items: folderNames.map(folder => ({ etag: "etag", key: `${folder}file.txt`, lastModified: "2026-01-01T00:00:00.000Z", metadata: {}, size: 1, contentType: "text/plain" })) })
+    setBlobRuntimeConfig({ store: { bucket: "assets", driver: "s3" } })
+
+    expect(expectBlobSuccess(await blob.list({ folded: true })).folders).toEqual(codeUnitFolderOrder)
+  })
+
   it("loads non-core drivers through provider-specific driver imports", async () => {
     setBlobRuntimeConfig({
       store: {

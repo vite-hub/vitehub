@@ -1,6 +1,6 @@
 import comark from "@comark/vue/vite";
 import nuxtUi from "@nuxt/ui/vite";
-import type { PluginOption } from "vite";
+import type { Plugin, PluginOption } from "vite";
 
 export interface ViteHubUIViteOptions {
   comark?: false | { prose?: boolean };
@@ -16,8 +16,17 @@ export default function viteHubUI(options: ViteHubUIViteOptions = {}): PluginOpt
   // SAFETY: The public options record is the open configuration object accepted by Nuxt UI's Vite integration.
   const nuxtUIOptions = options.nuxtUI as Parameters<typeof nuxtUi>[0];
   const nuxtUIPlugin = asPluginOption(nuxtUi(nuxtUIOptions));
+  const treeshakeUI: Plugin = {
+    name: "vite-hub:ui:lazy-barrel",
+    apply: "build",
+    config(config) {
+      if (config.build?.rolldownOptions?.experimental?.lazyBarrel !== undefined) return;
+      return { build: { rolldownOptions: { experimental: { lazyBarrel: true } } } };
+    },
+  };
 
   return [
+    treeshakeUI,
     nuxtUIPlugin,
     options.comark === false ? undefined : asPluginOption(comark(options.comark)),
   ].filter((plugin): plugin is PluginOption => plugin !== undefined);

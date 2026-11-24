@@ -13,7 +13,7 @@ Set up an app with ViteHub and check that it answers a request. Every later tuto
 
 - Node.js 24.15 or newer. Nuxt 5 does not install on Node.js 25, so for Nuxt use 24.15 or newer on 24.x, or 26 or newer.
 - pnpm. The examples use pnpm. Use pnpm 11.5 or newer for the Nuxt 5 nightly alias. Older versions can hang when they resolve it.
-- For Nuxt: a Nuxt 5 app on Nitro 3. Nuxt 5 is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`.
+- For Nuxt: a Nuxt 5 app on Nitro 3. Nuxt 5 is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x vue`.
 - For Nitro: a Nitro 3 app with `nitro()` in `vite.config.ts`.
 
 ## Set up the app
@@ -96,7 +96,7 @@ Create `package.json`. In an existing app, set `"type": "module"` and add the sc
 Install ViteHub with its Nitro and H3 versions, Valibot for request validation in the route examples, plus Vite and TypeScript. `nitro` is a peer of `vite-hub`, so ViteHub runs on your app's Nitro. It supports `3.0.261102-rc` and `^3.0.261103-rc`.
 
 ```bash pm [commands/install-vite]
-pnpm add vite-hub nitro@3.0.261102-rc h3@2.0.8 valibot
+pnpm add vite-hub nitro@3.0.261103-rc h3@2.0.8 valibot
 pnpm add -D vite@^8 typescript@^6 @types/node@^24
 ```
 
@@ -193,7 +193,7 @@ If an installed `@vite-hub/*` package version does not match `vite-hub`, the bui
 If `drizzle-orm` is outside the range of `vite-hub`, such as Drizzle 0.x, the Database feature and builds that load the Drizzle query adapter for Agent Invocations stop with [`VITE_HUB_PEER_VERSION_UNSUPPORTED`](/docs/development/diagnostics/vite_hub_peer_version_unsupported). Agent builds that do not load the adapter can keep an unrelated Drizzle version. pnpm can keep a version that the lockfile or another dependency already has, such as the 0.44 that `@nuxt/ui` brings in, and only warn. If the build needs Drizzle, add a supported version to your app:
 
 ```text [output/unsupported-drizzle.txt]
-[VITE_HUB_PEER_VERSION_UNSUPPORTED] drizzle-orm 0.44.7 is installed, but vite-hub 0.3.1 supports drizzle-orm@1.0.0-rc.5 || ^1.0.0. ViteHub imports modules that other versions do not have, so the build fails with a resolve error, such as `drizzle-orm/libsql/codecs` not exported.
+[VITE_HUB_PEER_VERSION_UNSUPPORTED] drizzle-orm 0.44.7 is installed, but vite-hub 0.3.1 supports drizzle-orm@1.0.0-rc.6 || 1.0.0-rc.6 || ^1.0.0. ViteHub imports modules that other versions do not have, so the build fails with a resolve error, such as `drizzle-orm/libsql/codecs` not exported.
 ```
 
 If another third-party dependency version falls outside the range supported by your `vite-hub` release, the build continues and prints a warning with the supported range and install command:
@@ -208,34 +208,43 @@ If another third-party dependency version falls outside the range supported by y
 | Feature | Add these packages |
 | --- | --- |
 | `agent` | `@vite-hub/agent` |
-| `auth` | `@vite-hub/auth better-auth` |
+| `auth` | `@vite-hub/auth better-auth drizzle-orm@1.0.0-rc.5` (see [Auth setup](/docs/auth/get-started)) |
 | `blob` | `@vite-hub/blob` |
 | `browser` | `@vite-hub/browser` |
-| `channels` | `@vite-hub/channels` |
-| `connections` | `@vite-hub/connections @vite-hub/database drizzle-orm` |
-| `database`, and Connections or Comments, which turn Database on | `@vite-hub/database drizzle-orm`, and `drizzle-kit` as a development dependency |
+| `channels` | `@vite-hub/channels`, and `@vite-hub/agent` for built-in adapters from `vite-hub/channels/adapters` |
+| `connections` | `@vite-hub/connections @vite-hub/database drizzle-orm@1.0.0-rc.5` |
+| `database`, and Connections or Comments, which turn Database on | `@vite-hub/database drizzle-orm@1.0.0-rc.5` |
 | `email` | `@vite-hub/email` |
+| Forms | `@vite-hub/forms @vite-hub/database drizzle-orm@1.0.0-rc.5 valibot` |
 | `i18n` | `@vite-hub/i18n` |
 | `kv`, and `cache: { driver: "kv" }` | `@vite-hub/kv` |
+| `mcp` | `@vite-hub/mcp`, and with `auth` also `@better-auth/oauth-provider` |
 | `queue` | `@vite-hub/queue` |
 | `rateLimit` | `@vite-hub/rate-limit` |
 | `realtime` | `@vite-hub/realtime` |
 | `sandboxTask` | `@vite-hub/sandbox` |
 | `schedule` | `@vite-hub/schedule` |
+| Sync | `@vite-hub/sync @vite-hub/database drizzle-orm@1.0.0-rc.5` |
+| Webhooks | `@vite-hub/webhooks @vite-hub/queue @vite-hub/database drizzle-orm@1.0.0-rc.5` |
 | `workflow` | `@vite-hub/workflow` |
 | `workspace` | `@vite-hub/workspace`, and `@vite-hub/shell` for shell commands |
 | `server/content.ts` | `@vite-hub/content`, and `@vite-hub/cms` for the `cms` preset. Content uses the app's `comark`, `@comark/html`, and `comark-ui`, which pnpm and npm install with it |
 | `server/comments.ts` | `@vite-hub/comments` |
 | `.template.md` imports | `@vite-hub/markdown-template` |
-| Console with Agents | `@libsql/client drizzle-orm` |
+| Console with Agents | `@libsql/client drizzle-orm@1.0.0-rc.5` |
 | Console MCP client (`console.mcpClient`) | `@modelcontextprotocol/sdk` |
 | `vite-hub/choices` | `@vite-hub/choices` |
+| `vite-hub/device` | `@vite-hub/device` |
 | `vite-hub/forge` | `@vite-hub/forge` |
 | `vite-hub/gateways` | `@vite-hub/gateways` |
 | `vite-hub/ui` | `@vite-hub/ui` |
+| `vite-hub/web-container` | `@vite-hub/web-container` |
 | `vite-hub/console/ui` | `@vite-hub/ui @json-render/core @json-render/vue @vueuse/core` |
 | `vite-hub/docs/*` | `@vite-hub/docs` |
 | `vite-hub/presets/*` | `@vite-hub/presets` |
+| `vitehub migrate` | `@vite-hub/codemods` as a development dependency |
+
+If you use Database, including for Connections, Comments, Forms, Sync, or Webhooks, run `pnpm add -D drizzle-kit@1.0.0-rc.5` to generate migrations. With npm, pass `--save-exact` for pinned Drizzle RC packages so `package.json` keeps the exact version instead of a `^` range. For example, run `npm install --save-exact drizzle-orm@1.0.0-rc.5` and `npm install -D --save-exact drizzle-kit@1.0.0-rc.5`.
 
 Env is on by default. If the host cannot run a feature you turned on, the build fails. See [Frameworks and hosts](/docs/frameworks-hosts).
 
@@ -243,6 +252,8 @@ Some hosts and providers add an SDK, and the build names it in the same error. O
 ::
 
 ## Update ViteHub
+
+For the API and configuration changes in 0.5.0, see [Upgrade from 0.4.1 to 0.5.0](/docs/codemods/upgrade-vitehub).
 
 Upgrade `vite-hub` and every `@vite-hub/*` package to the latest release together:
 
@@ -252,15 +263,17 @@ pnpm vitehub update
 
 This updates the version in every `package.json` of the workspace, in `overrides` and `catalog` of `pnpm-workspace.yaml`, and in npm, Yarn, and Bun overrides. Then it installs. With pnpm, it also adds `vite-hub` and `@vite-hub/*` to `minimumReleaseAgeExclude`, so a new ViteHub release installs on the day it is published. It also removes old ViteHub versions from that list.
 
-To try a [pkg.pr.new](https://pkg.pr.new) preview, pass its commit:
+To try a [pkg.pr.new](https://pkg.pr.new) preview, copy a 7 to 40 character commit SHA from a `vite-hub/vitehub` pull request's Continuous Releases comment or from a published `main` commit at `0.4.1` or newer:
 
 ```bash [commands/update-preview]
-pnpm vitehub update --preview 01898b8
+pnpm vitehub update --preview <commit>
 ```
 
-Each ViteHub package then points at `https://pkg.pr.new/vite-hub/vitehub/<package>@<commit>`. With pnpm, the command also sets `blockExoticSubdeps: false`, because preview packages depend on each other by URL. Run `pnpm vitehub update` again to go back to the npm release.
+Each ViteHub package then points at `https://pkg.pr.new/vite-hub/vitehub/<package>@<commit>`. With pnpm, the command also sets `blockExoticSubdeps: false`, because preview packages depend on each other by URL. Run `pnpm vitehub update` again to go back to the npm release. Previews from `0.4.1` onward include `vitehub update`. If you move to an older preview without it, run `pnpm dlx vite-hub@latest update` instead.
 
-`--dry-run` previews changes without writing files. `--no-install` updates the files and prints the install command.
+If pnpm reports `ERR_PNPM_IGNORED_BUILDS` for `esbuild`, run `pnpm approve-builds` to review it. After approving it, rerun the install command that ViteHub printed.
+
+`--dry-run` checks that the target publishes every ViteHub package in your workspace and previews the diff without writing files. `--no-install` updates the files and prints the install command.
 
 ::details{summary="Why does pnpm run `pnpm update` and not `pnpm install`?"}
 A preview also accepts the npm release of each ViteHub package that it uses, so `pnpm install` can keep the npm packages from `pnpm-lock.yaml` next to the preview. `pnpm update vite-hub "@vite-hub/*"` resolves them again and keeps the URLs. To check, run `pnpm why @vite-hub/env`. With a stale lockfile, it lists two versions:

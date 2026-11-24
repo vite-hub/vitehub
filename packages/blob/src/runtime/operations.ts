@@ -284,7 +284,7 @@ async function runOperation(operation: BlobDevOperation, input: BlobOperationInp
         store: selected.name,
         stores: available.map(store => store.name),
       }
-      if (folded) result.folders = [...folders].map(folder => folder.replace(/\/+$/, "")).sort((left, right) => left.localeCompare(right))
+      if (folded) result.folders = [...folders].map(folder => folder.replace(/\/+$/, "")).sort()
       if (page.cursor) result.cursor = page.cursor
       return result
     }

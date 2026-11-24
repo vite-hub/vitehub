@@ -96,6 +96,7 @@ export interface DBVitePluginAPI {
   getProjectRoot: () => string
   isEnabled: () => boolean
   refresh: () => Promise<ResolvedDBViteConfig | undefined>
+  whenConfigResolved: () => Promise<void> | undefined
 }
 
 interface DBCliContributingPlugin {
@@ -331,6 +332,7 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
   let resolved: ResolvedConfig | undefined
   let contributedTablesChecked: Promise<void> | undefined
   let runtimeConfig: ResolvedDBViteConfig | undefined
+  let configReady: Promise<void> | undefined
   // `vite dev` writes the generated schemas in the background. The Database virtual modules wait for them.
   let generatedArtifacts: Promise<unknown> = Promise.resolve()
   let serverDirs: string[] | undefined
@@ -372,6 +374,51 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
       onFallback: strict ? undefined : message => logger ? logger.warn(message) : console.warn(message),
       worker: !strict && resolved?.command === "serve",
     }
+  }
+
+  async function resolveConfig(config: ResolvedConfig) {
+    resolved = config
+    providerOutput = useProviderOutputCatalog(config)
+    contributions = resolvedOptions() === false
+      ? { definitions: [], tables: [], uses: [] }
+      : await collectDatabaseContributions(config.plugins, { projectRoot: resolveViteHubProjectRoot(config.root), root: config.root, rootDir: databaseRoot(), serverDirs: databaseServerDirs() })
+    const require = createRequire(pathToFileURL(resolve(databaseRoot(), "package.json")))
+    contributionFiles = new Set(contributions.tables.flatMap(contribution => {
+      try {
+        return [normalize(require.resolve(contribution.definition.module))]
+      }
+      catch {
+        return []
+      }
+    }))
+    contributionDependencyFiles = new Set()
+    for (const file of contributionFiles) await collectSourceDependencies(file, require, contributionDependencyFiles)
+    contributionDirectories = new Set()
+    for (const file of contributionFiles) {
+      // Keep the fallback directory check local to the contribution entry.
+      // Transitive imports are covered by the module-graph traversal below;
+      // walking broad ancestors (such as the project root) causes unrelated
+      // edits to regenerate the database during development.
+      contributionDirectories.add(dirname(file))
+    }
+    const refresh = refreshRuntimeConfig()
+    // `vite dev` lists the tables of each Definition in a worker thread and starts meanwhile. The Database virtual
+    // modules wait for the generated schemas. A failure shows now and again on that import.
+    if (config.command === "serve") {
+      refresh.catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error)
+        // SAFETY: Vite always sets `logger`. Tests that call this hook pass a partial config without it.
+        const logger = config.logger as ResolvedConfig["logger"] | undefined
+        if (logger) logger.error(message)
+        else console.error(message)
+      })
+    }
+    else await refresh
+    mergeNitroCloudflareD1Bindings()
+    installNitroPostgresRequestScope()
+    installNitroRequestStats()
+    installNitroMigrateOnStart()
+    updateMigrateOnDeploy?.()
   }
 
   async function waitForGeneratedArtifacts() {
@@ -509,6 +556,7 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
       getProjectRoot: databaseRoot,
       isEnabled: () => resolvedOptions() !== false,
       refresh: () => refreshRuntimeConfig(),
+      whenConfigResolved: () => configReady,
     },
     nitro: {
       name: "@vite-hub/database/cloudflare-bindings",
@@ -587,49 +635,8 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
         serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
       },
     },
-    async configResolved(config) {
-      resolved = config
-      providerOutput = useProviderOutputCatalog(config)
-      contributions = resolvedOptions() === false
-        ? { definitions: [], tables: [], uses: [] }
-        : await collectDatabaseContributions(config.plugins, { projectRoot: resolveViteHubProjectRoot(config.root), root: config.root, rootDir: databaseRoot(), serverDirs: databaseServerDirs() })
-      const require = createRequire(pathToFileURL(resolve(databaseRoot(), "package.json")))
-      contributionFiles = new Set(contributions.tables.flatMap(contribution => {
-        try {
-          return [normalize(require.resolve(contribution.definition.module))]
-        }
-        catch {
-          return []
-        }
-      }))
-      contributionDependencyFiles = new Set()
-      for (const file of contributionFiles) await collectSourceDependencies(file, require, contributionDependencyFiles)
-      contributionDirectories = new Set()
-      for (const file of contributionFiles) {
-        // Keep the fallback directory check local to the contribution entry.
-        // Transitive imports are covered by the module-graph traversal below;
-        // walking broad ancestors (such as the project root) causes unrelated
-        // edits to regenerate the database during development.
-        contributionDirectories.add(dirname(file))
-      }
-      const refresh = refreshRuntimeConfig()
-      // `vite dev` lists the tables of each Definition in a worker thread and starts meanwhile. The Database virtual
-      // modules wait for the generated schemas. A failure shows now and again on that import.
-      if (config.command === "serve") {
-        refresh.catch((error: unknown) => {
-          const message = error instanceof Error ? error.message : String(error)
-          // SAFETY: Vite always sets `logger`. Tests that call this hook pass a partial config without it.
-          const logger = config.logger as ResolvedConfig["logger"] | undefined
-          if (logger) logger.error(message)
-          else console.error(message)
-        })
-      }
-      else await refresh
-      mergeNitroCloudflareD1Bindings()
-      installNitroPostgresRequestScope()
-      installNitroRequestStats()
-      installNitroMigrateOnStart()
-      updateMigrateOnDeploy?.()
+    configResolved(config) {
+      return configReady = resolveConfig(config)
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) {

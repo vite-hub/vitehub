@@ -228,6 +228,26 @@ describe("Workflow dev registry", () => {
     expect(await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-registry.mjs"), "utf8")).not.toContain("welcome")
   })
 
+  it("keeps the build bootstrap when `vite dev` starts in the same project during a build", async () => {
+    const projectRoot = await createApp()
+    const plugin = hubWorkflow({ driver: "openworkflow", sqlite: { path: ".data/workflow.sqlite" } }, { hosting: "node" })
+    const hook = plugin.config
+    if (!hook || typeof hook === "function") throw new TypeError("Expected config object hook")
+    const build: Record<string, unknown> = { root: projectRoot }
+    await (hook.handler as unknown as ConfigHook)(build, { command: "build", mode: "production" })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root: projectRoot })
+
+    const dev: Record<string, unknown> = { root: projectRoot }
+    await configHook({ driver: "openworkflow" })(dev, { command: "serve", mode: "development" })
+
+    const [buildPlugin] = (build.nitro as { plugins: string[] }).plugins
+    const [devPlugin] = (dev.nitro as { plugins: string[] }).plugins
+    const generated = await readFile(buildPlugin!, "utf8")
+    expect(generated).not.toContain("enableWorkflowDevRuns")
+    expect(generated).toContain('setWorkflowRuntimeConfig({"driver":"openworkflow","sqlite":{"path":".data/workflow.sqlite"}})')
+    expect(await readFile(devPlugin!, "utf8")).toContain("enableWorkflowDevRuns")
+  })
+
   it("warns once with the diagnostic code when the Workflow configuration is invalid in `vite dev`", async () => {
     const projectRoot = await createApp()
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
@@ -248,13 +268,13 @@ describe("Workflow dev registry", () => {
     if (!hook || typeof hook === "function") throw new TypeError("Expected config object hook")
     const config: Record<string, unknown> = { root: projectRoot }
     await (hook.handler as unknown as ConfigHook)(config, { command: "build", mode: "production" })
-    expect(config.nitro).toMatchObject({ plugins: [join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs")] })
+    expect(config.nitro).toMatchObject({ plugins: [join(projectRoot, workflowDevGeneratedDir, "build-plugin.mjs")] })
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ root: projectRoot })
-    const generated = await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs"), "utf8")
+    const generated = await readFile(join(projectRoot, workflowDevGeneratedDir, "build-plugin.mjs"), "utf8")
     expect(generated).toContain(`"driver":"${provider}"`)
     expect(generated).not.toContain("runtime/dev-runs")
     expect(generated).not.toContain("enableWorkflowDevRuns")
-    expect(await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-registry.mjs"), "utf8")).toContain("welcome")
+    expect(await readFile(join(projectRoot, workflowDevGeneratedDir, "build-registry.mjs"), "utf8")).toContain("welcome")
   })
 
   it.each(["build", "serve"] as const)("infers OpenWorkflow and starts its worker for a Node %s without workflow options", async (command) => {
@@ -265,7 +285,7 @@ describe("Workflow dev registry", () => {
     const config: Record<string, unknown> = { root: projectRoot }
     await (hook.handler as unknown as ConfigHook)(config, { command, mode: command === "build" ? "production" : "development" })
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ root: projectRoot })
-    const generated = await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs"), "utf8")
+    const generated = await readFile(join(projectRoot, workflowDevGeneratedDir, command === "build" ? "build-plugin.mjs" : "dev-plugin.mjs"), "utf8")
     expect(generated).toContain(command === "build"
       ? 'setWorkflowRuntimeConfig({"driver":"openworkflow"})'
       : 'setWorkflowRuntimeConfig({"driver":"openworkflow","sqlite":{"path":".vitehub/data/openworkflow.sqlite.db"}})')
@@ -279,7 +299,7 @@ describe("Workflow dev registry", () => {
     if (!hook || typeof hook === "function") throw new TypeError("Expected config object hook")
     await (hook.handler as unknown as ConfigHook)({ root: projectRoot }, { command: "build", mode: "production" })
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ plugins: [[{ api: { getConfig }, name: "@vite-hub/database/vite" }]], root: projectRoot })
-    const generated = () => readFile(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs"), "utf8")
+    const generated = () => readFile(join(projectRoot, workflowDevGeneratedDir, "build-plugin.mjs"), "utf8")
     return { generated, plugin }
   }
 
@@ -322,7 +342,7 @@ describe("Workflow dev registry", () => {
     await (hook.handler as unknown as ConfigHook)({ root: projectRoot }, { command: "build", mode: "production" })
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ plugins: [], root: projectRoot })
 
-    expect(await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs"), "utf8")).not.toContain("getPostgresConnectionUrl")
+    expect(await readFile(join(projectRoot, workflowDevGeneratedDir, "build-plugin.mjs"), "utf8")).not.toContain("getPostgresConnectionUrl")
   })
 
   it.each<[ResolvedWorkflowOptions, ResolvedWorkflowOptions]>([
@@ -371,10 +391,10 @@ describe("Workflow dev registry", () => {
     if (!hook || typeof hook === "function") throw new TypeError("Expected config object hook")
     await (hook.handler as unknown as ConfigHook)({ root: projectRoot }, { command: "build", mode: "production" })
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ root: projectRoot })
-    const generated = await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs"), "utf8")
+    const generated = await readFile(join(projectRoot, workflowDevGeneratedDir, "build-plugin.mjs"), "utf8")
     expect(generated).not.toContain("setWorkflowRuntimeConfig")
-    expect(generated).not.toContain("dev-registry.mjs")
-    expect(await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-registry.mjs"), "utf8")).not.toContain("welcome")
+    expect(generated).not.toContain("build-registry.mjs")
+    expect(await readFile(join(projectRoot, workflowDevGeneratedDir, "build-registry.mjs"), "utf8")).not.toContain("welcome")
   })
 
   it("keeps plugin options when config exposes an undefined Workflow value", async () => {

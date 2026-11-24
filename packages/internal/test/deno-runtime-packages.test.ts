@@ -1086,7 +1086,7 @@ await import("data-package", { with: { type: "json" } })
     await mkdir(join(outputDir, "server"), { recursive: true })
     await writeFile(
       join(outputDir, "server", "index.mjs"),
-      `//#region node_modules/.pnpm/sharp@9.9.9/node_modules/sharp/index.js
+      `// node_modules/.pnpm/sharp@9.9.9/node_modules/sharp/index.js
 import { createRequire } from "node:module"
 const load = createRequire(import.meta.url)
 load("@img/sharp-linux-x64/sharp.node")
@@ -1175,6 +1175,7 @@ load("@img/sharp-linux-x64/sharp.node")
     const root = await temporaryDirectory("vitehub-deno-optional-imports-")
     const importer = join(root, "server/api.ts")
     await writeJson(join(root, "package.json"), {})
+    await writeJson(join(root, "node_modules/@types/node/package.json"), { name: "@types/node", version: "1.0.0" })
     await mkdir(join(root, ".output/server"), { recursive: true })
     await writeFile(join(root, ".output/server/index.mjs"), "void 0\n")
 

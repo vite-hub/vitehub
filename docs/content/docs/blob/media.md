@@ -399,7 +399,7 @@ useHead({
 })
 ```
 
-With custom `blob.images.sizes`, pass the same values as `widths`. The server snaps other widths anyway.
+With custom `blob.images.sizes`, pass the same values as `imageSizes`, and pass `widths` as well when you want candidate widths below the default 640px minimum in `srcset`. The server snaps requested widths to `blob.images.sizes`, and `responsiveImage()` defaults to the standard sizes unless `imageSizes` is set.
 
 ## Nuxt Image
 
