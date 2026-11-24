@@ -79,6 +79,15 @@ function messageOf(row: MessageRow): CommentMessage {
   }
 }
 
+function groupMessages(byThread: Map<string, CommentMessage[]>, rows: MessageRow[]): void {
+  for (const row of rows) {
+    const message = messageOf(row)
+    const group = byThread.get(row.threadId)
+    if (group) group.push(message)
+    else byThread.set(row.threadId, [message])
+  }
+}
+
 /** `resolved_by` keeps the person, with the agent that acted for them as `actor`. Rows from before it hold the person alone. */
 function resolver(json: string | null): Pick<CommentThread, "resolvedBy" | "resolvedActor"> {
   const found = parseJson<(CommentUser & { actor?: CommentActor }) | undefined>(json, undefined)
@@ -213,7 +222,7 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
     const byThread = new Map<string, CommentMessage[]>()
     for (const part of chunks(ids)) {
       const found = await db.select().from(messages).where(inArray(messages.threadId, part)).orderBy(asc(messages.createdAt), asc(messages.id))
-      for (const row of found) byThread.set(row.threadId, [...(byThread.get(row.threadId) ?? []), messageOf(row)])
+      groupMessages(byThread, found)
     }
     return rows.map(row => threadOf(row, byThread.get(row.id) ?? []))
   }
@@ -235,7 +244,7 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
         .orderBy(asc(messages.createdAt), asc(messages.id)),
     ]]) as [ThreadRow[], MessageRow[]]
     const byThread = new Map<string, CommentMessage[]>()
-    for (const row of messageRows) byThread.set(row.threadId, [...(byThread.get(row.threadId) ?? []), messageOf(row)])
+    groupMessages(byThread, messageRows)
     return rows.map(row => threadOf(row, byThread.get(row.id) ?? []))
   }
 
