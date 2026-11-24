@@ -415,7 +415,8 @@ export function mountViteHubPagePill(options: ViteHubPagePillOptions): HTMLEleme
   const tabs = document.createElement("slot")
   tabs.name = "tab"
   tabs.className = "tabs"
-  shadow.append(style, tabs, toolbar, ...button && exit?.menu ? exit.menu(button) : [])
+  shadow.append(style, tabs, toolbar)
+  if (button && exit?.menu) shadow.append(...exit.menu(button))
   for (const name of options.slots) {
     const slot = document.createElement("slot")
     slot.name = name

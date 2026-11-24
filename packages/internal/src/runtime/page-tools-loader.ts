@@ -406,9 +406,10 @@ async function startViteHubPageTools(options: LoadViteHubPageToolsOptions, turne
   }, { once: true, signal: pillController.signal })
   const exitChecks = new Set<() => boolean>()
   let closing = false
+  const canExit = () => !closing && [...exitChecks].every(check => check())
   // `keyboard`: the exit button was pressed with a key, so the small mark takes the focus that the button had.
   const exit = (keyboard = false) => {
-    if (closing || [...exitChecks].some(check => !check())) return
+    if (!canExit()) return
     closing = true
     const opened = session.tools.filter(tool => restored(tool.id))
     for (const tool of session.tools) remember(tool.id, false)
@@ -443,7 +444,7 @@ async function startViteHubPageTools(options: LoadViteHubPageToolsOptions, turne
     exit: {
       label: `Turn off ${controls.label}`,
       press: exit,
-      ...(account && !account.guest ? { menu: (button: HTMLButtonElement) => viteHubPageExitMenu({ account, button, turnOff: { label: `Turn off ${controls.label}`, press: exit }, signal: pillController.signal }) } : {}),
+      ...(account && !account.guest ? { menu: (button: HTMLButtonElement) => viteHubPageExitMenu({ account, button, turnOff: { label: `Turn off ${controls.label}`, press: exit }, canExit, signal: pillController.signal }) } : {}),
     },
     onPlace: dockViteHubPageWindows,
     ...(controls === defaultPill ? { markOnly: { active: pageAsksForMark, watch: watchPageAsk, opened: turnedOn } } : {}),

@@ -181,8 +181,8 @@ export function mountViteHubPageAccount(options: ViteHubPageAccountOptions): voi
  * turns the tools off, then the sign-out of the account menu. Returns the nodes that go next to the button in its shadow
  * root, so the button opens the menu with `popovertarget`.
  */
-export function viteHubPageExitMenu(options: { account: ViteHubPageAccount, button: HTMLButtonElement, turnOff: { label: string, press: (keyboard: boolean) => void }, signal: AbortSignal }): Node[] {
-  const { account, button, turnOff, signal } = options
+export function viteHubPageExitMenu(options: { account: ViteHubPageAccount, button: HTMLButtonElement, turnOff: { label: string, press: (keyboard: boolean) => void }, canExit: () => boolean, signal: AbortSignal }): Node[] {
+  const { account, button, turnOff, canExit, signal } = options
   const style = document.createElement("style")
   style.textContent = menuStyles
   const menu = document.createElement("vitehub-menu")
@@ -206,7 +206,7 @@ export function viteHubPageExitMenu(options: { account: ViteHubPageAccount, butt
     menu.hidePopover()
     turnOff.press(event.detail === 0)
   }, { signal })
-  wireSignOut(account, signOut, signal)
+  wireSignOut(account, signOut, signal, canExit)
   return [style, menu]
 }
 
@@ -287,9 +287,9 @@ function wireMenu(options: { menu: HTMLElement, button: HTMLButtonElement, pill:
   signal.addEventListener("abort", () => menu.hidePopover(), { once: true })
 }
 
-function wireSignOut(account: ViteHubPageAccount, signOut: { item: HTMLButtonElement, label: HTMLSpanElement }, signal: AbortSignal): void {
+function wireSignOut(account: ViteHubPageAccount, signOut: { item: HTMLButtonElement, label: HTMLSpanElement }, signal: AbortSignal, canSignOut?: () => boolean): void {
   signOut.item.addEventListener("click", async () => {
-    if (signOut.item.getAttribute("aria-disabled") === "true") return
+    if (signOut.item.getAttribute("aria-disabled") === "true" || canSignOut?.() === false) return
     signOut.item.setAttribute("aria-disabled", "true")
     signOut.label.textContent = "Signing out…"
     const response = await fetch(account.signOut, { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: "{}" }).catch((error: unknown) => error)
