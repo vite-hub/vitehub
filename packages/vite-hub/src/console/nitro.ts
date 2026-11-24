@@ -91,11 +91,12 @@ export function addConsoleRpcHandler(
   const route = mountPath(base, suffix)
   // The paths that the one route serves itself. A handler of the app on one of them would answer in place of the Console.
   const routes = [route, ...["/_vitehub", "/_vitehub/rpc", ...options.siteAccess ? ["/_vitehub/site"] : []].map(path => mountPath(base, path))]
-  const conflict = retainedHandlers.find(candidate => candidate.route !== undefined && routes.includes(candidate.route))
+  const taken = (path: string) => routes.includes(path.length > 1 ? path.replace(/\/+$/, "") : path)
+  const conflict = retainedHandlers.find(candidate => candidate.route !== undefined && taken(candidate.route))
   if (conflict) {
     throw viteHubErrorDiagnostics.VITE_HUB_R0040({ message: `Cannot mount the ViteHub Console handler at "${conflict.route}" because that route already uses "${conflict.handler}".` })
   }
-  const routeConflict = Object.keys(nitro.routes ?? {}).find(path => routes.includes(path))
+  const routeConflict = Object.keys(nitro.routes ?? {}).find(taken)
   if (routeConflict) {
     throw viteHubErrorDiagnostics.VITE_HUB_R0040({ message: `Cannot mount the ViteHub Console handler at "${routeConflict}" because the Nitro routes option uses that path. Move the app route to another path.` })
   }
