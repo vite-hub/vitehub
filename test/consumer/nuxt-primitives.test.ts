@@ -75,6 +75,13 @@ async function nitroWorker(origin: string, timeout: number) {
   }
 }
 
+function requestErrorSummary(logs: string) {
+  const errors = logs.split("\n")
+    .filter(line => line.includes("[request error]") || line.includes("[cause]"))
+    .slice(-16)
+  return errors.length ? `--- request errors ---\n${errors.join("\n")}\n` : ""
+}
+
 async function withServer<T>(command: string, args: string[], cwd: string, ready: RegExp | undefined, callback: (origin: string) => Promise<T>, readySamples = 1) {
   const port = await availablePort()
   const child = spawn(command, args.map(arg => arg.replace("{port}", String(port))), {
@@ -107,7 +114,8 @@ async function withServer<T>(command: string, args: string[], cwd: string, ready
       await new Promise(resolve => setTimeout(resolve, 500))
     }
     return await callback(origin).catch((error: unknown) => {
-      throw new Error(`${error instanceof Error ? error.message : String(error)}\n--- server output ---\n${logs.slice(-8000)}`, { cause: error })
+      const message = error instanceof Error ? error.message : String(error)
+      throw new Error(`${requestErrorSummary(logs)}${message}\n--- server output ---\n${logs.slice(-8000)}`, { cause: error })
     })
   }
   finally {
@@ -116,6 +124,11 @@ async function withServer<T>(command: string, args: string[], cwd: string, ready
 }
 
 describe("Nuxt primitives", () => {
+  it("keeps request error causes even when later server output fills the log tail", () => {
+    const failure = "[request error] [POST] /api/primitives/database\n[cause] LibsqlError: no such table: primitive_notes"
+    expect(requestErrorSummary(`${failure}\n${"build output\n".repeat(1000)}`)).toContain(failure)
+  })
+
   it("cover every vite-hub/nuxt feature with a row or a written exemption", async () => {
     const ids = entries.map(entry => entry.id)
     expect(ids.filter((id, index) => ids.indexOf(id) !== index), "primitives listed twice").toEqual([])
