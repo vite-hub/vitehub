@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs"
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -14,7 +14,7 @@ import { z } from "zod"
 import { z as z3 } from "zod/v3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { formatReport, runCodemod } from "../src/index.ts"
+import { formatReport, runCli, runCodemod } from "../src/index.ts"
 import { planFromEnvFile, readEnvFileKeys } from "../src/nuxt-safe-runtime-config/env-file.ts"
 import { fieldAccess, runSteps } from "../src/nuxt-safe-runtime-config/field-schema.ts"
 import { looksSecret, nuxtVariableName } from "../src/nuxt-safe-runtime-config/fields.ts"
@@ -48,6 +48,70 @@ describe.each([
   })
 })
 
+describe("nuxt-safe-runtime-config on a Nitro 2 app", () => {
+  it("stops with CODEMODS_NITRO_UNSUPPORTED and writes nothing", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "vitehub-nsrc-nitro2-"))
+    try {
+      await cp(join(fixtures, "nitro2-module/input"), cwd, { recursive: true })
+      const before = await Promise.all(["nitro.config.ts", "package.json"].map(file => readFile(join(cwd, file), "utf8")))
+      let stdout = ""
+      let stderr = ""
+      const code = await runCli(["nuxt-safe-runtime-config", cwd], { stdout: text => stdout += text, stderr: text => stderr += text })
+      expect(code).toBe(1)
+      expect(stdout).toBe("")
+      expect(stderr).toContain("nitro.config.ts belongs to a Nitro 2 app: package.json requires nitropack \"^2.13.0\".")
+      expect(stderr).toContain("Fix: Keep nuxt-safe-runtime-config/nitro while the app runs on Nitro 2.")
+      await expect(runCodemod("nuxt-safe-runtime-config", { cwd })).rejects.toMatchObject({ code: "CODEMODS_NITRO_UNSUPPORTED" })
+      let report = ""
+      expect(await runCli([cwd], { stdout: text => report += text, stderr: () => {} })).toBe(1)
+      expect(report).toContain("Not migrated: nitro.config.ts belongs to a Nitro 2 app")
+      expect((await readdir(cwd)).sort()).toEqual(["nitro.config.ts", "package.json"])
+      expect(await Promise.all(["nitro.config.ts", "package.json"].map(file => readFile(join(cwd, file), "utf8")))).toEqual(before)
+    }
+    finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
+  it.each([
+    ["nitro.config.ts", { nitropack: "^2.13.0" }, "belongs to a Nitro 2 app", "Keep nuxt-safe-runtime-config/nitro"],
+    ["nitro.config.cts", { nitropack: "^2.13.0" }, "belongs to a Nitro 2 app", "Keep nuxt-safe-runtime-config/nitro"],
+    ["nitro.config.ts", { nitro: "npm:nitropack@^2.13.0" }, "belongs to a Nitro 2 app", "Keep nuxt-safe-runtime-config/nitro"],
+    ["nitro.config.ts", { nitropack: "^2.13.0", nitro: "^3.0.0" }, "declares both nitro and nitropack", "Keep only the Nitro package the app uses"],
+  ])("reports a refusal for %s with %j in both CLI modes", async (config, dependencies, reason, fix) => {
+    const cwd = await mkdtemp(join(tmpdir(), "vitehub-nsrc-nitro2-"))
+    try {
+      await cp(join(fixtures, "nitro2-module/input"), cwd, { recursive: true })
+      if (config !== "nitro.config.ts") await rename(join(cwd, "nitro.config.ts"), join(cwd, config))
+      const originalConfig = await readFile(join(cwd, config), "utf8")
+      const manifest = join(cwd, "package.json")
+      const originalManifest = JSON.stringify({
+        dependencies: { ...dependencies, "nuxt-safe-runtime-config": "^0.4.0" },
+        scripts: { build: "nitropack build", "env:inspect": "vitehub env inspect --server http://localhost:3000" },
+      }, null, 2)
+      await writeFile(manifest, originalManifest)
+      let stderr = ""
+      expect(await runCli(["nuxt-safe-runtime-config", cwd], { stdout: () => {}, stderr: text => stderr += text })).toBe(1)
+      expect(stderr).toContain(reason)
+      expect(stderr).toContain(`Fix: ${fix}`)
+      expect(await readFile(manifest, "utf8")).toBe(originalManifest)
+
+      let report = ""
+      expect(await runCli([cwd], { stdout: text => report += text, stderr: () => {} })).toBe(1)
+      expect(report).toContain("Not migrated:")
+      expect(report).not.toContain("No file was written")
+      expect(report).toContain("nuxt-safe-runtime-config made no edits.")
+      expect(report).toContain(reason)
+      expect(report).toContain(`Fix: ${fix}`)
+      expect(await readFile(manifest, "utf8")).toBe(originalManifest.replace("env inspect", "env list"))
+      expect(await readFile(join(cwd, config), "utf8")).toBe(originalConfig)
+    }
+    finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+})
+
 function declarationAt(config: unknown, path: readonly string[]): unknown {
   let current = config
   for (const segment of path) {
@@ -75,7 +139,6 @@ describe("envSchema mapping", () => {
         secret: field.secret,
         source: { kind: "env", name: field.variable, canonical: false },
       })
-      // Nuxt maps NUXT_ and the upper snake case path, so unmapped keys keep the same path.
       if (!(field.variable in nuxtPaths)) {
         expect(nuxtVariableName(field.section, field.configPath)).toBe(field.variable)
         expect(field.envPath).toEqual(field.configPath)
