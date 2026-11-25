@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs"
 import { join } from "node:path"
 
-import { end, findProperty, indentAt, line, parseProgram, quoteString, start, walk } from "@vite-hub/internal/ast"
+import { end, findProperty, indentAt, keyName, line, parseProgram, quoteString, start, walk } from "@vite-hub/internal/ast"
 
 import { codemodError, codemodsErrorDiagnostics } from "../error-diagnostics.ts"
 import { bindingFree, ConfigEditor, createLineResolver, nitroPresetHosts } from "../shared/config-editor.ts"
@@ -51,6 +51,45 @@ export async function readNitroConfig(cwd: string): Promise<NuxtConfigFile> {
   return readConfigFile(cwd, fileName, "defineConfig")
 }
 
+function explicitKeys(object: ObjectExpression, location: string): Set<string> {
+  const keys = new Set<string>()
+  for (const property of object.properties) {
+    const key = property.type === "ObjectProperty" ? keyName(property.key, property.computed) : undefined
+    if (!key || key === "__proto__" || keys.has(key)) throw codemodError(`${location} needs explicit, unique properties before migration.`)
+    keys.add(key)
+  }
+  return keys
+}
+
+export function checkNitroConfig(config: NuxtConfigFile): void {
+  const keys = explicitKeys(config.root, config.fileName)
+  if ([...keys].some(key => key === "extends" || key.startsWith("$"))) {
+    throw codemodError(`${config.fileName} uses layered options. Make the effective Nitro options explicit before migration.`)
+  }
+  const modules = findProperty(config.root, "modules")
+  if (modules) {
+    const list = unwrapExpression(modules.value)
+    const imports = new Set(config.program.program.body.flatMap(statement => statement.type === "ImportDeclaration"
+      ? statement.specifiers.map(specifier => specifier.local.name)
+      : []))
+    if (list.type !== "ArrayExpression" || list.elements.some((entry) => {
+      if (!entry) return true
+      const value = unwrapExpression(entry)
+      return value.type !== "StringLiteral" && !(value.type === "Identifier" && imports.has(value.name))
+    })) throw codemodError(`${config.fileName} needs an explicit modules list of specifiers or imported modules before migration.`)
+  }
+  const runtime = findProperty(config.root, "runtimeConfig")
+  if (!runtime) return
+  const checkRuntime = (object: ObjectExpression) => {
+    explicitKeys(object, `${config.fileName} runtimeConfig`)
+    for (const property of object.properties) {
+      if (property.type === "ObjectProperty" && property.value.type === "ObjectExpression") checkRuntime(property.value)
+    }
+  }
+  if (runtime.value.type !== "ObjectExpression") throw codemodError(`${config.fileName} needs an explicit runtimeConfig object before migration.`)
+  checkRuntime(runtime.value)
+}
+
 /** The `modules` entry of the Nitro module, as its import binding or as its specifier. */
 export interface NitroModuleEntry {
   modules: ArrayExpression
@@ -74,50 +113,68 @@ export function findNitroModuleEntry(config: NuxtConfigFile): NitroModuleEntry |
 
 /**
  * The ViteHub host for the Nitro `preset`, and the `preset` property that `vitehub()` replaces: `preset` in nitro.config,
- * or `removeVitePreset` for a `preset` in the vite.config `nitro()` options, which win over nitro.config.
+ * and any overridden presets in Vite's `nitro` and `nitro()` options.
  */
 export interface NitroHostPlan {
   host?: string
   note?: string
   preset?: ObjectProperty
-  removeVitePreset?: boolean
+  vitePresets?: ObjectProperty[]
 }
 
-function nitroPluginOptions(config: NuxtConfigFile): ObjectExpression[] {
-  const local = importedLocal(config, "nitro/vite", "nitro")
-  const options: ObjectExpression[] = []
-  const nitroKey = objectProperty(config.root, "nitro")
-  if (nitroKey) options.push(nitroKey)
-  if (!local) return options
-  walk(config.program, (node) => {
-    if (node.type !== "CallExpression" || node.callee.type !== "Identifier" || node.callee.name !== local) return
-    const [argument] = node.arguments
-    if (argument?.type === "ObjectExpression") options.push(argument)
-  })
-  return options
+interface ViteConfigPlan {
+  config: NuxtConfigFile
+  plugins?: ArrayExpression
+  nitroElement?: Node
+  nitroLocal?: string
+  presets: ObjectProperty[]
 }
 
-function vitePresetProperty(config: NuxtConfigFile): ObjectProperty | undefined {
-  return nitroPluginOptions(config).map(options => findProperty(options, "preset")).find(property => property !== undefined)
-}
-
-export async function readVitePreset(cwd: string): Promise<{ fileName: string, property: ObjectProperty } | undefined> {
+export async function readViteConfigPlan(cwd: string): Promise<ViteConfigPlan | undefined> {
   const fileName = findViteConfigName(cwd)
   if (!fileName) return undefined
-  const property = vitePresetProperty(await readConfigFile(cwd, fileName, "defineConfig"))
-  return property ? { fileName, property } : undefined
+  const config = await readConfigFile(cwd, fileName, "defineConfig")
+  if (importedLocal(config, "vite-hub", "vitehub")) throw codemodError(`${fileName} already uses vitehub(). Add the Env declarations to its env option by hand.`)
+  if (explicitKeys(config.root, fileName).has("root")) throw codemodError(`${fileName} sets root, which can change the Nitro config file. Migrate this app by hand.`)
+  const nitroLocal = importedLocal(config, "nitro/vite", "nitro")
+  const pluginsProperty = findProperty(config.root, "plugins")
+  const plugins = pluginsProperty && unwrapExpression(pluginsProperty.value)
+  if (plugins && plugins.type !== "ArrayExpression") throw codemodError(`${fileName} needs an explicit plugins array before migration.`)
+  const options: Node[] = []
+  let nitroElement: Node | undefined
+  for (const element of plugins?.elements ?? []) {
+    const value = element && unwrapExpression(element)
+    if (!element || value?.type !== "CallExpression" || value.callee.type !== "Identifier" || value.callee.name !== nitroLocal || nitroElement || value.arguments.length > 1) {
+      throw codemodError(`${fileName} has plugins the codemod cannot identify safely. Add ViteHub Env by hand, before the existing Nitro plugin.`)
+    }
+    nitroElement = element
+    if (value.arguments[0]) options.push(value.arguments[0])
+  }
+  const nitroOption = findProperty(config.root, "nitro")
+  if (nitroOption) options.push(nitroOption.value)
+  const presets = options.flatMap((option) => {
+    const value = unwrapExpression(option)
+    if (value.type !== "ObjectExpression") throw codemodError(`${fileName} needs explicit Nitro options before migration.`)
+    const keys = explicitKeys(value, `${fileName} Nitro options`)
+    for (const key of ["runtimeConfig", "safeRuntimeConfig", "modules", "extends", "rootDir", "_nitro"]) {
+      if (keys.has(key)) throw codemodError(`${fileName} sets Nitro ${key}. Move it to nitro.config before migration.`)
+    }
+    const preset = findProperty(value, "preset")
+    return preset ? [preset] : []
+  })
+  return { config, plugins, nitroElement, nitroLocal, presets }
 }
 
-export function planNitroHost(config: NuxtConfigFile, vitePreset?: { fileName: string, property: ObjectProperty }): NitroHostPlan {
-  const property = vitePreset?.property ?? findProperty(config.root, "preset")
-  const fileName = vitePreset?.fileName ?? config.fileName
-  if (!property) {
-    return { host: "node", note: "ViteHub needs a host, so the codemod set host: \"node\" in vitehub(). Change it to \"cloudflare\", \"deno\", \"netlify\", or \"vercel\" for other hosts." }
-  }
+export function planNitroHost(config: NuxtConfigFile, vite?: ViteConfigPlan): NitroHostPlan {
+  const preset = findProperty(config.root, "preset")
+  const vitePreset = vite?.presets[0]
+  const property = vitePreset ?? preset
+  const fileName = vitePreset && vite ? vite.config.fileName : config.fileName
+  if (!property) return {}
   const value = literalValue(property.value)
   if (typeof value !== "string") throw codemodError(`${fileName} sets preset to an expression. Make it a string literal, then run the codemod again.`)
   const host = nitroPresetHosts[value.trim().toLowerCase().replaceAll("_", "-")]
-  if (host) return vitePreset ? { host, removeVitePreset: true } : { host, preset: property }
+  if (host) return { host, preset, vitePresets: vite?.presets }
   return { note: `preset "${value}" has no ViteHub host. ViteHub sets the Nitro preset from its host, and a different preset stops the build. Set host in vitehub() to "cloudflare", "deno", "netlify", "node", or "vercel", and remove preset from ${fileName}.` }
 }
 
@@ -149,6 +206,11 @@ export function editNitroConfig(input: { config: NuxtConfigFile, moduleEntry?: N
   }
   editor.removeUnusedBindings()
   const code = editor.output.toString()
+  walk(parseProgram(code), (node) => {
+    if (node.type === "StringLiteral" && node.value === nitroModuleName) {
+      throw codemodError(`${config.fileName} still references ${nitroModuleName}. Remove the remaining reference before migration.`)
+    }
+  })
   return { code, removedImports: editor.removedImports, lineOf: createLineResolver(code) }
 }
 
@@ -157,13 +219,12 @@ export function findViteConfigName(cwd: string): string | undefined {
 }
 
 export interface ViteConfigInput {
-  cwd: string
   /** The nitro.config, whose language and code style the new vite.config follows. */
   nitroConfig: NuxtConfigFile
   env: EnvSource
   host?: string
   schemaModule?: SchemaModuleReference
-  removePreset?: boolean
+  removePresets?: readonly ObjectProperty[]
 }
 
 export interface ViteConfigResult {
@@ -223,9 +284,9 @@ function vitehubLineResolver(code: string): LineResolver {
 }
 
 /** Writes a vite.config with `vitehub({ env })` and `nitro()`, or adds `vitehub()` to the plugins of an existing one. */
-export async function writeViteConfig(input: ViteConfigInput): Promise<ViteConfigResult> {
-  const existing = findViteConfigName(input.cwd)
-  const after = existing ? await editViteConfig(input, existing) : newViteConfig(input)
+export function writeViteConfig(input: ViteConfigInput, plan?: ViteConfigPlan): ViteConfigResult {
+  const existing = plan?.config.fileName
+  const after = plan ? editViteConfig(input, plan) : newViteConfig(input)
   const edit: FileEdit = existing
     ? { path: existing, before: after.before, after: after.code }
     : { path: /\.[cm]?ts$/.test(input.nitroConfig.fileName) ? "vite.config.ts" : "vite.config.mjs", before: undefined, after: after.code }
@@ -248,17 +309,15 @@ function newViteConfig(input: ViteConfigInput): { code: string, before?: string 
   return { code }
 }
 
-async function editViteConfig(input: ViteConfigInput, fileName: string): Promise<{ code: string, before: string }> {
-  const config = await readConfigFile(input.cwd, fileName, "defineConfig")
-  if (importedLocal(config, "vite-hub", "vitehub")) throw codemodError(`${fileName} already uses vitehub(). Add the Env declarations to its env option by hand.`)
+function editViteConfig(input: ViteConfigInput, plan: ViteConfigPlan): { code: string, before: string } {
+  const { config, plugins, nitroElement, nitroLocal } = plan
+  const { fileName } = config
   if (!bindingFree(config, "vitehub")) throw codemodError(`${fileName} already declares vitehub. Rename it, then run the codemod again.`)
   const editor = new ConfigEditor(config)
   const style = editor.style
   const semicolon = style.semicolons ? ";" : ""
-  const preset = input.removePreset ? vitePresetProperty(config) : undefined
-  if (preset) editor.removeItem(preset)
+  for (const preset of input.removePresets ?? []) editor.removeItem(preset)
   const envName = bindingFree(config, "env") ? "env" : "viteHubEnv"
-  const nitroLocal = importedLocal(config, "nitro/vite", "nitro")
   const nitroName = nitroLocal ?? (bindingFree(config, "nitro") ? "nitro" : undefined)
   if (!nitroName) throw codemodError(`${fileName} already declares nitro. Rename it, then run the codemod again.`)
   const imports = [
@@ -267,33 +326,18 @@ async function editViteConfig(input: ViteConfigInput, fileName: string): Promise
   ]
   if (!nitroLocal) imports.unshift(`import { nitro } from ${quoteString("nitro/vite", style)}${semicolon}`)
 
-  const pluginsProperty = findProperty(config.root, "plugins")
-  if (!pluginsProperty) {
+  if (!plugins) {
     const indent = editor.propertyIndent(config.root)
     editor.insertProperties(config.root, [`plugins: [${vitehubCall(input, envName, indent, style)}, ${nitroName}()]`], new Set())
   }
+  else if (nitroElement) {
+    const indent = indentAt(config.code, start(nitroElement))
+    const multiline = config.code.slice(start(plugins), start(nitroElement)).includes("\n")
+    editor.output.prependLeft(start(nitroElement), `${vitehubCall(input, envName, indent, style)},${multiline ? `\n${indent}` : " "}`)
+  }
   else {
-    const plugins = unwrapExpression(pluginsProperty.value)
-    if (plugins.type !== "ArrayExpression") throw codemodError(`${fileName} sets plugins to an expression. Make it an array literal, then run the codemod again.`)
-    const elements = plugins.elements.filter((element): element is NonNullable<typeof element> => element !== null)
-    const nitroElement = nitroLocal
-      ? elements.find((element) => {
-          const value = unwrapExpression(element)
-          return value.type === "CallExpression" && value.callee.type === "Identifier" && value.callee.name === nitroLocal
-        })
-      : undefined
-    const first = nitroElement ?? elements[0]
-    if (first) {
-      const indent = indentAt(config.code, start(first))
-      const multiline = config.code.slice(start(plugins), start(first)).includes("\n")
-      editor.output.prependLeft(start(first), `${vitehubCall(input, envName, indent, style)},${multiline ? `\n${indent}` : " "}`)
-      const last = elements.at(-1)
-      if (!nitroElement && last) editor.output.appendLeft(end(last), `, ${nitroName}()`)
-    }
-    else {
-      const indent = indentAt(config.code, start(pluginsProperty))
-      editor.output.appendLeft(end(plugins) - 1, `${vitehubCall(input, envName, indent, style)}, ${nitroName}()`)
-    }
+    const indent = indentAt(config.code, start(plugins))
+    editor.output.appendLeft(end(plugins) - 1, `${vitehubCall(input, envName, indent, style)}, ${nitroName}()`)
   }
   editor.addImport(imports.join("\n"))
   return { code: editor.output.toString(), before: config.code }

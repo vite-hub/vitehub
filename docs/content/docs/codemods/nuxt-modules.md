@@ -59,11 +59,11 @@ The report lists what Env cannot express and what the codemod could not rewrite:
 
 A Nitro app without `nuxt.config` that lists `nuxt-safe-runtime-config/nitro` in `modules`, or sets `safeRuntimeConfig`, gets the same `$schema` migration with these differences:
 
-- The codemod writes `vite.config.ts` with `vitehub({ host, env })` before `nitro()` from `nitro/vite`, as in [Get started](/docs/env/get-started). In an existing `vite.config`, it adds `vitehub()` to `plugins`. `nitro()` still reads `nitro.config`, so the other Nitro options stay there.
+- The codemod writes `vite.config.ts` with `vitehub({ env })` before `nitro()` from `nitro/vite`, as in [Get started](/docs/env/get-started). In an existing `vite.config`, it inserts ViteHub before an inline `nitro()` call. `nitro()` still reads `nitro.config`, so the other Nitro options stay there.
 - Nitro has no Public Env. All fields, including keys under `public`, become Server Env. Each declaration reads its `NITRO_*` variable with `env.source()`. Env does not read the `_` prefix or a `NITRO_ENV_PREFIX` prefix.
-- A string `preset` becomes `host`. With no `preset`, the host is `node`.
-- `useRuntimeConfig()` from `nitro/runtime-config` becomes `useServerEnv()` from `vite-hub/env` when the code reads only migrated keys.
-- `package.json` gets `vite-hub` and `vite`, and its `nitro dev` and `nitro build` scripts become `vite dev` and `vite build`. `nitro dev` does not run Vite plugins.
+- A mapped string `preset` becomes `host`. Without a preset in the config, ViteHub detects the host at build time.
+- `useRuntimeConfig()` from `nitro/runtime-config` becomes `useServerEnv()` from `vite-hub/env` when the code reads only migrated keys. The report flags indirect accessor references, whole reads of groups that still have keys in `runtimeConfig`, and destructuring that mixes a secret with other keys.
+- `package.json` gets `vite-hub` and `vite`, and plain `nitro dev` and `nitro build` scripts become `vite dev` and `vite build`. `nitro dev` does not run Vite plugins. Convert scripts with Nitro flags or wrappers by hand before retrying.
 
 ```diff [vite.config.ts]
 +import { nitro } from 'nitro/vite'
@@ -73,7 +73,6 @@ A Nitro app without `nuxt.config` that lists `nuxt-safe-runtime-config/nitro` in
 +
 +export default defineConfig({
 +  plugins: [vitehub({
-+    host: 'node',
 +    env: {
 +      server: {
 +        greeting: env({ default: 'hello', schema: env.schemaFrom('./server/env.schema.ts', 'greeting'), source: env.source('NITRO_GREETING') }),
@@ -83,7 +82,7 @@ A Nitro app without `nuxt.config` that lists `nuxt-safe-runtime-config/nitro` in
 +})
 ```
 
-The codemod stops on an `envSchema` option in a Nitro app, and when `vite.config` already calls `vitehub()`.
+The codemod stops without editing files if it cannot identify the Vite plugins or Nitro module list, if Vite overrides `runtimeConfig`, `safeRuntimeConfig`, or `modules`, if the app uses `envSchema`, or if `vite.config` already calls `vitehub()`.
 
 
 ## t3-env
