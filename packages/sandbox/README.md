@@ -471,6 +471,25 @@ The descriptor reports the provider's complete `ExecutionAuthority`, including d
 
 Payloads, context, and results must be JSON-serializable. Nested `Blob` and `Uint8Array` values cross the Sandbox boundary through invocation-local binary files, and Node.js `Buffer` values retain their type.
 
+ViteHub limits what one run can send across the Sandbox boundary. The payload and context JSON can have at most 4 MiB of UTF-8 text, and so can the result JSON. Each direction can also have at most 64 binary files, 64 MiB of binary data, and 32 levels of nested arrays and objects. Set `transfer` on a Definition to change these limits:
+
+```ts
+import { defineSandboxTask } from "@vite-hub/sandbox/task";
+
+export default defineSandboxTask({
+  transfer: {
+    maxInputBytes: 2_097_152,
+    maxOutputBytes: 8_388_608,
+    maxDepth: 24,
+    maxSidecars: 16,
+    maxSidecarBytes: 16_777_216,
+  },
+  handler: async (payload: { image: Blob }) => payload,
+});
+```
+
+Each limit is a whole number from 1 to 1073741824. A run that exceeds a limit fails with `SANDBOX_TASK_TRANSFER_LIMIT`. For input, the run fails before the handler starts and before ViteHub writes a binary file. For output, the run fails before ViteHub parses the result or reads a binary file. The byte limits count the UTF-8 JSON and the bytes of the binary values. The provider still sets its own execution and timeout limits.
+
 ### Package projects
 
 ViteHub uses the package manifest's `packageManager`, then a lockfile at that package root, then npm. A matching `pnpm-workspace.yaml` moves preparation to the pnpm Workspace root and carries the transitive `workspace:*` dependency closure into the Sandbox while the entrypoint still runs from its package directory.

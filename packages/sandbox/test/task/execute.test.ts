@@ -104,6 +104,27 @@ it("extracts output from a large provider stream", () => {
   expect(extractSandboxTaskOutputFromExecution({ stdout: stream })).toBe(output)
 })
 
+it("enforces max output bytes for marker-delivered stream output", async () => {
+  // SAFETY: Output that arrives on a stream is checked before any Sandbox call.
+  const sandbox = { provider: "vercel" } as unknown as TaskSandbox
+  const output = JSON.stringify({ ok: true, result: "too large" })
+  const bytes = new TextEncoder().encode(output).byteLength
+  const read = async (maxOutputBytes: number) => await readExecOutputWithRecovery(
+    sandbox,
+    "/output.json",
+    { code: 0 },
+    undefined,
+    { stdout: `__VITEHUB_OUTPUT__${output}` },
+    maxOutputBytes,
+  )
+
+  await expect(read(bytes)).resolves.toBe(output)
+  await expect(read(bytes - 1)).rejects.toMatchObject({
+    code: "SANDBOX_TASK_TRANSFER_LIMIT",
+    details: { label: "result", limit: "maxOutputBytes", maximum: bytes - 1, value: bytes },
+  } satisfies Partial<ViteHubError>)
+})
+
 function cloudflareExecError(cause: Error) {
   return sandboxErrorDiagnostics.SANDBOX_R0088({ message: `[vitehub] Cloudflare Sandbox exec failed: ${cause.message}`, cause, retryable: undefined })
 }
@@ -694,6 +715,126 @@ describe("executeSandboxTaskDefinition", () => {
     expect(new Uint8Array(await result.image.arrayBuffer())).toEqual(Uint8Array.from([9, 8, 7]))
     expect(result.nested[0]).toEqual(Uint8Array.from([6, 5, 4]))
     expect(result.markerObject).toEqual(markerObject)
+  })
+
+  it("rejects oversized input envelopes before starting the handler", async () => {
+    const { sandbox, execCalls } = createFakeSandbox()
+
+    await expect(executeSandboxTaskDefinition(
+      sandbox,
+      "bounded-input",
+      { transfer: { maxInputBytes: 32 } },
+      {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async () => true" },
+      },
+      { image: new Blob(["abc"]), message: "x".repeat(100) },
+    )).rejects.toMatchObject({
+      code: "SANDBOX_TASK_TRANSFER_LIMIT",
+      details: { label: "payload/context", limit: "maxInputBytes", maximum: 32 },
+    } satisfies Partial<ViteHubError>)
+
+    expect(execCalls.some(call => call.cmd === "node" && call.args[1] === "import(process.argv[1])")).toBe(false)
+    const written = await sandbox.files.list("/tmp", { recursive: true })
+    expect(written.filter(entry => entry.path.includes(".files"))).toEqual([])
+  })
+
+  it("preserves transfer errors from the generated entry script", async () => {
+    const { sandbox } = createFakeSandbox({
+      async onExecute({ args, write }) {
+        write(args.at(-1)!, new TextEncoder().encode(JSON.stringify({
+          ok: false,
+          error: { code: "SANDBOX_TASK_TRANSFER_LIMIT", message: "Sandbox result exceeds its maxSidecars limit (2 > 1)." },
+        })))
+        return { code: 1, ok: false, stderr: "", stdout: "" }
+      },
+    })
+
+    await expect(executeSandboxTaskDefinition(sandbox, "bounded-result", undefined, {
+      entry: "definition.mjs",
+      execution: "module",
+      modules: { "definition.mjs": "export default () => true" },
+    })).rejects.toMatchObject({
+      code: "SANDBOX_TASK_TRANSFER_LIMIT",
+      message: "Sandbox result exceeds its maxSidecars limit (2 > 1).",
+    } satisfies Partial<ViteHubError>)
+  })
+
+  it("passes the Definition transfer limits to the generated entry script", async () => {
+    let entrySource = ""
+    const { sandbox } = createFakeSandbox({
+      async onExecute({ args, read }) {
+        entrySource = new TextDecoder().decode(read(args.at(-3)!))
+      },
+    })
+
+    await executeSandboxTaskDefinition(sandbox, "bounded-entry", { transfer: { maxDepth: 3, maxOutputBytes: 1024 } }, {
+      entry: "definition.mjs",
+      execution: "module",
+      modules: { "definition.mjs": "export default () => true" },
+    })
+
+    expect(entrySource).toContain('const transferLimits = {"maxDepth":3,"maxSidecars":64,"maxSidecarBytes":67108864,"maxOutputBytes":1024}')
+  })
+
+  it("bounds binary sidecar count and result envelopes", async () => {
+    const { sandbox } = createFakeSandbox({
+      async onExecute({ args, write }) {
+        write(args.at(-1)!, new TextEncoder().encode(JSON.stringify({ ok: true, result: "x".repeat(100) })))
+        return { code: 0, ok: true, stderr: "", stdout: "" }
+      },
+    })
+    const source = {
+      entry: "definition.mjs",
+      execution: "module" as const,
+      modules: { "definition.mjs": "export default async () => true" },
+    }
+
+    await expect(executeSandboxTaskDefinition(
+      sandbox,
+      "bounded-sidecars",
+      { transfer: { maxSidecars: 1 } },
+      source,
+      { first: new Uint8Array([1]), second: new Uint8Array([2]) },
+    )).rejects.toMatchObject({
+      code: "SANDBOX_TASK_TRANSFER_LIMIT",
+      details: { limit: "maxSidecars" },
+    } satisfies Partial<ViteHubError>)
+
+    await expect(executeSandboxTaskDefinition(
+      sandbox,
+      "bounded-output",
+      { transfer: { maxOutputBytes: 32 } },
+      source,
+    )).rejects.toMatchObject({
+      code: "SANDBOX_TASK_TRANSFER_LIMIT",
+      details: { limit: "maxOutputBytes" },
+    } satisfies Partial<ViteHubError>)
+  })
+
+  it("bounds the result sidecars that the host reads", async () => {
+    const { sandbox } = createFakeSandbox({
+      async onExecute({ args, write }) {
+        const outputPath = args.at(-1)!
+        write(`${outputPath}.files/0`, Uint8Array.from([1, 2]))
+        write(`${outputPath}.files/1`, Uint8Array.from([3, 4]))
+        write(outputPath, new TextEncoder().encode(JSON.stringify({
+          ok: true,
+          result: [0, 1].map(id => ({ [SANDBOX_VALUE_MARKER]: { id, kind: "uint8array", tag: "binary" } })),
+        })))
+        return { code: 0, ok: true, stderr: "", stdout: "" }
+      },
+    })
+
+    await expect(executeSandboxTaskDefinition(sandbox, "bounded-recovery", { transfer: { maxSidecarBytes: 3 } }, {
+      entry: "definition.mjs",
+      execution: "module",
+      modules: { "definition.mjs": "export default async () => true" },
+    })).rejects.toMatchObject({
+      code: "SANDBOX_TASK_TRANSFER_LIMIT",
+      details: { label: "result", limit: "maxSidecarBytes", maximum: 3, value: 4 },
+    } satisfies Partial<ViteHubError>)
   })
 
   it("preserves Buffer values through binary sidecars", async () => {

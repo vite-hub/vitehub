@@ -40,7 +40,7 @@ export const sandboxTaskErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     SANDBOX_TASK_C0007: {
       ...dynamicError,
-      fix: "Write `timeout`, `env`, and `project` in `defineSandboxTask()` as `key: value` with a literal value. Only `handler` can be a method.",
+      fix: "Write `timeout`, `env`, `transfer`, and `project` in `defineSandboxTask()` as `key: value` with a literal value. Only `handler` can be a method.",
     },
     SANDBOX_TASK_C0008: {
       ...dynamicError,
@@ -94,7 +94,7 @@ export const sandboxTaskErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     SANDBOX_TASK_C0012: {
       ...dynamicError,
-      fix: "Use only the `handler`, `timeout`, `env`, and `project` options in `defineSandboxTask()`. Remove the other keys that the message lists.",
+      fix: "Use only the `handler`, `timeout`, `env`, `transfer`, and `project` options in `defineSandboxTask()`. Remove the other keys that the message lists.",
     },
     SANDBOX_TASK_C0013: {
       ...dynamicError,
@@ -121,7 +121,7 @@ export const sandboxTaskErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SANDBOX_TASK_R0066: { ...dynamicError, fix: "Write the file before you read it, or check it with `exists()` first." },
     SANDBOX_TASK_R0067: { ...dynamicError, fix: "Keep each file of the Sandbox project inside the project directory. Remove the absolute path or the `..` segments from the path that the message names." },
     SANDBOX_TASK_R0068: { ...dynamicError, fix: "Set the Sandbox driver to `\"cloudflare\"` or `\"vercel\"`, in `vitehub({ sandboxTask: { driver } })`, `hubSandboxTask({ driver })`, or the `SANDBOX_PROVIDER` env variable." },
-    SANDBOX_TASK_R0069: { ...dynamicError, fix: "Remove the options that the message names from `defineSandboxTask()`. A Definition supports only `handler`, `timeout`, `env`, and `project`." },
+    SANDBOX_TASK_R0069: { ...dynamicError, fix: "Remove the options that the message names from `defineSandboxTask()`. A Definition supports only `handler`, `timeout`, `env`, `transfer`, and `project`." },
     SANDBOX_TASK_R0070: { ...dynamicError, fix: "Set `timeout` of `defineSandboxTask()` to a whole number of milliseconds from 1 to 2147483647." },
     SANDBOX_TASK_R0071: { ...dynamicError, fix: "Add the Sandbox Durable Object binding to the Worker, or set `binding` in `vitehub({ sandboxTask: { binding } })` or `hubSandboxTask()` to its name. To run locally, build, then run `npx wrangler dev --config .output/server/wrangler.json`." },
     SANDBOX_TASK_R0072: { ...dynamicError, fix: "Pass an options object to the function that the message names, for example `defineSandboxTask({ handler })`." },
@@ -161,6 +161,10 @@ export const sandboxTaskErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SANDBOX_TASK_SIZE_TOO_LARGE: {
       why: ({ max, provider, size }: { max: string, provider: string, size: string }) => `[vitehub] ${provider} has no Sandbox size for ${size}. The largest size is ${max}.`,
       fix: "Lower `cpu` or `memory` in the Sandbox Task options. On Cloudflare the largest Container has 4 vCPU and 12288 MiB memory. On Vercel the largest Sandbox has 32 vCPU and 65536 MiB memory, and your plan can allow fewer.",
+    },
+    SANDBOX_TASK_TRANSFER_INVALID: {
+      why: ({ problem }: { problem: string }) => `[vitehub] The \`transfer\` option of the Sandbox Task Definition ${problem}.`,
+      fix: "Set `transfer` of `defineSandboxTask()` to an object that uses only `maxInputBytes`, `maxOutputBytes`, `maxDepth`, `maxSidecars`, and `maxSidecarBytes`. Set each one to a whole number from 1 to 1073741824, or remove it.",
     },
     SANDBOX_TASK_VERCEL_TIMEOUT_LIMIT: {
       why: ({ limit, timeout }: { limit: string; timeout: number }) => `Vercel rejected the Sandbox session timeout of ${timeout}ms: ${limit}.`,

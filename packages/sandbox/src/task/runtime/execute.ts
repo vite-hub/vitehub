@@ -1,6 +1,12 @@
-import { decodeSandboxTaskValue, encodeSandboxTaskValue } from './binary-sidecars'
+import {
+  assertSandboxTaskTransferBytes,
+  decodeSandboxTaskValue,
+  DEFAULT_SANDBOX_TASK_TRANSFER_BYTES,
+  DEFAULT_SANDBOX_TASK_TRANSFER_LIMITS,
+  encodeSandboxTaskValueStaged,
+} from './binary-sidecars'
 import { isTrustedHostReservedCommandEnvironmentKey } from '../../internal/trusted-host-environment'
-import { sandboxTaskError } from '../sandbox-task/errors'
+import { isSandboxTaskError, sandboxTaskError } from '../sandbox-task/errors'
 import { combineSandboxTaskErrors, readSandboxTaskErrorMetadata } from './error-normalization'
 import { createEntrySource } from './entry-script.injected'
 import { prepareSandboxTaskDefinition } from './definition-preparation'
@@ -30,11 +36,15 @@ export interface SandboxTaskDefinitionExecutionLifecycle {
   onCommandStart?: () => void
 }
 
-function toJson(value: unknown, label: string) {
+function toJson(value: unknown, label: string, maxInputBytes: number) {
   try {
-    return JSON.stringify(value)
+    const json = JSON.stringify(value)
+    assertSandboxTaskTransferBytes(json, label, 'maxInputBytes', maxInputBytes)
+    return json
   }
   catch (error) {
+    if (isSandboxTaskError(error))
+      throw error
     throw sandboxTaskError(`Sandbox ${label} must be JSON-serializable.`, {
       code: 'SANDBOX_TASK_SERIALIZATION_ERROR',
       details: { label },
@@ -57,36 +67,44 @@ async function executeSandboxTaskDefinitionOnce<TPayload>(
   const bundle = normalizeSandboxTaskDefinitionBundle(source)
 
   const files = createExecutionFiles(definitionName, sandbox.tempDir)
+  const transfer = definitionOptions?.transfer
+  const transferLimits = {
+    maxDepth: transfer?.maxDepth ?? DEFAULT_SANDBOX_TASK_TRANSFER_LIMITS.maxDepth,
+    maxSidecars: transfer?.maxSidecars ?? DEFAULT_SANDBOX_TASK_TRANSFER_LIMITS.maxSidecars,
+    maxSidecarBytes: transfer?.maxSidecarBytes ?? DEFAULT_SANDBOX_TASK_TRANSFER_LIMITS.maxSidecarBytes,
+  }
+  const maxInputBytes = transfer?.maxInputBytes ?? DEFAULT_SANDBOX_TASK_TRANSFER_BYTES
+  const maxOutputBytes = transfer?.maxOutputBytes ?? DEFAULT_SANDBOX_TASK_TRANSFER_BYTES
   let failure: { error: unknown } | undefined
   const throwIfAborted = () => {
     if (signal?.aborted)
       throw signal.reason ?? new DOMException('The Sandbox invocation was aborted.', 'AbortError')
   }
 
-  try {
-    await sandbox.mkdir(files.baseDir, { recursive: true, signal })
-    throwIfAborted()
-    let inputJson = bundle.project
-      ? toJson(await encodeSandboxTaskValue(
-          sandbox,
-          { payload, context },
-          files.inputAssetsDir,
-          'payload/context',
-          signal,
-        ), 'payload/context')
-      : undefined
-    const prepared = await prepareSandboxTaskDefinition(sandbox, bundle, files.baseDir, {
-      onCommandStart: lifecycle?.onCommandStart,
-      signal,
-      timeout: definitionOptions?.timeout,
-    })
-    inputJson ||= toJson(await encodeSandboxTaskValue(
+  const encodeInput = async () => {
+    const encoded = await encodeSandboxTaskValueStaged(
       sandbox,
       { payload, context },
       files.inputAssetsDir,
       'payload/context',
       signal,
-    ), 'payload/context')
+      transferLimits,
+    )
+    const json = toJson(encoded.value, 'payload/context', maxInputBytes)
+    await encoded.writeSidecars()
+    return json
+  }
+
+  try {
+    await sandbox.mkdir(files.baseDir, { recursive: true, signal })
+    throwIfAborted()
+    let inputJson = bundle.project ? await encodeInput() : undefined
+    const prepared = await prepareSandboxTaskDefinition(sandbox, bundle, files.baseDir, {
+      onCommandStart: lifecycle?.onCommandStart,
+      signal,
+      timeout: definitionOptions?.timeout,
+    })
+    inputJson ||= await encodeInput()
     const definitionPath = resolveSandboxTaskModulePath(prepared.directory, bundle.entry)
     const local = sandbox.provider === 'local'
     let env = definitionOptions?.env
@@ -98,7 +116,7 @@ async function executeSandboxTaskDefinitionOnce<TPayload>(
     }
     throwIfAborted()
     await Promise.all([
-      sandbox.writeFile(files.entryPath, createEntrySource(definitionPath, bundle.execution, entryEnvironment), { signal }),
+      sandbox.writeFile(files.entryPath, createEntrySource(definitionPath, bundle.execution, entryEnvironment, { ...transferLimits, maxOutputBytes }), { signal }),
       sandbox.writeFile(files.inputPath, inputJson, { signal }),
     ])
     throwIfAborted()
@@ -118,7 +136,7 @@ async function executeSandboxTaskDefinitionOnce<TPayload>(
         signal,
         timeout: definitionOptions?.timeout,
       })
-      outputRaw = await readExecOutputWithRecovery(sandbox, files.outputPath, execution, definitionOptions?.timeout, execution, signal)
+      outputRaw = await readExecOutputWithRecovery(sandbox, files.outputPath, execution, definitionOptions?.timeout, execution, maxOutputBytes, signal)
     }
     catch (error) {
       throwIfAborted()
@@ -126,10 +144,10 @@ async function executeSandboxTaskDefinitionOnce<TPayload>(
         throw error
 
       if (execution) {
-        outputRaw = await readExecOutputWithRecovery(sandbox, files.outputPath, error, definitionOptions?.timeout, execution, signal)
+        outputRaw = await readExecOutputWithRecovery(sandbox, files.outputPath, error, definitionOptions?.timeout, execution, maxOutputBytes, signal)
       }
       else {
-        const recoveredOutput = await recoverExecOutput(sandbox, files.outputPath, error, definitionOptions?.timeout, execution, signal)
+        const recoveredOutput = await recoverExecOutput(sandbox, files.outputPath, error, definitionOptions?.timeout, execution, maxOutputBytes, signal)
         if (recoveredOutput == null)
           throw error
 
@@ -148,7 +166,14 @@ async function executeSandboxTaskDefinitionOnce<TPayload>(
     }
 
     if (output.ok)
-      return await decodeSandboxTaskValue(sandbox, output.result, files.outputAssetsDir, 'result', signal)
+      return await decodeSandboxTaskValue(sandbox, output.result, files.outputAssetsDir, 'result', signal, transferLimits)
+
+    if (output.error?.code === 'SANDBOX_TASK_TRANSFER_LIMIT') {
+      throw sandboxTaskError(output.error.message || 'Sandbox result exceeds its transfer limit.', {
+        code: 'SANDBOX_TASK_TRANSFER_LIMIT',
+        provider: sandbox.provider,
+      })
+    }
 
     if (output.error?.code === 'SANDBOX_TASK_SERIALIZATION_ERROR') {
       throw sandboxTaskError(output.error.message || 'Sandbox result must be JSON-serializable.', {

@@ -64,9 +64,33 @@ export default defineSandboxTask({
 | `handler` | `defineSandboxTask()` | `function` | Required handler. Called with `(payload, context)`. |
 | `timeout` | `defineSandboxTask()` | `number` | Timeout in milliseconds for one attempt. |
 | `env` | `defineSandboxTask()` | `Record<string, string>` | Environment variables for the run. |
+| `transfer` | `defineSandboxTask()` | `object` | Limits on the payload, context, and result of a run. See [Transfer limits](#transfer-limits). |
 | `project` | `defineSandboxTask()` | `boolean` | Turn package-project packaging on or off. Omit it to let ViteHub detect it. |
 
 Each timeout must be a positive integer up to `2_147_483_647`. Without a timeout, a run stops after 5 minutes (`300_000`) on every provider. Vercel also has a plan maximum, see [Limits and errors](/docs/sandbox/limits-and-errors#timeouts). `defineSandboxTask()` options must be static JSON values, because ViteHub reads them at build time.
+
+## Transfer limits
+
+`transfer` limits what one run sends into the Sandbox and what the handler returns. Each limit is a whole number from 1 to `1_073_741_824`.
+
+| Key | Default | Limit |
+| --- | --- | --- |
+| `maxInputBytes` | `4_194_304` (4 MiB) | UTF-8 bytes of the payload and context JSON. |
+| `maxOutputBytes` | `4_194_304` (4 MiB) | UTF-8 bytes of the result JSON. |
+| `maxDepth` | `32` | Levels of nested arrays and objects in the input, and in the result. |
+| `maxSidecars` | `64` | Number of `Blob`, `Uint8Array`, and `Buffer` values in the input, and in the result. |
+| `maxSidecarBytes` | `67_108_864` (64 MiB) | Total bytes of the binary values in the input, and in the result. |
+
+```ts [server/tools/resize.sandbox-task.ts]
+import { defineSandboxTask } from 'vite-hub/sandbox/task'
+
+export default defineSandboxTask({
+  transfer: { maxInputBytes: 2_097_152, maxSidecars: 8 },
+  handler: async (payload: { image: Blob }) => payload.image.size,
+})
+```
+
+A run that exceeds a limit fails with `SANDBOX_TASK_TRANSFER_LIMIT` in `error.data.code`. For input, the run fails before the handler starts and before ViteHub writes a binary file to the Sandbox. For the result, the run fails before ViteHub parses it or reads its files.
 
 ## Package entry point
 

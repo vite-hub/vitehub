@@ -9,8 +9,10 @@ import type {
 import type { SandboxTaskDriver } from '../module-types'
 import { sandboxTaskErrorDiagnostics } from "../error-diagnostics.ts"
 
-const allowedDefinitionKeys = new Set(['timeout', 'env'])
+const allowedDefinitionKeys = new Set(['timeout', 'env', 'transfer'])
+const transferKeys = new Set(['maxInputBytes', 'maxOutputBytes', 'maxDepth', 'maxSidecars', 'maxSidecarBytes'])
 const maxTimeout = 2_147_483_647
+const maxTransferLimit = 1_073_741_824
 
 /** The timeout of a Sandbox Task run that sets no `timeout`, on every provider. */
 export const DEFAULT_SANDBOX_TASK_TIMEOUT_MS = 300_000
@@ -104,10 +106,25 @@ export function unsupportedHostedSandboxTaskProviderError(provider: unknown): Er
 export function assertSandboxTaskDefinitionOptions(local: SandboxTaskDefinitionOptions) {
   const invalidKeys = Object.keys(local).filter(key => !allowedDefinitionKeys.has(key))
   if (invalidKeys.length > 0)
-    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0069({ message: `[vitehub] Sandbox Task Definition options only support timeout and env. Unsupported: ${invalidKeys.join(', ')}` })
+    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0069({ message: `[vitehub] Sandbox Task Definition options only support timeout, env, and transfer. Unsupported: ${invalidKeys.join(', ')}` })
   if (local.timeout !== undefined
     && (!Number.isInteger(local.timeout) || local.timeout <= 0 || local.timeout > maxTimeout)) {
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0070({ message: `[vitehub] Sandbox Task Definition timeout must be a positive integer no greater than ${maxTimeout}.` })
+  }
+  assertSandboxTaskTransferOptions(local.transfer)
+}
+
+function assertSandboxTaskTransferOptions(transfer: unknown) {
+  if (transfer === undefined)
+    return
+  if (typeof transfer !== 'object' || transfer === null || Array.isArray(transfer))
+    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_TRANSFER_INVALID({ problem: 'must be an object' })
+  const invalidKeys = Object.keys(transfer).filter(key => !transferKeys.has(key))
+  if (invalidKeys.length > 0)
+    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_TRANSFER_INVALID({ problem: `supports only ${[...transferKeys].join(', ')}. Unsupported: ${invalidKeys.join(', ')}` })
+  for (const [key, value] of Object.entries(transfer)) {
+    if (value !== undefined && (!Number.isSafeInteger(value) || value <= 0 || value > maxTransferLimit))
+      throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_TRANSFER_INVALID({ problem: `sets ${key} to ${String(value)}. Each limit must be a whole number from 1 to ${maxTransferLimit}` })
   }
 }
 

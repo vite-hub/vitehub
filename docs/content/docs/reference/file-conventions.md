@@ -67,7 +67,7 @@ A define function takes one object with `handler` and the options. The file defa
 | --- | --- |
 | Queue | `defineQueue({ handler, concurrency })` |
 | Schedule | `defineSchedule({ cron, handler, manual, timeZone })` |
-| Sandbox Task | `defineSandboxTask({ handler, timeout, env, project })` |
+| Sandbox Task | `defineSandboxTask({ handler, timeout, env, transfer, project })` |
 | Workflow | `defineWorkflow({ handler, native, rootStep })` |
 | Content | `export default defineContent({ ... })` |
 | Database | `export default defineDatabase({ schema })` in `server/databases/<name>.ts` |

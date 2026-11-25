@@ -88,9 +88,25 @@ type SandboxTaskDefinitionPayload<THandler extends (...args: any[]) => any>
 type SandboxTaskDefinitionResult<THandler extends (...args: any[]) => any>
   = Awaited<ReturnType<THandler>>
 
+/** The limits on the values that cross the Sandbox boundary. Each limit is a whole number from 1 to 1073741824. */
+export interface SandboxTaskTransferOptions {
+  /** The largest payload and context JSON, in UTF-8 bytes. Default: 4194304 (4 MiB). */
+  maxInputBytes?: number
+  /** The largest result JSON, in UTF-8 bytes. Default: 4194304 (4 MiB). */
+  maxOutputBytes?: number
+  /** The deepest nesting of arrays and objects in one direction. Default: 32. */
+  maxDepth?: number
+  /** The largest number of `Blob`, `Uint8Array`, and `Buffer` values in one direction. Default: 64. */
+  maxSidecars?: number
+  /** The largest total size of the binary values in one direction, in bytes. Default: 67108864 (64 MiB). */
+  maxSidecarBytes?: number
+}
+
 export interface SandboxTaskDefinitionOptions {
   timeout?: number
   env?: Record<string, string>
+  /** The limits on the payload, the context, and the result of a run. */
+  transfer?: SandboxTaskTransferOptions
 }
 
 export interface SandboxTaskProjectOptions {
