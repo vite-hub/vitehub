@@ -1,5 +1,7 @@
 import { setTimeout as sleep } from "node:timers/promises"
 
+import { normalizeConsoleProjectUrl } from "@vite-hub/runtime/internal/console"
+
 import { checkConsoleApp, checkProblem, consoleAppUrl, linkConsoleApp, listConsoleApps, openConsole } from "../console-apps.ts"
 import { readConsoleCredential } from "../console-auth.ts"
 
@@ -7,7 +9,7 @@ import type { DeploymentEnvEntry } from "@vite-hub/internal/build/deployment-pla
 import type { ViteHubCliContext } from "@vite-hub/internal/cli"
 import type { ConsoleApp, ConsoleClient } from "../console-apps.ts"
 
-const consoleKeyPrefix = "VITEHUB_CONSOLE_KEY_"
+export const consoleKeyPrefix = "VITEHUB_CONSOLE_KEY_"
 const checkDelays = [1000, 2000, 4000]
 
 /** What `vitehub deploy --json` prints in `console` after it linked the app. */
@@ -40,15 +42,7 @@ export function readsConsoleKey(entries: readonly DeploymentEnvEntry[]): boolean
   return entries.some(entry => entry.prefix === consoleKeyPrefix)
 }
 
-export function withoutConsoleKey(entries: readonly DeploymentEnvEntry[]): DeploymentEnvEntry[] {
-  return entries.filter(entry => entry.prefix !== consoleKeyPrefix)
-}
-
-/**
- * The Console of the saved login, with the apps of its team. Without a login it returns nothing, and deploy works as
- * before. When the Console fails, it warns and returns nothing, so a Console problem never stops a deploy.
- */
-export async function openDeployConsole(context: ViteHubCliContext): Promise<DeployConsole | undefined> {
+export async function openDeployConsole(context: ViteHubCliContext): Promise<DeployConsole | "unavailable" | undefined> {
   if (!await readConsoleCredential(context.env)) return
   try {
     const client = await openConsole(context)
@@ -58,28 +52,34 @@ export async function openDeployConsole(context: ViteHubCliContext): Promise<Dep
   }
   catch (error: unknown) {
     context.stderr.write(`Warning: deploy does not link the app in the Console, because the Console failed: ${errorMessage(error)}\n`)
+    return "unavailable"
   }
 }
 
-/**
- * Links the deployed app in the Console, sets its key on the host when the host lacks it, and checks that the app
- * answers a signed request. The app of a key that the host has is this app, so deploy keeps that link when the URL
- * changed, such as a new custom domain.
- */
 export async function linkDeployedApp(options: {
   console: DeployConsole
   url: string
   label: string
   onHost: ReadonlySet<string>
-  setKey: (name: string, value: string) => Promise<void>
+  setKey: (name: string, value: string) => Promise<string | undefined>
   context: ViteHubCliContext
 }): Promise<DeployConsoleOutput | undefined> {
   const { client } = options.console
   try {
-    const known = options.console.apps.find(app => app.keyVariable && options.onHost.has(app.keyVariable))
+    const target = normalizeConsoleProjectUrl(options.url)
+    const installed = options.console.apps.filter(app => app.keyVariable && options.onHost.has(app.keyVariable))
+    const known = installed.find(app => app.url === target)
+    if (!known && installed.length) {
+      options.context.stderr.write(`Warning: the installed Console key links to ${installed.map(app => app.url).join(", ")}, not ${options.url}. Link the current production URL and set its key with \`vitehub apps link ${options.url}\`.\n`)
+      return
+    }
     const { app, created } = known ? { app: known, created: false } : await linkConsoleApp(client, { label: options.label, url: options.url })
     const keySet = app.keyVariable && app.publicKey && !options.onHost.has(app.keyVariable) ? app.keyVariable : undefined
-    if (keySet && app.publicKey) await options.setKey(keySet, app.publicKey)
+    const liveUrl = keySet && app.publicKey ? await options.setKey(keySet, app.publicKey) : options.url
+    if (!liveUrl || normalizeConsoleProjectUrl(liveUrl) !== app.url) {
+      options.context.stderr.write(`Warning: the Console record for ${app.url} does not match the final production URL (${liveUrl ?? "not reported"}). Check the production URL before linking the app.\n`)
+      return
+    }
     let check = await checkConsoleApp(client, app.id)
     for (const delay of checkDelays) {
       if (check.linked) break
