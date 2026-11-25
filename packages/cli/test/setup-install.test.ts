@@ -10,8 +10,8 @@ import { createProject, pnpmManifest, runSetup, viteConfig } from "./setup-helpe
 import type { SetupAddPlan } from "../src/setup/index.ts"
 
 const preview = "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/database@3476"
-const orm = "drizzle-orm@1.0.0-rc.5 || ^1.0.0"
-const kit = "drizzle-kit@1.0.0-rc.5 || ^1.0.0"
+const orm = "drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"
+const kit = "drizzle-kit@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"
 
 vi.mock("node:fs", async (importOriginal) => {
   const fs = await importOriginal<typeof import("node:fs")>()

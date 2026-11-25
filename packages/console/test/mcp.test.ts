@@ -228,7 +228,10 @@ describe("ViteHub MCP at /mcp/account", () => {
 
     const kept = await call("unlink_app", { id: linked.app.id }, tokens.bob)
     expect(kept.body!.result).toMatchObject({ content: [{ text: "CONSOLE_PROJECT_FORBIDDEN: Only owners and admins of the team unlink projects." }], isError: true })
-    const removed = await call("unlink_app", { id: linked.app.id }, tokens.ada)
+    const unconfirmed = await call("unlink_app", { id: linked.app.id }, tokens.ada)
+    expect(unconfirmed.body!.result).toMatchObject({ isError: true })
+    expect((await call("list_apps", {}, tokens.ada)).body!.result.structuredContent).toMatchObject({ apps: [{ id: linked.app.id }] })
+    const removed = await call("unlink_app", { id: linked.app.id, deleteHostedComments: true }, tokens.ada)
     expect(removed.body!.result.structuredContent).toMatchObject({ unlinked: linked.app.id })
     expect((await call("list_apps", {}, tokens.ada)).body!.result.structuredContent).toMatchObject({ apps: [] })
   })

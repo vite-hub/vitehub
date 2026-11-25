@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs"
 import { cp, mkdir, readFile, readdir, rename, rm, rmdir, writeFile } from "node:fs/promises"
 import { builtinModules } from "node:module"
@@ -412,15 +412,26 @@ export function netlifyScheduleFunctionNames(definitions: readonly Pick<Discover
   return names
 }
 
+const englishBuildHostOrder = new Intl.Collator("en-US")
+const denoCronNameLength = 64
+
+function denoCronNames(scheduleNames: Iterable<string>): Map<string, string> {
+  const sorted = [...scheduleNames].sort((left, right) => englishBuildHostOrder.compare(left, right) || (left < right ? -1 : left > right ? 1 : 0))
+  return new Map(sorted.map((name, index) => {
+    const indexedName = `vitehub-${index.toString(36)}-${name}`
+    if (/^[a-z0-9 _-]*$/i.test(name) && indexedName.length <= denoCronNameLength) return [name, indexedName]
+    const safeName = [...name].map(character => /^[a-z0-9 _-]$/i.test(character) ? character : "_").join("")
+    const hashedPrefix = `vitehub_${createHash("sha256").update(name).digest("hex").slice(0, 12)}-`
+    return [name, `${hashedPrefix}${safeName}`.slice(0, denoCronNameLength)]
+  }))
+}
+
 function renderDenoCronEntry(file: string, registryFile: string, crons: Map<string, string>, runtimeImport = scheduleStaticRuntimeImport, timeZoneCrons: ScheduleTimeZoneCrons = {}) {
-  const scheduleCrons = [...crons.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([name, cron], index) => {
-      const cronId = index.toString(36)
-      const safeName = [...name].map(character => /^[a-z0-9 _-]$/i.test(character) ? character : "_").join("")
-      const cronNamePrefix = `vitehub-${cronId}-`
-      return { cron, cronName: `${cronNamePrefix}${safeName.slice(0, 64 - cronNamePrefix.length)}`, denoCron: cronWithWeekdayNames(cron), inTimeZone: Object.hasOwn(timeZoneCrons, name), name }
-    })
+  const cronNames = denoCronNames(crons.keys())
+  const scheduleCrons = [...cronNames].map(([name, cronName]) => {
+    const cron = crons.get(name)!
+    return { cron, cronName, denoCron: cronWithWeekdayNames(cron), inTimeZone: Object.hasOwn(timeZoneCrons, name), name }
+  })
   return [
     `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
     `import { executeStaticSchedule, isTimeZoneWakeDue, missingScheduleDefinitionError, scheduledWakeTime, unwrapScheduleDefinition } from ${JSON.stringify(runtimeImport)}`,

@@ -1,12 +1,15 @@
 import { AsyncLocalStorage } from "node:async_hooks"
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+import { runInNewContext } from "node:vm"
 
 import { createRecord, parseRecord } from "@diglot/core"
 import { writeRecord } from "@diglot/store"
 import { compileMessage } from "@lingui/message-utils/compileMessage"
+import { VITEHUB_GENERATED_ROOT } from "@vite-hub/internal/build/vite"
 import { toResponse } from "@vite-hub/runtime/internal/response"
+import { rolldown } from "vite/rolldown"
 import { describe, expect, it, vi } from "vitest"
 
 import { createLiveTranslations, readRevisionRecords } from "../src/live.ts"
@@ -15,8 +18,10 @@ import { messageSegment, recordPath } from "../src/record-format.ts"
 import { messageId, readRecords } from "../src/records.ts"
 import { configureI18n, getI18n, setLocale, translate } from "../src/runtime.ts"
 import { i18nCatalogResponse, installI18nServer, useTranslations } from "../src/server.ts"
+import { hubI18n } from "../src/vite.ts"
 
 import type { WritableTranslationsWorkspace } from "../src/live.ts"
+import type { SourceMessages } from "../src/manifest.ts"
 
 function memoryWorkspace() {
   const revisions = new Map<string, Record<string, string>>()
@@ -72,6 +77,88 @@ function deferred() {
 }
 
 describe("Workspace records", () => {
+  it("keeps the published browser catalog on a Vue cache hit and inventories Nitro-only messages", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-i18n-nitro-cache-"))
+    try {
+      const buildDir = join(root, ".nuxt")
+      const generatedRoot = join(buildDir, "vitehub")
+      const page = join(root, "app.ts")
+      const server = join(root, "server.ts")
+      const entry = join(root, "entry.ts")
+      const macro = (message: string) => `import { t } from 'vite-hub/i18n'\nexport const label = () => t\`${message}\`\n`
+      await writeFile(page, macro(deploy.message))
+      await writeFile(server, macro(note.message))
+      await writeFile(entry, `export { label } from './server'\nexport { clientIds, sources } from 'virtual:vite-hub/i18n/build-messages'\n`)
+      const setup = async () => {
+        const plugin = hubI18n({ locales: ["en", "es"], workspace: "translations" })
+        const configure = plugin.config as { handler: (config: object, env: { command: string }) => Promise<unknown> }
+        await configure.handler({ root, [VITEHUB_GENERATED_ROOT]: generatedRoot, nitro: {} }, { command: "build" })
+        return plugin
+      }
+
+      const vite = await setup()
+      const client = { environment: { name: "client", config: { consumer: "client" } }, getModuleIds: () => [page] }
+      const transform = vite.transform as { handler: (this: object, code: string, id: string) => Promise<unknown> }
+      const renderStart = vite.renderStart as (this: object) => void
+      const writeBundle = vite.writeBundle as (this: object) => Promise<void>
+      await transform.handler.call(client, macro(deploy.message), page)
+      renderStart.call(client)
+      await writeBundle.call(client)
+      const store = memoryWorkspace()
+      const revision = await store.workspace.history.commit({
+        ref: "published",
+        ifHead: null,
+        changes: { put: { [recordPath("es", deploy.hash)]: JSON.stringify(record(deploy.message, "Publica tu agente")) } },
+      })
+      const buildCatalog = async (plugin: Awaited<ReturnType<typeof setup>>) => {
+        const bundle = await rolldown({
+          input: entry,
+          external: ["@vite-hub/i18n/runtime"],
+          plugins: [{
+            name: plugin.name,
+            resolveId: plugin.resolveId,
+            load: plugin.load,
+            renderChunk: plugin.renderChunk,
+            transform(code, id, options) {
+              const handler = plugin.transform as { handler: (this: object, code: string, id: string, options: { ssr: boolean, moduleType: string }) => Promise<string | undefined> }
+              return handler.handler.call(this, code, id, { ...options, ssr: true })
+            },
+          }],
+        })
+        const exports = {} as { clientIds: string[], sources: SourceMessages }
+        try {
+          const { output } = await bundle.generate({ format: "cjs" })
+          runInNewContext(output[0]!.code, { exports, require: () => ({}) })
+        }
+        finally {
+          await bundle.close()
+        }
+        expect(exports.clientIds).toEqual([deploy.id])
+        installI18nServer({ hooks: { hook: () => undefined } }, {
+          config,
+          messages: {},
+          current: () => undefined,
+          workspace: { name: "translations", open: () => store.workspace, ...exports },
+        })
+        const [error, missing] = await useTranslations().missing("es")
+        expect(error).toBeUndefined()
+        expect(missing?.items).toMatchObject([{ id: note.id, source: note.message }])
+        return (await i18nCatalogResponse(new Request("http://app.test/_vitehub/i18n/es.json"))).json()
+      }
+
+      const cold = await buildCatalog(vite)
+      expect(cold).toEqual({ revision: revision.id, messages: { [deploy.id]: ["Publica tu agente"] } })
+      const cache = join(root, "vue-cache")
+      await cp(buildDir, cache, { recursive: true })
+      await rm(buildDir, { recursive: true, force: true })
+      await cp(cache, buildDir, { recursive: true })
+      expect(await buildCatalog(await setup())).toEqual(cold)
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it("can list missing Spanish messages when another locale directory is unavailable", async () => {
     const store = memoryWorkspace()
     const open = store.workspace.history.open.bind(store.workspace.history)

@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import { consoleDateTime, consoleInitials, consoleRelativeTime } from "../client/format";
-import { grantSummary, inviteGuest, isSiteAuthUnavailable, openSite, phoneLink, qrCode, readSiteAccess, revokeInvite, revokeSession } from "../client/site-access";
+import { grantSummary, inviteGuest, isSiteAccessProblem, openSite, phoneLink, qrCode, readSiteAccess, revokeInvite, revokeSession, usesConsoleSiteAccess } from "../client/site-access";
 import { useConsoleToast } from "../client/toast";
 import { rememberConsoleSection } from "../sections";
 import ConsoleConfirm from "./console-confirm.vue";
@@ -15,9 +15,9 @@ import type { ConsoleRequestError } from "../client/request";
 import type { SiteGrant, SiteInvite, SiteSession } from "../client/site-access";
 
 /**
- * Site access: who the Console signs in to the app for the page tools. Members open the site from here, or scan a QR
- * code with a phone. Guests get a one-time link with a name and the roles a member picked; they never see the Console.
- * Each browser is one row, an app session. Revoking a member's browser signs it out; revoking a guest's deletes the guest.
+ * Site access: who the Console signs in to the app for the page tools. Members of the team open the site from here, or
+ * scan a QR code with a phone. Guests get a one-time link with a name and the roles a member picked; they never see the
+ * Console. Each browser with a Console pass is one row. Revoking it stops new sign-ins of that browser.
  */
 defineProps<{
   agentsBase: string;
@@ -81,7 +81,7 @@ function expiresIn(value: string): string {
 // Open site: the new tab is signed in as you, then opens the app's home page.
 const opening = ref(false);
 function showLinkError(cause: unknown, title: string): void {
-  if (isSiteAuthUnavailable(cause)) linkError.value = { title, cause };
+  if (isSiteAccessProblem(cause)) linkError.value = { title, cause };
   else toast.error(`${title}. Try again.`);
 }
 
@@ -168,7 +168,7 @@ async function invite(): Promise<void> {
     invites.value = [result.invite, ...invites.value];
   }
   catch (cause) {
-    if (isSiteAuthUnavailable(cause)) inviteError.value = cause;
+    if (isSiteAccessProblem(cause)) inviteError.value = cause;
     else toast.error("Couldn't create the invite. Try again.");
   }
   finally {
@@ -188,7 +188,9 @@ const revokeOpen = ref(false);
 const revokeBusy = ref(false);
 const revokeTitle = computed(() => revoking.value?.kind === "session" ? `Revoke ${revoking.value.session.person.name} on ${revoking.value.session.device}?` : `Revoke the invite for ${revoking.value?.invite.name}?`);
 const revokeDescription = computed(() => revoking.value?.kind === "session"
-  ? (revoking.value.session.kind === "guest" ? "This signs the browser out and deletes the guest. Their comments stay." : "This signs the browser out of the app.")
+  ? (usesConsoleSiteAccess()
+      ? (revoking.value.session.kind === "guest" ? "The Console stops signing this guest in. Their comments stay." : "The Console stops signing this browser in. Members still open the site from the Console.")
+      : (revoking.value.session.kind === "guest" ? "This signs the browser out and deletes the guest. Their comments stay." : "This signs the browser out of the app."))
   : "The link stops working. Nobody has opened it yet.");
 
 function askRevoke(target: NonNullable<typeof revoking.value>): void {
@@ -260,7 +262,7 @@ onBeforeUnmount(() => {
       </div>
       <div v-else class="vitehub-console-page grid gap-8">
         <p class="text-pretty text-[13px] text-muted">
-          The Console signs these browsers in to the app, so they get the page tools. Members also get the Console link; guests get only the roles you picked.
+          The Console signs these browsers in to the app, so they get the page tools. Every member of the team opens the site from the Console; guests get only the roles you picked.
         </p>
 
         <section v-for="group in sessionsError ? [] : [{ id: 'members', title: 'Members', rows: members }, { id: 'guests', title: 'Guests', rows: guests }]" :key="group.id" :aria-labelledby="`site-${group.id}`" class="grid gap-2">

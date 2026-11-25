@@ -193,7 +193,7 @@ If an installed `@vite-hub/*` package version does not match `vite-hub`, the bui
 If `drizzle-orm` is outside the range of `vite-hub`, such as Drizzle 0.x, the Database feature and builds that load the Drizzle query adapter for Agent Invocations stop with [`VITE_HUB_PEER_VERSION_UNSUPPORTED`](/docs/development/diagnostics/vite_hub_peer_version_unsupported). Agent builds that do not load the adapter can keep an unrelated Drizzle version. pnpm can keep a version that the lockfile or another dependency already has, such as the 0.44 that `@nuxt/ui` brings in, and only warn. If the build needs Drizzle, add a supported version to your app:
 
 ```text [output/unsupported-drizzle.txt]
-[VITE_HUB_PEER_VERSION_UNSUPPORTED] drizzle-orm 0.44.7 is installed, but vite-hub 0.3.1 supports drizzle-orm@1.0.0-rc.5 || ^1.0.0. ViteHub imports modules that other versions do not have, so the build fails with a resolve error, such as `drizzle-orm/libsql/codecs` not exported.
+[VITE_HUB_PEER_VERSION_UNSUPPORTED] drizzle-orm 0.44.7 is installed, but vite-hub 0.3.1 supports drizzle-orm@1.0.0-rc.6 || 1.0.0-rc.6 || ^1.0.0. ViteHub imports modules that other versions do not have, so the build fails with a resolve error, such as `drizzle-orm/libsql/codecs` not exported.
 ```
 
 If another third-party dependency version falls outside the range supported by your `vite-hub` release, the build continues and prints a warning with the supported range and install command:

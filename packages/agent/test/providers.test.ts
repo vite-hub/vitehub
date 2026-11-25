@@ -545,7 +545,9 @@ describe("agent Vite plugin", () => {
 
       await rm(evalFile)
       const memoryPlugin = hubAgent({ providers: { state: { driver: "memory" } } })
-      await (memoryPlugin.configResolved as typeof configResolved)(privateConfig)
+      const memoryConfigResolvedHook: unknown = memoryPlugin.configResolved
+      const memoryConfigResolved = memoryConfigResolvedHook as typeof configResolved
+      await memoryConfigResolved(privateConfig)
       await expect(readFile(generatedQueue, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
       await expect(readFile(generatedEvalConfig, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
 
@@ -553,7 +555,7 @@ describe("agent Vite plugin", () => {
       const withDatabase = { ...privateConfig, nitro: {}, plugins: [{ name: "nitro:main" }, { name: "@vite-hub/database/vite" }] }
       await (memoryPlugin.config as typeof config)(withDatabase, { command: "build", mode: "production" })
       expect(withDatabase).toMatchObject({ nitro: { plugins: [generatedQueue] } })
-      await (memoryPlugin.configResolved as typeof configResolved)({ ...withDatabase, resolve: { alias: [] } })
+      await memoryConfigResolved({ ...withDatabase, resolve: { alias: [] } })
       await expect(readFile(generatedQueue, "utf8")).resolves.toContain("resumeWebhookQueues(waitUntil, recoverInterruptedBefore, agentRecoveryLeases())")
       await expect(readFile(generatedQueue, "utf8")).resolves.not.toContain("warmWebhookRoutes")
       await expect(readFile(generatedRoute, "utf8")).resolves.toContain("const queueOpens = false")
@@ -3079,7 +3081,8 @@ export default defineAgent({
         expect(webhookRoute).toContain("if (!queueOpens && !recoverySweep) return async () => undefined")
         // A file: URL that the app set throws in workerd instead of running without State.
         expect(webhookRoute).toContain("return opensLibsqlAgentState(runtimeUrl || viteHubChatStateOptions.url, { configured: true })")
-        expect(webhookRoute).toContain("handler.resume({ agentIdentity: agentIdentities[name], recoverInterruptedBefore, recoverySweep: recoverySweep && { ...recoverySweep, withoutQueue: !queueOpens }, webhookState: queueOpens ? chatStateFromLibsql() : undefined, waitUntil })")
+        expect(webhookRoute).toContain("const discoveredJournalNames = Object.entries(agents).map(([name, agent]) => agent.name || name)")
+        expect(webhookRoute).toContain("handler.resume({ agentIdentity: agentIdentities[name], discoveredJournalNames, recoverInterruptedBefore, recoverySweep: recoverySweep && { ...recoverySweep, withoutQueue: !queueOpens }, webhookState: queueOpens ? chatStateFromLibsql() : undefined, waitUntil })")
         expect(webhookRoute).toContain("return async () => await Promise.all(stops.map(stop => stop()))")
         expect(queuePlugin).toContain('import { resumeWebhookQueues, warmWebhookRoutes } from "./chat-webhook-route"')
         expect(queuePlugin).not.toContain("nitroApp.hooks.hook('request'")

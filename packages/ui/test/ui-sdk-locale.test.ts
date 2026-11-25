@@ -9,9 +9,16 @@ describe("patched ui-sdk date parsing", () => {
     expect(parseDate("2026-05-01", "ky-KG", options)).toBe("2026-01-05");
   });
 
-  it.each(["ha", "ak", "ff", "sg", "sat", "ksh"])("keeps %s numeric order for omitted years and compact digits", (locale) => {
-    expect(parseDate("01/05", locale, options)).toBe("2026-01-05");
+  it.each(["ha", "ak", "ff", "sg", "sat", "ksh"])("keeps %s numeric order for compact digits", (locale) => {
     expect(parseDate("260116", locale, options)).toBe("2026-01-16");
+  });
+
+  it.each(["ha", "ff", "sg", "sat"])("reads %s dates typed with the short-date separator in short-date order", (locale) => {
+    expect(parseDate("01/05", locale, options)).toBe("2026-05-01");
+  });
+
+  it.each(["ak", "ksh"])("keeps %s numeric order for omitted years", (locale) => {
+    expect(parseDate("01/05", locale, options)).toBe("2026-01-05");
   });
 
   it("still accepts localized short-date order", () => {
