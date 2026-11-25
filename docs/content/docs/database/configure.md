@@ -265,7 +265,9 @@ A migration counts as applied when a migrations table lists one of its names:
 
 `vitehub database migrate` then records these migrations in the table it uses: Drizzle's `__drizzle_migrations` for SQLite and libSQL, and Wrangler's table for D1 HTTP. It reads `_hub_migrations`, `d1_migrations`, `__drizzle_migrations`, and `cloudflare.migrationsTable`. When a table lists a name that now has another number, such as `0000_init` for the migration that is now `0001_init.sql`, the check fails with `DATABASE_MIGRATION_CHECK_FAILED`.
 
-Run `vitehub database migrate` once before a server migrates on start, because [Migrate when the server starts](#migrate-when-the-server-starts) reads only Drizzle's table. Postgres reads only Drizzle's table too. A native D1 binding is migrated with Wrangler, which reads only its own table and exact file names. For it, follow [Baseline an existing Cloudflare D1 database](/docs/compare/nuxthub#baseline-an-existing-cloudflare-d1-database).
+Run `vitehub database migrate` once before a server migrates on start, because [Migrate when the server starts](#migrate-when-the-server-starts) reads only Drizzle's table. Postgres reads only Drizzle's table too.
+
+A native Cloudflare D1 binding is migrated with Wrangler, which tracks filenames in its own table instead of NuxtHub's normalized names in `_hub_migrations`. To baseline an existing D1 database, back it up, remove `migrations_table: "_hub_migrations"` from your Wrangler config, generate a baseline into an empty `server/databases/default/migrations/` folder with `pnpm vitehub database generate --name baseline`, add `IF NOT EXISTS` to each `CREATE` statement in `migration.sql` while keeping `snapshot.json`, build, and apply it with `pnpm wrangler d1 migrations apply <database-name> --remote --config .output/server/wrangler.json`. Commit the migration folder and generated `d1-migrations.json`.
 
 ### Rename a column or table
 

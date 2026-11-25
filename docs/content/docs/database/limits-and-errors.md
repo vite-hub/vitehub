@@ -129,7 +129,7 @@ The database uses D1 HTTP, and a runtime value is missing: `cloudflare.databaseI
 
 ### DATABASE_URL_VARIABLE_IGNORED
 
-A warning, printed once per database when it opens. The Database Definition has no `connection`, so it uses its local SQLite file, but `TURSO_DATABASE_URL`, `LIBSQL_URL`, or a libSQL `DATABASE_URL` is set. NuxtHub and `connectDatabase()` read these variables on their own. A Database Definition does not. To use the variable, set `connection: { url: process.env.TURSO_DATABASE_URL, authToken: process.env.TURSO_AUTH_TOKEN }` in the Definition. To keep the local file, unset the variable. See [Keep a Turso or libSQL connection](/docs/compare/nuxthub#keep-a-turso-or-libsql-connection).
+A warning, printed once per database when it opens. The Database Definition has no `connection`, so it uses its local SQLite file, but `TURSO_DATABASE_URL`, `LIBSQL_URL`, or a libSQL `DATABASE_URL` is set. NuxtHub and `connectDatabase()` read these variables on their own. A Database Definition does not. To use the variable, set `connection: { url: process.env.TURSO_DATABASE_URL, authToken: process.env.TURSO_AUTH_TOKEN }` in the Definition. To keep the local file, unset the variable. See [Database configuration](/docs/database/configure).
 
 ### DATABASE_NAME_REQUIRED
 
