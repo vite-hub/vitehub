@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { runViteHubCli } from "../src/index.ts"
 
@@ -153,6 +153,50 @@ describe("vitehub inspect", () => {
     expect(result.stdout).toContain("Not generated:")
     expect(result.stdout).toContain("  .vitehub/provision.json  (cli)")
     expect(result.stdout).toContain("  dist/server/wrangler.json  (vite-hub)")
+  })
+
+  it("resolves build-only Provider Output in production mode", async () => {
+    const rootDir = await createTempDir()
+    await writeFile(join(rootDir, "vite.config.mjs"), `
+export default ({ command, mode }) => ({
+  plugins: command === "build" && mode === "production" ? [{
+    name: "production-output",
+    apply: "build",
+    vitehub: { inspect: { providerOutput: [{ description: "Production manifest", owner: "test", path: ${JSON.stringify(join(rootDir, ".vitehub/production.json"))} }] } },
+  }] : [],
+})
+`)
+    const stdout = stream()
+    const exitCode = await runViteHubCli({
+      args: ["inspect", "output", "--json"],
+      cwd: rootDir,
+      stdout,
+    })
+
+    expect(exitCode).toBe(0)
+    expect(JSON.parse(stdout.output()).providerOutput).toEqual(expect.arrayContaining([
+      expect.objectContaining({ owner: "test", path: ".vitehub/production.json" }),
+    ]))
+  })
+
+  it("passes build discovery to project and Nuxt config loaders", async () => {
+    const rootDir = await createTempDir()
+    const loadConfig = vi.fn(async () => ({ plugins: [], root: rootDir }))
+    const loadNuxtViteConfig = vi.fn(async () => ({ plugins: inspectPlugins(rootDir), root: rootDir }))
+    const stdout = stream()
+
+    expect(await runViteHubCli({
+      args: ["inspect", "output", "--json"],
+      cwd: rootDir,
+      loadConfig,
+      loadNuxtViteConfig,
+      stdout,
+    })).toBe(0)
+    expect(loadConfig).toHaveBeenCalledWith(rootDir, "build")
+    expect(loadNuxtViteConfig).toHaveBeenCalledWith(rootDir, "build")
+    expect(JSON.parse(stdout.output()).providerOutput).toEqual(expect.arrayContaining([
+      expect.objectContaining({ owner: "rate-limit", path: ".vitehub/rate-limit/manifest.json" }),
+    ]))
   })
 
   it("redacts secrets in Provider Output JSON content", async () => {

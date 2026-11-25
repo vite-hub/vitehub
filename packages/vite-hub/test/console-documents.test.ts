@@ -15,7 +15,7 @@ import { createContentConsoleActions } from "../../content/src/runtime/console.t
 import { discoverConsoleBuildCatalog, withConsoleDocumentEditorSections } from "../src/console/build.ts"
 import { consoleDocumentEditorSectionIds, describeConsoleDocumentEditors } from "../src/console/contributions.ts"
 import { consoleStateKey } from "../src/console/internal.ts"
-import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
+import { writeConsoleAppModule } from "../src/console/app-module.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { insertConsoleSection } from "../src/console/runtime/sections.ts"
 import { installConsoleAccess, withConsoleAccess } from "../src/console/runtime/server/access.ts"
@@ -330,7 +330,7 @@ describe("Console document editor discovery", () => {
     expect(sections).toEqual(["content", "kv"])
     expect(catalog.content.content).toMatchObject({ setup: { sourceHeadsOnly: true } })
 
-    await writeConsoleNitroPlugin({ file: plugin, projectRoot: root, sections, catalog, blobStores: [] })
+    await writeConsoleAppModule({ file: plugin, projectRoot: root, sections, catalog, blobStores: [] })
     expect(await readFile(plugin, "utf8")).toContain(`installConsoleDocuments(${JSON.stringify(root)}, { "content": { actions: vitehubConsoleDocumentActions0, load: () => import(${JSON.stringify(pathToFileURL(entry).href)}) } })`)
 
     vi.stubEnv("VITEHUB_GITHUB_TOKEN", "")
@@ -382,7 +382,7 @@ describe("Console document editor discovery", () => {
     const root = await temporaryRoot()
     const plugin = join(root, "console.mjs")
     const entry = join(root, "server/content.ts")
-    await writeConsoleNitroPlugin({ file: plugin, projectRoot: root, sections: ["kv"], catalog: { agents: [], content: { content: { collections: [], kind: "document-editor" } }, documents: { content: entry } }, blobStores: [] })
+    await writeConsoleAppModule({ file: plugin, projectRoot: root, sections: ["kv"], catalog: { agents: [], content: { content: { collections: [], kind: "document-editor" } }, documents: { content: entry } }, blobStores: [] })
     const source = await readFile(plugin, "utf8")
 
     expect(describeConsoleDocumentEditors(["content"], { content: entry })).toEqual([
@@ -394,7 +394,7 @@ describe("Console document editor discovery", () => {
     expect(source).toContain(`installConsoleSections(${JSON.stringify(root)}, ["content","kv"])`)
     expect(source).toContain(`"id":"content"`)
 
-    await writeConsoleNitroPlugin({ file: plugin, projectRoot: root, sections: ["kv"], catalog: { agents: [], content: {} }, blobStores: [] })
+    await writeConsoleAppModule({ file: plugin, projectRoot: root, sections: ["kv"], catalog: { agents: [], content: {} }, blobStores: [] })
     const without = await readFile(plugin, "utf8")
     expect(without).not.toContain("installConsoleDocuments")
     expect(without).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"])`)

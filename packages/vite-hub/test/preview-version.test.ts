@@ -43,11 +43,8 @@ describe("a pkg.pr.new preview of vite-hub", () => {
       const { vitehub } = await import(pathToFileURL(join(preview, "dist/index.js")).href) as typeof import("../src/index.ts")
       const consolePlugin = findPlugin(vitehub({ console: true }), "vite-hub/console")
       if (!consolePlugin || !("config" in consolePlugin)) throw new TypeError("Expected the Console plugin.")
-      const config: { nitro?: { plugins: string[] }, root: string } = { root: app }
-      await Reflect.apply(hookHandler(consolePlugin.config), {}, [config, { command: "build", mode: "production" }])
-      const generated = config.nitro?.plugins.find(file => file.endsWith("console/plugin.mjs"))
-      if (!generated) throw new TypeError("Expected the generated Console plugin.")
-      expect(await readFile(generated, "utf8")).toContain(`installConsoleVersion(${JSON.stringify(version)})`)
+      await Reflect.apply(hookHandler(consolePlugin.config), {}, [{ root: app }, { command: "build", mode: "production" }])
+      expect(await readFile(join(app, ".vitehub/nitro/console/app.mjs"), "utf8")).toContain(`installConsoleVersion(${JSON.stringify(version)})`)
 
       const { default: doctor } = await import(pathToFileURL(join(preview, "dist/doctor.js")).href) as typeof import("../src/doctor.ts")
       expect(doctor.rulePacks?.[0]?.version).toBe(version)

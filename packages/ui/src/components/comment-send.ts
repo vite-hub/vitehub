@@ -180,7 +180,10 @@ export const CommentSend = defineComponent({
             h("span", { "aria-hidden": "true", "data-slot": "comment-send-hold-copy" }, sendContent(current.count, lastInbox)),
           ])];
         case "sent":
-          return [status(undefined, [icon("i-lucide-check"), current.inbox ? "In inbox" : "Sent"])];
+          return [
+            status(undefined, [icon("i-lucide-check"), current.inbox ? "In inbox" : "Sent"]),
+            current.count > 0 ? sendButton(current.count, Boolean(current.agent && !current.agent.host)) : null,
+          ].filter(part => part !== null);
         case "working":
           return [
             status(undefined, [h("span", { "aria-hidden": "true", "data-slot": "comment-send-dot" }), "Working"]),

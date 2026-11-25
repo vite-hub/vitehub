@@ -6,7 +6,6 @@ import { pathToFileURL } from "node:url"
 import { runInNewContext } from "node:vm"
 
 import { setResolvedFeatureOptions } from "@vite-hub/internal/build/vite"
-import { hubKV } from "@vite-hub/kv/vite"
 import { desc } from "drizzle-orm"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -35,7 +34,7 @@ import { consoleSearch } from "../src/console/runtime/server/search.ts"
 import { listConsoleSections } from "../src/console/runtime/server/sections.get.ts"
 import { installConsoleDevelopment, installConsoleProjectName, installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { consoleInvocationRootPlugin, consoleVitePlugin } from "../src/console/vite.ts"
-import { readConsoleUsage as usageHandlerRoute } from "../src/console/runtime/server/usage.get.ts"
+import { readConsoleUsage as usageHandlerRoute } from "../src/console/runtime/server/invocations.usage.ts"
 import { createUsageSummary, invocationUsage } from "../src/console/runtime/server/usage.ts"
 
 import { runAgent } from "@vite-hub/agent"
@@ -44,7 +43,7 @@ import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-
 import { agentWithColocatedSkills, workspaceAgentWithSourceRoot } from "../../agent/dist/runtime/workflow.js"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
-import type { AgentInvocations, AgentRuntimeContext } from "@vite-hub/agent"
+import type { AgentInvocationRecord, AgentInvocations, AgentRuntimeContext } from "@vite-hub/agent"
 import type { ResolvedAuthViteConfig } from "@vite-hub/auth"
 import type { Plugin } from "vite"
 import type { ConsoleInvocationRootState } from "../src/console/vite.ts"
@@ -131,9 +130,12 @@ function hostedInvocationUrl(project: string, agentSegment: string, id: string):
   return `https://console.vitehub.dev/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(`/agents/${agentSegment}/invocations/${encodeURIComponent(id)}`)}`
 }
 
-/** The generated Console Nitro plugin. The CORS preflight plugin can come before it. */
-function consolePluginFile(plugins: readonly string[] | undefined): string {
-  return plugins?.find(plugin => /\/console\/plugin(?:-[\w-]+)?\.mjs$/.test(plugin)) ?? ""
+/** The generated Console app module, which the Console plugin resolves for `#vitehub/console/app`. */
+function consoleAppFile(plugin: Plugin): string {
+  const hook = plugin.resolveId
+  const handler = hook && "handler" in hook ? hook.handler : hook
+  const file: unknown = handler instanceof Function ? Reflect.apply(handler, {}, ["#vitehub/console/app", undefined, { isEntry: false }]) : undefined
+  return typeof file === "string" ? file : ""
 }
 
 describe("Agent invocation console", () => {
@@ -174,7 +176,7 @@ describe("Agent invocation console", () => {
         nitro?: {
           handlers: Array<{ handler: string, route: string }>
           plugins: string[]
-          publicAssets: Array<{ baseURL: string, dir: string }>
+          publicAssets?: Array<{ baseURL: string, dir: string }>
         }
         root: string
       } = { root }
@@ -182,34 +184,30 @@ describe("Agent invocation console", () => {
       if (!config.nitro) throw new TypeError("Expected the console Nitro configuration.")
 
       expect(config.nitro.handlers.map((handler) => handler.route)).toEqual([
-        "/_vitehub/rpc",
-        "/_vitehub",
         "/_vitehub/**",
-        "/_vitehub/page/tools",
+        "/_vitehub",
+        "/_vitehub/rpc",
       ])
-      expect(config.nitro.publicAssets).toEqual([
-        expect.objectContaining({ baseURL: "/_vitehub/.well-known/skills", dir: expect.stringContaining("public/skills"), fallthrough: false }),
-        expect.objectContaining({ baseURL: "/_vitehub/console/assets", dir: expect.stringMatching(/runtime\/page-tool$/) }),
-        expect.objectContaining({ baseURL: "/_vitehub/page/assets", dir: expect.stringMatching(/runtime\/page$/) }),
-      ])
-      expect(config.nitro.plugins).toContain(resolve(root, ".vitehub/nitro/console/plugin.mjs"))
-      await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.toContain(`installConsoleSections(${JSON.stringify(root)}, ["agents","usage","blob","kv","site"])`)
-      await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.toContain(`installConsoleProjectName(${JSON.stringify(root)}, "console-host")`)
-      await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.toMatch(/installConsoleBuild\(\{"time":"\d{4}-/)
-      await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.toContain('"host":{"name":"cloudflare","preset":"cloudflare-module"},"framework":{"name":"nitro"}')
-      await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.toContain(
+      expect(config.nitro.publicAssets).toBeUndefined()
+      expect(consoleAppFile(plugin)).toBe(resolve(root, ".vitehub/nitro/console/app.mjs"))
+      expect(config.nitro.plugins).toEqual([expect.stringMatching(/runtime\/operation-loader\.js$/)])
+      await expect(readFile(consoleAppFile(plugin), "utf8")).resolves.toContain(`installConsoleSections(${JSON.stringify(root)}, ["agents","usage","blob","kv"])`)
+      await expect(readFile(consoleAppFile(plugin), "utf8")).resolves.toContain(`installConsoleProjectName(${JSON.stringify(root)}, "console-host")`)
+      await expect(readFile(consoleAppFile(plugin), "utf8")).resolves.toMatch(/installConsoleBuild\(\{"time":"\d{4}-/)
+      await expect(readFile(consoleAppFile(plugin), "utf8")).resolves.toContain('"host":{"name":"cloudflare","preset":"cloudflare-module"},"framework":{"name":"nitro"}')
+      await expect(readFile(consoleAppFile(plugin), "utf8")).resolves.toContain(
         `installConsoleAgentDefinitions([`,
       )
-      await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.toContain(
+      await expect(readFile(consoleAppFile(plugin), "utf8")).resolves.toContain(
         `{ projectRoot: ${JSON.stringify(root)} }`,
       )
-      await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.toContain(
+      await expect(readFile(consoleAppFile(plugin), "utf8")).resolves.toContain(
         `fallbackName: "review"`,
       )
-      await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.toContain(
+      await expect(readFile(consoleAppFile(plugin), "utf8")).resolves.toContain(
         `installConsoleBlob(${JSON.stringify(root)}, vitehubConsoleBlob, ["default","archive"])`,
       )
-      await expect(readFile(consolePluginFile(config.nitro.plugins), "utf8")).resolves.toContain(`from "file://`)
+      await expect(readFile(consoleAppFile(plugin), "utf8")).resolves.toContain(`from "file://`)
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -234,7 +232,7 @@ describe("Agent invocation console", () => {
 
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
-      const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
+      const generated = await readFile(consoleAppFile(plugin), "utf8")
       expect(generated).not.toContain("installConsoleDatabase(")
     }
     finally {
@@ -265,7 +263,7 @@ describe("Agent invocation console", () => {
 
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
 
-      const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
+      const generated = await readFile(consoleAppFile(plugin), "utf8")
       // Without its own Database Definition, the app gets only the implicit default Database.
       expect(generated).toContain('"name":"default","source":"implicit-default"')
       expect(generated).not.toContain("inherited/server/databases/default.ts")
@@ -297,7 +295,7 @@ describe("Agent invocation console", () => {
       const config: { nitro?: { plugins: string[] }, root: string } = { root }
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
-      const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
+      const generated = await readFile(consoleAppFile(plugin), "utf8")
       // The capabilities load with the first Console invocation, not when the server starts.
       expect(generated).not.toMatch(/^import .*vite-hub\/(?:blob|database\/runtime\/registry|i18n\/server|kv)/m)
       expect(generated).toContain(`capabilities: async () => { const [{ blob: vitehubConsoleAgentBlob }, { agentConsole: vitehubConsoleAgentConsole }, { agentDb: vitehubConsoleAgentDb }, { agentI18n: vitehubConsoleAgentI18n }, { kv: vitehubConsoleAgentKv }] = await Promise.all([import("vite-hub/blob"), import("vite-hub/console/server"), import("@vite-hub/database/runtime/registry"), import("vite-hub/i18n/server"), import("vite-hub/kv")]); return { blob: vitehubConsoleAgentBlob, console: vitehubConsoleAgentConsole, db: vitehubConsoleAgentDb, i18n: vitehubConsoleAgentI18n, kv: vitehubConsoleAgentKv } }`)
@@ -312,7 +310,7 @@ describe("Agent invocation console", () => {
     { base: "/portal/", nitro: { baseURL: "/portal/", handlers: [], plugins: [], publicAssets: [] }, mount: "" },
     { base: "https://cdn.example/portal/", mount: "" },
     { base: "https://cdn.example/assets/", __vitehubAppBaseURL: "/portal/", mount: "/portal" },
-  ])("mounts Nitro Console routes and assets at the application base: %j", async ({ mount, ...bases }) => {
+  ])("mounts the Nitro Console route at the application base: %j", async ({ mount, ...bases }) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-base-host-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
@@ -320,21 +318,16 @@ describe("Agent invocation console", () => {
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook
-      const config: { base: string, nitro?: { handlers: Array<{ handler: string, route: string }>, plugins: string[], publicAssets: Array<{ baseURL: string, dir: string }> }, root: string } = { ...bases, root }
+      const config: { base: string, nitro?: { handlers: Array<{ handler: string, route: string }>, plugins: string[], publicAssets?: Array<{ baseURL: string, dir: string }> }, root: string } = { ...bases, root }
 
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
-        `${mount}/_vitehub/rpc`,
-        `${mount}/_vitehub`,
         `${mount}/_vitehub/**`,
-        `${mount}/_vitehub/page/tools`,
+        `${mount}/_vitehub`,
+        `${mount}/_vitehub/rpc`,
       ])
-      expect(config.nitro?.publicAssets).toEqual([
-        expect.objectContaining({ baseURL: `${mount}/_vitehub/.well-known/skills`, dir: expect.stringContaining("public/skills"), fallthrough: false }),
-        expect.objectContaining({ baseURL: `${mount}/_vitehub/console/assets` }),
-        expect.objectContaining({ baseURL: `${mount}/_vitehub/page/assets` }),
-      ])
+      expect(config.nitro?.publicAssets ?? []).toEqual([])
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -351,25 +344,22 @@ describe("Agent invocation console", () => {
       if (!configHook || !configResolvedHook) throw new TypeError("Expected Console Vite hooks.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook
       const configResolvedHandler = "handler" in configResolvedHook ? configResolvedHook.handler : configResolvedHook
-      const config: { base: string, nitro?: { handlers: Array<{ handler: string, route: string }>, plugins: string[], publicAssets: Array<{ baseURL: string, dir: string }> }, root: string, vitehubCliDiscovery: true } = { base: "/early/", root, vitehubCliDiscovery: true }
+      const config: { base: string, nitro?: { handlers: Array<{ handler: string, route: string }>, plugins: string[], publicAssets?: Array<{ baseURL: string, dir: string }> }, root: string, vitehubCliDiscovery: true } = { base: "/early/", root, vitehubCliDiscovery: true }
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
-      config.nitro?.publicAssets.push({ baseURL: "/portal/_vitehub/assets", dir: "/user-owned-assets" })
+      if (!config.nitro) throw new TypeError("Expected the console Nitro configuration.")
+      config.nitro.publicAssets = [{ baseURL: "/portal/_vitehub/assets", dir: "/user-owned-assets" }]
 
       const resolvedConfig = { ...config, base: "/portal/", logger: { warn: () => undefined } }
       await Reflect.apply(configResolvedHandler, {}, [resolvedConfig])
 
       expect(resolvedConfig.nitro?.handlers.map(handler => handler.route)).toEqual([
-        "/portal/_vitehub/rpc",
-        "/portal/_vitehub",
         "/portal/_vitehub/**",
-        "/portal/_vitehub/page/tools",
+        "/portal/_vitehub",
+        "/portal/_vitehub/rpc",
       ])
-      // The app keeps its own assets below /_vitehub. No Console assets remain at the earlier base.
+      // The app keeps its own assets below /_vitehub. The Console adds none.
       expect(resolvedConfig.nitro?.publicAssets).toEqual([
-        expect.objectContaining({ baseURL: "/portal/_vitehub/.well-known/skills", dir: expect.stringContaining("public/skills") }),
         { baseURL: "/portal/_vitehub/assets", dir: "/user-owned-assets" },
-        expect.objectContaining({ baseURL: "/portal/_vitehub/console/assets" }),
-        expect.objectContaining({ baseURL: "/portal/_vitehub/page/assets" }),
       ])
     }
     finally {
@@ -386,9 +376,8 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.config, {}, [config, { command: "serve", mode: "development" }])
       await callPluginHook(plugin.configResolved, {}, [withViteLogger({ ...config, base: "/" })])
 
-      const file = config.nitro.plugins.find((file: string) => file.endsWith("/console/plugin-dev.mjs"))
-      expect(file).toBeDefined()
-      const generated = await readFile(file!, "utf8")
+      expect(config.nitro.plugins).toEqual([expect.stringMatching(/runtime\/operation-loader\.js$/)])
+      const generated = await readFile(consoleAppFile(plugin), "utf8")
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["setup","kv"], ["setup"])`)
       expect(generated).toContain(`true, "/__vitehub/setup")`)
       // A development server has no build for `project.get` to name.
@@ -418,7 +407,7 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(resolved)])
 
       expect(resolved.nitro.handlers.filter(handler => handler.route?.startsWith("/.well-known/"))).toEqual(applicationHandlers)
-      expect(resolved.nitro.handlers.map(handler => handler.route).filter(route => !route?.startsWith("/.well-known/"))).toEqual(mode === "rpc-only" ? ["/portal/_vitehub/rpc", "/portal/_vitehub", "/portal/_vitehub/**"] : ["/portal/_vitehub/rpc", "/portal/_vitehub", "/portal/_vitehub/**", "/portal/_vitehub/page/tools"])
+      expect(resolved.nitro.handlers.map(handler => handler.route).filter(route => !route?.startsWith("/.well-known/"))).toEqual(["/portal/_vitehub/**", "/portal/_vitehub", "/portal/_vitehub/rpc"])
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -430,7 +419,15 @@ describe("Agent invocation console", () => {
     addConsoleRpcHandler(config, "/runtime", "/early/")
     addConsoleRpcHandler(config, "/runtime", "/portal/")
 
-    expect(config.handlers.map(handler => handler.route)).toEqual(["/portal/_vitehub/rpc", "/portal/_vitehub", "/portal/_vitehub/**"])
+    expect(config.handlers.map(handler => handler.route)).toEqual(["/portal/_vitehub/**", "/portal/_vitehub", "/portal/_vitehub/rpc"])
+  })
+
+  it("refuses an app route in the Nitro routes option on a Console path", () => {
+    expect(() => addConsoleRpcHandler({ routes: { "/portal/_vitehub/rpc": "./server/rpc.ts" } }, "/runtime", "/portal/"))
+      .toThrow("the Nitro routes option uses that path")
+    expect(() => addConsoleRpcHandler({ routes: { "/portal/_vitehub/rpc/": "./server/rpc.ts" } }, "/runtime", "/portal/"))
+      .toThrow("the Nitro routes option uses that path")
+    expect(() => addConsoleRpcHandler({ routes: { "/portal/_vitehub/other": "./server/other.ts" } }, "/runtime", "/portal/")).not.toThrow()
   })
 
   it("registers Blob inspection without loading the Agent server graph", async () => {
@@ -454,12 +451,11 @@ describe("Agent invocation console", () => {
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
-        "/_vitehub/rpc",
-        "/_vitehub",
         "/_vitehub/**",
-        "/_vitehub/page/tools",
+        "/_vitehub",
+        "/_vitehub/rpc",
       ])
-      const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
+      const generated = await readFile(consoleAppFile(plugin), "utf8")
       expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
       expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleBlob)})`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
@@ -492,7 +488,7 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
       expect(config.nitro.handlers).toEqual(expect.arrayContaining([
         expect.objectContaining({ route: "/_vitehub/api/blob" }),
-        expect.objectContaining({ route: "/_vitehub/rpc" }),
+        expect.objectContaining({ route: "/_vitehub/**" }),
       ]))
     }
     finally {
@@ -519,57 +515,14 @@ describe("Agent invocation console", () => {
 
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
-      expect(config.nitro?.handlers.map((handler) => handler.route)).toEqual(["/_vitehub/rpc", "/_vitehub", "/_vitehub/**", "/_vitehub/page/tools"])
-      const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
+      expect(config.nitro?.handlers.map((handler) => handler.route)).toEqual(["/_vitehub/**", "/_vitehub", "/_vitehub/rpc"])
+      const generated = await readFile(consoleAppFile(plugin), "utf8")
       expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv","site"])`)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"])`)
       expect(generated).not.toContain("installConsoleInvocations")
       expect(generated).not.toContain("hidden.agent")
     } finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  })
-
-  it.each([
-    ["node", "before", true],
-    ["node", "after", true],
-    ["cloudflare", "before", true],
-    ["cloudflare", "after", true],
-    ["cloudflare", "after", false],
-  ] as const)("uses standalone KV for sealed MCP storage on %s, ordered %s, enabled %s", async (host, order, enabled) => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-console-standalone-kv-"))
-    try {
-      await writeFile(join(root, "package.json"), "{}\n")
-      const plugins = vitehub({
-        console: { ...productionConsole, mcpClient: true },
-        env: false,
-        host,
-      })
-      // SAFETY: Vite plugin options form a recursive array; narrow the flattened candidates by name.
-      const candidates = (plugins as unknown[]).flat(Infinity)
-      const plugin = candidates.find((candidate): candidate is Plugin => Boolean(candidate && typeof candidate === "object" && "name" in candidate && candidate.name === "vite-hub/console"))
-      if (!plugin) throw new TypeError("Expected the ViteHub Console plugin.")
-      const kvPlugin = hubKV(enabled ? { driver: host === "cloudflare" ? "cloudflare" : "fs-lite" } : false)
-      const configuredPlugins: unknown[] = [kvPlugin]
-      if (order === "before") configuredPlugins.push(plugin)
-      else configuredPlugins.unshift(plugin)
-      const config = {
-        root,
-        plugins: configuredPlugins,
-      }
-      await callPluginHook(kvPlugin.config, {}, [config, { command: "build", mode: "production" }])
-      await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
-      await callPluginHook(kvPlugin.configResolved, {}, [config])
-      await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
-
-      const generated = await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
-      const sections = generated.match(/installConsoleSections\([^,\n]+, (\[[^\n]*?\])\)/)?.[1]
-      expect(sections).toBeDefined()
-      expect(JSON.parse(sections!)).toContain("mcp-client")
-      expect(JSON.parse(sections!).includes("kv")).toBe(enabled)
-    }
-    finally {
       await rm(root, { force: true, recursive: true })
     }
   })
@@ -590,12 +543,12 @@ describe("Agent invocation console", () => {
       } = { queue: true, root }
 
       await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
-      expect(config.nitro?.handlers.map(handler => handler.route)).toContain("/_vitehub/rpc")
+      expect(config.nitro?.handlers.map(handler => handler.route)).toContain("/_vitehub/**")
       setResolvedFeatureOptions(config, "queue", false)
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
 
-      expect(config.nitro?.handlers.map(handler => handler.route)).toContain("/_vitehub/rpc")
-      const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
+      expect(config.nitro?.handlers.map(handler => handler.route)).toContain("/_vitehub/**")
+      const generated = await readFile(consoleAppFile(plugin), "utf8")
       expect(generated).not.toContain("installConsoleDefinitions")
     }
     finally {
@@ -626,7 +579,7 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
 
-      const generated = await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+      const generated = await readFile(resolve(root, ".vitehub/nitro/console/app.mjs"), "utf8")
       expect(generated).toContain('"name":"custom"')
       expect(generated).not.toContain('"name":"welcome"')
     }
@@ -657,11 +610,11 @@ describe("Agent invocation console", () => {
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
 
-      const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
+      const generated = await readFile(consoleAppFile(plugin), "utf8")
       expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
       expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDefinitions)})`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["workspaces","site"])`)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["workspaces"])`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"workspaces":{"definitions":[{"fields":[{"label":"Kind","value":"Workspace Definition"},{"label":"Source root","value":"server/workspaces/docs/workspace"}],"file":"server/workspaces/docs/config.ts","name":"docs","source":"server-workspaces-directory-config"}],"kind":"definition-catalog"}}, `)
       expect(generated).not.toContain("The Console must not initialize")
       expect(generated).not.toContain("installConsoleInvocations")
@@ -697,18 +650,17 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
-        "/_vitehub/rpc",
-        "/_vitehub",
         "/_vitehub/**",
-        "/_vitehub/page/tools",
+        "/_vitehub",
+        "/_vitehub/rpc",
       ])
-      const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
+      const generated = await readFile(consoleAppFile(plugin), "utf8")
       expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
       expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDefinitions)})`)
       expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDatabase)})`)
       expect(generated).toContain(`import("@vite-hub/database/runtime/registry")`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["env","databases","site"])`)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["env","databases"])`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"databases":{"definitions":[{"fields":[{"label":"Mode","value":"Default"},{"label":"Tables","value":"notes, users"}],"file":"server/databases/default.ts","name":"default","source":"server-databases"}],"kind":"definition-catalog"}}, `)
       expect(generated).toContain(`installConsoleDatabase(${JSON.stringify(root)}, vitehubConsoleDatabases, ["default"])`)
       expect(generated).not.toContain("The Console must not evaluate")
@@ -744,13 +696,12 @@ describe("Agent invocation console", () => {
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
-        "/_vitehub/rpc",
-        "/_vitehub",
         "/_vitehub/**",
-        "/_vitehub/page/tools",
+        "/_vitehub",
+        "/_vitehub/rpc",
       ])
-      const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["env","queues","site"])`)
+      const generated = await readFile(consoleAppFile(plugin), "utf8")
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["env","queues"])`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"queues":{"definitions":[{"fields":[],"file":"server/queues/email.ts","name":"email","source":"server-queues"}],"kind":"definition-catalog"}}, `)
       expect(generated).not.toContain("The Console must not evaluate")
       expect(generated).not.toContain("installConsoleInvocations")
@@ -790,16 +741,15 @@ describe("Agent invocation console", () => {
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
-        "/_vitehub/rpc",
-        "/_vitehub",
         "/_vitehub/**",
-        "/_vitehub/page/tools",
+        "/_vitehub",
+        "/_vitehub/rpc",
       ])
-      const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
+      const generated = await readFile(consoleAppFile(plugin), "utf8")
       expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
       expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDefinitions)})`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["env","rate-limits","site"])`)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["env","rate-limits"])`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"rate-limits":{"definitions":[{"fields":[{"label":"Limit","value":"25"},{"label":"Window","value":"10s"},{"label":"Enforcement","value":"Strict"},{"label":"Provider failure","value":"Allow"},{"label":"Source location","value":"2:1"}],"file":"server/api/upload.post.ts","name":"uploads","source":"require-rate-limit"}],"kind":"definition-catalog"}}, `)
       expect(generated).not.toContain("The Console must not evaluate")
       expect(generated).not.toContain("installConsoleInvocations")
@@ -831,7 +781,7 @@ describe("Agent invocation console", () => {
 
       await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
 
-      const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
+      const generated = await readFile(consoleAppFile(plugin), "utf8")
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"rate-limits":{"definitions":[],"kind":"definition-catalog"}}, `)
       expect(generated).not.toContain('"name":"uploads"')
     }
@@ -870,16 +820,15 @@ describe("Agent invocation console", () => {
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
-        "/_vitehub/rpc",
-        "/_vitehub",
         "/_vitehub/**",
-        "/_vitehub/page/tools",
+        "/_vitehub",
+        "/_vitehub/rpc",
       ])
-      const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
+      const generated = await readFile(consoleAppFile(plugin), "utf8")
       expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
       expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDefinitions)})`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
-      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["schedules","site"])`)
+      expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["schedules"])`)
       // The runtime reader reads the Definitions that the Process Runtime loaded. It does not import a handler itself.
       expect(generated).toContain(`{ readScheduleConsoleRecords: vitehubConsoleRuntimeReader0 }`)
       expect(generated).toMatch(/import\("[^"]*[\\/]schedule[\\/](?:src|dist)[\\/]runtime[\\/]console\.(?:ts|js)"\)/)
@@ -923,7 +872,7 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.config, {}, [{ root }, { command: "build", mode: "production" }])
       await callPluginHook(plugin.configResolved, {}, [withViteLogger({ root })])
 
-      const generated = await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+      const generated = await readFile(resolve(root, ".vitehub/nitro/console/app.mjs"), "utf8")
       expect(generated).toContain('"databases":{"definitions":[{"fields":[{"label":"Mode","value":"Default"},{"label":"Tables","value":"None discovered"}],"file":"packages/database/server/databases/default.ts"')
       expect(generated).toContain('"rate-limits":{"definitions":[{"fields":[{"label":"Limit","value":"100"},{"label":"Window","value":"1m"}')
       expect(generated).toContain('"file":"packages/rate-limit/policies/api.ts","name":"api","source":"require-rate-limit"')
@@ -958,7 +907,7 @@ describe("Agent invocation console", () => {
       setResolvedFeatureOptions(config, "database", { projectRoot: viteRoot })
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
 
-      const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
+      const generated = await readFile(consoleAppFile(plugin), "utf8")
       expect(generated).toContain('"file":"app/server/databases/default.ts"')
       expect(generated).not.toContain('"file":"packages/api/server/databases/default.ts"')
     }
@@ -989,8 +938,8 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
 
-      expect(config.nitro?.plugins).toContain(join(projectRoot, ".vitehub/nitro/console/plugin.mjs"))
-      const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
+      expect(consoleAppFile(plugin)).toBe(join(projectRoot, ".vitehub/nitro/console/app.mjs"))
+      const generated = await readFile(consoleAppFile(plugin), "utf8")
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(projectRoot)}`)
       expect(generated).toContain(`"file":"src/api.ts","name":"api","source":"require-rate-limit"`)
       expect(generated).toContain(`"file":"app/src/preview.sandbox-task.ts","name":"preview","source":"vite-suffix"`)
@@ -1023,7 +972,7 @@ describe("Agent invocation console", () => {
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
 
-      const generated = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
+      const generated = await readFile(consoleAppFile(plugin), "utf8")
       expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
       expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDefinitions)})`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
@@ -1079,7 +1028,7 @@ describe("Agent invocation console", () => {
       if (!configHook) throw new TypeError("Expected a console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook
       await Reflect.apply(configHandler, {}, [{ root }, { command, mode: command === "build" ? "production" : "development" }])
-      const generated = await readFile(join(root, `.vitehub/nitro/console/plugin${command === "serve" ? "-dev" : ""}.mjs`), "utf8")
+      const generated = await readFile(join(root, `.vitehub/nitro/console/app${command === "serve" ? "-dev" : ""}.mjs`), "utf8")
       expect(generated.includes("invoke: true")).toBe(enabled)
     }
     finally {
@@ -1101,17 +1050,12 @@ describe("Agent invocation console", () => {
       const plugin = consoleVitePlugin({ console: { invoke: true }, resolveAuthConfig: () => auth, sections: ["agents"] })
       const config: { nitro?: { handlers: Array<{ route: string }> }; root: string } = { root }
       await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
-      expect(config.nitro?.handlers).toEqual([
-        // App Auth access routes leave a request that Nitro routes to the Console RPC to its own check: a signed POST
-        // or a one-time ticket GET.
-        expect.objectContaining({ route: "/_vitehub/rpc", meta: { vitehubAuthAccess: "handler" } }),
-        // The way in from a page: it sends the browser to the Console, which signs it in with Site access.
-        expect.objectContaining({ route: "/_vitehub", meta: { vitehubAuthAccess: "handler" } }),
-        expect.objectContaining({ route: "/_vitehub/**", meta: { vitehubAuthAccess: "handler" } }),
-        // The page tools session of the Console link. It reads no Console data and runs the access check of each tool.
-        { handler: expect.stringMatching(/server\/page-tools-route\.js$/), meta: { vitehubOwnAccess: true }, route: "/_vitehub/page/tools" },
-      ])
-      const generated = await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+      // App Auth access routes leave a request that Nitro routes to the Console to its own check: a signed RPC POST, a
+      // one-time ticket GET, or the way in from a page.
+      expect(config.nitro?.handlers).toEqual(["/_vitehub/**", "/_vitehub", "/_vitehub/rpc"].map(route => ({
+        handler: expect.stringMatching(/server\/entry\.js$/), lazy: true, meta: { vitehubAuthAccess: "handler" }, route,
+      })))
+      const generated = await readFile(resolve(root, ".vitehub/nitro/console/app.mjs"), "utf8")
       expect(generated).toContain('installConsoleAccess({ mode: "token" })')
       expect(generated).toContain(`installConsoleAgentDefinitions([], { projectRoot: ${JSON.stringify(root)}, invoke: true })`)
     } finally {
@@ -1131,7 +1075,7 @@ describe("Agent invocation console", () => {
       const configHandler = "handler" in configHook ? configHook.handler : configHook
       const config: { nitro?: { handlers: Array<{ route: string }> }, root: string } = { root }
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
-      expect(config.nitro?.handlers).toContainEqual(expect.objectContaining({ route: "/_vitehub/rpc" }))
+      expect(config.nitro?.handlers).toContainEqual(expect.objectContaining({ route: "/_vitehub/**" }))
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -1150,8 +1094,7 @@ describe("Agent invocation console", () => {
 
       await Reflect.apply(configHandler, {}, [config, { command: "serve", mode: "development" }])
 
-      expect(config.nitro?.handlers).toContainEqual(expect.objectContaining({ route: "/_vitehub/rpc" }))
-      expect(config.nitro?.handlers).toContainEqual(expect.objectContaining({ route: "/_vitehub", handler: expect.stringMatching(/server\/site-entry\.js$/) }))
+      expect(config.nitro?.handlers).toContainEqual(expect.objectContaining({ route: "/_vitehub/**", handler: expect.stringMatching(/server\/entry\.js$/) }))
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -1773,7 +1716,7 @@ describe("Agent invocation console", () => {
 
       await writeFile(join(root, "support.agent.ts"), "export default {}\n")
       await listeners.get("add")?.()
-      await expect(readFile(resolve(root, ".vitehub/nitro/console/plugin-dev.mjs"), "utf8"))
+      await expect(readFile(resolve(root, ".vitehub/nitro/console/app-dev.mjs"), "utf8"))
         .resolves.toContain(`fallbackName: "support"`)
     }
     finally {
@@ -2870,7 +2813,7 @@ describe("Agent invocation console", () => {
       status: "completed" as const,
       traceId: "trace-raw-only-usage",
       updatedAt: "2026-08-27T10:00:00.000Z",
-    } satisfies Parameters<typeof invocationUsage>[0]
+    } satisfies AgentInvocationRecord
 
     const projected = invocationUsage(record)
     expect(projected).not.toHaveProperty("cost")
@@ -3026,7 +2969,7 @@ describe("Agent invocation console", () => {
     })
   })
 
-  it("keeps the all-Agent usage cache separate from an Agent named star", async () => {
+  it("keeps all-Agent usage separate from an Agent named star", async () => {
     const store = createMemoryAgentInvocationStore()
     const timestamp = new Date(Date.now() - 1_000).toISOString()
     for (const [agentName, totalTokens] of [["*", 1], ["review", 2]] as const) {
@@ -3630,9 +3573,9 @@ describe("Agent invocation console", () => {
       const plugin = consoleVitePlugin({ console: productionConsole, sections: [] })
       const config: { nitro?: { plugins?: string[] }, root: string } = { root }
       await callPluginHook(plugin.config, {}, [config, { command, mode }])
-      const initial = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
+      const initial = await readFile(consoleAppFile(plugin), "utf8")
       await callPluginHook(plugin.configResolved, {}, [config])
-      const refreshed = await readFile(consolePluginFile(config.nitro!.plugins), "utf8")
+      const refreshed = await readFile(consoleAppFile(plugin), "utf8")
 
       vi.stubEnv("NODE_ENV", mode)
       for (const generated of [initial, refreshed]) {

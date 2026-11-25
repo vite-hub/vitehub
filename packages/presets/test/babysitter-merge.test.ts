@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Snapshot } from "../src/babysitter/inbox/store.ts";
-import { approvedIfOutside, directMergeReadiness, feedbackFingerprints, liveMergeReadiness, matchesMergeReviewEvidence, mergeReviewEvidenceKey, resolveBabysitterMerge, snapshotCheckEvidence } from "../src/babysitter/merge.ts";
+import { approvedIfOutside, directMergeReadiness, feedbackFingerprints, headChecksUnreported, liveMergeReadiness, matchesMergeReviewEvidence, mergeReviewEvidenceKey, resolveBabysitterMerge, snapshotCheckEvidence } from "../src/babysitter/merge.ts";
 import { directMergeBranchSafety, foldMethod, foldParent, isForkHead, runsOnPush, sameRepositoryBranches, stackRetargetBase } from "../src/babysitter/stack.ts";
 
 const head = "a".repeat(40);
@@ -254,6 +254,15 @@ describe("Babysitter merge evidence", () => {
     s.comments.human.body = "Please rename the option and the type.";
     expect(mergeReviewEvidenceKey(s, feedbackPolicy)).not.toBe(key);
     expect(directMergeReadiness(s, "passed", { ...feedbackPolicy, assessedFeedback }).ready).toBe(false);
+  });
+
+  it("counts a head as unreported while only an earlier head has checks", () => {
+    const s = snapshot();
+    expect(headChecksUnreported(s)).toBe(true);
+    s.checks["check_run:1"] = { id: 1, name: "ci", head_sha: "b".repeat(40), status: "completed", conclusion: "success", app: { id: 5 } };
+    expect(headChecksUnreported(s)).toBe(true);
+    s.checks["check_run:2"] = { id: 2, name: "ci", head_sha: head, status: "queued", conclusion: null, app: { id: 5 } };
+    expect(headChecksUnreported(s)).toBe(false);
   });
 
   it("uses only the newest run of a rerun check as merge evidence", () => {

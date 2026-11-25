@@ -88,7 +88,7 @@ export default defineAuth({
 })
 ```
 
-`authDatabase()` is the Better Auth adapter for the `default` Database, using each request's D1 binding. ViteHub adds these tables: `user`, `session`, `account`, `verification`, the fields of `admin()`, and the `jwks` and `oauth*` tables of [MCP OAuth](/docs/auth/configure#sign-mcp-clients-in). With no Database Definition, ViteHub uses an implicit `default` Database with the D1 binding `DB`. To name the D1 database, add `server/databases/default.ts`, and the Auth tables move into it:
+`authDatabase()` is the Better Auth adapter for the `default` Database, using each request's D1 binding. ViteHub adds these tables: `user`, `session`, `account`, `verification`, the fields of `admin()` when `server/auth.ts` calls it, and the `jwks` and `oauth*` tables of [MCP OAuth](/docs/auth/configure#sign-mcp-clients-in). With no Database Definition, ViteHub uses an implicit `default` Database with the D1 binding `DB`. To name the D1 database, add `server/databases/default.ts`, and the Auth tables move into it:
 
 ```ts [server/databases/default.ts]
 import { defineDatabase } from 'vite-hub/database'

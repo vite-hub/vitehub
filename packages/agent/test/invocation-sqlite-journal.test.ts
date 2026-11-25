@@ -337,7 +337,7 @@ describe("SQLite invocation journal", () => {
     await store.create(invocation("run", { observations: [step(1)] }))
     for (let sequence = 2; sequence <= 5; sequence++) await store.update("run", { observation: step(sequence), timestamp: at(sequence) })
     await store.update("run", { status: "completed", timestamp: at(6) })
-    // Readers of the record column, such as the Console usage index, see the complete record.
+    // Readers of the record column, such as readAgentUsage(), see the complete record.
     const row = (await client.execute(`SELECT status, json_array_length(record, '$.observations') AS count,
       (SELECT count(*) FROM vitehub_agent_invocations_observations) AS rows FROM vitehub_agent_invocations WHERE id = 'run'`)).rows[0]
     expect(row).toMatchObject({ count: 5, rows: 0, status: "completed" })

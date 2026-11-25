@@ -487,6 +487,8 @@ export const send = createCommentSend(transport);
 </template>
 ```
 
+Set `inbox: true` for an inbox or `inbox: false` for a webhook in `status().sent` and the successful `send()` and `allow()` results. This tells the pill where that send went, even if the paired agent changes. If you omit `inbox`, the pill uses the paired agent instead.
+
 With Comments `send: true`, the server has these routes already: `createCommentSendTransport({ page })` of `vite-hub/comments/client` is the transport, and the ViteHub pill uses the same one. See [Send comments to your agent](/docs/comments/send).
 
 A member without an agent pairs one in place. **Send 2** copies a setup prompt and says where to paste it. The agent uses the one-time code in the prompt, and the pill asks once: **Allow and send 2**. `×` or `Esc` stops it, and nothing is saved. `startPairing()` returns `count` and `selection`, the threads that the member sees, and `allow(code, selection)` passes them back. When the threads changed, a server that answers `{ status: "changed", count, selection }` keeps the code, and the pill asks again with the new count.
@@ -499,9 +501,9 @@ Give your pill a viewport-safe maximum width and let it scroll horizontally if i
 | `pairing` | Setup prompt copied, a spinner, and `×`. With `reason`: **Setup code expired** or **That URL isn't `host`**, and **Copy again**. |
 | `confirm` | The agent's logo, name, and host, and **Allow and send N**. |
 | `sending` | Sending, as wide as **Send N**, so the pill holds still. |
-| `sent` | Sent, for 2 seconds. |
+| `sent` | Sent, or In inbox, until the agent reads the send, and for at least 2 seconds. `inbox` tells where that send went. **Send N** comes back beside it when a new comment waits, for the agent in `agent`. |
 | `working` | Working and **Open thread**. **Send N** comes back beside them when a new comment waits. |
-| `failed` | Not delivered and **Retry**. |
+| `failed` | Not delivered and **Retry**. Retry repeats the step that failed: after a failed pairing it pairs again, after a failed Allow it loads the status again, and after a failed send it sends again. |
 | `limited` | Limit reached, and the time to try again. |
 
 The client asks `status()` while the agent works. Give the transport `subscribe` to push `working`, `done`, and `count` events instead. In a unit test, give it a fake transport: every state is plain data in `send.state`.

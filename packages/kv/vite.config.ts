@@ -21,7 +21,7 @@ export default defineConfig({
         }
       },
     }],
-    entry: ["src/cli.ts", "src/durability.ts", "src/errors.ts", "src/index.ts", "src/operations.ts", "src/runtime/cloudflare-kv.ts", "src/runtime/cloudflare-request-env.ts", "src/runtime/database.ts", "src/runtime/unstorage-driver.ts", "src/runtime/nitro-plugin.ts", "src/runtime/redis-driver.ts", "src/runtime/upstash-driver.ts", "src/vite.ts", "src/virtual.ts"],
+    entry: ["src/cli.ts", "src/durability.ts", "src/errors.ts", "src/index.ts", "src/operations.ts", "src/runtime/cloudflare-kv.ts", "src/runtime/cloudflare-request-env.ts", "src/runtime/unstorage-driver.ts", "src/runtime/nitro-plugin.ts", "src/runtime/redis-driver.ts", "src/runtime/upstash-driver.ts", "src/vite.ts", "src/virtual.ts"],
     exports: {
       exclude: ["errors", "operations", "runtime/cloudflare-kv", "runtime/cloudflare-request-env", "runtime/unstorage-driver", "runtime/nitro-plugin"],
       customExports: normalizePackageExports,

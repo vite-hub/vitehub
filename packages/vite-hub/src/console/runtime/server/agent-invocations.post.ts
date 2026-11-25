@@ -6,7 +6,7 @@ import { createRuntimeWaitUntilController } from "@vite-hub/runtime/internal/con
 import * as v from "valibot"
 
 import { decodeAgentRouteParam, encodeAgentRouteParam } from "../console-route.ts"
-import { agentConsole } from "../../server.ts"
+import { agentConsole } from "./agent-console.ts"
 import { consoleAgentInvokerProfiles, getConsoleAgentCapabilities, getConsoleAgentDefinition } from "./agents.ts"
 import { consoleAccessInvoker, consoleRequest, withConsoleAccess, type ConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { assertConsoleRequest, consoleRequestJSON, consoleRequestURL, setConsoleResponseStatus } from "./request.ts"

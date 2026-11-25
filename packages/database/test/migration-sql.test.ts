@@ -123,6 +123,48 @@ describe("migration data loss", () => {
 
     const createNotes = ["CREATE TABLE `notes` (`id` integer PRIMARY KEY NOT NULL, `body` text);"]
 
+    const createParent = ["CREATE TABLE `parent` (`id` integer PRIMARY KEY NOT NULL);"]
+
+    it("keeps the loss on a new table that a table with older rows references with a foreign key of the run", () => {
+      const addReference = ["ALTER TABLE `accounts` ADD `parent_id` integer REFERENCES parent(id) ON DELETE cascade;", "INSERT INTO `parent` (`id`) VALUES (1);", "UPDATE `accounts` SET `parent_id` = 1;"]
+      expect(runLosses(createParent, addReference, ["DROP TABLE `parent`;"])).toEqual(["drops table \"parent\""])
+      expect(runLosses(createParent, addReference, ["DELETE FROM `parent`;"])).toEqual(["deletes every row of \"parent\""])
+      const rebuildAccounts = [
+        "CREATE TABLE `__new_accounts` (`id` integer PRIMARY KEY, `parent_id` integer, FOREIGN KEY (`parent_id`) REFERENCES `parent`(`id`) ON DELETE cascade);",
+        "INSERT INTO `__new_accounts`(\"id\") SELECT \"id\" FROM `accounts`;",
+        "DROP TABLE `accounts`;",
+        "ALTER TABLE `__new_accounts` RENAME TO `accounts`;",
+      ]
+      expect(runLosses(createParent, rebuildAccounts, ["DROP TABLE `parent`;"])).toContain("drops table \"parent\"")
+    })
+
+    it("accepts a drop of a new table that only new tables reference", () => {
+      const createChild = ["CREATE TABLE `child` (`id` integer PRIMARY KEY, `parent_id` integer REFERENCES `parent`(`id`) ON DELETE cascade);"]
+      expect(runLosses(createParent, createChild, ["DROP TABLE `child`;", "DROP TABLE `parent`;"])).toEqual([])
+      expect(runLosses(createParent, createChild, ["DELETE FROM `parent`;"])).toEqual([])
+    })
+
+    it.each([
+      ["main.parent", " parent", "accounts"],
+      ['"Parent"', " parent", "accounts"],
+      ["parent", '"parent"', "accounts"],
+      ["parent", "'parent'", "'accounts'"],
+    ])("keeps the loss through a SQLite foreign key to %s (%s)", (parent, referenceName, child) => {
+      const create = [`CREATE TABLE ${parent} (id integer PRIMARY KEY);`]
+      const reference = [`ALTER TABLE ${child} ADD COLUMN parent_id integer REFERENCES${referenceName}(id) ON DELETE CASCADE;`]
+      expect(runLosses(create, reference, [`DROP TABLE ${parent};`])).toHaveLength(1)
+      expect(runLosses(create, reference, [`DELETE FROM ${parent};`])).toHaveLength(1)
+    })
+
+    it("keeps the loss on a new table that an older table references in the previous snapshot", () => {
+      const references = new Map([["parent", [{ table: "accounts", columns: ["parent_id"], onDelete: "CASCADE" }]]])
+      for (const statement of ["DROP TABLE `parent`;", "DELETE FROM `parent`;"]) {
+        const dataLoss = findDataLoss([statement], new Map(), references)
+        expect(dataLoss[0]).toMatchObject({ reason: expect.stringContaining("deletes the rows of \"accounts\".\"parent_id\" (ON DELETE CASCADE)"), tables: ["parent", "accounts"] })
+        expect(withoutNewTableDataLoss([{ dataLoss: [], statements: createParent }, { dataLoss, statements: [statement] }])[1]!.dataLoss).toHaveLength(1)
+      }
+    })
+
     it("accepts data loss on tables that an earlier migration of the run created", () => {
       expect(runLosses(createNotes, ["INSERT INTO `notes` (`id`) VALUES (1);", "DROP TABLE `notes`;"])).toEqual([])
       expect(runLosses(createNotes, ["ALTER TABLE `notes` DROP COLUMN `body`;", "DELETE FROM notes;"])).toEqual([])
@@ -137,6 +179,14 @@ describe("migration data loss", () => {
     it("accepts a drop after a trigger that writes into another table", () => {
       const trigger = "CREATE TRIGGER `count_views` AFTER INSERT ON `views` BEGIN\n  INSERT OR IGNORE INTO `totals` (`id`, `n`) VALUES (NEW.id, 0);\n  UPDATE `totals` SET `n` = `n` + 1 WHERE `id` = NEW.id;\nEND;"
       expect(runLosses([...createNotes, trigger], ["DROP TABLE `notes`;"])).toEqual([])
+    })
+
+    it("keeps losses when a delete or cascade can fire a SQLite trigger", () => {
+      const child = "CREATE TABLE child (id integer PRIMARY KEY, parent_id integer REFERENCES parent(id) ON DELETE SET NULL);"
+      const trigger = "CREATE TRIGGER remove_account AFTER UPDATE OF parent_id ON child BEGIN DELETE FROM accounts WHERE id = OLD.id; END;"
+      expect(runLosses([...createParent, child, trigger], ["DROP TABLE parent;"])).toEqual(["drops table \"parent\""])
+      expect(runLosses([...createParent, child, trigger], ["DELETE FROM parent;"])).toEqual(["deletes every row of \"parent\""])
+      expect(runLosses([...createParent, child, trigger], ["DROP TABLE child;"])).toEqual([])
     })
 
     it("flags data loss on tables that existed before the run", () => {

@@ -37,8 +37,7 @@ const maximumTokenLength = 8_192
 /**
  * The app operation that tells the Console what Site access a Console member has in the app. The Console signs the call
  * as the member before each Site access action, so `console.authorize` and its `"site:read"` and `grants` limits decide.
- * An app that lists it in `project.get` verifies Site access tokens, and the Console page uses the Console for its Site
- * access. Other apps keep the `site.*` operations of the app. The answer is a {@link SiteAccessPolicy}.
+ * The app lists it in `project.get`. The answer is a {@link SiteAccessPolicy}.
  */
 export const siteAccessOperation = "site.access"
 
@@ -65,7 +64,7 @@ const kinds: readonly SiteTokenKind[] = ["site", "impersonate", "preview"]
 
 /** The person and the roles that a token signs in. */
 export interface SiteTokenClaims {
-  /** The origin of the app, such as `https://app.example.com`. */
+  /** The URL of the app, its origin and base path without a trailing `/`, such as `https://app.example.com/portal`. */
   aud: string
   /** The id of the person in the Console: the user id of a member, or the grant id of a guest. */
   sub: string
@@ -169,6 +168,14 @@ export function isSitePath(value: string): boolean {
   return value.startsWith("/") && !value.startsWith("//") && !value.includes("\\") && !/\p{Cc}/u.test(value) && value.length <= 2_048
 }
 
+function appUrl(url: URL): string {
+  return `${url.origin}${url.pathname.replace(/\/+$/, "")}`
+}
+
+function siteAppUrl(value: string): string | undefined {
+  return URL.canParse(value) ? appUrl(new URL(value)) : undefined
+}
+
 function siteDestination(app: string, path: string): string | undefined {
   if (!isSitePath(path)) return undefined
   const base = new URL(app)
@@ -188,6 +195,38 @@ export function siteVisitUrl(input: { console: string, app: string, state: strin
   return `${input.console.replace(/\/+$/, "")}/visit?${query}`
 }
 
+function siteHandoffBytes(app: string, issuer: string, project: string, path: string, key: string, expires: string) {
+  return encoder.encode(JSON.stringify(["vitehub-site-handoff-v1", app, issuer, project, path, key, expires]))
+}
+
+function isSiteIssuer(issuer: string): boolean {
+  const url = URL.parse(issuer)
+  return url !== null && url.origin === issuer && (url.protocol === "https:"
+    || (url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)))
+}
+
+export async function signSiteHandoff(input: { app: string, issuer: string, project: string, path: string, key: ConsoleSigningKey }): Promise<string | undefined> {
+  if (!isSiteIssuer(input.issuer)) return undefined
+  const expires = String(Math.floor(Date.now() / 1_000) + siteTokenLifetimeSeconds)
+  const { app, issuer, project, path, key } = input
+  const signature = await signConsoleBytes(key, siteHandoffBytes(app, issuer, project, path, key.name, expires))
+  const query = new URLSearchParams({ return: path, project, issuer, handoff: `${key.name}.${expires}.${signature}` })
+  return `${app}${siteRoute}?${query}`
+}
+
+export async function verifySiteHandoff(input: { app: string, issuer: string, project: string, path: string, handoff: string, keys: ReadonlyMap<string, Uint8Array<ArrayBuffer>> }): Promise<boolean> {
+  const { app, issuer, project, path, handoff, keys } = input
+  if (!isSiteIssuer(issuer)) return false
+  const match = /^([A-Z0-9_]{1,64})\.(\d{1,12})\.([\w-]{86})$/.exec(handoff)
+  if (!match || match[0] !== handoff) return false
+  const [, key, expires, signature] = match
+  if (!key || !expires || !signature) return false
+  const remaining = Number(expires) - Math.floor(Date.now() / 1_000)
+  const publicKey = keys.get(key)
+  return publicKey !== undefined && remaining > 0 && remaining <= siteTokenLifetimeSeconds
+    && await verifyConsoleBytes(publicKey, signature, siteHandoffBytes(app, issuer, project, path, key, expires))
+}
+
 /**
  * Sign a token with the private key of a link: `vst1.<key name>.<claims as base64url JSON>.<Ed25519 signature>`. The
  * signature covers `vst1.<key name>.<claims>`. `claims.state` is the hash that the app sent, not the state. It throws
@@ -195,7 +234,7 @@ export function siteVisitUrl(input: { console: string, app: string, state: strin
  */
 export async function signSiteToken(input: { key: ConsoleSigningKey, claims: Omit<SiteTokenClaims, "iat" | "exp">, now?: number }): Promise<string> {
   const iat = Math.floor((input.now ?? Date.now()) / 1_000)
-  const claims: SiteTokenClaims = { ...input.claims, aud: new URL(input.claims.aud).origin, iat, exp: iat + siteTokenLifetimeSeconds }
+  const claims: SiteTokenClaims = { ...input.claims, aud: appUrl(new URL(input.claims.aud)), iat, exp: iat + siteTokenLifetimeSeconds }
   const signed = `${tokenVersion}.${input.key.name}.${encodeConsoleBase64url(encoder.encode(JSON.stringify(claims)))}`
   const token = `${signed}.${await signConsoleBytes(input.key, encoder.encode(signed))}`
   if (token.length > maximumTokenLength) throw internalErrorDiagnostics.INTERNAL_SITE_TOKEN_TOO_LONG({ length: token.length, maximum: maximumTokenLength })
@@ -212,7 +251,7 @@ function readClaims(value: unknown): SiteTokenClaims | undefined {
   const text = (field: unknown, maximum = 512): field is string => typeof field === "string" && field.length > 0 && field.length <= maximum
   const optional = (field: unknown) => field === undefined || text(field, 2_048)
   const time = (field: unknown): field is number => typeof field === "number" && Number.isSafeInteger(field)
-  if (!text(aud) || !text(sub) || !text(name) || !text(path, 2_048) || !text(state) || !text(kind) || !time(iat) || !time(exp)) return undefined
+  if (!text(aud, maximumTokenLength) || !text(sub) || !text(name) || !text(path, 2_048) || !text(state) || !text(kind) || !time(iat) || !time(exp)) return undefined
   if (!optional(email) || !optional(image) || !Array.isArray(roles) || !roles.every(role => text(role, 64))) return undefined
   return {
     aud,
@@ -242,11 +281,13 @@ function parseJson(bytes: Uint8Array): unknown {
 /**
  * Check a token in the app. `keys` are the public keys of `readConsolePublicKeys()`, `origin` is the URL that the app
  * serves, with its base path, such as `https://app.example.com/portal`, and `state` is the value of its
- * state cookie. `kinds` are the kinds that the route accepts, `["site"]` by default. The token is refused
- * when it is malformed, signed with an unknown key or another key, made for another origin, expired, made for another
- * browser, of another kind, or when its path resolves outside the app URL.
+ * state cookie. `kinds` are the kinds that the route accepts, `["site"]` by default. `lifetime` is the number of
+ * seconds after `iat` that the token works, for an app that keeps the token in its session cookie. Without it, the
+ * token works until its `exp`, 60 seconds. The token is refused when it is malformed, signed with an unknown key or
+ * another key, made for another origin, expired, made for another browser, of another kind, or when its path resolves
+ * outside the app URL.
  */
-export async function verifySiteToken(input: { token: string, keys: ReadonlyMap<string, Uint8Array<ArrayBuffer>>, origin: string, state: string, kinds?: readonly SiteTokenKind[], now?: number }): Promise<SiteTokenMatch | SiteTokenFailure> {
+export async function verifySiteToken(input: { token: string, keys: ReadonlyMap<string, Uint8Array<ArrayBuffer>>, origin: string, state: string, kinds?: readonly SiteTokenKind[], lifetime?: number, now?: number }): Promise<SiteTokenMatch | SiteTokenFailure> {
   const parts = input.token.length <= maximumTokenLength ? input.token.split(".") : []
   const [version, name, payload, signature] = parts
   const bytes = parts.length === 4 && version === tokenVersion && payload ? decodeConsoleBase64url(payload) : undefined
@@ -259,10 +300,11 @@ export async function verifySiteToken(input: { token: string, keys: ReadonlyMap<
   if (!await verifyConsoleBytes(publicKey, signature, encoder.encode(`${version}.${name}.${payload}`))) {
     return failure("SITE_TOKEN_SIGNATURE", `The Site access token does not match the key \`VITEHUB_CONSOLE_KEY_${name}\`.`)
   }
-  const origin = new URL(input.origin).origin
-  if (claims.aud !== origin) return failure("SITE_TOKEN_AUDIENCE", `The Site access token was made for ${claims.aud}, and this app is ${origin}.`)
+  const app = siteAppUrl(input.origin)
+  if (siteAppUrl(claims.aud) !== app) return failure("SITE_TOKEN_AUDIENCE", `The Site access token was made for ${claims.aud}, and this app is ${app}.`)
   const now = Math.floor((input.now ?? Date.now()) / 1_000)
-  if (now >= claims.exp || claims.iat > now + siteTokenLifetimeSeconds) return failure("SITE_TOKEN_EXPIRED", "The Site access token expired. Open the site from the Console again.")
+  const end = input.lifetime === undefined ? claims.exp : claims.iat + input.lifetime
+  if (now >= end || claims.iat > now + siteTokenLifetimeSeconds) return failure("SITE_TOKEN_EXPIRED", "The Site access token expired. Open the site from the Console again.")
   if (!input.state || claims.state !== await siteStateHash(input.state)) {
     return failure("SITE_TOKEN_STATE", "The Site access token was made for another browser. Open the site again in this browser.")
   }

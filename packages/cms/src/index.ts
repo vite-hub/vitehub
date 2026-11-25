@@ -2,8 +2,10 @@ import { defineContentPreset } from "@vite-hub/content"
 
 import { cmsErrorDiagnostics } from "./error-diagnostics.ts"
 import { cmsGitHubDefaults, cmsOptionKeys, cmsOptionProblem, cmsOptionsProblem, cmsRenamedAccessProblem, cmsStoreOf } from "./options.ts"
+import { createCmsRoles } from "./roles.ts"
 
 import type { ContentAuthorize, ContentPreset } from "@vite-hub/content"
+import type { CmsRoleSet } from "./roles.ts"
 
 /** Options of the `cms` Content preset. Use literal values, such as `roles: true`, so the build can read them. */
 export interface CmsPresetOptions {
@@ -41,10 +43,17 @@ export interface CmsPresetOptions {
   publish?: "commit" | "pr"
 }
 
-const cmsDefaultAuthorize: ContentAuthorize = async (context) => {
-  if (String(context.user?.role) !== context.user?.role) return false
-  const { cmsContentAuthorize } = await import("./access.ts")
-  return await cmsContentAuthorize(context)
+let cmsRoleSet: Promise<CmsRoleSet> | undefined
+
+function loadCmsRoles(): Promise<CmsRoleSet> {
+  cmsRoleSet ??= Promise.all([import("better-auth/plugins/access"), import("better-auth/plugins/admin/access")])
+    .then(([access, adminAccess]) => createCmsRoles(access, adminAccess))
+  return cmsRoleSet
+}
+
+const cmsDefaultAuthorize: ContentAuthorize = async ({ user, action }) => {
+  if (String(user?.role) !== user?.role) return false
+  return (await loadCmsRoles()).can(user, { content: [action] })
 }
 
 const cms: ContentPreset<CmsPresetOptions> = defineContentPreset<CmsPresetOptions>({

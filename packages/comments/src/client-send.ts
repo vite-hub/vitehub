@@ -16,8 +16,13 @@ export interface CommentSendStatus {
   count: number
   /** The member's agent. Without one, Send pairs an agent first. */
   agent?: CommentSendAgent
-  /** The member's last send, while the agent works on it. `thread` is the URL of the agent's thread. */
+  /** The member's last send, after the agent read it and while it works on it. `thread` is the URL of the agent's thread. */
   working?: { id: string, thread?: string }
+  /**
+   * The member's last send, delivered and not read by the agent yet. An inbox send stays here until the agent reads it.
+   * `inbox` tells where this send went. If omitted, the client uses `agent` to tell whether it went to an inbox.
+   */
+  sent?: { id: string, thread?: string, inbox?: boolean }
   /** The last delivery is still being attempted. */
   pending?: boolean
   /** While the member may not send, the time in ms when the next send may go. */
@@ -52,7 +57,7 @@ export type CommentSendPairingCheck =
  * threads are not the ones that the member confirmed, and keeps the code for the new `count`.
  */
 export type CommentSendResult =
-  | { status: "sent" | "pending", id: string, thread?: string }
+  | { status: "sent" | "pending", id: string, thread?: string, inbox?: boolean }
   | { status: "failed", reason: string }
   | { status: "limited", retryAt: number }
   | { status: "changed", count: number, selection: string }
@@ -77,13 +82,16 @@ export interface CommentSendTransport {
   subscribe?: (listener: (event: CommentSendEvent) => void) => () => void
 }
 
-/** What the Send segment shows. Every state has the number of waiting threads, `count`. */
+/**
+ * What the Send segment shows. Every state has the number of waiting threads, `count`. In `sent`, `inbox` tells where
+ * the last send went, and `agent` is where the next Send goes.
+ */
 export type CommentSendState =
   | { status: "idle", count: number, inbox: boolean, canPairAnother?: true }
   | { status: "pairing", count: number, prompt: string, expiresAt: number, agent: CommentSendAgent, reason?: "expired" | "refused" }
   | { status: "confirm", count: number, agent: CommentSendAgent }
   | { status: "sending", count: number }
-  | { status: "sent", count: number, inbox: boolean }
+  | { status: "sent", count: number, inbox: boolean, agent?: CommentSendAgent }
   | { status: "working", count: number, agent?: CommentSendAgent, thread?: string }
   | { status: "failed", count: number, reason: string }
   | { status: "limited", count: number, retryAt: number }
@@ -144,10 +152,13 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
   let fetching = false
   let sendId: string | undefined
   let thread: string | undefined
+  let sentInbox = false
   let pushed: Map<string, { thread?: string, done?: boolean }> | undefined
   let step = 0
+  let sentUntil = 0
   let timer: ReturnType<typeof setTimeout> | undefined
   let run = 0
+  let lastStep: "pair" | "allow" | "send" = "send"
 
   const notify = (): void => {
     for (const listener of listeners) listener()
@@ -165,8 +176,10 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
     timer = setTimeout(() => at === step && then(), ms)
   }
   const inbox = (): boolean => Boolean(agent && !agent.host)
+  const needsStatus = (): boolean => state.status === "failed" && lastStep === "allow"
   const idleState = (): CommentSendState => ({ status: "idle", count, inbox: inbox(), ...(agent && count > 0 ? { canPairAnother: true } : {}) })
   const idle = (): void => set(idleState())
+  const sentState = (): CommentSendState => ({ status: "sent", count, inbox: sentInbox, ...(agent ? { agent } : {}) })
   const finish = (): void => {
     sendId = undefined
     thread = undefined
@@ -176,6 +189,11 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
     set({ status: "working", count, ...(agent ? { agent } : {}), ...(thread ? { thread } : {}) })
     if (!transport.subscribe) later(statusInterval, () => void refresh(working))
   }
+  const sent = (): void => {
+    set(sentState())
+    if (!transport.subscribe) later(statusInterval, () => void refresh(sent))
+  }
+  const holdingSent = (): boolean => state.status === "sent" && Date.now() < sentUntil
   const limited = (retryAt: number): void => {
     set({ status: "limited", count, retryAt })
     later(Math.max(0, retryAt - Date.now()), () => void refresh(idle))
@@ -188,14 +206,17 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
   const apply = (status: CommentSendStatus): void => {
     agent = status.agent
     if (status.pending) return pending()
-    if (status.working) {
-      sendId = status.working.id
-      thread = status.working.thread
-      if (state.status === "sent") {
-        state = { ...state, count, inbox: inbox() }
+    const last = status.working ?? status.sent
+    if (last) {
+      if (status.sent) sentInbox = status.sent.inbox ?? inbox()
+      const hold = holdingSent() && sendId === last.id
+      sendId = last.id
+      thread = hold ? thread ?? last.thread : last.thread
+      if (hold) {
+        state = sentState()
         return notify()
       }
-      return working()
+      return status.working ? working() : sent()
     }
     sendId = undefined
     thread = undefined
@@ -238,9 +259,12 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
     const update = updates?.get(result.id)
     thread = update?.thread ?? result.thread
     if (revision === countRevision) count = 0
-    set({ status: "sent", count, inbox: inbox() })
-    later(sentFor, update?.done ? finish : working)
+    sentInbox = result.inbox ?? inbox()
+    set(sentState())
+    sentUntil = Date.now() + sentFor
+    later(sentFor, update?.done ? finish : update ? working : () => void refresh(sent))
   }
+  const drop = (dropped: string): void => void transport.cancel(dropped).catch(() => undefined)
   const deliver = async (request: () => Promise<CommentSendResult>, paired?: { code: string, agent: CommentSendAgent }): Promise<void> => {
     const revision = countRevision
     pushed = transport.subscribe ? new Map<string, { thread?: string, done?: boolean }>() : undefined
@@ -253,10 +277,11 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
     catch (error) {
       result = { status: "failed", reason: reasonOf(error) }
     }
-    if (at === step) settle(result, revision, paired)
+    const current = at === step
+    if (current) settle(result, revision, paired)
+    if (paired && (result.status === "failed" || result.status === "limited" || (!current && result.status === "changed"))) drop(paired.code)
   }
 
-  const drop = (dropped: string): void => void transport.cancel(dropped).catch(() => undefined)
   const poll = (): void => {
     later(pairingInterval, async () => {
       if (state.status !== "pairing" || !code) return
@@ -272,6 +297,7 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
   const pair = async (copy: CommentSendCopy | undefined): Promise<void> => {
     if (fetching) return
     fetching = true
+    lastStep = "pair"
     const at = ++step
     try {
       const pairing = transport.startPairing()
@@ -342,12 +368,13 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
           pushed?.set(event.id, event.type === "done" ? { ...update, done: true } : { ...update, thread: event.thread ?? update?.thread })
           return
         }
-        if (fetching || state.status === "pairing" || state.status === "confirm") return
+        if (fetching || state.status === "pairing" || state.status === "confirm" || needsStatus()) return
         if ((state.status === "working" || state.status === "sent") && sendId !== event.id) return
         if (event.type === "working") {
           thread = event.thread ?? (event.id === sendId ? thread : undefined)
           sendId = event.id
-          if (state.status !== "sent") working()
+          if (holdingSent()) later(sentUntil - Date.now(), working)
+          else working()
           return
         }
         if (event.id === sendId) finish()
@@ -368,9 +395,12 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
     },
     refresh: () => refresh(),
     async send(copy) {
-      if (fetching || (state.status !== "idle" && state.status !== "failed" && state.status !== "working")) return
+      if (fetching || (state.status !== "idle" && state.status !== "failed" && state.status !== "sent" && state.status !== "working")) return
       if (state.status !== "failed" && count === 0) return
+      if (state.status === "failed" && lastStep === "pair") return pair(copy)
+      if (needsStatus()) return refresh(() => undefined)
       if (!agent) return pair(copy)
+      lastStep = "send"
       return deliver(() => transport.send())
     },
     async pairAnother(copy) {
@@ -381,6 +411,7 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
       if (state.status !== "confirm" || !code) return
       const used = code
       code = undefined
+      lastStep = "allow"
       return deliver(() => transport.allow(used, selection), { code: used, agent: state.agent })
     },
     async copyAgain(copy) {

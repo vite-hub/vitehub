@@ -61,7 +61,7 @@ import type { AuthMemberErrorCode } from "../members.ts"
 import type { Result } from "@vite-hub/runtime"
 import { signedOutError } from "../caller.ts"
 import { isJwsToken, mcpOAuthResources } from "../mcp-config.ts"
-import type { AuthCaller, AuthCallerErrorCode, AuthCallerUser } from "../caller.ts"
+import type { AuthCallerResult, AuthCallerUser } from "../caller.ts"
 
 export { createBetterAuthOptions, getAuthForDefinition } from "../auth-instance.ts"
 export { findVerifiedAuthUserId } from "../auth-instance.ts"
@@ -1105,7 +1105,7 @@ export function requireAuthorization<TInput extends AuthRequestInput>(
 }
 
 // One answer per request and Definition, so middleware and the handler share it.
-const callerReads = new WeakMap<object, WeakMap<AuthDefinition, Promise<Result<AuthCaller<unknown>, AuthCallerErrorCode>>>>()
+const callerReads = new WeakMap<object, WeakMap<AuthDefinition, Promise<AuthCallerResult<unknown>>>>()
 
 /**
  * Return who calls: a person with an Auth Session (`kind: "browser"`), or an Agent with an MCP access token of
@@ -1124,9 +1124,9 @@ const callerReads = new WeakMap<object, WeakMap<AuthDefinition, Promise<Result<A
  * })
  * ```
  */
-export function requireCaller(event: AuthRequestInput, definition?: undefined): Promise<Result<AuthCaller, AuthCallerErrorCode>>
-export function requireCaller(event: AuthRequestInput, definition: AuthDefinition | undefined): Promise<Result<AuthCaller<unknown>, AuthCallerErrorCode>>
-export function requireCaller(event: AuthRequestInput, definition: AuthDefinition = resolveDefaultDefinition()): Promise<Result<AuthCaller<unknown>, AuthCallerErrorCode>> {
+export function requireCaller(event: AuthRequestInput, definition?: undefined): Promise<AuthCallerResult>
+export function requireCaller(event: AuthRequestInput, definition: AuthDefinition | undefined): Promise<AuthCallerResult<unknown>>
+export function requireCaller(event: AuthRequestInput, definition: AuthDefinition = resolveDefaultDefinition()): Promise<AuthCallerResult<unknown>> {
   const request = unwrapAuthRequest(event)
   let reads = callerReads.get(request)
   if (!reads) callerReads.set(request, reads = new WeakMap())
@@ -1140,7 +1140,7 @@ export function requireCaller(event: AuthRequestInput, definition: AuthDefinitio
   return read
 }
 
-async function readCaller(event: AuthRequestInput, definition: AuthDefinition): Promise<Result<AuthCaller<unknown>, AuthCallerErrorCode>> {
+async function readCaller(event: AuthRequestInput, definition: AuthDefinition): Promise<AuthCallerResult<unknown>> {
   const request = unwrapAuthRequest(event)
   const token = /^Bearer\s+(\S+)$/i.exec(request.headers.get("authorization") ?? "")?.[1]
   if (token) {

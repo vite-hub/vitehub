@@ -60,7 +60,8 @@ omitted secret cannot inherit from another stage. With --yes, a missing VITEHUB_
 
 After the upload, deploy requests the paths of \`deploy.check\` in vitehub(), and the health route with \`health\`, on
 the deployed URL. When one does not answer with a 2xx status, deploy exits with 1 and prints the command that rolls
-production back to the deployment it replaced. --no-check skips the checks. With \`deploy.indexNow\`, a production
+production back to the deployment it replaced. --no-check skips the checks. When the host reports no URL, such as a
+Worker whose routes have a wildcard host or a narrower path, deploy skips the checks and IndexNow with a warning. With \`deploy.indexNow\`, a production
 deploy that passed its checks then sends the URLs of /sitemap.xml to IndexNow. --no-index-now skips it.
 `
 
@@ -88,7 +89,8 @@ export interface SetupDeployArgs {
 /** What `vitehub deploy --json` prints, after `schemaVersion: 1`. */
 export interface SetupDeployOutput {
   host: DeployHost
-  url: string
+  /** The URL that serves the new version. Missing when the host reports none, such as a Worker with only `*.example.com/*` routes. */
+  url?: string
   deploymentId?: string
   version?: string
   temporary?: { claimUrl: string, expiresAt?: string }
@@ -99,7 +101,7 @@ export interface SetupDeployOutput {
   checkouts?: DeployCheckoutsOutput
   /** The env names that the deploy checked and set. Never a value. */
   env: DeployEnvOutput
-  /** The `deploy.check` paths and how the deployed app answered. Missing when the build has none, or with --no-check. */
+  /** The `deploy.check` paths and how the deployed app answered. Missing when the build has none, with --no-check, or without `url`. */
   checks?: DeployCheckResult[]
   /** How to roll production back. Only when a check failed. */
   rollback?: DeployRollback
@@ -225,7 +227,7 @@ async function recordLink(root: string, host: DeployHost, result: DeployResult, 
 }
 
 function writeDeployed(output: SetupDeployOutput, name: string, context: ViteHubCliContext): void {
-  context.stdout.write(`Deployed ${name} to ${output.host}: ${output.url}\n`)
+  context.stdout.write(`Deployed ${name} to ${output.host}${output.url ? `: ${output.url}` : "."}\n`)
   if (output.deploymentId) context.stdout.write(`Deployment: ${output.deploymentId}\n`)
   if (output.version) context.stdout.write(`Version: ${output.version}\n`)
   if (output.commit) context.stdout.write(`Commit: ${output.commit.sha}${output.commit.dirty ? " (with uncommitted changes)" : ""}\n`)
@@ -320,11 +322,12 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
   const previous = checkPaths.length && !args.preview && !args.temporary ? await previousDeployment(project.root, link, credentials, context, run) : undefined
   const result = await adapter.deploy()
   if (!link && !args.temporary) await recordLink(project.root, host, result, projectName)
-  const checks = checkPaths.length ? await runDeployChecks(result.url, checkPaths, deployContext.fetch) : undefined
+  if (checkPaths.length && !result.url) context.stderr.write(`Deploy checks skipped: ${host} reported no URL to request, such as a workers.dev URL, a custom domain, or a \`<host>/*\` route. The deploy is done.\n`)
+  const checks = checkPaths.length && result.url ? await runDeployChecks(result.url, checkPaths, deployContext.fetch) : undefined
 
   const deployed: SetupDeployOutput = {
     host,
-    url: result.url,
+    ...(result.url ? { url: result.url } : {}),
     ...(result.deploymentId ? { deploymentId: result.deploymentId } : {}),
     ...(result.version ? { version: result.version } : {}),
     ...(result.claim ? { temporary: { claimUrl: result.claim.url, ...(result.claim.expiresAt ? { expiresAt: result.claim.expiresAt } : {}) } } : {}),
@@ -336,7 +339,9 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
   if (checks?.some(check => !check.ok)) throw checkFailed(deployed, host, previous, projectName, link, result, args.preview)
   if (!args.json) writeDeployed(deployed, projectName, context)
   const pushed = checkouts ? await pushCheckouts(checkouts, deployed, args, context) : deployed
-  const indexNow = output.deploy.indexNow && args.indexNow && !args.preview && !args.temporary ? await submitIndexNow(output.deploy.indexNow, deployContext.fetch) : undefined
+  const indexNowConfig = args.indexNow && !args.preview && !args.temporary ? output.deploy.indexNow : undefined
+  if (indexNowConfig && !result.url) context.stderr.write(`IndexNow: nothing was sent, because ${host} reported no URL for this deploy.\n`)
+  const indexNow = indexNowConfig && result.url ? await submitIndexNow(indexNowConfig, deployContext.fetch) : undefined
   if (indexNow && !args.json) context.stderr.write("submitted" in indexNow ? `IndexNow: sent ${indexNow.submitted} URLs (${indexNow.status}).\n` : `IndexNow: nothing was sent. ${indexNow.error} The deploy is done.\n`)
   const final = indexNow ? { ...pushed, indexNow } : pushed
   if (args.json) writeSetupJson(context, final)

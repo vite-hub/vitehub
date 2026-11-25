@@ -422,7 +422,7 @@ describe("the Comments overlay on a page", () => {
     const title = await startEdit()
     title.textContent = "Updated"
     title.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
-    await vi.waitFor(() => expect(shadow.querySelector(".toast")?.textContent).toContain("console.vitehub.dev"))
+    await vi.waitFor(() => expect(shadow.querySelector(".toast")?.textContent).toContain("Publish it in the Console."))
     expect(shadow.querySelector(".toast a")).toBeNull()
   })
 
@@ -432,7 +432,7 @@ describe("the Comments overlay on a page", () => {
     await vi.waitFor(() => expect(tool(tools.bar, "Edit text (E)")).not.toBeNull())
     tool(tools.bar, "Edit text (E)")!.click()
     document.querySelector("h1")!.dispatchEvent(new MouseEvent("click", { bubbles: true }))
-    await vi.waitFor(() => expect(shadow.querySelector(".toast")?.textContent).toContain("Edit it in the Console at console.vitehub.dev."))
+    await vi.waitFor(() => expect(shadow.querySelector(".toast")?.textContent).toContain("Edit it in the Console."))
     expect(shadow.querySelector(".toast a")).toBeNull()
     expect(tools.context.openTool).not.toHaveBeenCalled()
   })

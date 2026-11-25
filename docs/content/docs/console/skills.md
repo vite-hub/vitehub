@@ -15,7 +15,7 @@ icon: i-vitehub-skills
 | Agent Skills Discovery v0.1.0 | `/.well-known/skills/index.json`, `<name>/<path>` | `npx skills add https://app.example.com` and Executor |
 | MCP Skills extension | `skills/list`, `skills/get`, `resources/list`, `resources/read` for `skill://<name>/<path>` | MCP clients of your MCP server |
 
-It runs on every host, Cloudflare Workers included. The ViteHub skill itself comes from the [Console](/docs/console) endpoint, at `/_vitehub/.well-known/skills`.
+It runs on every host, Cloudflare Workers included. The ViteHub skill itself comes from the [ViteHub Console](/docs/getting-started/ai-resources/agent-instructions-skills#install-from-the-console), not from your app.
 
 ## Define the skills
 

@@ -61,15 +61,15 @@ Run the command from your project root. The index lists other skills too, so `--
 - Add `--global` to install for all your projects instead of one.
 - Run `npx skills list` to see installed project skills.
 
-### Install from your app
+### Install from the Console
 
-Apps with the [Console](/docs/console) endpoint also serve the skill at `/_vitehub/.well-known/skills/`. That copy comes from your installed `vite-hub` package, so it matches your app's version. Pass the `/_vitehub` URL of your dev server or deployed app:
+The [ViteHub Console](/docs/console) serves the skill of the `vite-hub` version that it runs. A self-hosted Console serves the skill of the version that you built it with:
 
 ```bash [Terminal]
-npx skills add http://localhost:3000/_vitehub --skill vitehub --agent claude-code
+npx skills add https://console.example.com --skill vitehub --agent claude-code
 ```
 
-These skill files are static and need no signature, even in production. They contain only the public skill, never app data.
+Add `/skills/<version>` to the URL, such as `https://console.vitehub.dev/skills/0.4.0`, to install only that version. The Console answers `404` when it runs a different version. Apps do not serve the skill.
 
 To serve your own app's skills for `npx skills add` and MCP clients, use [`vite-hub/skills`](/docs/console/skills).
 

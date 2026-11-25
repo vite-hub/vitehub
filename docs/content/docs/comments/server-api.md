@@ -88,7 +88,7 @@ export default defineEventHandler(async (event) => {
 | `removeScope(scope)` | `{ removed }`, the number of threads deleted with their messages. | `COMMENTS_NOT_INSTALLED` |
 | `people({ query, user, thread?, subject?, limit? })` | Up to 20 people whose name contains `query` and whom `user` may mention there. | `COMMENTS_NOT_INSTALLED` |
 | `listSends(user, { states?, limit?, gate?, console? })` | With `send`, the sends of `user`, newest first, with the threads that `user` may still read. Default: `sent` and `working`, at most 20. It marks finished sends as done as it scans. See [Read sends on the server](/docs/comments/send#read-sends-on-the-server). | `COMMENTS_NOT_INSTALLED`, `COMMENTS_SEND_OFF` |
-| `readSend(user, id, { gate?, console? })` | With `send`, one send of `user`, as `comments_get_send` opens it. A `sent` send becomes `working`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND`, `COMMENTS_SEND_OFF` |
+| `readSend(user, id, { gate?, console? })` | With `send`, one send of `user`, as `comments_get_send` opens it. A `sent` send becomes `working`. It opens a send whose delivery waits for the receiver's answer. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND`, `COMMENTS_SEND_OFF` |
 | `can({ user, action, thread?, subject? }, gate?)` | `true` when `authorize` allows the action. Without `authorize`, [the default policy](/docs/comments/configure#decide-who-can-comment) decides; `gate` says what your server already checked: `{ development, console }`. | None |
 | `sync(threadId)` | Nothing. With `forge`, syncs the thread's pull request comments now, and retries failed posts. | None |
 | `flush()` | Nothing. Waits for pending pull request syncs and `onMention` calls. | None |

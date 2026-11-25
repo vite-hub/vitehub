@@ -3,23 +3,56 @@ import { renderSVG } from "uqr"
 import { isRecord } from "@vite-hub/internal/object"
 import { siteAccessOperation } from "@vite-hub/internal/site-token"
 
-import { siteAccessOperations } from "../site-access"
 import { useConsoleProjects } from "./project-session"
 import { ConsoleRequestError, consoleResponseError, requestConsoleOperation } from "./request"
 import { openConsoleTicket } from "./ticket"
 
-import type { SiteGrant, SiteInvite, SiteSession } from "../site-access"
 import type { ConsoleTicketLink } from "./ticket"
 
-export type { SiteGrant, SiteInvite, SiteSession } from "../site-access"
+export const siteAccessOperations = {
+  link: "site.link",
+  sessions: "site.sessions",
+  revokeSession: "site.revoke-session",
+  invite: "site.invite",
+  invites: "site.invites",
+  revokeInvite: "site.revoke-invite",
+  grants: "site.grants",
+} as const
+
+export interface SiteSession {
+  id: string
+  kind: "member" | "guest"
+  person: { id: string, name: string, email?: string, image?: string }
+  grants: string[]
+  device: string
+  createdAt: string
+  lastSeenAt: string
+  expiresAt: string
+}
+
+export interface SiteInvite {
+  id: string
+  name: string
+  grants: string[]
+  path: string
+  expiresAt: string
+  createdBy: { id: string, name: string }
+}
+
+export interface SiteGrant {
+  id: string
+  label: string
+  description?: string
+  membersOnly?: true
+}
 
 /**
- * Whether the Console keeps the Site access of the open project: the account Console, with an app that answers
+ * Whether the Console keeps the Site access of the open project: an app that answers
  * `site.access`. Else the app keeps it, and the Console calls its `site.*` operations.
  */
 export function usesConsoleSiteAccess(): boolean {
   const projects = useConsoleProjects()
-  return projects.mode === "account" && Boolean(projects.current.value) && Boolean(projects.info.value?.operations.includes(siteAccessOperation))
+  return Boolean(projects.current.value && projects.info.value?.operations.includes(siteAccessOperation))
 }
 
 /**

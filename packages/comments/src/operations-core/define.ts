@@ -229,7 +229,7 @@ export interface CommentsPolicyGate {
   console?: boolean
 }
 
-/** The roles of a user: the comma-separated `role` of Better Auth's `admin()` plugin, as ViteHub Auth passes it on. */
+/** The roles of a user: the comma-separated `role`, such as the roles of the Site access cookie or of Better Auth's `admin()` plugin. */
 function rolesOf(user: CommentsUser | null): string[] {
   const role: unknown = user?.role
   return typeof role === "string" ? role.split(",").map(name => name.trim()) : []

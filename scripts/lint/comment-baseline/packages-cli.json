@@ -1,5 +1,4 @@
 {
-  "packages/cli/src/operations.ts": 1,
   "packages/cli/src/renamed-commands.ts": 4,
   "packages/cli/src/setup/deploy/cloudflare.ts": 7,
   "packages/cli/test/setup-deploy.test.ts": 1

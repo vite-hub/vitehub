@@ -1,5 +1,6 @@
 import { resolveDefaultDatabase } from "../default-database-name.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
+import { sharedRuntimeKey } from "./shared-runtime.ts"
 
 /**
  * Creates `useDatabase()` for a runtime registry. `names` are the Databases that have a Definition. `databases` can hold
@@ -17,4 +18,12 @@ export function createUseDatabase<TEntry>(databases: Readonly<Record<string, TEn
     if (typeof name === "string" && names.includes(name)) return databases[name]!
     throw databaseErrorDiagnostics.DATABASE_NOT_FOUND({ choices: [...names].sort(), database: String(name) })
   }
+}
+
+/**
+ * Gives these Databases to a copy of this package that has none. In dev, Node loads a second copy for the packages that
+ * it loads itself, such as Agent and Workspace, and that copy reads the Databases of the copy that the host built.
+ */
+export function shareRuntimeDatabases(read: () => { configured: ReadonlySet<string>, databases: Readonly<Record<string, unknown>> }): void {
+  Reflect.set(globalThis, sharedRuntimeKey, read)
 }

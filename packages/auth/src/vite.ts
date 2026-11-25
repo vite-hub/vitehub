@@ -456,7 +456,7 @@ export function hubAuth(options?: AuthOptions, internalOptions: InternalAuthModu
           dialect,
           definition: { module: generated ? schemaModule : `${importBase}/schema`, export: dialect === "postgresql" ? "authPostgresSchema" : "authSqliteSchema" },
           tables,
-          reason: "Stores the Better Auth users, sessions, accounts, and verifications, the admin() fields, the tables and columns of the plugins and additional fields that the Auth Definition adds, and the Console MCP OAuth clients and tokens of authDatabase().",
+          reason: "Stores the Better Auth users, sessions, accounts, and verifications, the tables and columns of the plugins and additional fields that the Auth Definition adds, and the Console MCP OAuth clients and tokens of authDatabase().",
         }]
       },
       inspect: () => {

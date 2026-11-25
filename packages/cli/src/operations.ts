@@ -332,7 +332,7 @@ function resolveTarget(parsed: ParsedCall, context: ViteHubCliContext): { target
 
 function featureOf(operation: AnyOperation): ViteHubCliFeature {
   const flags = flagsOf(operation)
-  const { command } = operationCliPath(operation)
+  const { command, namespace } = operationCliPath(operation)
   return {
     description: operation.description,
     name: command,
@@ -368,14 +368,19 @@ function featureOf(operation: AnyOperation): ViteHubCliFeature {
         }
         confirmed = true
       }
-      const result = await callOperation({
+      const rpcTarget = {
         confirmed,
         env: context.env,
         ...(context.fetch ? { fetch: context.fetch } : {}),
         ...(resolved.roots ? { roots: resolved.roots } : {}),
         ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
         url: target,
-      }, operation.name, parsed.input)
+      }
+      let result = await callOperation(rpcTarget, operation.name, parsed.input)
+      if (!result.ok && result.status === 404 && result.code === "CONSOLE_NOT_FOUND"
+        && operation.name === "invocations.usage" && operation.kind === "read" && namespace === "agent" && command === "usage") {
+        result = await callOperation(rpcTarget, "usage.get", parsed.input)
+      }
       if (!result.ok) return writeFailure(result, parsed, context)
       const format = operationCliOptions(operation)?.format as ((output: unknown) => string) | undefined
       const output = !parsed.json && format ? format(result.value) : `${JSON.stringify(result.value ?? null, null, 2)}\n`
@@ -428,7 +433,6 @@ export function createOperationNamespaces(operations: readonly AnyOperation[]): 
   const namespaces = new Map<string, ViteHubCliCommandNamespace>()
   const groups = new Map<string, { commands: ViteHubCliFeature[], name: string, namespace: string }>()
   for (const operation of operations) {
-    // `cli: false` operations have no command. The Console and MCP call them.
     if (operation.cli === false) continue
     const { command, namespace: name } = operationCliPath(operation)
     const namespace = namespaces.get(name) ?? { description: `Run the ${name} operations of the app.`, features: [], name }
