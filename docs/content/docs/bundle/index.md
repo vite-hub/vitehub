@@ -67,7 +67,7 @@ These commands read `.vitehub/bundle/` directly and do not need a running server
 - **Against.** The change from a saved report, side by side.
 - **Checks.** Problems that the report proves, such as a server that is too large for the host.
 
-Vite apps and Nuxt 5 apps with Nitro 3 are supported.
+Vite apps with Nitro 3, Nuxt 4.7 apps with the `nitro` package, and Nuxt 5 apps are supported.
 
 ::card-group
   :::card{title="Get started" icon="i-lucide-rocket" to="/docs/bundle/get-started"}

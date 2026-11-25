@@ -19,7 +19,7 @@ const notReplayed: Record<string, { hooks: readonly ReplayHook[], reason: string
   "@vite-hub/sandbox/task/vite": { hooks: ["resolveId", "load"], reason: "The plugin's nitro.setup aliases @vite-hub/sandbox/task to the generated facade (#5462)." },
   "@vite-hub/workspace/vite": { hooks: ["resolveId", "load"], reason: "configureNitroWorkspaceAssets aliases the assets registry for a Nitro build outside Vite." },
   "vite-hub/cloudflare-node-dev": { hooks: ["resolveId", "load"], reason: "Nuxt writes its own Cloudflare dev shims (writeCloudflareDevShims)." },
-  "vite-hub/console": { hooks: ["transform"], reason: "Nuxt filters the Console plugin out and installs consoleOperationFeatures() in Nitro (installNitroBuildPlugins)." },
+  "vite-hub/console": { hooks: ["resolveId", "transform"], reason: "Nuxt sets the #vitehub/console/app Nitro alias directly and installs consoleOperationFeatures() in Nitro (installNitroBuildPlugins)." },
   "vite-hub/database-disabled": { hooks: ["resolveId", "load"], reason: "Nuxt sets the disabled Database aliases on the Nitro config." },
   "vite-hub/dependencies": { hooks: ["resolveId", "load"], reason: "Facade aliases also go to Nitro through the replayed config hook." },
   "vite-hub/deployment-host": { hooks: ["resolveId"], reason: "Vite-host only; Nuxt runs its own Nitro." },

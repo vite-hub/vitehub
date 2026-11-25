@@ -12,7 +12,7 @@ Write a Vue page and an API route in English. Then translate them into Spanish. 
 
 You write no message keys. You write the English text, and ViteHub makes the keys for you.
 
-Start with the **Vite with Nitro** path in [Installation](/docs/getting-started/installation) and run commands from the app root. You need no provider account. i18n needs Nitro 3. For Nuxt 5, read [Use i18n in Nuxt 5](/docs/i18n/configure#use-i18n-in-nuxt-5).
+Start with the **Vite with Nitro** path in [Installation](/docs/getting-started/installation) and run commands from the app root. You need no provider account. i18n needs Nitro 3. For Nuxt, read [Use i18n in Nuxt](/docs/i18n/configure#use-i18n-in-nuxt).
 
 Install the i18n package, Vue, and Vite's Vue plugin:
 
@@ -278,6 +278,6 @@ You wrote English text in a Vue page and in a server route, with no keys. One co
 
 The build changed each message to a short ID. The app code that ships to the browser has no English text, and the Spanish translations are in their own chunk.
 
-- Read [Configure](/docs/i18n/configure) to add more locales, use Nuxt 5, and write plurals and placeholders.
+- Read [Configure](/docs/i18n/configure) to add more locales, use Nuxt, and write plurals and placeholders.
 - Read [Server API](/docs/i18n/server-api) for `getLocale()`, `setLocale()`, `msg`, and `translate()`.
 - Read [Limits and errors](/docs/i18n/limits-and-errors) before you ship.

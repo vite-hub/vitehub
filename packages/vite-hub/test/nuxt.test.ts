@@ -1813,7 +1813,7 @@ describe("ViteHub Nuxt integration", () => {
     expect(nitroOptions(development.nuxt).handlers).toContainEqual(expect.objectContaining({ route: "/_vitehub/**", handler: expect.stringMatching(/server\/entry\.js$/) }))
     expect(nitroOptions(development.nuxt).publicAssets ?? []).toEqual([])
     expect(development.nuxt.options.nitro).toMatchObject({
-      handlers: [{ route: "/_vitehub/**" }],
+      handlers: [{ route: "/_vitehub/**" }, { route: "/_vitehub" }, { route: "/_vitehub/rpc" }],
       alias: { "#vitehub/console/app": `${tmp}/vitehub-nuxt/.vitehub/nitro/console/app-dev.mjs` },
     })
     expect(nitroOptions(development.nuxt).plugins ?? []).not.toContainEqual(expect.stringContaining("/nitro/console/"))
@@ -1845,7 +1845,7 @@ describe("ViteHub Nuxt integration", () => {
       production.nuxt,
     )
     expect(production.nuxt.options.nitro).toMatchObject({
-      handlers: [{ route: "/_vitehub/**" }],
+      handlers: [{ route: "/_vitehub/**" }, { route: "/_vitehub" }, { route: "/_vitehub/rpc" }],
       alias: { "#vitehub/console/app": `${tmp}/vitehub-nuxt/.vitehub/nitro/console/app.mjs` },
     })
     expect(Object.keys(production.nuxt.options.routeRules ?? {})).not.toContain("/_vitehub/**")
@@ -1999,10 +1999,11 @@ describe("ViteHub Nuxt integration", () => {
     mocks.vitehub.mockReturnValue([consoleVitePlugin({ rpcOnly: true })])
     const application = createNuxt(true)
     await viteHubNuxtModule({ host: "node" }, application.nuxt)
-    const config: { alias?: Record<string, string> } = {}
+    const config: { alias?: Record<string, string>, plugins?: string[] } = {}
     await application.runNitroConfigHook(config)
 
     expect(config.alias?.["#vitehub/console/app"]).toBe(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/app-dev.mjs`)
+    expect(config.plugins?.filter(plugin => plugin.endsWith("/runtime/operation-loader.js"))).toHaveLength(1)
     await application.runCloseHook()
   })
 
@@ -2294,7 +2295,7 @@ describe("ViteHub Nuxt integration", () => {
       host: "node",
     }, development.nuxt)
     expect(development.nuxt.options.nitro).toMatchObject({
-      handlers: [{ route: "/_vitehub/**" }],
+      handlers: [{ route: "/_vitehub/**" }, { route: "/_vitehub" }, { route: "/_vitehub/rpc" }],
     })
     expect(development.nuxt.options.vite.plugins).not.toContainEqual(expect.objectContaining({ name: "vite-hub/console-invocation-root" }))
     const generated = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/app-dev.mjs`, "utf8")
@@ -2818,7 +2819,7 @@ describe("ViteHub Nuxt integration", () => {
 
       await viteHubNuxtModule({ comments: false, console: productionConsole, database: true, host: "node" }, development.nuxt)
       expect(development.nuxt.options.nitro).toMatchObject({
-        handlers: [{ route: "/_vitehub/**" }],
+        handlers: [{ route: "/_vitehub/**" }, { route: "/_vitehub" }, { route: "/_vitehub/rpc" }],
       })
       await development.runNitroConfigHook(nitroOptions(development.nuxt))
       const generated = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/app-dev.mjs`, "utf8")
@@ -2900,6 +2901,8 @@ describe("ViteHub Nuxt integration", () => {
         handlers: [
           { handler: "server/handler.ts", route: "/api/example" },
           { route: "/_vitehub/**" },
+          { route: "/_vitehub" },
+          { route: "/_vitehub/rpc" },
         ],
       })
       expect(development.nuxt.options.vite.plugins).not.toContainEqual(expect.objectContaining({ name: "vite-hub/console-invocation-root" }))
@@ -3034,6 +3037,8 @@ describe("ViteHub Nuxt integration", () => {
         handlers: [
           { handler: "server/handler.ts", route: "/api/example" },
           { route: "/_vitehub/**" },
+          { route: "/_vitehub" },
+          { route: "/_vitehub/rpc" },
         ],
       })
       const generated = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/app-dev.mjs`, "utf8")
@@ -3067,6 +3072,8 @@ describe("ViteHub Nuxt integration", () => {
         handlers: [
           { handler: "server/handler.ts", route: "/api/example" },
           { route: "/_vitehub/**" },
+          { route: "/_vitehub" },
+          { route: "/_vitehub/rpc" },
         ],
       })
       expect(development.nuxt.options.vite.plugins).not.toContainEqual(expect.objectContaining({ name: "vite-hub/console-invocation-root" }))

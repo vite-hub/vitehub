@@ -119,8 +119,9 @@ export const siteAccessRoute: ConsoleRoute = consoleRoute(async (event) => {
   }
   if (request.method !== "GET" && request.method !== "HEAD") throw consoleRequestError(405, `Open ${siteRoute} in the browser.`)
   const url = new URL(request.url)
-  if (!url.pathname.endsWith(siteRoute)) throw consoleRequestError(404, "Nothing serves this path.")
-  const app = siteApp(request, url.pathname.slice(0, -siteRoute.length))
+  const pathname = url.pathname.replace(/\/+$/, "")
+  if (!pathname.endsWith(siteRoute)) throw consoleRequestError(404, "Nothing serves this path.")
+  const app = siteApp(request, pathname.slice(0, -siteRoute.length))
   const token = url.searchParams.get("token")
   return token === null ? await visit(request, app) : await signIn(request, app, token)
 })

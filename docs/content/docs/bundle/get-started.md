@@ -9,7 +9,7 @@ icon: i-lucide-rocket
 In this tutorial, you measure the production build of a ViteHub app, find why one package is in the server output, and prove that a change makes the output smaller.
 
 > [!NOTE] Before you start
-> You need a Vite or Nitro app with `vitehub()`, or a Nuxt 5 app with `vite-hub/nuxt`. The `vitehub` CLI comes with the `vite-hub` package.
+> You need a Vite or Nitro app with `vitehub()`, or a Nuxt 4.7 (with the `nitro` package) or Nuxt 5 app with `vite-hub/nuxt`. The `vitehub` CLI comes with the `vite-hub` package.
 
 ## Turn on the report
 
