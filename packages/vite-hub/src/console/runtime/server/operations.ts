@@ -376,6 +376,16 @@ const invocationsGet = defineConsoleOperation({
   section: "agents",
 })
 
+const invocationsUsage = defineConsoleOperation({
+  cli: false,
+  description: "Add up token use and cost evidence of Agent Invocations in the journal at request time. Same input and answer as usage.get.",
+  input: v.strictObject({ agent: optionalText, cursor: optionalText, search: optionalText, status: optionalText, window: optionalText }),
+  kind: "read",
+  name: "invocations.usage",
+  run: async (input, context) => (await (import.meta.viteHubConsoleAgents === false ? disabledConsoleFeature("Agents") : import("./usage.get.ts"))).readConsoleJournalUsageRoute(legacyEvent("usage", "GET", { query: input }, context)),
+  section: "usage",
+})
+
 const invocationsCancel = defineConsoleOperation({
   cli: false,
   description: "Ask a running Agent Invocation to stop.",
@@ -681,6 +691,7 @@ export const consoleOperations: readonly AnyOperation[] = [
   invocationsDelete,
   invocationsGet,
   invocationsList,
+  invocationsUsage,
   invocationsWorkspace,
   workspacesFiles,
   logsList,
