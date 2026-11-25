@@ -234,8 +234,8 @@ describe("vitehub add", () => {
       const result = await add(args, root)
       expect(result.exitCode, result.stdout).toBe(0)
       expect(result.json.features).toContain("database")
-      expect(result.json.install.packages).toEqual(expect.arrayContaining(["@vite-hub/database", "drizzle-orm@1.0.0-rc.5 || ^1.0.0"]))
-      expect(result.json.install.devPackages).toContain("drizzle-kit@1.0.0-rc.5 || ^1.0.0")
+      expect(result.json.install.packages).toEqual(expect.arrayContaining(["@vite-hub/database", "drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"]))
+      expect(result.json.install.devPackages).toContain("drizzle-kit@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0")
       const config = locateViteHubConfig("vite.config.ts", await readFile(join(root, "vite.config.ts"), "utf8"))
       expect(config.ok && config.site.keys.database).toMatchObject({ value: host === "node" ? true : { connection: { url: "libsql://example.com" } } })
       expect((await add(args, root)).json.status).toBe("unchanged")
@@ -315,8 +315,8 @@ describe("vitehub add", () => {
     const result = await add(["comments", "--dry-run"], root)
     expect(result.exitCode, result.stdout).toBe(0)
     expect(result.json.implied).not.toContain("database")
-    expect(result.json.install.packages).toEqual(expect.arrayContaining(["@vite-hub/comments", "@vite-hub/database", "drizzle-orm@1.0.0-rc.5 || ^1.0.0"]))
-    expect(result.json.install.devPackages).toContain("drizzle-kit@1.0.0-rc.5 || ^1.0.0")
+    expect(result.json.install.packages).toEqual(expect.arrayContaining(["@vite-hub/comments", "@vite-hub/database", "drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"]))
+    expect(result.json.install.devPackages).toContain("drizzle-kit@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0")
     expect(await snapshot(root)).toEqual(before)
   })
 
@@ -333,7 +333,7 @@ describe("vitehub add", () => {
     })
     expect(result.exitCode, result.stdout).toBe(0)
     expect(result.json.install.packages).toContain("@libsql/client")
-    expect(result.json.install.packages.filter(name => name === "drizzle-orm@1.0.0-rc.5 || ^1.0.0")).toHaveLength(1)
+    expect(result.json.install.packages.filter(name => name === "drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0")).toHaveLength(1)
     expect(calls[0]).toContain("@libsql/client")
     expect(result.json.install.packages).not.toContain("@better-auth/oauth-provider")
   })
@@ -791,10 +791,10 @@ describe("vitehub add", () => {
     const { exitCode, json } = await add(["database", "--yes"], root, spawn)
 
     expect(exitCode).toBe(0)
-    expect(json.install).toEqual({ command: 'pnpm add @vite-hub/database "drizzle-orm@1.0.0-rc.5 || ^1.0.0" && pnpm add -D "drizzle-kit@1.0.0-rc.5 || ^1.0.0"', devPackages: ["drizzle-kit@1.0.0-rc.5 || ^1.0.0"], packages: ["@vite-hub/database", "drizzle-orm@1.0.0-rc.5 || ^1.0.0"] })
+    expect(json.install).toEqual({ command: 'pnpm add @vite-hub/database "drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0" && pnpm add -D "drizzle-kit@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"', devPackages: ["drizzle-kit@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"], packages: ["@vite-hub/database", "drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"] })
     expect(calls).toEqual([
-      { args: ["add", "@vite-hub/database", "drizzle-orm@1.0.0-rc.5 || ^1.0.0"], command: "pnpm", cwd: root, stdout: "stderr" },
-      { args: ["add", "-D", "drizzle-kit@1.0.0-rc.5 || ^1.0.0"], command: "pnpm", cwd: root, stdout: "stderr" },
+      { args: ["add", "@vite-hub/database", "drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"], command: "pnpm", cwd: root, stdout: "stderr" },
+      { args: ["add", "-D", "drizzle-kit@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"], command: "pnpm", cwd: root, stdout: "stderr" },
     ])
   })
 
@@ -802,7 +802,7 @@ describe("vitehub add", () => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ host: "node" }`) })
     const { exitCode, json } = await add(["auth", "--dry-run"], root)
     expect(exitCode, JSON.stringify(json)).toBe(0)
-    expect(json.install).toMatchObject({ command: 'pnpm add @vite-hub/auth better-auth "drizzle-orm@1.0.0-rc.5 || ^1.0.0"', packages: ["@vite-hub/auth", "better-auth", "drizzle-orm@1.0.0-rc.5 || ^1.0.0"] })
+    expect(json.install).toMatchObject({ command: 'pnpm add @vite-hub/auth better-auth "drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"', packages: ["@vite-hub/auth", "better-auth", "drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"] })
   })
 
   it("declares owner packages in the target manifest even when hoisted", async () => {
@@ -816,8 +816,8 @@ describe("vitehub add", () => {
     })
     const result = await add(["database", "--dry-run"], join(root, "app"))
     expect(result.exitCode).toBe(0)
-    expect(result.json.install.packages).toEqual(["@vite-hub/database", "drizzle-orm@1.0.0-rc.5 || ^1.0.0"])
-    expect(result.json.install.devPackages).toEqual(["drizzle-kit@1.0.0-rc.5 || ^1.0.0"])
+    expect(result.json.install.packages).toEqual(["@vite-hub/database", "drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"])
+    expect(result.json.install.devPackages).toEqual(["drizzle-kit@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"])
   })
 
   it("uses target manifest declarations even before dependencies are installed", async () => {
@@ -844,7 +844,7 @@ describe("vitehub add", () => {
     expect(calls).toBe(2)
     expect(result.exitCode).toBe(1)
     expect(result.json.error?.code).toBe("SETUP_INSTALL_FAILED")
-    expect(result.json.error?.message).toContain('pnpm add -D "drizzle-kit@1.0.0-rc.5 || ^1.0.0"')
+    expect(result.json.error?.message).toContain('pnpm add -D "drizzle-kit@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"')
     expect(result.json.error?.fix).toContain("package manager may have changed")
     expect(await readFile(join(root, "package.json"), "utf8")).not.toBe(pnpmManifest)
     expect(await readFile(join(root, "pnpm-lock.yaml"), "utf8")).toBe("install 2")

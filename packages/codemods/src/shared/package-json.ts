@@ -2,11 +2,14 @@ import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
+import { features } from "@vite-hub/internal/features"
 import { subset, validRange } from "semver"
 
 import { codemodError } from "../error-diagnostics.ts"
+import { readPnpmCatalogVersion } from "./pnpm-catalog.ts"
 
-import type { FileEdit } from "../types.ts"
+import type { FeatureId } from "@vite-hub/internal/features"
+import type { FileEdit, FollowUp } from "../types.ts"
 
 type Manifest = Record<string, unknown>
 type DependencyMap = Record<string, string>
@@ -24,6 +27,8 @@ function isDependencyMap(value: unknown): value is DependencyMap {
 export interface PackageJsonResult {
   edit?: FileEdit
   installCommand: string
+  installs: string
+  followUps: FollowUp[]
 }
 
 function detectInstallCommand(cwd: string): string {
@@ -49,13 +54,27 @@ export interface PackageJsonChange {
    * that range. A range the codemod cannot read stays as it is.
    */
   within?: Readonly<Record<string, string>>
-  /** Rewrites the command of each entry in `scripts`. */
   scripts?: (command: string) => string
+  require?: { name: string, range: string, feature: string }
+  features?: readonly FeatureId[]
 }
 
-/** True when `range` allows a version that `supported` does not. A prerelease in `range` counts. */
+function featurePackageSpecifier(name: string, viteHub: string): string {
+  if (validRange(viteHub) !== null) return viteHub
+  const preview = /^(?<base>https:\/\/pkg\.pr\.new(?:\/vite-hub\/vitehub)?)\/vite-hub@(?<ref>[^/?#]+)$/.exec(viteHub)?.groups
+  if (preview) return `${preview.base}/${name}@${preview.ref}`
+  throw codemodError(`Cannot match ${name} to vite-hub@${viteHub}. Update vite-hub in package.json to a version, a version range, or a pkg.pr.new preview from vite-hub/vitehub, then run the codemod again.`)
+}
+
 function outside(range: string, supported: string): boolean {
   return validRange(range) !== null && !subset(range, supported, { includePrerelease: true })
+}
+
+async function resolveDeclaredRange(cwd: string, name: string, declared: string): Promise<{ range: string, catalog: boolean } | undefined> {
+  const catalog = /^catalog:(.*)$/.exec(declared)?.[1]
+  const range = catalog === undefined ? declared : await readPnpmCatalogVersion(cwd, name, catalog.trim() || "default")
+  if (range === undefined) return
+  return { range: range.startsWith(`npm:${name}@`) ? range.slice(`npm:${name}@`.length) : range, catalog: catalog !== undefined }
 }
 
 /**
@@ -65,7 +84,15 @@ function outside(range: string, supported: string): boolean {
 export async function editPackageJson(cwd: string, version: string, change: PackageJsonChange): Promise<PackageJsonResult> {
   const path = join(cwd, "package.json")
   const command = detectInstallCommand(cwd)
-  if (!existsSync(path)) return { installCommand: command }
+  const required = change.require
+  const owners = new Set((change.features ?? []).flatMap(id => features[id].packages).filter(name => name.startsWith("@vite-hub/")))
+  const add = new Set([...change.add, ...owners])
+  const names = new Set(add)
+  const installList = new Intl.ListFormat("en", { type: "conjunction" })
+  if (!existsSync(path)) {
+    if (required) throw codemodError(`Create a package.json for this app before migrating to ${required.feature}.`)
+    return { installCommand: command, installs: installList.format(names), followUps: [] }
+  }
   const before = await readFile(path, "utf8")
   let manifest: unknown
   try {
@@ -76,10 +103,12 @@ export async function editPackageJson(cwd: string, version: string, change: Pack
   }
   if (!isRecord(manifest)) throw codemodError("package.json must contain an object.")
   const range = `^${version}`
+  let viteHub: string | undefined
   let target: (typeof sections)[number] = "dependencies"
   for (const section of sections) {
     const dependencies = manifest[section]
     if (dependencies !== undefined && !isDependencyMap(dependencies)) throw codemodError(`package.json ${section} must map names to version strings.`)
+    viteHub ??= dependencies?.["vite-hub"]
     if (dependencies && change.remove.some(name => name in dependencies)) {
       target = section
       manifest[section] = Object.fromEntries(Object.entries(dependencies).filter(([name]) => !change.remove.includes(name)))
@@ -91,15 +120,44 @@ export async function editPackageJson(cwd: string, version: string, change: Pack
     const map = manifest[section]
     return isDependencyMap(map) && name in map
   })
-  for (const name of change.add) if (!installed(name)) dependencies[name] = range
+  const followUps: FollowUp[] = []
+  if (required) {
+    for (const section of [...sections, "optionalDependencies", "peerDependencies"]) {
+      const map = manifest[section]
+      if (!isRecord(map) || !(required.name in map)) continue
+      const declared = map[required.name]
+      const resolved = typeof declared === "string" ? await resolveDeclaredRange(cwd, required.name, declared) : undefined
+      const needs = `${required.feature} needs ${required.name} ${required.range}`
+      if (resolved === undefined || validRange(resolved.range) === null) {
+        const source = resolved?.catalog ? `, which pnpm-workspace.yaml sets to ${JSON.stringify(resolved.range)}` : ""
+        followUps.push({ file: "package.json", message: `package.json ${section} declares ${required.name} ${JSON.stringify(declared)}${source}. The codemod cannot read it as a version range, so it kept it. ${needs}. Check that it installs such a version.` })
+        continue
+      }
+      if (outside(resolved.range, required.range)) {
+        const source = resolved.catalog ? ` (pnpm-workspace.yaml sets ${JSON.stringify(declared)} to ${JSON.stringify(resolved.range)})` : ""
+        throw codemodError(`Migration to ${needs}. Update its range in package.json ${section}${source}, then run the codemod again.`)
+      }
+    }
+    if (!installed(required.name)) {
+      dependencies[required.name] = required.range
+      names.add(required.name)
+    }
+  }
+  for (const name of add) {
+    if (!installed(name)) dependencies[name] = owners.has(name) && viteHub !== undefined ? featurePackageSpecifier(name, viteHub) : range
+  }
   for (const [name, supported] of Object.entries(change.within ?? {})) {
     if (!installed(name)) {
       dependencies[name] = supported
+      names.add(name)
       continue
     }
     for (const section of sections) {
       const map = section === target ? dependencies : manifest[section]
-      if (isDependencyMap(map) && typeof map[name] === "string" && outside(map[name], supported)) map[name] = supported
+      if (isDependencyMap(map) && typeof map[name] === "string" && outside(map[name], supported)) {
+        map[name] = supported
+        names.add(name)
+      }
     }
   }
   manifest[target] = Object.fromEntries(Object.entries(dependencies).sort(([left], [right]) => left.localeCompare(right)))
@@ -109,5 +167,5 @@ export async function editPackageJson(cwd: string, version: string, change: Pack
   }
   const indent = /^[ \t]+/m.exec(before)?.[0] ?? "  "
   const after = `${JSON.stringify(manifest, null, indent)}${before.endsWith("\n") ? "\n" : ""}`
-  return { edit: after === before ? undefined : { path: "package.json", before, after }, installCommand: command }
+  return { edit: after === before ? undefined : { path: "package.json", before, after }, installCommand: command, installs: installList.format(names), followUps }
 }

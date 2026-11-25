@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/bundle",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Bundle reports for ViteHub apps: client and server size, startup cost, and why each package is in the output.",
   "keywords": [
     "bundle",
@@ -55,7 +55,7 @@
     "@valibot/to-json-schema": "catalog:runtime",
     "nostics": "catalog:runtime",
     "valibot": "catalog:runtime",
-    "vue-router": "^5.4.0"
+    "vue-router": "^5.5.1"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",

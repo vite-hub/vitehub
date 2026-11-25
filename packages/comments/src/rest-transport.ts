@@ -151,7 +151,7 @@ const post = (body?: unknown, account?: string): RequestInit => ({
  * `guest` names. Guests and share-link readers can use it. It has no
  * `subscribe`: the client refreshes when the window gets focus.
  */
-export function createRestTransport(options: RestTransportOptions = {}): RestTransport {
+export function createRestTransport(options: RestTransportOptions & { route?: string } = {}): RestTransport {
   const request = createCommentsRestRequest(options)
   const base = (options.base ?? "").replace(/\/+$/, "")
   const upload = async (input: CommentUploadInput, account?: string) => (await request<CommentAttachment>("/attachments", post(input, account))).data

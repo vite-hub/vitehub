@@ -337,6 +337,12 @@ export function snapshotCheckEvidence(snapshot: Snapshot): GitHubCheckEvidence {
   return { repository: snapshot.repository, branch: snapshot.pr?.base?.ref ?? "", headSha: head, checkRuns: [...newest.values()], statuses };
 }
 
+/** Whether the snapshot holds no check run and no commit status for the PR's head. */
+export function headChecksUnreported(snapshot: Snapshot): boolean {
+  const evidence = snapshotCheckEvidence(snapshot);
+  return !evidence.checkRuns.length && !evidence.statuses.length;
+}
+
 /**
  * Decides from inbox evidence whether a PR needs only a merge. Any doubt returns a reason,
  * and the PR gets a normal pass. The live check in `liveMergeReadiness` still runs before merging.

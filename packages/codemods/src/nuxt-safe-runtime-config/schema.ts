@@ -435,25 +435,6 @@ function literalText(value: NonNullable<EnvField["default"]>): string {
   return typeof value === "string" || typeof value === "object" ? JSON.stringify(value) : String(value)
 }
 
-function coerceRuntimeInput(value: LiteralValue, leaf: Leaf): LiteralValue {
-  const kind = leaf.kind === "integer" ? "number" : leaf.kind
-  if (kind === "array" || kind === "object" || kind === "union" || kind === "unknown") return value
-  const normalized = typeof value === "string" && kind === "boolean" ? value.trim().toLowerCase() : value
-  if ((kind === "string" || kind === "enum") && typeof value === "number" && !Number.isSafeInteger(value)) return value
-  const coerced = coerceDefault(normalized, { kind, values: leaf.values })
-  if (coerced === undefined || (leaf.kind === "integer" && !Number.isInteger(coerced))) return value
-  return coerced
-}
-
-function leafAtPath(jsonSchema: JsonObject, path: readonly string[]): Leaf {
-  let node = resolveReference(jsonSchema, jsonSchema)
-  for (const key of path) {
-    const properties = describeLeaf(jsonSchema, node).node.properties
-    node = isRecord(properties) ? resolveReference(jsonSchema, properties[key]) : {}
-  }
-  return describeLeaf(jsonSchema, node)
-}
-
 const valibotJsonInputs = new Set([
   "array", "bigint", "boolean", "loose_object", "loose_tuple", "number", "object", "object_with_rest", "record", "strict_object",
   "strict_tuple", "tuple", "tuple_with_rest",
@@ -481,6 +462,25 @@ function schemaFieldKind(access: FieldAccess, leaf: Leaf): EnvFieldKind | undefi
 
 function schemaDefault(value: LiteralValue, kind: EnvFieldKind): LiteralValue {
   return kind === "json" ? value : String(value)
+}
+
+function coerceRuntimeInput(value: LiteralValue, leaf: Leaf): LiteralValue {
+  const kind = leaf.kind === "integer" ? "number" : leaf.kind
+  if (kind === "array" || kind === "object" || kind === "union" || kind === "unknown") return value
+  const normalized = typeof value === "string" && kind === "boolean" ? value.trim().toLowerCase() : value
+  if ((kind === "string" || kind === "enum") && typeof value === "number" && !Number.isSafeInteger(value)) return value
+  const coerced = coerceDefault(normalized, { kind, values: leaf.values })
+  if (coerced === undefined || (leaf.kind === "integer" && !Number.isInteger(coerced))) return value
+  return coerced
+}
+
+function leafAtPath(jsonSchema: JsonObject, path: readonly string[]): Leaf {
+  let node = resolveReference(jsonSchema, jsonSchema)
+  for (const key of path) {
+    const properties = describeLeaf(jsonSchema, node).node.properties
+    node = isRecord(properties) ? resolveReference(jsonSchema, properties[key]) : {}
+  }
+  return describeLeaf(jsonSchema, node)
 }
 
 /** Plans Env declarations from the JSON Schema of `runtimeConfig` and the values in nuxt.config. */
@@ -533,18 +533,27 @@ export async function planFromJsonSchema(input: PlanInput): Promise<SchemaPlan> 
     const schemaKind = found && schemaFieldKind(found, leaf)
     const access = schemaKind ? found : undefined
     const kind = schemaKind || plainFieldKind(leaf)
+    const credential = looksSecret(configPath)
+    const variable = nuxtVariableName(section, configPath, framework)
     const stay = (reason: string) => {
       plan.unmigrated.push(label)
       follow(`${label} ${reason} It stays in runtimeConfig. Read it with useRuntimeConfig(), or move it to Env by hand.`, { runtimeConfig: label })
     }
+    const configValue = runtimeValue?.json
+    if (kind && ((kind === "json" && leaf.kind === "object") || isRecord(configValue))) {
+      const warning = credential ? " Remove any hardcoded credentials before deploying." : ""
+      stay(`can receive nested overrides such as ${variable}_*, but one Env declaration reads only the whole value.${warning}`)
+      return
+    }
     const moduleInput = runtimeValue?.literal ?? runtimeValue?.processEnv?.fallback
-    const jsonDefault = kind === "json" ? runtimeValue?.json : undefined
+    const jsonDefault = kind === "json" ? configValue : undefined
     if (kind && access && isAsyncSchema(access.schema, [undefined, moduleInput ?? jsonDefault])) {
       stay("has an async validator, and Env runs schemas synchronously.")
       return
     }
     if (kind && runtimeValue?.expression && jsonDefault === undefined) {
-      stay(`has the value ${runtimeValue.expression} in runtimeConfig, which the codemod cannot keep as an Env default.`)
+      const value = credential ? "a computed credential value" : `the value ${runtimeValue.expression}`
+      stay(`has ${value} in runtimeConfig, which the codemod cannot keep as an Env default. Use ${variable} for the Env declaration.`)
       return
     }
     if (kind && access && moduleInput === undefined && jsonDefault === undefined && hasSchemaDefault(access.schema)) {
@@ -566,17 +575,17 @@ export async function planFromJsonSchema(input: PlanInput): Promise<SchemaPlan> 
       section,
       configPath,
       envPath: section === "public" ? [flatPublicName(configPath)] : configPath,
-      variable: nuxtVariableName(section, configPath, framework),
+      variable,
       kind,
       ...(kind === "enum" && leaf.kind === "enum" ? { values: leaf.values } : {}),
       required: required && !leaf.nullable,
-      secret: section === "server" && kind !== "enum" && looksSecret(configPath),
+      secret: section === "server" && kind !== "enum" && credential,
       ...(access ? { schema: { steps: access.steps } } : {}),
     }
-    if (section === "server" && kind === "enum" && looksSecret(configPath)) {
+    if (section === "server" && kind === "enum" && credential) {
       follow(`${label} looks like a credential, but an enum cannot be a secret because its values are public metadata. Use a string if the value is secret.`, { env: field })
     }
-    if (section === "public" && looksSecret(configPath)) {
+    if (section === "public" && credential) {
       follow(`${label} looks like a credential. Public Env is bundled into client code. Move it to the server section if it is secret.`, { env: field })
     }
     if (leaf.nullable) follow(`${label} accepts null. Env has no null value, so the field is optional and is undefined when the variable is not set.`, { env: field })
@@ -600,7 +609,8 @@ export async function planFromJsonSchema(input: PlanInput): Promise<SchemaPlan> 
     let defaultValue: EnvField["default"] = jsonDefault ?? (runtimeInput === undefined ? undefined : toDefault(runtimeInput))
     if (runtimeValue?.literal !== undefined) {
       if (defaultValue === undefined) {
-        follow(`runtimeConfig.${label} has the value ${literalText(runtimeValue.literal)}, which is not a valid ${kind}. It was not kept as a default.`, { env: field })
+        const value = credential ? "a credential value" : `the value ${literalText(runtimeValue.literal)}`
+        follow(`runtimeConfig.${label} has ${value}, which is not a valid ${kind}. It was not kept as a default.${credential ? ` Set ${variable} instead.` : ""}`, { env: field })
       }
     }
     else if (runtimeValue?.processEnv) {
@@ -623,18 +633,19 @@ export async function planFromJsonSchema(input: PlanInput): Promise<SchemaPlan> 
       }
     }
     if (defaultValue !== undefined && rejection !== undefined) {
-      follow(`${label} had the value ${literalText(defaultValue)}, which its $schema rejects: ${rejection}. The module treats this validation failure as fatal, so the codemod kept no default and Env requires ${field.variable}.`, { env: field })
+      const value = credential ? "a credential default, which its $schema rejects" : `the value ${literalText(defaultValue)}, which its $schema rejects: ${rejection}`
+      follow(`${label} had ${value}. The module treats this validation failure as fatal, so the codemod kept no default and Env requires ${field.variable}.`, { env: field })
       field.required = true
       defaultValue = undefined
     }
     if (defaultValue !== undefined && defaultValue !== "" && field.secret) {
-      follow(`${label} is secret, so its value ${literalText(defaultValue)} was not kept as a default. Defaults are written into the server build. Set ${field.variable} instead.`, { env: field })
+      follow(`${label} is secret, so its value was not kept as a default. Defaults are written into the server build. Set ${field.variable} instead.`, { env: field })
       defaultValue = undefined
     }
     if (defaultValue !== undefined) field.default = defaultValue
 
     if (constraints.length && !access && publicFunction) {
-      follow(`${label}: Public Env does not run a schema that is a function, such as an ArkType type, so the codemod did not keep ${constraints.join(", ")}. Check the value in code.`, { env: field })
+      follow(`${label}: the codemod does not move a public schema that is a function, such as an ArkType type, and did not keep ${constraints.join(", ")}. Check the value in code.`, { env: field })
     }
     else if (constraints.length && !access) {
       const advice = section === "server" ? "Export the field schema from a server module and declare it with env.schemaFrom()" : "Pass the field schema object as the schema option"

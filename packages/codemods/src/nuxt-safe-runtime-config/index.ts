@@ -304,7 +304,11 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const edited = editNuxtConfig({ config, env, migrated, schemaModule })
   const outOfScope = await findOutOfScopeConfigs(cwd, config)
   const calls = await rewriteCallSites({ cwd, fields, unmigrated, excludedDirectories: outOfScope.directories })
-  const packageResult = await editPackageJson(cwd, packageJson.version, { remove: [moduleName], add: env.kind === "env-schema" ? ["vite-hub", "@vite-hub/env"] : ["vite-hub"] })
+  const packageResult = await editPackageJson(cwd, packageJson.version, {
+    remove: [moduleName],
+    add: env.kind === "fields" ? ["vite-hub"] : [],
+    require: env.kind === "env-schema" ? { name: "vite-hub", range: ">=0.5.1 <1", feature: "vite-hub/env/vite" } : undefined,
+  })
 
   const envLine = (field: EnvField) => edited.lineOf(["vitehub", "env", field.section, ...field.envPath])
   const configFollowUps: FollowUp[] = planned.map(({ anchor, message }) => {
@@ -352,10 +356,11 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   return {
     summary: `migrated ${fields.length} Env declaration${fields.length === 1 ? "" : "s"} (${publicCount} public, ${fields.length - publicCount} server) from ${sourceLabel} to vite-hub/nuxt.`,
     edits,
-    followUps: [...configFollowUps, ...calls.followUps, ...secretFollowUps, ...eslint, ...outOfScope.followUps],
+    requiresNitro3: true,
+    followUps: [...configFollowUps, ...calls.followUps, ...secretFollowUps, ...eslint, ...outOfScope.followUps, ...packageResult.followUps],
     notes,
     nextSteps: [
-      `Run \`${packageResult.installCommand}\` to install ${env.kind === "env-schema" ? "vite-hub and @vite-hub/env" : "vite-hub"} and remove ${moduleName}.`,
+      `Run \`${packageResult.installCommand}\` to install vite-hub and remove ${moduleName}.`,
       "Run `npx nuxi prepare` to generate the Env types, then type-check the app.",
     ],
   }

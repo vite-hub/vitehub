@@ -17,6 +17,7 @@ import {
   defineComponent,
   h,
   onBeforeUnmount,
+  shallowRef,
   toRaw,
   type VNodeRef,
   watchEffect,
@@ -33,7 +34,7 @@ const scrollToSelectedLinesProp = { default: false, type: Boolean };
 // Pierre can keep the previous source rendered while a replacement's highlighter loads.
 class SelectionFileModel extends PierreFileModel<unknown> {
   isSourceRendered() {
-    const file = this.getLatestFile();
+    const file = this.getWorkingFile();
     const rendered = this.getRenderedFile();
     if (!file || !rendered) return false;
     if (file.cacheKey != null || rendered.cacheKey != null) return file.cacheKey === rendered.cacheKey;
@@ -43,14 +44,24 @@ class SelectionFileModel extends PierreFileModel<unknown> {
 
 class SelectionDiffModel extends PierreFileDiffModel<unknown> {
   isSourceRendered() {
-    return sameDiffSource(this.getLatestDiff(), this.getRenderedDiff());
+    return sameDiffSource(this.getWorkingDiff(), this.getRenderedDiff());
   }
 }
 
 class SelectionUnresolvedFileModel extends PierreUnresolvedFileModel<unknown> {
   isSourceRendered() {
-    return sameDiffSource(this.getLatestDiff(), this.getRenderedDiff());
+    return sameDiffSource(this.getWorkingDiff(), this.getRenderedDiff());
   }
+}
+
+function useOwnerRender() {
+  const requests = shallowRef(0);
+  return {
+    request: () => {
+      requests.value++;
+    },
+    track: () => requests.value,
+  };
 }
 
 function sameDiffSource(diff: FileDiffMetadata | undefined, rendered: FileDiffMetadata | undefined) {
@@ -228,7 +239,9 @@ export const PierreDiff = defineComponent({
     });
     let renderedInput: typeof diffInput.value;
 
+    const ownerRender = useOwnerRender();
     const render = () => {
+      ownerRender.track();
       if (!host) return;
       const input = diffInput.value;
       if (!input) {
@@ -238,7 +251,7 @@ export const PierreDiff = defineComponent({
         return;
       }
       const options = accessibleDiffOptions(props.options, props.selectedLines, input.diff);
-      if (!instance) instance = new SelectionDiffModel(options, undefined, true);
+      if (!instance) instance = new SelectionDiffModel(options, undefined, ownerRender.request);
       const diffChanged = renderedInput !== undefined && renderedInput !== input;
       const forceRender = diffChanged || !areOptionsEqual(instance.options, options);
       instance.setOptions(options);
@@ -289,7 +302,9 @@ export const PierreFile = defineComponent({
     const selectionScroll = createSelectionScroll(() => host, () => instance?.isSourceRendered() ?? false);
     const lineAnnotations = useLineAnnotations(() => props.lineAnnotations);
     const file = computed(() => (props.file ? copyFile(props.file) : undefined));
+    const ownerRender = useOwnerRender();
     const render = () => {
+      ownerRender.track();
       if (!host) return;
       if (!file.value) {
         instance?.cleanUp();
@@ -297,7 +312,7 @@ export const PierreFile = defineComponent({
         return;
       }
       const options = accessibleOptions(props.options, props.selectedLines);
-      if (!instance) instance = new SelectionFileModel(options, undefined, true);
+      if (!instance) instance = new SelectionFileModel(options, undefined, ownerRender.request);
       // Pierre skips an unchanged file, diff, annotation list, or theme by itself, but it cannot see changed options.
       const forceRender = !areOptionsEqual(instance.options, options);
       instance.setOptions(options);
@@ -344,7 +359,9 @@ export const PierreUnresolvedFile = defineComponent({
     let renderedFile: FileContents | undefined;
     const lineAnnotations = useLineAnnotations(() => props.lineAnnotations);
     const file = computed(() => (props.file ? copyFile(props.file) : undefined));
+    const ownerRender = useOwnerRender();
     const render = () => {
+      ownerRender.track();
       if (!host) return;
       if (!file.value) {
         instance?.cleanUp();
@@ -357,7 +374,7 @@ export const PierreUnresolvedFile = defineComponent({
         instance = undefined;
       }
       const options = accessibleOptions(props.options, props.selectedLines);
-      if (!instance) instance = new SelectionUnresolvedFileModel(options, undefined, true);
+      if (!instance) instance = new SelectionUnresolvedFileModel(options, undefined, ownerRender.request);
       // Pierre skips an unchanged file, diff, annotation list, or theme by itself, but it cannot see changed options.
       const forceRender = !areOptionsEqual(instance.options, options);
       instance.setOptions(options);

@@ -1,4 +1,4 @@
-import { envSchema } from '@vite-hub/env/vite';
+import { envSchema } from 'vite-hub/env/vite';
 
 export default defineNuxtConfig({
   extends: ['./layers/base'],

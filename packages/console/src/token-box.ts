@@ -30,10 +30,13 @@ export function consoleSecretProblem(secret: string | undefined): string | undef
   return undefined
 }
 
-async function boxKey(secret: string) {
+/** What a sealed value holds. Each purpose derives its own key from the secret, so a value of one purpose never opens as another. */
+export type ConsoleSealPurpose = "project key" | "mcp records"
+
+async function boxKey(secret: string, purpose: ConsoleSealPurpose) {
   const material = await crypto.subtle.importKey("raw", encoder.encode(secret.trim()), "HKDF", false, ["deriveKey"])
   return crypto.subtle.deriveKey(
-    { name: "HKDF", hash: "SHA-256", info: encoder.encode("vitehub-console project key v1"), salt: new Uint8Array(32) },
+    { name: "HKDF", hash: "SHA-256", info: encoder.encode(`vitehub-console ${purpose} v1`), salt: new Uint8Array(32) },
     material,
     { name: "AES-GCM", length: 256 },
     false,
@@ -41,28 +44,41 @@ async function boxKey(secret: string) {
   )
 }
 
-/** Encrypt the private key of one project. The result is `v1.<iv>.<ciphertext>`, both in base64url. */
-export async function sealProjectKey(secret: string, projectId: string, privateKey: string): Promise<string> {
+/**
+ * Encrypt a value with a key that comes from `VITEHUB_CONSOLE_SECRET`. `context` is the associated data: the value opens
+ * only with the same context, such as the row that holds it. The result is `v1.<iv>.<ciphertext>`, both in base64url.
+ */
+export async function sealConsoleValue(secret: string, purpose: ConsoleSealPurpose, context: string, value: string): Promise<string> {
   const iv = crypto.getRandomValues(new Uint8Array(12))
-  const sealed = await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: encoder.encode(projectId) }, await boxKey(secret), encoder.encode(privateKey))
+  const sealed = await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: encoder.encode(context) }, await boxKey(secret, purpose), encoder.encode(value))
   return `${sealedPrefix}${base64url(iv)}.${base64url(new Uint8Array(sealed))}`
 }
 
-/**
- * Decrypt the private key of one project. Returns `undefined` when the value was sealed with another secret, for another
- * project, or was changed.
- */
-export async function openProjectKey(secret: string, projectId: string, sealed: string): Promise<string | undefined> {
+/** Decrypt a value of `sealConsoleValue()`. Returns `undefined` for another secret, purpose, or context, or a changed value. */
+export async function openConsoleValue(secret: string, purpose: ConsoleSealPurpose, context: string, sealed: string): Promise<string | undefined> {
   if (!sealed.startsWith(sealedPrefix)) return undefined
   const [ivText, dataText, extra] = sealed.slice(sealedPrefix.length).split(".")
   const iv = ivText === undefined ? undefined : fromBase64url(ivText)
   const data = dataText === undefined ? undefined : fromBase64url(dataText)
   if (extra !== undefined || iv?.length !== 12 || !data) return undefined
   try {
-    const opened = await crypto.subtle.decrypt({ name: "AES-GCM", iv, additionalData: encoder.encode(projectId) }, await boxKey(secret), data)
+    const opened = await crypto.subtle.decrypt({ name: "AES-GCM", iv, additionalData: encoder.encode(context) }, await boxKey(secret, purpose), data)
     return decoder.decode(opened)
   }
   catch {
     return undefined
   }
+}
+
+/** Encrypt the private key of one project. The project id is the context. */
+export function sealProjectKey(secret: string, projectId: string, privateKey: string): Promise<string> {
+  return sealConsoleValue(secret, "project key", projectId, privateKey)
+}
+
+/**
+ * Decrypt the private key of one project. Returns `undefined` when the value was sealed with another secret, for another
+ * project, or was changed.
+ */
+export function openProjectKey(secret: string, projectId: string, sealed: string): Promise<string | undefined> {
+  return openConsoleValue(secret, "project key", projectId, sealed)
 }

@@ -29,7 +29,7 @@
     "h3": "catalog:unjs",
     "nitro": "catalog:unjs",
     "nuxt": "catalog:nuxt",
-    "tailwindcss": "^4.3.3",
+    "tailwindcss": "^4.3.5",
     "vite-hub": "workspace:*",
     "zod": "catalog:runtime"
   },

@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/workspace",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Agent-oriented filesystem state and Vite integration for ViteHub.",
   "keywords": [
     "ai-agents",
@@ -195,7 +195,7 @@
     "@vite-hub/shell": "workspace:*",
     "ai": "catalog:ai-compat",
     "vite": "catalog:vite-compat",
-    "drizzle-orm": "1.0.0-rc.5 || ^1.0.0",
+    "drizzle-orm": "1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0",
     "@vite-hub/forge": "workspace:*"
   },
   "peerDependenciesMeta": {

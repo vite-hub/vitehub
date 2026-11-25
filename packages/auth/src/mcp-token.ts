@@ -6,7 +6,7 @@ import { authForRequest } from "./auth-instance.ts"
 import { mcpOAuthResources } from "./mcp-config.ts"
 import { isRecord } from "@vite-hub/internal/object"
 
-import type { Result } from "@vite-hub/runtime"
+import type { Result, ResultError } from "@vite-hub/runtime"
 
 // The token check and cleanup of `vite-hub/auth/mcp`, apart from `mcpOAuth()`, so `requireCaller()` loads them without
 // `@better-auth/oauth-provider`, an optional peer dependency.
@@ -27,8 +27,9 @@ const mcpErrors = /*#__PURE__*/ defineErrors({
       fix: "Answer `401` with `WWW-Authenticate: Bearer resource_metadata=\"…\"`, so the MCP client starts the OAuth flow.",
     },
     AUTH_MCP_TOKEN_INVALID: {
-      why: ({ reason }: { reason: string }) => `The access token is not valid: ${reason}`,
+      why: ({ detail }: McpTokenRefusal) => `The access token is not valid: ${detail}`,
       fix: "Answer `401` with `error=\"invalid_token\"`, so the MCP client signs in again.",
+      data: ({ clientId, reason }: McpTokenRefusal): McpTokenInvalidData => ({ clientId, reason }),
     },
     AUTH_MCP_CLEANUP_FAILED: {
       why: "The Auth database could not list or delete OAuth clients.",
@@ -36,6 +37,36 @@ const mcpErrors = /*#__PURE__*/ defineErrors({
     },
   },
 })
+
+/** Why `verifyMcpRequest()` refused a token, in `error.data.reason` of `AUTH_MCP_TOKEN_INVALID`. */
+export const mcpTokenInvalidReasons = ["expired", "malformed", "wrong_resource", "no_keys", "sender_constrained", "user_gone", "not_allowed", "client_disabled", "session_ended"] as const
+
+export type McpTokenInvalidReason = typeof mcpTokenInvalidReasons[number]
+
+/** `error.data` of `AUTH_MCP_TOKEN_INVALID`. `clientId` is set when the token's signature and claims are valid. */
+export type McpTokenInvalidData = {
+  reason: McpTokenInvalidReason
+  clientId: string | undefined
+}
+
+/** The `AUTH_MCP_TOKEN_INVALID` error. Check `code` to read `data.reason` and `data.clientId`. */
+export type McpTokenInvalidError = ResultError<"AUTH_MCP_TOKEN_INVALID", McpTokenInvalidData>
+
+/** The error of `verifyMcpRequest()`. Check `code` to read the typed `data`. */
+export type VerifyMcpRequestError = McpTokenInvalidError | ResultError<"AUTH_MCP_TOKEN_MISSING", undefined>
+
+/** The `[error, caller]` tuple of `verifyMcpRequest()`. */
+export type VerifyMcpRequestResult =
+  | [error: VerifyMcpRequestError, data: undefined]
+  | [error: undefined, data: McpCaller]
+
+type McpTokenResult = [error: McpTokenInvalidError, data: undefined] | [error: undefined, data: McpCaller]
+
+interface McpTokenRefusal {
+  reason: McpTokenInvalidReason
+  detail: string
+  clientId: string | undefined
+}
 
 export type McpOAuthErrorCode = "AUTH_MCP_CLEANUP_FAILED" | "AUTH_MCP_OAUTH_MISSING" | "AUTH_MCP_TOKEN_INVALID" | "AUTH_MCP_TOKEN_MISSING"
 
@@ -132,7 +163,7 @@ function banned(user: Record<string, unknown>): boolean {
  * any value with `url` and `headers`, and the body stays for the MCP handler. Returns `AUTH_MCP_TOKEN_MISSING` without a
  * bearer token and `AUTH_MCP_TOKEN_INVALID` for a token that fails a check. Throws `AUTH_MCP_OAUTH_MISSING` when the Auth has no `mcpOAuth()`.
  */
-export async function verifyMcpRequest(request: Pick<Request, "headers" | "url">, options: VerifyMcpRequestOptions = {}): Promise<Result<McpCaller, "AUTH_MCP_TOKEN_INVALID" | "AUTH_MCP_TOKEN_MISSING">> {
+export async function verifyMcpRequest(request: Pick<Request, "headers" | "url">, options: VerifyMcpRequestOptions = {}): Promise<VerifyMcpRequestResult> {
   const token = bearerToken(request.headers)
   if (!token) return [mcpErrors.AUTH_MCP_TOKEN_MISSING(), undefined]
   const auth = options.auth ?? appAuth(request)
@@ -149,18 +180,20 @@ const bearerToken = (headers: Pick<Headers, "get">): string | undefined => /^Bea
  * Check an MCP access token for any `mcpOAuth()` resource at the origin of the request, for `requireCaller()`, which
  * accepts the token on every route of the app.
  */
-export async function verifyAppAccessToken(token: string, origin: string, pathname: string, instance: object): Promise<Result<McpCaller, "AUTH_MCP_TOKEN_INVALID">> {
+export async function verifyAppAccessToken(token: string, origin: string, pathname: string, instance: object): Promise<McpTokenResult> {
   const auth = mcpOAuthAuth(instance)
   const state = await stateOf(auth)
   return await verifyToken(token, auth, state, state.resources.filter(entry => new URL(entry).origin === origin), pathname)
 }
 
-async function verifyToken(token: string, auth: McpOAuthAuth, state: McpOAuthState, resource: string | readonly string[] | undefined, path: string): Promise<Result<McpCaller, "AUTH_MCP_TOKEN_INVALID">> {
-  if (!resource?.length) return [mcpErrors.AUTH_MCP_TOKEN_INVALID({ reason: `${path} is not a resource of \`mcpOAuth()\`.` }), undefined]
+async function verifyToken(token: string, auth: McpOAuthAuth, state: McpOAuthState, resource: string | readonly string[] | undefined, path: string): Promise<McpTokenResult> {
+  const refuse = (reason: McpTokenInvalidReason, detail: string, clientId?: string, cause?: unknown): [McpTokenInvalidError, undefined] =>
+    [mcpErrors.AUTH_MCP_TOKEN_INVALID({ cause, clientId, detail, reason }), undefined]
+  if (!resource?.length) return refuse("wrong_resource", `${path} is not a resource of \`mcpOAuth()\`.`)
   const jwks: unknown = await auth.api.getJwks()
   const keys = isRecord(jwks) && Array.isArray(jwks.keys) ? jwks.keys.filter(isRecord) : []
   const algorithms = [...new Set(keys.flatMap(key => typeof key.alg === "string" ? [key.alg] : []))]
-  if (!algorithms.length) return [mcpErrors.AUTH_MCP_TOKEN_INVALID({ reason: "the Auth has no signing keys." }), undefined]
+  if (!algorithms.length) return refuse("no_keys", "the Auth has no signing keys.")
   let payload: Record<string, unknown>
   try {
     payload = await verifyJwsAccessToken(token, {
@@ -170,24 +203,24 @@ async function verifyToken(token: string, auth: McpOAuthAuth, state: McpOAuthSta
     })
   }
   catch (error) {
-    return [mcpErrors.AUTH_MCP_TOKEN_INVALID({ cause: error, reason: error instanceof Error ? error.message : "the signature or a claim does not match." }), undefined]
+    return refuse(verifyFailure(error), error instanceof Error ? error.message : "the signature or a claim does not match.", undefined, error)
   }
-  if (payload.cnf !== undefined) return [mcpErrors.AUTH_MCP_TOKEN_INVALID({ reason: "sender-constrained access tokens are not supported; use a bearer token." }), undefined]
+  const clientId = typeof payload.azp === "string" ? payload.azp : typeof payload.client_id === "string" ? payload.client_id : undefined
+  if (payload.cnf !== undefined) return refuse("sender_constrained", "sender-constrained access tokens are not supported; use a bearer token.", clientId)
 
   const context = await auth.$context
   const user = await context.internalAdapter.findUserById(String(payload.sub))
-  if (!isRecord(user) || typeof user.id !== "string" || banned(user)) return [mcpErrors.AUTH_MCP_TOKEN_INVALID({ reason: "the user does not exist or is banned." }), undefined]
+  if (!isRecord(user) || typeof user.id !== "string" || banned(user)) return refuse("user_gone", "the user does not exist or is banned.", clientId)
   const policy = findAccessPolicyPlugin(context.options.plugins)
   // SAFETY: `findUserById` returns the Auth user record, and its `id` is checked above.
-  if (policy && !await policy.allows(user as Parameters<typeof policy.allows>[0], `mcp:${user.id}`)) return [mcpErrors.AUTH_MCP_TOKEN_INVALID({ reason: "`access.policy` or `VITEHUB_MEMBERS` does not allow the user." }), undefined]
-  const clientId = typeof payload.azp === "string" ? payload.azp : typeof payload.client_id === "string" ? payload.client_id : undefined
+  if (policy && !await policy.allows(user as Parameters<typeof policy.allows>[0], `mcp:${user.id}`)) return refuse("not_allowed", "`access.policy` or `VITEHUB_MEMBERS` does not allow the user.", clientId)
   const client = clientId ? await context.adapter.findOne({ model: "oauthClient", where: [{ field: "clientId", value: clientId }] }) : undefined
-  if (!clientId || !isRecord(client) || client.disabled) return [mcpErrors.AUTH_MCP_TOKEN_INVALID({ reason: "the OAuth client does not exist or is disabled." }), undefined]
+  if (!clientId || !isRecord(client) || client.disabled) return refuse("client_disabled", "the OAuth client does not exist or is disabled.", clientId)
   const scope = payload.scope
   const scopes = typeof scope === "string" ? scope.split(/\s+/).filter(Boolean) : Array.isArray(scope) ? scope.filter((entry): entry is string => typeof entry === "string") : []
   if (typeof payload.sid === "string" && !scopes.includes("offline_access")) {
     const session = await context.adapter.findOne({ model: "session", where: [{ field: "id", value: payload.sid }] })
-    if (!isRecord(session) || !(session.expiresAt instanceof Date) || session.expiresAt.getTime() <= Date.now()) return [mcpErrors.AUTH_MCP_TOKEN_INVALID({ reason: "the session does not exist or has expired." }), undefined]
+    if (!isRecord(session) || !(session.expiresAt instanceof Date) || session.expiresAt.getTime() <= Date.now()) return refuse("session_ended", "the session does not exist or has expired.", clientId)
   }
   return [undefined, {
     clientId,
@@ -196,6 +229,13 @@ async function verifyToken(token: string, auth: McpOAuthAuth, state: McpOAuthSta
     // SAFETY: `findUserById` returns the Auth user record, and its `id` is checked above.
     user: user as McpCaller["user"],
   }]
+}
+
+function verifyFailure(error: unknown): McpTokenInvalidReason {
+  const code = isRecord(error) ? error.code : undefined
+  if (code === "ERR_JWT_EXPIRED") return "expired"
+  if (code === "ERR_JWT_CLAIM_VALIDATION_FAILED" && isRecord(error) && error.claim === "aud") return "wrong_resource"
+  return "malformed"
 }
 
 /** Options of {@link deleteUnusedMcpClients}. */

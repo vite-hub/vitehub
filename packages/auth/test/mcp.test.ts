@@ -4,16 +4,16 @@ import { DatabaseSync } from "node:sqlite"
 import { oauthProvider } from "@better-auth/oauth-provider"
 import { bearer, jwt } from "better-auth/plugins"
 import * as v from "valibot"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineAuth } from "../src/index.ts"
-import { deleteUnusedMcpClients, mcpOAuth, serveMcpOAuthDiscovery, verifyMcpRequest } from "../src/mcp.ts"
+import { deleteUnusedMcpClients, mcpOAuth, mcpTokenInvalidReasons, serveMcpOAuthDiscovery, verifyMcpRequest } from "../src/mcp.ts"
 import { createAuthForRequest, requireCaller } from "../src/internal/server.ts"
 
 import type { BetterAuthPlugin } from "better-auth"
 
 import type { AuthAccessPolicy } from "../src/index.ts"
-import type { McpOAuthAuth, McpOAuthOptions } from "../src/mcp.ts"
+import type { McpOAuthAuth, McpOAuthOptions, McpTokenInvalidReason } from "../src/mcp.ts"
 
 const app = "https://app.example.com"
 const resource = `${app}/mcp`
@@ -192,7 +192,7 @@ describe("mcpOAuth", () => {
     expect((await verifyMcpRequest(mcpRequest(accessToken), { auth: auth.auth }))[0]?.code).toBe("AUTH_MCP_TOKEN_INVALID")
   })
 
-  it.each(["signed out", "expired session"])("keeps an offline_access grant after %s, refreshed tokens included", async (reason) => {
+  it.each(["signed out", "expired session"])("keeps an offline_access grant after %s, refreshed tokens included, without the ended session", async (reason) => {
     const auth = await setup()
     const { accessToken, clientId, cookie, refreshToken } = await signInAgent(auth)
     if (reason === "signed out") expect((await auth.post("/sign-out", {}, { cookie })).status).toBe(200)
@@ -205,10 +205,8 @@ describe("mcpOAuth", () => {
     })
     expect(refreshed.status, await refreshed.clone().text()).toBe(200)
     const { access_token } = v.parse(v.object({ access_token: v.string() }), await refreshed.json())
-    // Sign-out deletes the session and unlinks the refresh token. An expired session stays, and Better Auth's refresh grant
-    // copies its id into every new token.
     const { sid } = v.parse(v.object({ sid: v.nullish(v.string()) }), JSON.parse(Buffer.from(access_token.split(".")[1] ?? "", "base64url").toString()))
-    expect(typeof sid).toBe(reason === "expired session" ? "string" : "object")
+    expect(sid).toBeUndefined()
     const [error, caller] = await verifyMcpRequest(mcpRequest(access_token), { auth: auth.auth })
     expect(error).toBeUndefined()
     expect(caller).toMatchObject({ clientId, user: { email: "ada@example.com" } })
@@ -219,6 +217,94 @@ describe("mcpOAuth", () => {
     const statuses: number[] = []
     for (let attempt = 0; attempt < 6; attempt++) statuses.push((await post("/oauth2/register", { redirect_uris: [redirect] }, { "x-forwarded-for": "203.0.113.7" })).status)
     expect(statuses).toEqual([201, 201, 201, 201, 201, 429])
+  })
+})
+
+describe("AUTH_MCP_TOKEN_INVALID reasons", () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const refusal = async (auth: Setup, token: string, options: { auth?: McpOAuthAuth, resource?: string, url?: string } = {}) => {
+    const [error] = await verifyMcpRequest(mcpRequest(token, options.url), { auth: options.auth ?? auth.auth, ...(options.resource ? { resource: options.resource } : {}) })
+    expect(error?.code).toBe("AUTH_MCP_TOKEN_INVALID")
+    return error?.data
+  }
+
+  it("names an expired token", async () => {
+    const auth = await setup()
+    const { accessToken } = await signInAgent(auth)
+    vi.useFakeTimers({ now: Date.now() + 2 * 60 * 60 * 1000, toFake: ["Date"] })
+    expect(await refusal(auth, accessToken)).toEqual({ clientId: undefined, reason: "expired" })
+  })
+
+  it("names a malformed or tampered token", async () => {
+    const auth = await setup()
+    const { accessToken } = await signInAgent(auth)
+    expect(await refusal(auth, `${accessToken.slice(0, -4)}AAAA`)).toEqual({ clientId: undefined, reason: "malformed" })
+    expect(await refusal(auth, "not-a-jwt")).toEqual({ clientId: undefined, reason: "malformed" })
+  })
+
+  it("names a token for another resource and a path that is no resource", async () => {
+    const auth = await setup()
+    const { accessToken } = await signInAgent(auth)
+    expect(await refusal(auth, accessToken, { url: `${app}/api/drops` })).toEqual({ clientId: undefined, reason: "wrong_resource" })
+    expect(await refusal(auth, accessToken, { resource: `${app}/other` })).toEqual({ clientId: undefined, reason: "wrong_resource" })
+  })
+
+  it("names an Auth without signing keys", async () => {
+    const auth = await setup()
+    const { accessToken } = await signInAgent(auth)
+    const keyless: McpOAuthAuth = { ...auth.auth, api: { ...auth.auth.api, getJwks: async () => ({ keys: [] }) } }
+    expect(await refusal(auth, accessToken, { auth: keyless })).toEqual({ clientId: undefined, reason: "no_keys" })
+  })
+
+  it("names a sender-constrained token with its client", async () => {
+    const auth = await setup()
+    const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" })
+    const header = Buffer.from(JSON.stringify({ alg: "ES256", jwk: publicKey.export({ format: "jwk" }), typ: "dpop+jwt" })).toString("base64url")
+    const payload = Buffer.from(JSON.stringify({ htm: "POST", htu: `${app}/api/auth/oauth2/token`, iat: Math.floor(Date.now() / 1000), jti: randomBytes(16).toString("base64url") })).toString("base64url")
+    const signature = sign("sha256", Buffer.from(`${header}.${payload}`), { dsaEncoding: "ieee-p1363", key: privateKey }).toString("base64url")
+    const { accessToken, clientId } = await signInAgent(auth, "ada@example.com", { DPoP: `${header}.${payload}.${signature}` })
+    expect(await refusal(auth, accessToken)).toEqual({ clientId, reason: "sender_constrained" })
+  })
+
+  it("names a deleted user with the client", async () => {
+    const auth = await setup()
+    const { accessToken, clientId } = await signInAgent(auth)
+    for (const table of ["session", "account", "user"]) auth.database.prepare(`delete from ${table}`).run()
+    expect(await refusal(auth, accessToken)).toEqual({ clientId, reason: "user_gone" })
+  })
+
+  it("names a user that access.policy no longer allows, with the client", async () => {
+    let member = true
+    const auth = await setup({}, false, { allow: () => member, recheck: "0s" })
+    const { accessToken, clientId } = await signInAgent(auth)
+    member = false
+    expect(await refusal(auth, accessToken)).toEqual({ clientId, reason: "not_allowed" })
+  })
+
+  it.each(["disabled", "deleted"])("names a %s client with its id", async (state) => {
+    const auth = await setup()
+    const { accessToken, clientId } = await signInAgent(auth)
+    if (state === "disabled") auth.database.prepare("update oauthClient set disabled = 1 where clientId = ?").run(clientId)
+    else for (const table of ["oauthConsent", "oauthAccessToken", "oauthRefreshToken", "oauthClientResource", "oauthClient"]) auth.database.prepare(`delete from ${table} where clientId = ?`).run(clientId)
+    expect(await refusal(auth, accessToken)).toEqual({ clientId, reason: "client_disabled" })
+  })
+
+  it("names an ended session with the client", async () => {
+    const auth = await setup()
+    const { accessToken, clientId, cookie } = await signInAgent(auth, "ada@example.com", {}, "openid profile email")
+    expect((await auth.post("/sign-out", {}, { cookie })).status).toBe(200)
+    expect(await refusal(auth, accessToken)).toEqual({ clientId, reason: "session_ended" })
+  })
+
+  it("keeps the message and the reason in the exported set", async () => {
+    const auth = await setup()
+    const { accessToken } = await signInAgent(auth)
+    const [error] = await verifyMcpRequest(mcpRequest(accessToken, `${app}/api/drops`), { auth: auth.auth })
+    expect(error?.message).toBe("The access token is not valid: /api/drops is not a resource of `mcpOAuth()`.")
+    expect(mcpTokenInvalidReasons).toContain<McpTokenInvalidReason>("wrong_resource")
   })
 })
 

@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/agent",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Agent DX layer and Vite integration for ViteHub.",
   "keywords": [
     "agent",
@@ -220,6 +220,11 @@
       "import": "./dist/ui/vue.js",
       "default": "./dist/ui/vue.js"
     },
+    "./usage": {
+      "types": "./dist/usage.d.ts",
+      "import": "./dist/usage.js",
+      "default": "./dist/usage.js"
+    },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js",
@@ -241,7 +246,7 @@
   "dependencies": {
     "@ai-sdk/openai": "catalog:ai",
     "@ai-sdk/provider": "catalog:ai",
-    "@cfworker/json-schema": "4.1.1",
+    "@cfworker/json-schema": "4.1.6",
     "@chat-adapter/telegram": "catalog:chat",
     "@chat-adapter/web": "catalog:chat",
     "@libsql/client": "catalog:database",
@@ -282,7 +287,7 @@
     "@types/mdast": "catalog:markdown",
     "@types/node": "catalog:tooling",
     "@types/proper-lockfile": "catalog:",
-    "@ui-sdk/core": "0.1.0-beta.5",
+    "@ui-sdk/core": "0.1.0-beta.14",
     "@vercel/functions": "catalog:vercel",
     "@vite-hub/connections": "workspace:*",
     "@vite-hub/forge": "workspace:*",
@@ -291,7 +296,7 @@
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/source": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
-    "@whatwg-node/node-fetch": "0.8.6",
+    "@whatwg-node/node-fetch": "0.9.4",
     "drizzle-kit": "catalog:database",
     "drizzle-orm": "catalog:database",
     "emulate": "0.14.0",
@@ -307,13 +312,13 @@
     "vitest": "catalog:tooling",
     "zod": "catalog:runtime",
     "vue": "catalog:ui",
-    "evlog": "^2.32.0",
-    "posthog-node": "^5.56.2",
+    "evlog": "^2.37.1",
+    "posthog-node": "^6.0.6",
     "@t3tools/provider-runtime": "catalog:",
     "forges": "catalog:",
-    "@json-render/core": "0.22.0",
-    "@json-render/vue": "0.22.0",
-    "@ui-sdk/vue": "0.1.0-beta.5",
+    "@json-render/core": "0.23.2",
+    "@json-render/vue": "0.23.2",
+    "@ui-sdk/vue": "0.1.0-beta.14",
     "@vite-hub/forms": "workspace:*"
   },
   "optionalDependencies": {
@@ -321,7 +326,7 @@
     "@ai-sdk/vue": "catalog:ai"
   },
   "peerDependencies": {
-    "@agntn/web": "^0.5.5 || ^0.9.1",
+    "@agntn/web": "^0.5.5 || ^0.7.5 || ^0.9.1",
     "advocaat": "catalog:ai",
     "@chat-adapter/discord": "catalog:chat",
     "@chat-adapter/teams": "catalog:chat",
@@ -331,7 +336,7 @@
     "@vite-hub/blob": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/email": "workspace:*",
-    "drizzle-orm": "1.0.0-rc.5 || ^1.0.0",
+    "drizzle-orm": "1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
@@ -343,11 +348,11 @@
     "vitest": "catalog:tooling",
     "vue": "catalog:vue-compat",
     "evlog": "^2.29.0",
-    "posthog-node": "^5.55.0",
+    "posthog-node": "^6.0.6",
     "@vite-hub/connections": "workspace:*",
-    "@json-render/core": "0.22.0",
-    "@json-render/vue": "0.22.0",
-    "@ui-sdk/vue": "0.1.0-beta.5",
+    "@json-render/core": "0.23.2",
+    "@json-render/vue": "0.23.2",
+    "@ui-sdk/vue": "0.1.0-beta.14",
     "@vite-hub/forms": "workspace:*",
     "zod": "^4.3.6",
     "@vite-hub/forge": "workspace:*"

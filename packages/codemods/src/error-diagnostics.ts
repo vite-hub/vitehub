@@ -13,6 +13,10 @@ const codes = {
       ? "Keep only the Nitro package the app uses. If it uses Nitro 2, keep nuxt-safe-runtime-config/nitro until you upgrade to Nitro 3. Run the codemod again once the app uses Nitro 3."
       : "Keep nuxt-safe-runtime-config/nitro while the app runs on Nitro 2. To move to ViteHub Env, upgrade the app to Nitro 3 (the `nitro` package) first, then run the codemod again.",
   },
+  CODEMODS_NUXT_UNSUPPORTED: {
+    why: ({ codemods, nuxt, source }: { codemods: readonly string[], nuxt: string, source: string }): string => `${codemods.join(", ")} add${codemods.length === 1 ? "s" : ""} vite-hub/nuxt, which needs Nitro 3. Nitro 3 runs on Nuxt 4.7 with the nitro package, or on Nuxt 5. package.json requires nuxt "${nuxt}"${source}, which allows a Nuxt version before 4.7, so the build of the migrated app would fail. No file was written.`,
+    fix: "Upgrade to Nuxt 4.7 and add Nitro 3 with `pnpm add nuxt@^4.7.0 nitro`, then run the command again. Or run the command again with `--nuxt-nightly`: it sets `\"nuxt\": \"npm:nuxt-nightly@5x\"` in package.json and migrates the app.",
+  },
   CODEMODS_UNKNOWN: {
     why: ({ available, name }: { available: readonly string[], name: string }): string => `Unknown codemod "${name}". Available: ${available.join(", ")}.`,
     fix: "Pass one of the codemod names that the message lists.",
@@ -33,5 +37,5 @@ export function codemodError(problem: string): Diagnostic {
 export function isCodemodError(error: unknown): error is Error & { code: string, fix?: string } {
   if (!(error instanceof Error)) return false
   const code: unknown = Reflect.get(error, "code")
-  return code === "CODEMODS_BLOCKED" || code === "CODEMODS_NITRO_UNSUPPORTED" || code === "CODEMODS_UNKNOWN"
+  return code === "CODEMODS_BLOCKED" || code === "CODEMODS_NITRO_UNSUPPORTED" || code === "CODEMODS_NUXT_UNSUPPORTED" || code === "CODEMODS_UNKNOWN"
 }

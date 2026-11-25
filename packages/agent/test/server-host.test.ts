@@ -231,6 +231,24 @@ describe("Agent Invocation host recovery", () => {
     await expect(Promise.resolve(store.get("provider-owned"))).resolves.toMatchObject({ status: "running" })
   })
 
+  it("preserves Workflow work when the recovery scan does not see its ownership", async () => {
+    const store = createMemoryAgentInvocationStore()
+    const createdAt = "2026-08-30T10:00:00.000Z"
+    await store.create({ createdAt, executionMode: "workflow", id: "provider-owned", observations: [], status: "running", traceId: "trace", updatedAt: createdAt })
+    const page = await store.list({ status: ["running"] })
+    vi.spyOn(store, "list").mockResolvedValue({
+      ...page,
+      invocations: page.invocations.map(invocation => ({ ...invocation, executionMode: undefined })),
+    })
+
+    await expect(failInterruptedAgentInvocations(store, {
+      before: Date.parse("2026-08-30T11:00:00.000Z"),
+      recover: invocation => invocation.executionMode !== "workflow",
+    })).resolves.toBe(0)
+    expect(await store.getSummary("provider-owned")).toMatchObject({ status: "running" })
+    expect(await store.getClaimToken("provider-owned")).toBeUndefined()
+  })
+
   it("rejects repeated recovery cursors before processing the repeated page", async () => {
     const store = createMemoryAgentInvocationStore()
     const createdAt = "2026-08-30T10:00:00.000Z"
@@ -251,7 +269,7 @@ describe("Agent Invocation host recovery", () => {
       recover,
     })).rejects.toThrow("Agent Invocation listing returned a repeated pagination cursor")
     expect(list).toHaveBeenCalledTimes(2)
-    expect(recover).toHaveBeenCalledOnce()
+    expect(recover).toHaveBeenCalledTimes(2)
     await expect(Promise.resolve(store.get("interrupted"))).resolves.toMatchObject({ status: "failed" })
   })
 
@@ -280,7 +298,7 @@ describe("Agent Invocation host recovery", () => {
     await vi.advanceTimersByTimeAsync(1)
 
     await rejection
-    expect(recover).toHaveBeenCalledTimes(2)
+    expect(recover).toHaveBeenCalledTimes(3)
     expect(update).toHaveBeenCalledOnce()
     await expect(Promise.resolve(store.get("interrupted"))).resolves.toMatchObject({ status: "failed" })
   })

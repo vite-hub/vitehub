@@ -8,7 +8,7 @@ Files to change (4):
   server/api/x.get.ts
 
 Manual follow-ups (3):
-  1. nuxt.config.ts:13 apiSecret had the value "", which its $schema rejects: Invalid length: Expected >=16 but received 0. The module treats this validation failure as fatal, so the codemod kept no default and Env requires NUXT_API_SECRET.
+  1. nuxt.config.ts:13 apiSecret had a credential default, which its $schema rejects. The module treats this validation failure as fatal, so the codemod kept no default and Env requires NUXT_API_SECRET.
   2. nuxt.config.ts:7 ViteHub needs a host, so the codemod set vitehub.host to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.
   3. nuxt.config.ts:13 useServerEnv().apiSecret is secret, a SecretEnv of the schema output. No rewritten file reads it. Call .unseal() where code needs the raw value.
 

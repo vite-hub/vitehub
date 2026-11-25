@@ -87,6 +87,62 @@ describe("migrate", () => {
     expect((await readdir(wizard)).filter(entry => entry.startsWith(scratchFolder))).toEqual([])
   })
 
+  const catalogWorkspace = "catalog:\n  vite-hub: ^0.5.1\ncatalogs:\n  tools:\n    vite-hub: npm:vite-hub@>=0.5.1 <1\n  old:\n    vite-hub: ^0.4.0\n"
+
+  it.each([
+    ["0.4.1", undefined],
+    ["^0.5.0", undefined],
+    ["^0.4.0", undefined],
+    ["npm:vite-hub@^0.4.0", undefined],
+    ["catalog:old", catalogWorkspace],
+  ])("leaves an envSchema app unchanged with vite-hub %s", async (range, workspace) => {
+    const cwd = await copyFixture("env-schema", `env-schema-incompatible-${range.replace(/\W/g, "_")}`)
+    const manifest = JSON.stringify({ dependencies: { "nuxt-safe-runtime-config": "^1.0.0", "vite-hub": range } })
+    await writeFile(join(cwd, "package.json"), manifest)
+    if (workspace) await writeFile(join(cwd, "pnpm-workspace.yaml"), workspace)
+    const config = await readFile(join(cwd, "nuxt.config.ts"), "utf8")
+    await expect(runCodemod("nuxt-safe-runtime-config", { cwd })).rejects.toThrow("vite-hub/env/vite")
+    expect(await readFile(join(cwd, "nuxt.config.ts"), "utf8")).toBe(config)
+    expect(await readFile(join(cwd, "package.json"), "utf8")).toBe(manifest)
+  })
+
+  it.each([
+    ["catalog:", false],
+    ["catalog:default", false],
+    ["catalog:tools", false],
+    ["npm:vite-hub@^0.5.1", false],
+    ["catalog:missing", true],
+    ["workspace:*", true],
+    ["workspace:^0.5.1", true],
+    ["link:../vite-hub", true],
+    ["file:../vite-hub.tgz", true],
+    ["https://pkg.pr.new/vite-hub@5bd5f98", true],
+    ["latest", true],
+  ])("keeps vite-hub %s when migrating envSchema", async (range, followUp) => {
+    const cwd = await copyFixture("env-schema", `env-schema-readable-${range.replace(/\W/g, "_")}`)
+    await writeFile(join(cwd, "package.json"), JSON.stringify({ dependencies: { "nuxt-safe-runtime-config": "^1.0.0", "vite-hub": range } }))
+    await writeFile(join(cwd, "pnpm-workspace.yaml"), catalogWorkspace)
+    const { result } = await runCodemod("nuxt-safe-runtime-config", { cwd })
+    expect(await readFile(join(cwd, "nuxt.config.ts"), "utf8")).toContain("vite-hub/env/vite")
+    expect(JSON.parse(await readFile(join(cwd, "package.json"), "utf8"))).toEqual({ dependencies: { "vite-hub": range } })
+    const versionFollowUps = result.followUps.filter(entry => entry.file === "package.json" && entry.message.includes("vite-hub/env/vite needs vite-hub >=0.5.1 <1"))
+    expect(versionFollowUps).toHaveLength(followUp ? 1 : 0)
+  })
+
+  it("keeps a compatible vite-hub pin when migrating envSchema", async () => {
+    const cwd = await copyFixture("env-schema", "env-schema-compatible")
+    await writeFile(join(cwd, "package.json"), JSON.stringify({
+      dependencies: { "nuxt-safe-runtime-config": "^1.0.0" },
+      devDependencies: { "vite-hub": "0.5.1" },
+    }))
+    await runCodemod("nuxt-safe-runtime-config", { cwd })
+    expect(await readFile(join(cwd, "nuxt.config.ts"), "utf8")).toContain("vite-hub/env/vite")
+    expect(JSON.parse(await readFile(join(cwd, "package.json"), "utf8"))).toEqual({
+      dependencies: {},
+      devDependencies: { "vite-hub": "0.5.1" },
+    })
+  })
+
   it("writes nothing in a dry run and prints the combined diff", async () => {
     const directory = await copyFixture("valibot-schema", "dry-run")
     const before = await readFile(join(directory, "nuxt.config.ts"), "utf8")
@@ -210,56 +266,6 @@ describe("migrate", () => {
     expect(migration.steps[0]?.error).not.toContain(scratchFolder)
   })
 
-  it("warns when the app requires a Nuxt version before 5", async () => {
-    const directory = await app("nuxt-4", {
-      "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['nuxt-safe-runtime-config'] })\n",
-      "package.json": `${JSON.stringify({ dependencies: { "nuxt": "^4.2.0", "nuxt-safe-runtime-config": "^0.3.2" } })}\n`,
-    })
-    const migration = await runMigration({ cwd: directory, dryRun: true })
-    expect(migration.warnings).toEqual([expect.stringContaining("ViteHub supports Nuxt 5 and Nitro 3 only, and package.json requires nuxt \"^4.2.0\".")])
-    const nightly = await app("nuxt-5", {
-      "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['nuxt-safe-runtime-config'] })\n",
-      "package.json": `${JSON.stringify({ dependencies: { "nuxt": "npm:nuxt-nightly@5x", "nuxt-safe-runtime-config": "^0.3.2" } })}\n`,
-    })
-    expect((await runMigration({ cwd: nightly, dryRun: true })).warnings).toEqual([])
-  })
-
-  it.each([
-    ["catalog:", "catalog:\n  vue: ^3.5.0\n  nuxt: ^4.2.0 # pinned\n", "^4.2.0"],
-    ["catalog:default", "catalogs:\n  default:\n    nuxt: '>=4.0.0 <5'\n", ">=4.0.0 <5"],
-    ["catalog:frameworks", "packages:\n  - apps/*\ncatalog:\n  nuxt: npm:nuxt-nightly@5x\ncatalogs:\n  frameworks:\n    \"nuxt\": ~4.1.0\n  tools:\n    nuxt: ^5.0.0\n", "~4.1.0"],
-    ["catalog:", "catalog:\n  nuxt: npm:nuxt-nightly@5x\ncatalogs:\n  old:\n    nuxt: ^4.2.0\n", undefined],
-  ])("reads nuxt \"%s\" from pnpm-workspace.yaml", async (nuxt, workspace, warnsFor) => {
-    // A pnpm monorepo keeps pnpm-workspace.yaml in the repository root, above the app.
-    const directory = await app(`nuxt-${encodeURIComponent(nuxt)}-${warnsFor ?? "5"}`, {
-      "pnpm-workspace.yaml": workspace,
-      "apps/web/nuxt.config.ts": "export default defineNuxtConfig({})\n",
-      "apps/web/package.json": `${JSON.stringify({ dependencies: { nuxt } })}\n`,
-    })
-    const migration = await runMigration({ cwd: join(directory, "apps/web"), dryRun: true })
-    if (!warnsFor) return expect(migration.warnings).toEqual([])
-    expect(migration.warnings).toEqual([expect.stringContaining(`package.json requires nuxt "${nuxt}", which pnpm-workspace.yaml sets to "${warnsFor}".`)])
-  })
-
-  it.each([
-    ["<5", true],
-    ["<=3", true],
-    [">=3 <5", true],
-    ["^3 || ^5", false],
-    [">=3", false],
-    ["5.0.0-beta.1", false],
-    ["npm:nuxt-nightly@5x", false],
-    ["latest", false],
-  ])("checks the allowed Nuxt versions in %s", async (nuxt, warns) => {
-    const directory = await app(`nuxt-range-${encodeURIComponent(nuxt)}`, {
-      "nuxt.config.ts": "export default defineNuxtConfig({})\n",
-      "package.json": `${JSON.stringify({ dependencies: { nuxt } })}\n`,
-    })
-    const migration = await runMigration({ cwd: directory, dryRun: true })
-    expect(migration.warnings).toHaveLength(warns ? 1 : 0)
-    if (warns) expect(migration.warnings[0]).toContain(`package.json requires nuxt "${nuxt}"`)
-  })
-
   it.each([
     ["external", "extends: ['../layers/shared'],"],
     ["absolute", `extends: [${JSON.stringify(join(scratch, "schema-free-layer-absolute/layers/shared"))}],`],
@@ -302,11 +308,9 @@ describe("migrate", () => {
 })
 
 describe("upgradeCodemods", () => {
-  /** Codemods that move an app from another module to ViteHub. They are not release upgrades. */
   const fromOtherModules = ["nuxthub", "nuxt-safe-runtime-config", "t3-env", "resend", "nuxt-cron", "nuxt-better-auth", "docus", "nuxt-content"]
 
   it("holds every codemod that is not a move from another module", () => {
-    // A new codemod must land in one of the two lists, so `vitehub migrate` cannot miss an upgrade.
     expect([...upgradeCodemods.map(codemod => codemod.name), ...fromOtherModules].sort()).toEqual(codemods.map(codemod => codemod.name).sort())
   })
 

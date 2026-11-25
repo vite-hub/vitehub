@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/connections",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Provider OAuth and API key connections with typed, governed, and audited calls for ViteHub.",
   "keywords": [
     "api-key",
@@ -105,7 +105,7 @@
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
-    "drizzle-orm": "1.0.0-rc.5 || ^1.0.0",
+    "drizzle-orm": "1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {

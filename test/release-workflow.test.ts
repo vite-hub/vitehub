@@ -10,7 +10,6 @@ import viteConfig from "../vite.config.ts"
 const repoRoot = resolve(import.meta.dirname, "..")
 const workflow = readFileSync(resolve(repoRoot, ".github/workflows/release.yml"), "utf8")
 const verifier = readFileSync(resolve(repoRoot, ".github/actions/verify-release/action.yml"), "utf8")
-// The preview publish job is the last job of ci.yml.
 const ciWorkflow = readFileSync(resolve(repoRoot, ".github/workflows/ci.yml"), "utf8")
 const previewWorkflow = ciWorkflow.slice(ciWorkflow.indexOf("  publish-preview:\n"))
 
@@ -175,6 +174,7 @@ describe("release workflow artifact handoff", () => {
     expect(publishNpm).toContain("release-packages.mjs publish")
     expect(githubRelease).toContain('gh release view "$release_tag"')
     expect(githubRelease).toContain('gh release create "$release_tag"')
+    expect(githubRelease).toContain('--title "$release_tag"')
     expect(githubRelease).not.toContain("--generate-notes")
     expect(githubRelease).toContain("releases/generate-notes")
     expect(githubRelease).toContain("(( ${#notes} > 120000 ))")

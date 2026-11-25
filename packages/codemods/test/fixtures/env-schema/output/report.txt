@@ -19,5 +19,5 @@ Notes:
   - Public Env values are fixed at build time. Nuxt applied NUXT_PUBLIC_* overrides when the server started; now set them when you build. Server Env values are read when the server runs.
 
 Next steps:
-  - Run `pnpm install` to install vite-hub and @vite-hub/env and remove nuxt-safe-runtime-config.
+  - Run `pnpm install` to install vite-hub and remove nuxt-safe-runtime-config.
   - Run `npx nuxi prepare` to generate the Env types, then type-check the app.

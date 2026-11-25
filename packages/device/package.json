@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/device",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Stored reads for the browser: show the last server answer at once from the device, for the signed-in account, then refresh it.",
   "keywords": [
     "cache",
@@ -52,7 +52,7 @@
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
-    "happy-dom": "21.0.3",
+    "happy-dom": "21.0.4",
     "playwright-core": "catalog:browser",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",

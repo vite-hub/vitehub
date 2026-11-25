@@ -49,6 +49,23 @@ async function site(user: CommentsUser | null = ada, options: Parameters<typeof 
 const composer = (root: ParentNode, label: string) => root.querySelector<HTMLTextAreaElement>(`textarea[aria-label="${label}"]`)
 
 describe("the Comments overlay on the comment parts", () => {
+  it("posts text with attachments and Highlight disabled by the session", async () => {
+    const { comments } = await serveComments({ identify: () => ada }, { attachments: false })
+    const tools = pageTools()
+    const { bar } = tools
+    const { shadow } = await startOverlay(tools)
+    await vi.waitFor(() => expect(commentsButton(bar)).not.toBeNull())
+    expect(tool(bar, "Highlight the page and comment (B)")).toBeNull()
+    commentsButton(bar)!.click()
+    await vi.waitFor(() => expect(tool(bar, "Comment on the whole page")).not.toBeNull())
+    tool(bar, "Comment on the whole page")!.click()
+    await vi.waitFor(() => expect(composer(shadow, "Comment")).not.toBeNull())
+    expect(shadow.querySelector('input[type="file"]')).toBeNull()
+    await type(composer(shadow, "Comment")!, "Text-only review")
+    press(composer(shadow, "Comment")!, "Enter")
+    await vi.waitFor(async () => expect((await comments.list())[1]).toHaveLength(1))
+  })
+
   it.each(["layer", "panel"])("links stored attachments in the %s", async (surface) => {
     const { shadow, bar, panel } = await site(ada, {}, async (comments) => {
       await comments.create({ page: "/pricing", anchor, body: "Read this file", attachments: ["files/guide.pdf"], author: ada })

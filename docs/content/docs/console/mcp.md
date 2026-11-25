@@ -152,9 +152,9 @@ With the account address, the agent works on the apps of the team that you opene
 | Tool | Does |
 | --- | --- |
 | `list_apps` | Lists the apps that your team linked. |
-| `link_app` | Links an app by its URL, and returns the `VITEHUB_CONSOLE_KEY_<NAME>` line to set on it. Only owners and admins of the team can link. |
+| `link_app` | Links an app by its URL, and returns the `VITEHUB_CONSOLE_KEY_<NAME>` line to set on it. With `kind: "site"`, it registers a site for [Hosted Comments](/docs/comments/configure#add-hosted-comments) and returns the script tag to add to its pages. Only owners and admins of the team can link. |
 | `check_app` | Answers `linked: true` when the app takes its link's signed calls. |
-| `unlink_app` | Unlinks an app. Remove its variable from the app as well. |
+| `unlink_app` | Unlinks an app and permanently deletes its hosted comment threads and replies. Pass `deleteHostedComments: true` after the user confirms. Remove the link's variable from the app as well. |
 | `list_operations` | Lists the [operations](/docs/console/operations) of an app that you may call, each with its kind, description, and input JSON Schema. |
 | `read_operation` | Runs one operation that only reads, such as `kv.list`. The app refuses an operation that changes data. |
 | `run_operation` | Runs one operation that changes data, such as `comments.create`. |

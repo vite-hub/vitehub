@@ -16,7 +16,7 @@ import type { StartMigrationDatabase } from "../src/runtime/migrate-on-start.ts"
 import type { ResolvedDrizzleDatabaseConfig } from "../src/types.ts"
 
 const execFileAsync = promisify(execFile)
-const kit = join(dirname(createRequire(import.meta.url).resolve("drizzle-kit")), "bin.cjs")
+const kit = join(dirname(createRequire(import.meta.url).resolve("drizzle-kit")), "bin.js")
 const roots: string[] = []
 
 afterEach(async () => {
