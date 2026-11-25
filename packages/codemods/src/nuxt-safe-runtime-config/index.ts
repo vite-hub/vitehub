@@ -407,7 +407,7 @@ function migrateNitroScript(command: string): string {
 }
 
 async function findNitroOutOfScopeConfigs(cwd: string, rootConfig: NuxtConfigFile): Promise<{ directories: string[], followUps: FollowUp[] }> {
-  const files = await glob(["**/nuxt.config.{ts,mts,js,mjs,cjs}", "**/nitro.config.{ts,mts,js,mjs,cjs}"], { cwd, ignore: ["**/node_modules/**", "**/.nitro/**", "**/.output/**"] })
+  const files = await glob(["**/nuxt.config.{ts,mts,js,mjs,cjs}", "**/nitro.config.{ts,mts,cts,js,mjs,cjs}"], { cwd, ignore: ["**/node_modules/**", "**/.nitro/**", "**/.output/**"] })
   const directories = new Set<string>()
   const followUps: FollowUp[] = []
   for (const file of files.sort()) {
