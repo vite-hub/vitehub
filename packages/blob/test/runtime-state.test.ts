@@ -1,3 +1,7 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { blob } from "../src/runtime/storage.ts"
@@ -34,6 +38,29 @@ describe("Blob runtime config", () => {
     vi.resetModules()
     const copy = await import("../src/runtime/state.ts")
     await expect(copy.getBlobRuntimeConfig()).resolves.toEqual(config)
+  })
+
+  it("writes to the replacement store from the same Node-loaded copy after a config reload", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-blob-reload-"))
+    const before = join(root, "before")
+    const after = join(root, "after")
+    const config = { store: { driver: "fs" as const, base: before } }
+    try {
+      setBlobRuntimeConfig(config)
+      vi.resetModules()
+      const { blob: nodeBlob } = await import("../src/runtime/storage.ts")
+      expect((await nodeBlob.put("first.txt", "before"))[0]).toBeUndefined()
+      await expect(readFile(join(before, "first.txt"), "utf8")).resolves.toBe("before")
+
+      config.store.base = after
+      setBlobRuntimeConfig(config)
+      expect((await nodeBlob.put("second.txt", "after"))[0]).toBeUndefined()
+      await expect(readFile(join(after, "second.txt"), "utf8")).resolves.toBe("after")
+      await expect(readFile(join(before, "second.txt"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 })
 

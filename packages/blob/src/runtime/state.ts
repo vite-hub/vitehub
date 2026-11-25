@@ -19,17 +19,31 @@ export { setBlobRequestBodyLimit } from "../internal/host-limits.ts"
 import type { ViteHubContext } from "@vite-hub/runtime"
 import type { BlobStorage, ResolvedBlobModuleOptions } from "../types.ts"
 
-let runtimeConfig: false | ResolvedBlobModuleOptions | undefined
+type InstalledBlobConfig = { config: false | ResolvedBlobModuleOptions | undefined }
+
+let runtimeConfig: InstalledBlobConfig["config"]
 let runtimeConfigSnapshot: string | undefined
 let runtimeConfigPromise: Promise<false | ResolvedBlobModuleOptions> | undefined
 let runtimeStorages = new Map<string, BlobStorage>()
 let pendingStorages = new Map<string, Promise<BlobStorage>>()
 
 const installedConfigKey = Symbol.for("vitehub.blob.installed-config")
+let observedInstall: InstalledBlobConfig | undefined
 
-function configInstalledInAnyCopy(): false | ResolvedBlobModuleOptions | undefined {
-  const config: unknown = Reflect.get(globalThis, installedConfigKey)
-  return config === false || config instanceof Object ? config as false | ResolvedBlobModuleOptions : undefined
+function resetRuntimeConfig(config: InstalledBlobConfig["config"], snapshot?: string): void {
+  runtimeConfig = config
+  runtimeConfigSnapshot = snapshot
+  runtimeConfigPromise = undefined
+  setServedBlobRoute(config ? config.serve : undefined)
+  runtimeStorages = new Map()
+  pendingStorages = new Map()
+}
+
+function syncInstalledConfig(): void {
+  const install = Reflect.get(globalThis, installedConfigKey) as InstalledBlobConfig | undefined
+  if (install === observedInstall) return
+  observedInstall = install
+  resetRuntimeConfig(undefined)
 }
 
 export {
@@ -58,10 +72,12 @@ export function getRequestCloudflareEnv(event: ViteHubContext): Record<string, u
 }
 
 export async function getBlobRuntimeConfig(): Promise<false | ResolvedBlobModuleOptions> {
+  syncInstalledConfig()
   if (typeof runtimeConfig !== "undefined") {
     return runtimeConfig
   }
 
+  const installed = observedInstall?.config
   runtimeConfigPromise ||= (async () => {
     const virtualConfigId = "#vitehub/blob/config"
     try {
@@ -72,7 +88,6 @@ export async function getBlobRuntimeConfig(): Promise<false | ResolvedBlobModule
       return module.blob
     }
     catch {
-      const installed = configInstalledInAnyCopy()
       if (installed !== undefined) return installed
       const env = typeof process !== "undefined" ? process.env : {}
       const hosting = getActiveCloudflareEnv()
@@ -97,19 +112,17 @@ export function getBlobRuntimeStorage(): BlobStorage | undefined {
 }
 
 export function getNamedBlobRuntimeStorage(name: string): BlobStorage | undefined {
+  syncInstalledConfig()
   return runtimeStorages.get(name)
 }
 
 export function setBlobRuntimeConfig(config: false | ResolvedBlobModuleOptions | undefined): void {
+  syncInstalledConfig()
   const snapshot = config === undefined ? undefined : JSON.stringify(config)
   if (config !== undefined && config === runtimeConfig && snapshot === runtimeConfigSnapshot) return
-  runtimeConfig = config
-  runtimeConfigSnapshot = snapshot
-  runtimeConfigPromise = undefined
-  Reflect.set(globalThis, installedConfigKey, config)
-  setServedBlobRoute(config ? config.serve : undefined)
-  runtimeStorages = new Map()
-  pendingStorages = new Map()
+  observedInstall = { config }
+  Reflect.set(globalThis, installedConfigKey, observedInstall)
+  resetRuntimeConfig(config, snapshot)
 }
 
 export function setBlobRuntimeStorage(storage: BlobStorage | undefined): void {
@@ -117,6 +130,7 @@ export function setBlobRuntimeStorage(storage: BlobStorage | undefined): void {
 }
 
 export function setNamedBlobRuntimeStorage(name: string, storage: BlobStorage | undefined): void {
+  syncInstalledConfig()
   pendingStorages.delete(name)
   if (storage) runtimeStorages.set(name, storage)
   else runtimeStorages.delete(name)
@@ -127,6 +141,7 @@ export function resolveNamedBlobRuntimeStorage(
   name: string,
   create: (config: false | ResolvedBlobModuleOptions) => Promise<BlobStorage>,
 ): Promise<BlobStorage> {
+  syncInstalledConfig()
   const existing = runtimeStorages.get(name)
   if (existing) return Promise.resolve(existing)
   const initializing = pendingStorages.get(name)
