@@ -66,6 +66,31 @@ describe("vitehub channels replay", () => {
     expect(channelReplayQuery(parsed, querySchema)).toEqual({ folder: "inbox", label: ["work", "home"] })
   })
 
+  it.each([
+    ["typed", ["--query", "label=work"]],
+    ["filter", ["--filter", "label=work"]],
+  ] as const)("sends a single %s array value as an array", (_mode, args) => {
+    expect(channelReplayQuery(parseChannelReplayArgs([...args, "--folder", "inbox"]), querySchema)).toEqual({ folder: "inbox", label: ["work"] })
+  })
+
+  it("keeps scalar, repeated scalar, and schema-free filter values", () => {
+    expect(channelReplayQuery(parseChannelReplayArgs(["--folder", "inbox"]), querySchema)).toEqual({ folder: "inbox" })
+    expect(channelReplayQuery(parseChannelReplayArgs(["--folder", "inbox", "--filter", "folder=archive"]), querySchema)).toEqual({ folder: ["inbox", "archive"] })
+    expect(channelReplayQuery(parseChannelReplayArgs(["--filter", "label=work"]), undefined)).toEqual({ label: "work" })
+  })
+
+  it("keeps prototype-named query keys as own values", () => {
+    const query = channelReplayQuery(
+      parseChannelReplayArgs(["--__proto__", "proto", "--filter", "__proto__=again", "--constructor", "ctor", "--toString", "string"]),
+      { properties: { ["__proto__"]: {}, constructor: {}, toString: {} } },
+    )
+
+    expect(Object.hasOwn(query, "__proto__")).toBe(true)
+    expect(query["__proto__"]).toEqual(["proto", "again"])
+    expect(query.constructor).toBe("ctor")
+    expect(query.toString).toBe("string")
+  })
+
   it.each(["", "  ", "x".repeat(513)])("rejects an invalid replay label %j", label => {
     expect(() => parseChannelReplayArgs(["--label", label])).toThrow(/label.*non-empty|--label requires/)
   })
