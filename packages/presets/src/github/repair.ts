@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import * as v from "valibot";
 import { invariantError } from "@vite-hub/internal/invariant";
 import { presetsErrorDiagnostics } from "../error-diagnostics.ts";
-import { findGitHubBaseReverts } from "./base-reverts.ts";
+import { findGitHubBaseReverts, findGitHubHeadReverts } from "./base-reverts.ts";
 import type { GitHubBaseRevert } from "./base-reverts.ts";
 import { resolveGitHubMergeConflicts } from "./conflicts.ts";
 import type { GitHubConflictOptions, GitHubConflictResolution } from "./conflicts.ts";
@@ -19,6 +19,8 @@ export interface GitHubRepairCommit {
   paths: string[];
   /** Files where a base merge intentionally keeps the PR's version over a base change, each with the reason. */
   baseOverrides?: Array<{ path: string; reason: string }>;
+  /** Files where a base merge intentionally keeps the base's version over a change of the PR, each with the reason. */
+  prOverrides?: Array<{ path: string; reason: string }>;
 }
 
 /** Git metadata is protected by provider sandboxes. Only the host stages repairs. */
@@ -65,8 +67,13 @@ export async function commitGitHubPullRequestWorkspace(
     const reasons = new Map(input.baseOverrides?.map(({ path, reason }) => [path, reason.trim()]));
     const reverts = await findGitHubBaseReverts(git.raw, mergeRecord);
     const unexplained = reverts.filter(({ path }) => !reasons.get(path));
-    if (unexplained.length) throw presetsErrorDiagnostics.PRESETS_REPAIR_BASE_REVERTED({ files: describeBaseReverts(unexplained) });
+    if (unexplained.length) throw presetsErrorDiagnostics.PRESETS_REPAIR_BASE_REVERTED({ files: describeReverts(unexplained, "base line(s)", "the base") });
+    const prReasons = new Map(input.prOverrides?.map(({ path, reason }) => [path, reason.trim()]));
+    const prReverts = await findGitHubHeadReverts(git.raw, { head: mergeRecord.head, base: mergeRecord.base, skip: mergeRecord.conflicts?.resolved.map(({ path }) => path) });
+    const unexplainedPr = prReverts.filter(({ path }) => !prReasons.get(path));
+    if (unexplainedPr.length) throw presetsErrorDiagnostics.PRESETS_REPAIR_PR_REVERTED({ files: describeReverts(unexplainedPr, "line(s) of this PR", "this PR") });
     if (reverts.length) message += `\n\nKeeps this PR's version over base changes:\n${reverts.map(({ path }) => `- ${path}: ${reasons.get(path)}`).join("\n")}`;
+    if (prReverts.length) message += `\n\nKeeps the base version over this PR's changes:\n${prReverts.map(({ path }) => `- ${path}: ${prReasons.get(path)}`).join("\n")}`;
   }
   if (options.verifyDependencies) {
     const directory = await mkdtemp(join(target, ".git", "vitehub-commit-snapshot-"));
@@ -100,13 +107,13 @@ const mergeRecordSchema = v.object({
     lockfile: v.optional(v.string()),
   })),
 });
-function describeBaseReverts(reverts: GitHubBaseRevert[]) {
+function describeReverts(reverts: GitHubBaseRevert[], added: string, remover: string) {
   const quote = (line: string) => JSON.stringify(line.length > 100 ? `${line.slice(0, 100)}…` : line);
   return reverts.slice(0, 10).map(({ path, dropped, restored }) => [
     `${path}:`,
-    dropped.length ? ` drops ${dropped.length} base line(s) such as ${dropped.slice(0, 2).map(quote).join(", ")}` : "",
+    dropped.length ? ` drops ${dropped.length} ${added} such as ${dropped.slice(0, 2).map(quote).join(", ")}` : "",
     dropped.length && restored.length ? ";" : "",
-    restored.length ? ` restores ${restored.length} line(s) the base removed, such as ${restored.slice(0, 2).map(quote).join(", ")}` : "",
+    restored.length ? ` restores ${restored.length} line(s) ${remover} removed, such as ${restored.slice(0, 2).map(quote).join(", ")}` : "",
   ].join("")).join("\n") + (reverts.length > 10 ? `\nand ${reverts.length - 10} more files` : "");
 }
 const digest = (index: string) => createHash("sha256").update(index).digest("hex");
