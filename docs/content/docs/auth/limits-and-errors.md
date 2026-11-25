@@ -155,7 +155,7 @@ Better Auth or a computed column reader failed. Read the error cause in server c
 
 The access token fails a check on its signature, issuer, audience (the resource), or expiry, or its user is gone or banned. It also fails on a path that is not a resource of `mcpOAuth()`, unless `verifyMcpRequest()` gets `resource`. Answer `401` with `error="invalid_token"` so the client signs in again.
 
-`error.data.reason` names the check that failed, for a log or a metric. It is one of `mcpTokenInvalidReasons` from `vite-hub/auth/mcp`:
+`error.data.reason` names the check that failed, for a log or a metric. After `error.code === "AUTH_MCP_TOKEN_INVALID"`, TypeScript types `error.data` as `McpTokenInvalidData` for both `verifyMcpRequest()` and `requireCaller()`. The reason is one of `mcpTokenInvalidReasons` from `vite-hub/auth/mcp`:
 
 | Reason | The token |
 | --- | --- |

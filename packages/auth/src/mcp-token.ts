@@ -6,7 +6,7 @@ import { authForRequest } from "./auth-instance.ts"
 import { mcpOAuthResources } from "./mcp-config.ts"
 import { isRecord } from "@vite-hub/internal/object"
 
-import type { Result } from "@vite-hub/runtime"
+import type { Result, ResultError } from "@vite-hub/runtime"
 
 // The token check and cleanup of `vite-hub/auth/mcp`, apart from `mcpOAuth()`, so `requireCaller()` loads them without
 // `@better-auth/oauth-provider`, an optional peer dependency.
@@ -48,6 +48,19 @@ export type McpTokenInvalidData = {
   reason: McpTokenInvalidReason
   clientId: string | undefined
 }
+
+/** The `AUTH_MCP_TOKEN_INVALID` error. Check `code` to read `data.reason` and `data.clientId`. */
+export type McpTokenInvalidError = ResultError<"AUTH_MCP_TOKEN_INVALID", McpTokenInvalidData>
+
+/** The error of `verifyMcpRequest()`. Check `code` to read the typed `data`. */
+export type VerifyMcpRequestError = McpTokenInvalidError | ResultError<"AUTH_MCP_TOKEN_MISSING", undefined>
+
+/** The `[error, caller]` tuple of `verifyMcpRequest()`. */
+export type VerifyMcpRequestResult =
+  | [error: VerifyMcpRequestError, data: undefined]
+  | [error: undefined, data: McpCaller]
+
+type McpTokenResult = [error: McpTokenInvalidError, data: undefined] | [error: undefined, data: McpCaller]
 
 interface McpTokenRefusal {
   reason: McpTokenInvalidReason
@@ -150,7 +163,7 @@ function banned(user: Record<string, unknown>): boolean {
  * any value with `url` and `headers`, and the body stays for the MCP handler. Returns `AUTH_MCP_TOKEN_MISSING` without a
  * bearer token and `AUTH_MCP_TOKEN_INVALID` for a token that fails a check. Throws `AUTH_MCP_OAUTH_MISSING` when the Auth has no `mcpOAuth()`.
  */
-export async function verifyMcpRequest(request: Pick<Request, "headers" | "url">, options: VerifyMcpRequestOptions = {}): Promise<Result<McpCaller, "AUTH_MCP_TOKEN_INVALID" | "AUTH_MCP_TOKEN_MISSING">> {
+export async function verifyMcpRequest(request: Pick<Request, "headers" | "url">, options: VerifyMcpRequestOptions = {}): Promise<VerifyMcpRequestResult> {
   const token = bearerToken(request.headers)
   if (!token) return [mcpErrors.AUTH_MCP_TOKEN_MISSING(), undefined]
   const auth = options.auth ?? appAuth(request)
@@ -167,14 +180,14 @@ const bearerToken = (headers: Pick<Headers, "get">): string | undefined => /^Bea
  * Check an MCP access token for any `mcpOAuth()` resource at the origin of the request, for `requireCaller()`, which
  * accepts the token on every route of the app.
  */
-export async function verifyAppAccessToken(token: string, origin: string, pathname: string, instance: object): Promise<Result<McpCaller, "AUTH_MCP_TOKEN_INVALID">> {
+export async function verifyAppAccessToken(token: string, origin: string, pathname: string, instance: object): Promise<McpTokenResult> {
   const auth = mcpOAuthAuth(instance)
   const state = await stateOf(auth)
   return await verifyToken(token, auth, state, state.resources.filter(entry => new URL(entry).origin === origin), pathname)
 }
 
-async function verifyToken(token: string, auth: McpOAuthAuth, state: McpOAuthState, resource: string | readonly string[] | undefined, path: string): Promise<Result<McpCaller, "AUTH_MCP_TOKEN_INVALID">> {
-  const refuse = (reason: McpTokenInvalidReason, detail: string, clientId?: string, cause?: unknown): Result<never, "AUTH_MCP_TOKEN_INVALID"> =>
+async function verifyToken(token: string, auth: McpOAuthAuth, state: McpOAuthState, resource: string | readonly string[] | undefined, path: string): Promise<McpTokenResult> {
+  const refuse = (reason: McpTokenInvalidReason, detail: string, clientId?: string, cause?: unknown): [McpTokenInvalidError, undefined] =>
     [mcpErrors.AUTH_MCP_TOKEN_INVALID({ cause, clientId, detail, reason }), undefined]
   if (!resource?.length) return refuse("wrong_resource", `${path} is not a resource of \`mcpOAuth()\`.`)
   const jwks: unknown = await auth.api.getJwks()
