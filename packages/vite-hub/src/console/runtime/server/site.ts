@@ -1,9 +1,9 @@
+import "#vitehub/console/app"
 import { readConsolePublicKeys } from "@vite-hub/internal/console-signature"
-import { viteHubPageGrants } from "@vite-hub/internal/runtime/page-tools"
 import { matchesPublicOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { viteHubPageToolsQuery, viteHubPageToolsResetCookie, viteHubSessionMarkerCookie } from "@vite-hub/internal/runtime/page-tools-shared"
-import { createSiteState, isSitePath, siteRoute, siteStateHash, siteVisitUrl, verifySiteToken } from "@vite-hub/internal/site-token"
-import { hostedConsoleOrigin } from "@vite-hub/runtime/internal/console"
+import { createSiteState, isSitePath, siteRoute, siteStateHash, siteVisitUrl, verifySiteHandoff, verifySiteToken } from "@vite-hub/internal/site-token"
+import { configuredConsoleOrigin } from "@vite-hub/runtime/internal/console"
 import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { configuredPublicOrigins } from "@vite-hub/runtime/internal/public-url"
 
@@ -11,36 +11,17 @@ import { installedConsoleAccessPolicy } from "./access-policy.ts"
 import { consoleRequestEnv } from "./console-signature.ts"
 import { isConsoleLoopbackRequest } from "./loopback.ts"
 import { consoleRequestError, consoleRoute, isConsoleDevelopmentRuntime } from "./request.ts"
+import { cookieValue, siteCookieNames, siteSessionLifetime } from "./site-visitor.ts"
 import { appOrigin, seeOther, ticketProblem } from "./tickets.ts"
 
-import type { ViteHubSiteVisitor } from "@vite-hub/internal/runtime/page-tools"
 import type { ConsoleRoute } from "./request.ts"
 
-const siteCookie = "__Host-vitehub-site"
-const siteStateCookie = "__Host-vitehub-site-state"
-/** Seconds that a browser stays signed in after the Console signed its token. */
-export const siteSessionLifetime: number = 12 * 60 * 60
 const siteStateLifetime = 10 * 60
-const stateLength = 43
 const statePattern = /^[\w-]{43}$/
 const maximumCookieBytes = 4_096
 
-function cookieValue(request: Request, name: string): string | undefined {
-  for (const part of (request.headers.get("cookie") ?? "").split(";")) {
-    const at = part.indexOf("=")
-    if (at > 0 && part.slice(0, at).trim() === name) return part.slice(at + 1).trim()
-  }
-  return undefined
-}
-
 function cookie(name: string, value: string, maxAge: number): string {
   return `${name}=${value}; Path=/; Max-Age=${maxAge}; HttpOnly; Secure; SameSite=Lax`
-}
-
-async function siteCookieNames(base: string): Promise<{ session: string, state: string }> {
-  const path = base.replace(/\/+$/, "")
-  const suffix = path ? `-${await siteStateHash(path)}` : ""
-  return { session: `${siteCookie}${suffix}`, state: `${siteStateCookie}${suffix}` }
 }
 
 /** A page with `?vitehub`, which opens the page tools pill. */
@@ -55,48 +36,6 @@ export function withPageTools(page: string): string {
 function siteApp(request: Request, base: string): string {
   const origin = isConsoleDevelopmentRuntime() ? new URL(request.url).origin : appOrigin(request)
   return `${origin}${base.replace(/\/+$/, "")}`
-}
-
-const visitors = new WeakMap<Request, Promise<ViteHubSiteVisitor | undefined>>()
-
-async function readVisitor(request: Request, base: string): Promise<ViteHubSiteVisitor | undefined> {
-  if (!request.headers.has("cookie")) return undefined
-  const value = cookieValue(request, (await siteCookieNames(base)).session)
-  if (!value || value[stateLength] !== ".") return undefined
-  const keys = readConsolePublicKeys(consoleRequestEnv(request))
-  if (!(keys instanceof Map)) return undefined
-  let app: string
-  try {
-    app = siteApp(request, base)
-  }
-  catch {
-    return undefined
-  }
-  const result = await verifySiteToken({ token: value.slice(stateLength + 1), keys, origin: app, state: value.slice(0, stateLength), lifetime: siteSessionLifetime })
-  if (!result.ok) return undefined
-  const { sub, name, email, image, roles } = result.claims
-  const member = roles.includes("console")
-  return { id: sub, name, ...(email ? { email } : {}), ...(image ? { image } : {}), roles: member ? memberRoles(request, roles) : roles, kind: member ? "member" : "guest" }
-}
-
-function memberRoles(request: Request, signed: string[]): string[] {
-  const policy = installedConsoleAccessPolicy()
-  if (!policy || ("authorize" in policy && policy.authorize)) return signed
-  return [...new Set([...signed, ...viteHubPageGrants(request).map(grant => grant.id)])]
-}
-
-/**
- * The person of the site cookie of a request, or `undefined` without a cookie, or with one that the public keys of the
- * app do not verify, that was made for another app, or that is older than 12 hours. `base` is the app base, such as
- * `/portal/`. Each Request is checked once.
- */
-export function readConsoleSiteVisitor(request: Request, base = ""): Promise<ViteHubSiteVisitor | undefined> {
-  let visitor = visitors.get(request)
-  if (!visitor) {
-    visitor = readVisitor(request, base)
-    visitors.set(request, visitor)
-  }
-  return visitor
 }
 
 async function signIn(request: Request, app: string, token: string, names: Awaited<ReturnType<typeof siteCookieNames>>): Promise<Response> {
@@ -122,10 +61,18 @@ async function visit(request: Request, app: string, stateCookie: string): Promis
   const url = new URL(request.url)
   const page = url.searchParams.get("return") ?? "/"
   if (!isSitePath(page)) throw consoleRequestError(400, "Use a path of the app as `return`, such as /docs.")
+  const project = url.searchParams.get("project") ?? undefined
+  const issuer = url.searchParams.get("issuer")
+  const handoff = url.searchParams.get("handoff")
+  if (issuer !== null || handoff !== null) {
+    const keys = readConsolePublicKeys(consoleRequestEnv(request))
+    if (!issuer || !handoff || !project || !(keys instanceof Map) || !await verifySiteHandoff({ app, issuer, project, path: page, handoff, keys })) {
+      throw consoleRequestError(400, "This Site access handoff is invalid or expired. Ask the issuing Console for a new link.")
+    }
+  }
   const current = cookieValue(request, stateCookie)
   const state = current && statePattern.test(current) ? current : createSiteState()
-  const project = url.searchParams.get("project") ?? undefined
-  const location = siteVisitUrl({ console: hostedConsoleOrigin, app, state: await siteStateHash(state), path: page, ...(project ? { project } : {}) })
+  const location = siteVisitUrl({ console: issuer ?? configuredConsoleOrigin(), app, state: await siteStateHash(state), path: page, ...(project ? { project } : {}) })
   return seeOther(location, new Headers({ "set-cookie": cookie(stateCookie, state, siteStateLifetime) }))
 }
 
@@ -166,8 +113,9 @@ export const siteAccessRoute: ConsoleRoute = consoleRoute(async (event) => {
   if (!await isConsoleLoopbackRequest(request, { access: policy.mode, remoteAddress: runtime?.clientAddress })) throw consoleRequestError(403, "This development server answers the Console only on this computer.", "CONSOLE_LOOPBACK_ONLY")
   if (!isConsoleDevelopmentRuntime() && !matchesPublicOrigin(request, configuredPublicOrigins())) throw consoleRequestError(404, `ViteHub serves ${siteRoute} only on the public URL of the app.`)
   const url = new URL(request.url)
-  if (!url.pathname.endsWith(siteRoute)) throw consoleRequestError(404, "Nothing serves this path.")
-  const base = url.pathname.slice(0, -siteRoute.length)
+  const pathname = url.pathname.replace(/\/+$/, "")
+  if (!pathname.endsWith(siteRoute)) throw consoleRequestError(404, "Nothing serves this path.")
+  const base = pathname.slice(0, -siteRoute.length)
   if (request.method === "POST") {
     if (!isSameOriginRequest(request)) throw consoleRequestError(403, "Sign out from a page of this app.", "CONSOLE_ACCESS_DENIED")
     return signOut(await siteCookieNames(base))

@@ -285,11 +285,6 @@ export function isConsoleBuiltinSectionId(value: unknown): value is ConsoleBuilt
   return consoleBuiltinSectionIds.some(section => section === value)
 }
 
-/** The MCP client section is on when the Console options set `mcpClient: true`. */
-export function isConsoleMcpClientEnabled(console: unknown): boolean {
-  return typeof console === "object" && console !== null && Reflect.get(console, "mcpClient") === true
-}
-
 /** Route name of a contributed section. The Console serves it at `/_vitehub/<id>`. */
 export function consoleSectionRouteName(section: ConsoleSectionId): string {
   return `vitehub-console-${section}`
@@ -343,7 +338,6 @@ export function describeConsoleSectionRoutes(section: { id: ConsoleSectionId, pa
 export function resolveConsoleSectionIds(options: {
   auth?: unknown;
   env?: unknown;
-  console?: unknown;
   agent?: unknown;
   blob?: unknown;
   cache?: unknown;
@@ -365,7 +359,6 @@ export function resolveConsoleSectionIds(options: {
     ...(options.logs ? ["logs"] : []),
     ...(options.env ? ["env"] : []),
     ...(options.agent ? ["agents", "skills", "usage", "channels"] : []),
-    ...(isConsoleMcpClientEnabled(options.console) ? ["mcp-client"] : []),
     ...(options.blob ? ["blob"] : []),
     // Without the option, `server/comments.ts` turns the section on through discovery.
     ...(options.comments ? ["comments"] : []),

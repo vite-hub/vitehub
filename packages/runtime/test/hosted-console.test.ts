@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { hostedConsoleUrl } from "../src/index.ts"
-import { normalizeConsolePath, normalizeConsoleProjectUrl } from "../src/internal/console.ts"
+import { configuredConsoleOrigin, normalizeConsolePath, normalizeConsoleProjectUrl } from "../src/internal/console.ts"
 
 describe("hosted Console links", () => {
   it("builds an /open URL with the project and the Console path", () => {
@@ -27,6 +27,18 @@ describe("hosted Console links", () => {
 
   it("uses another Console origin", () => {
     expect(hostedConsoleUrl("http://localhost:3000", "/kv", "http://127.0.0.1:4871")).toBe("http://127.0.0.1:4871/open?project=http%3A%2F%2Flocalhost%3A3000&path=%2Fkv")
+  })
+
+  it("uses the Console origin that vitehub({ console: { url } }) builds in", () => {
+    vi.stubGlobal("__VITEHUB_CONSOLE_URL__", "https://console.example.com")
+    try {
+      expect(configuredConsoleOrigin()).toBe("https://console.example.com")
+      expect(new URL(hostedConsoleUrl("https://app.example.com", "/kv")).origin).toBe("https://console.example.com")
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
+    expect(configuredConsoleOrigin()).toBe("https://console.vitehub.dev")
   })
 
   it("keeps the query and the fragment of the Console path", () => {

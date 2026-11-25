@@ -294,6 +294,7 @@ export function createConsoleSiteStore(db: ConsoleDatabase, projectId: string, s
 export interface ConsoleSiteLinkOwner {
   projectId: string
   teamId: string
+  path: string
   kind: "invite" | "code" | "comments"
   userId: string | null
   roles: string[] | null
@@ -317,7 +318,7 @@ export async function openConsoleSiteLink(db: ConsoleDatabase, input: { kind: Co
   const { link, teamId } = found
   const person = kind === "code" && link.userId ? await siteMember(db, { teamId }, link.userId) : undefined
   if (kind === "code" && !person) return "forbidden"
-  if (!await input.allow({ projectId: link.projectId, teamId, kind, userId: link.userId, roles: link.roles, createdBy: link.createdBy })) return "forbidden"
+  if (!await input.allow({ projectId: link.projectId, teamId, path: link.path, kind, userId: link.userId, roles: link.roles, createdBy: link.createdBy })) return "forbidden"
   const pass = newSecret()
   const grant: ConsoleSiteGrantRow = {
     id: crypto.randomUUID(),

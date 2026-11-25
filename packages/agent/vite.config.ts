@@ -36,7 +36,10 @@ export default defineConfig({
     ...packDefaults,
     outputOptions: {
       codeSplitting: {
-        groups: [{ name: "vitehub-grants", test: /[/\\](?:access-runtime|channel-delivery-ownership)\.ts$/ }],
+        groups: [
+          { name: "vitehub-grants", test: /[/\\](?:access-runtime|channel-delivery-ownership)\.ts$/ },
+          { includeDependenciesRecursively: false, name: "invocation-rerun", test: /[/\\]src[/\\]invocation-rerun\.ts$/ },
+        ],
       },
     },
     deps: {
