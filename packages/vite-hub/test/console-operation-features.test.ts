@@ -2,8 +2,10 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
+import { hubEmail } from "@vite-hub/email/vite"
+import { hubRealtime } from "@vite-hub/realtime/vite"
 import { build } from "esbuild"
-import type { Plugin } from "vite"
+import { resolveConfig, type Plugin } from "vite"
 import { expect, it } from "vitest"
 
 import { vitehub } from "../src/index.ts"
@@ -13,6 +15,33 @@ import { consoleOperationModules } from "../src/console/operation-modules.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
 
 const primitiveOperations = /\/(?:agent|auth|blob|content|database|env|logs|workspace)\/console\/operations\.[jt]s$/
+
+it.each([
+  { email: false, realtime: false },
+  { email: true, realtime: false },
+  { email: false, realtime: true },
+])("uses standalone owner plugins in the Vite Console app (Email: $email, Realtime: $realtime)", async ({ email, realtime }) => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-console-capabilities-"))
+  try {
+    await writeFile(join(root, "package.json"), "{}\n")
+    const config = await resolveConfig({
+      root,
+      configFile: false,
+      plugins: [
+        vitehub({ agent: true, console: true, host: "node" }),
+        email && hubEmail({ driver: "log" }),
+        realtime && hubRealtime(),
+      ],
+    }, "build", "production")
+    expect(config.plugins.some(plugin => plugin.name === "@vite-hub/email/optional-peer-resolver")).toBe(true)
+    const app = await readFile(join(root, ".vitehub/nitro/console/app.mjs"), "utf8")
+    expect(app.includes('import("vite-hub/email")')).toBe(email)
+    expect(app.includes('installConsoleAgentRealtime(() => import("vite-hub/realtime/agent"))')).toBe(realtime)
+  }
+  finally {
+    await rm(root, { force: true, recursive: true })
+  }
+})
 
 it.each([
   ["src/console/runtime/server/rpc.ts", false, "vite"],

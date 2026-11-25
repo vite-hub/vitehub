@@ -61,6 +61,18 @@ const consoleRuntimeCapabilityImports: readonly ConsoleRuntimeCapabilityImport[]
   { exportName: "kv", name: "kv" },
 ]
 
+export function resolveConsoleRuntimeCapabilityImports(
+  imports: Record<string, false | string> | undefined,
+  plugins: readonly { name: string }[] | undefined,
+): Record<string, false | string> | undefined {
+  if (!plugins) return imports
+  return {
+    ...imports,
+    ...(!imports?.email && plugins.some(plugin => plugin.name === "@vite-hub/email/vite") ? { email: "vite-hub/email" } : {}),
+    ...(!imports?.realtime && plugins.some(plugin => plugin.name === "@vite-hub/realtime/vite") ? { realtime: "vite-hub/realtime/agent" } : {}),
+  }
+}
+
 /** The Agent capabilities of a Console invocation. They load with the first invocation, not when the server starts. */
 function renderConsoleRuntimeCapabilities(imports: Record<string, false | string> | undefined): string | undefined {
   if (!imports) return undefined
