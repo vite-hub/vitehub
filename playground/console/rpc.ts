@@ -64,7 +64,7 @@ const projectFixture = {
     time: new Date(Date.now() - 2 * 3_600_000).toISOString(),
   },
   name: "playground-console",
-  operations: [],
+  operations: ["site.access"],
   protocol: 1,
   sections: [],
   vitehub: "0.0.0-playground",

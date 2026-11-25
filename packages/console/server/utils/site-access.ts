@@ -136,7 +136,13 @@ export const siteVisitRoute = withAnonymousAuthorization(() => true, async (requ
   for (const project of projects) {
     const access = userId ? await memberAccess(project, userId) : undefined
     const visited = access ? await visitLocation(project, access, state, path) : undefined
-    if (visited) return visited
+    if (visited && access) {
+      if (visited.status === 303) {
+        const pass = await createConsoleSiteStore(db, project.id).rememberMember(access.person, access.roles, request.headers.get("user-agent") ?? "")
+        visited.headers.append("set-cookie", sitePassSetCookie(project.id, pass, secure))
+      }
+      return visited
+    }
   }
   return seeOther(`/open?${new URLSearchParams({ project: app, site: path, visit: state, ...(only ? { app: only } : {}) })}`)
 })
@@ -243,8 +249,17 @@ export async function consoleSiteRoute(request: Request, caller: ConsoleTeamCall
       if (!person) return consoleProblem(403, "CONSOLE_SITE_FORBIDDEN", "Only members of the team open the site from the Console.")
       const target = await caller.projects.target(project.id)
       if (!target) return projectNotFound()
-      const location = await signedLocation({ project: target.project, key: target.key, person, roles: siteMemberRoles(policy), state, path })
-      return location instanceof Response ? location : consoleJson({ url: location })
+      const roles = siteMemberRoles(policy)
+      const location = await signedLocation({ project: target.project, key: target.key, person, roles, state, path })
+      if (location instanceof Response) return location
+      const secure = isSecure(request)
+      const existing = readCookie(request, sitePassCookie(project.id, secure))
+      const grant = existing ? await store.pass(existing, person.id) : undefined
+      if (grant) await store.issued(grant.id, roles)
+      const pass = grant && existing ? existing : await store.rememberMember(person, roles, request.headers.get("user-agent") ?? "")
+      const response = consoleJson({ url: location })
+      response.headers.append("set-cookie", sitePassSetCookie(project.id, pass, secure))
+      return response
     }
     default:
       return consoleProblem(404, "NOT_FOUND", "Not found.")
