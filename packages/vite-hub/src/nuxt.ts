@@ -1,7 +1,6 @@
 import { agentJournalStateUrl, defaultDatabaseD1Binding, withComments, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
 import { assertAgentInvocationsRetention, assertAgentInvocationsUrl, defaultJournalNeedsLibsql, VITEHUB_AGENT_JOURNAL_STORE, writeAgentInvocationsNitroPlugin } from "./agent-invocations-vite.ts"
 import { isDefaultAgentJournal } from "./agent-invocations-setting.ts"
-import { cloudflareEmailDevShimSource, cloudflareWorkersDevShimSource } from "./cloudflare-workers-dev-shim.injected.ts"
 import { invariant } from "@vite-hub/internal/invariant"
 import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs"
 import { mkdir, writeFile } from "node:fs/promises"
@@ -18,6 +17,7 @@ import { removeViteHubDevServerFile, writeViteHubDevServerFile } from "@vite-hub
 import { describeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
 import { generatedModules } from "./internal/generated-modules.ts"
 import { nitroOptionalPeers } from "./internal/nitro-optional-peers.ts"
+import { cloudflareDevShims, isCloudflareDevShim, nitroConfigResolvedNames, nitroRuntimeResolver } from "./internal/nitro-replay.ts"
 import { nitroViteImports } from "./internal/nitro-vite-imports.ts"
 import { forgeBuildCheckPlugin } from "./internal/forge-build-check.ts"
 import { drizzleBuildCheckPlugin } from "./internal/drizzle-build-check.ts"
@@ -239,16 +239,6 @@ function isExternalId(external: RollupExternal, id: string, importer: string | u
   return [external].flat().some(entry => typeof entry === "string" ? entry === id : entry.test(id))
 }
 
-/** Node stubs for the Cloudflare runtime modules that ViteHub's generated server code imports. */
-const cloudflareDevShims = {
-  "cloudflare:email": { file: "cloudflare-email.dev.mjs", source: cloudflareEmailDevShimSource },
-  "cloudflare:workers": { file: "cloudflare-workers.dev.mjs", source: cloudflareWorkersDevShimSource },
-}
-
-function isCloudflareDevShim(id: string): id is keyof typeof cloudflareDevShims {
-  return Object.hasOwn(cloudflareDevShims, id)
-}
-
 /**
  * `nuxt dev` with the Cloudflare preset runs the server on Node, where ViteHub aliases `cloudflare:workers` and
  * `cloudflare:email` to Node stubs. ViteHub's generated Nitro plugins list those schemes as external for the Worker
@@ -331,50 +321,6 @@ function pluginOptionHasName(option: PluginOption, name: string): boolean {
   return Boolean(option && Reflect.get(Object(option), "name") === name)
 }
 
-const nitroRuntimeResolverNames = new Set([
-  "@vite-hub/auth/vite",
-  "@vite-hub/blob/vite",
-  "@vite-hub/browser/vite",
-  "@vite-hub/email/vite",
-  "@vite-hub/kv/vite",
-  "@vite-hub/markdown-template/vite",
-  "@vite-hub/realtime/vite",
-  "@vite-hub/schedule/vite",
-  "@vite-hub/source/vite",
-  "vite-hub/optional-owner-imports",
-  "vite-hub/cloudflare-sh-syntax",
-  // The durability boot plugin imports `#vitehub/durability/reporters`, which this plugin renders from the replayed plugins.
-  "vite-hub/durability",
-  "vite-hub/cloudflare-pkce-challenge",
-  "vite-hub/unavailable-services",
-])
-
-const nitroServerTransformNames = new Set([
-  "@vite-hub/env/vite",
-  "@vite-hub/i18n/vite",
-  "@vite-hub/schedule/vite",
-  "@vite-hub/source/vite",
-  "@vite-hub/workflow/vite",
-])
-
-const nitroConfigResolvedNames = new Set([
-  ...nitroRuntimeResolverNames,
-  "@vite-hub/content/vite",
-  "@vite-hub/sandbox/task/vite",
-  "@vite-hub/workflow/vite",
-  "vite-hub/agent-invocations",
-])
-
-function pluginResolveIdHandler(plugin: Plugin): HookHandler<NonNullable<Plugin["resolveId"]>> | undefined {
-  if (typeof plugin.resolveId === "function") return plugin.resolveId
-  return plugin.resolveId?.handler
-}
-
-function pluginLoadHandler(plugin: Plugin): HookHandler<NonNullable<Plugin["load"]>> | undefined {
-  if (typeof plugin.load === "function") return plugin.load
-  return plugin.load?.handler
-}
-
 function pluginConfigResolvedHandler(plugin: Plugin): HookHandler<NonNullable<Plugin["configResolved"]>> | undefined {
   if (typeof plugin.configResolved === "function") return plugin.configResolved
   return plugin.configResolved?.handler
@@ -403,56 +349,8 @@ async function finalizeNitroReplayPlugins(plugins: Plugin[], config: UserConfig,
   }
 }
 
-/** Keep the hook's filter, so the bundler skips the replayed hook for ids that the plugin does not own. */
-function withHookFilter<Handler>(hook: unknown, handler: Handler): Handler | { filter: unknown, handler: Handler } {
-  return isRecord(hook) && hook.filter !== undefined ? { filter: hook.filter, handler } : handler
-}
-
-function nitroRuntimeResolver(plugin: Plugin, config: Record<string, unknown>, agentOptions: { root: string, serverDirs?: string[] }): Plugin | undefined {
-  const resolveId = nitroRuntimeResolverNames.has(plugin.name) ? pluginResolveIdHandler(plugin) : undefined
-  const load = nitroRuntimeResolverNames.has(plugin.name) ? pluginLoadHandler(plugin) : undefined
-  const transformWorkspaceAgent = (plugin as Plugin & {
-    vitehub?: { agent?: { transformWorkspaceAgent?: (code: string, id: string, options: typeof agentOptions) => Promise<string | undefined> } }
-  }).vitehub?.agent?.transformWorkspaceAgent
-  const serverTransform = nitroServerTransformNames.has(plugin.name)
-    ? typeof plugin.transform === "function" ? plugin.transform : plugin.transform?.handler
-    : undefined
-  if (!resolveId && !load && !transformWorkspaceAgent && !serverTransform) return
-
-  const replayResolveId: HookHandler<NonNullable<Plugin["resolveId"]>> | undefined = resolveId && function (id, importer, options) {
-    // Nitro's development alias must reach its resolver instead of being externalized by a replayed hook.
-    if (isCloudflareDevShim(id) && isRecord(config.alias) && typeof config.alias[id] === "string") return
-    // Nitro replays Vite hooks in a server build, but Rollup does not supply Vite's ssr flag.
-    return resolveId.call(this, id, importer, { ...options, ssr: true })
-  }
-  const replayLoad: HookHandler<NonNullable<Plugin["load"]>> | undefined = load && function (id, options) {
-    // All replayed loads run on Nitro's server, including Rollup calls without Vite options.
-    return load.call(this, id, { ...options, ssr: true })
-  }
-  const replayServerTransform: HookHandler<NonNullable<Plugin["transform"]>> | undefined = serverTransform && function (code, id, options) {
-    // The separate Nitro pipeline has no Vite environment; explicitly mark its server transform.
-    return serverTransform.call(this, code, id, { moduleType: "js", ...options, ssr: true })
-  }
-  return {
-    name: `vite-hub/nuxt-runtime-resolver:${plugin.name}`,
-    // SAFETY: the filter comes from the same hook of the replayed plugin, so it has that hook's filter type.
-    ...(replayResolveId ? { resolveId: withHookFilter(plugin.resolveId, replayResolveId) as Plugin["resolveId"] } : {}),
-    ...(replayLoad ? { load: withHookFilter(plugin.load, replayLoad) as Plugin["load"] } : {}),
-    ...(replayServerTransform ? {
-      // SAFETY: the filter belongs to the same transform hook of the replayed plugin.
-      transform: withHookFilter(plugin.transform, replayServerTransform) as Plugin["transform"],
-    } : {}),
-    ...(transformWorkspaceAgent ? {
-      transform: {
-        filter: { id: /\.[cm]?[jt]s(?:[?#]|$)/i },
-        handler: (code: string, id: string) => transformWorkspaceAgent(code, id, agentOptions),
-      },
-    } : {}),
-  }
-}
-
 function installNitroRuntimeResolvers(config: Record<string, unknown>, plugins: Plugin[], agentOptions: { root: string, serverDirs?: string[] }): void {
-  const resolvers = plugins.map(plugin => nitroRuntimeResolver(plugin, config, agentOptions)).filter((plugin): plugin is Plugin => Boolean(plugin))
+  const resolvers = plugins.map(plugin => nitroRuntimeResolver(plugin, config, agentOptions)?.plugin).filter((plugin): plugin is Plugin => Boolean(plugin))
   if (!resolvers.length) return
 
   const rollupConfig = (config.rollupConfig ??= {}) as Record<string, unknown>
