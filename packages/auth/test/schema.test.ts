@@ -19,7 +19,7 @@ import { assertAuthDatabaseNames } from "../src/database-schema-options.ts"
 import type { BetterAuthOptions } from "better-auth"
 import type { AuthSchemaPlugin, AuthTableField, AuthTableSpec } from "../src/schema.ts"
 
-const shippedPlugins = () => [admin(), jwt(), oauthProvider({ consentPage: "/sign-in", loginPage: "/sign-in" }), organization(), passkey()]
+const shippedPlugins = () => [jwt(), oauthProvider({ consentPage: "/sign-in", loginPage: "/sign-in" }), organization(), passkey()]
 
 /** Better Auth's tables for `options`, in the shape of `authTableSpecs`. */
 function betterAuthTables(options: BetterAuthOptions = { plugins: shippedPlugins(), rateLimit: { storage: "database" } }): Record<string, AuthTableSpec> {
@@ -56,7 +56,7 @@ describe("Auth tables", () => {
     expect(() => assertAuthDatabaseNames({ user: { fields: { email: "email_address" } } })).toThrow(/user.email cannot map/)
   })
 
-  it("match Better Auth's tables for admin(), jwt(), oauthProvider(), organization(), and passkey()", () => {
+  it("match Better Auth's tables for jwt(), oauthProvider(), organization(), and passkey()", () => {
     // A Better Auth upgrade that changes these tables fails here. Update `authTableSpecs` in src/schema.ts.
     const expected = betterAuthTables()
     // Better Auth omits this storage flag, but Postgres needs bigint for unsigned 32-bit counters.
@@ -115,6 +115,7 @@ describe("Auth tables", () => {
 
   // Each plugin with every option that adds a table or a column turned on.
   const pluginFactories: Record<AuthSchemaPlugin, () => NonNullable<BetterAuthOptions["plugins"]>[number]> = {
+    admin: () => admin(),
     anonymous: () => anonymous(),
     apiKey: () => apiKey(),
     lastLoginMethod: () => lastLoginMethod({ storeInDatabase: true }),
@@ -184,8 +185,17 @@ describe("Auth tables", () => {
   })
 })
 
+it("adds the admin() columns only for an Auth Definition that calls admin()", () => {
+  const columns = (options: Parameters<typeof createAuthSqliteSchema>[0]) => {
+    const schema = createAuthSqliteSchema(options)
+    return [...getSqliteTableConfig(schema.user).columns, ...getSqliteTableConfig(schema.session).columns].map(column => column.name)
+  }
+  expect(columns({}).filter(name => ["role", "banned", "ban_reason", "ban_expires", "impersonated_by"].includes(name))).toEqual([])
+  expect(columns({ plugins: ["admin"] })).toEqual(expect.arrayContaining(["role", "banned", "ban_reason", "ban_expires", "impersonated_by"]))
+})
+
 it("preserves NOT NULL on optional existing Auth fields", () => {
-  const schema = createAuthSqliteSchema({}, { user: {
+  const schema = createAuthSqliteSchema({ plugins: ["admin"] }, { user: {
     columns: { role: { notNull: true, default: "'user'" } },
     indexes: [], uniques: [], foreignKeys: [],
   } })

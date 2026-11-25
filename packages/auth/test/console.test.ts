@@ -187,6 +187,17 @@ describe("Auth Console with real Better Auth plugins", () => {
     expect((await data(api.describe(operator.request))).actions.revokeConsent.enabled).toBe(false);
   });
 
+  it("lists users without admin(), and finds no admins and no banned users without querying their columns", async () => {
+    const { api, member, operator } = await fixture({ admin: false });
+    const all = await data(api.users());
+    expect(all.items.map((user) => [user.id, user.role, user.banned])).toEqual(
+      [[operator.id, "user", false], [member.id, "user", false]].sort(([left], [right]) => String(left).localeCompare(String(right))),
+    );
+    for (const filter of ["admins", "banned"] as const)
+      expect(await data(api.users({ filter }))).toMatchObject({ total: 0, items: [] });
+    expect((await data(api.user(member.id))).user).toMatchObject({ id: member.id, role: "user", banned: false });
+  });
+
   it("edits numeric, boolean, date and array fields through Better Auth", async () => {
     const { api, member, operator } = await fixture();
     const values = {

@@ -59,7 +59,7 @@ export async function assertUniqueOperationNames(contributions: readonly Collect
       sources.push({ operations: operationsOf(exported), plugin: contribution.plugin })
     }
     catch {
-      // The app resolves its own modules. The generated plugin imports them and checks again at start.
+      // The app resolves its own modules. The generated Console app module imports them and checks again when it loads.
     }
   }
   createOperationRegistry(sources)

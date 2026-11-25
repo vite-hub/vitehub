@@ -33,7 +33,7 @@ export function createNuxt(app: string, dev: boolean) {
       buildDir: join(app, ".nuxt"),
       dev,
       experimental: { nitroViteEnvironment: false },
-      nitro: {} as Record<string, unknown>,
+      nitro: {} as Record<string, unknown> & { alias?: Record<string, string> },
       plugins: [],
       rootDir: app,
       routeRules: {},
@@ -49,7 +49,7 @@ export function createNuxt(app: string, dev: boolean) {
       for (const hook of modulesDoneHooks) hook()
       const config: Record<string, unknown> = {
         ...nuxt.options.nitro,
-        alias: { ...nuxt.options.alias },
+        alias: { ...nuxt.options.alias, ...nuxt.options.nitro.alias },
         buildDir: join(app, ".nuxt/nitro"),
         dev,
         output: { dir: join(app, ".output") },

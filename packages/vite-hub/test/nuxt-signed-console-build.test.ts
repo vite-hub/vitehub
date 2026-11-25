@@ -4,7 +4,6 @@ import { pathToFileURL } from "node:url"
 
 import { describe, expect, it, vi } from "vitest"
 
-// Generated server modules import the built package, so the test uses the same module graph.
 import viteHubNuxt from "vite-hub/nuxt"
 import { consoleTestKey, signedRpcRequest } from "./support/console-signature.ts"
 import { buildNitro, createNuxt, nuxtFixture } from "./support/nuxt-nitro-build.ts"
@@ -33,9 +32,9 @@ describe("Signed Console calls in Nuxt with a separate Nitro build", () => {
       const { nitroConfig, nuxt } = createNuxt(app, true)
       await viteHubNuxt({ console: true, env: false, host: "node", name: "glosa", publicUrl }, nuxt)
       const config = await nitroConfig()
-      const plugin = (config.plugins as string[]).find(file => file.includes("/.vitehub/nitro/console/"))
-      if (!plugin) throw new TypeError("Expected the generated Console plugin.")
-      expect(await readFile(plugin, "utf8")).toContain(`installConsoleProjectName(${JSON.stringify(app)}, "glosa")`)
+      const appModule = (config.alias as Record<string, string>)["#vitehub/console/app"]
+      if (!appModule) throw new TypeError("Expected the generated Console app module.")
+      expect(await readFile(appModule, "utf8")).toContain(`installConsoleProjectName(${JSON.stringify(app)}, "glosa")`)
     }
     finally {
       await rm(root, { force: true, recursive: true })

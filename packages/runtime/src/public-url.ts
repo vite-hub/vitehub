@@ -1,4 +1,4 @@
-import { hostedConsoleOrigin } from "./hosted-console.ts"
+import { configuredConsoleOrigin } from "./hosted-console-origin.ts"
 import { encodeRouteSegment } from "./route-segment.ts"
 
 /** Public origins resolved from `vitehub({ publicUrl })` at build time. */
@@ -75,9 +75,10 @@ export function resolvePublicUrl(options: { agentName?: string, request?: Pick<R
  * Build the hosted Console URL that opens one Agent invocation, such as
  * `https://console.vitehub.dev/open?project=https%3A%2F%2Fapp.example.com&path=%2Fagents%2Fbot%2Finvocations%2Fid`.
  * `origin` must not include the application base path. The hosted Console checks the project URL when it opens the link.
+ * A self-hosted Console of `vitehub({ console: { url } })` replaces the hosted origin.
  */
 export function consoleInvocationUrl(origin: string, agentName: string, invocationId: string): string {
   const project = `${new URL(origin).origin}${applicationBasePath()}`
   const path = `/agents/${encodeRouteSegment(agentName)}/invocations/${encodeURIComponent(invocationId)}`
-  return `${hostedConsoleOrigin}/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`
+  return `${configuredConsoleOrigin()}/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(path)}`
 }

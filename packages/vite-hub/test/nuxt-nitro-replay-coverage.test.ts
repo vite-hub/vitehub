@@ -19,7 +19,7 @@ const notReplayed: Record<string, { hooks: readonly ReplayHook[], reason: string
   "@vite-hub/sandbox/task/vite": { hooks: ["resolveId", "load"], reason: "The plugin's nitro.setup aliases @vite-hub/sandbox/task to the generated facade (#5462)." },
   "@vite-hub/workspace/vite": { hooks: ["resolveId", "load"], reason: "configureNitroWorkspaceAssets aliases the assets registry for a Nitro build outside Vite." },
   "vite-hub/cloudflare-node-dev": { hooks: ["resolveId", "load"], reason: "Nuxt writes its own Cloudflare dev shims (writeCloudflareDevShims)." },
-  "vite-hub/console": { hooks: ["transform"], reason: "Nuxt filters the Console plugin out and installs consoleOperationFeatures() in Nitro (installNitroBuildPlugins)." },
+  "vite-hub/console": { hooks: ["resolveId", "transform"], reason: "Nuxt sets the #vitehub/console/app Nitro alias directly and installs consoleOperationFeatures() in Nitro (installNitroBuildPlugins)." },
   "vite-hub/database-disabled": { hooks: ["resolveId", "load"], reason: "Nuxt sets the disabled Database aliases on the Nitro config." },
   "vite-hub/dependencies": { hooks: ["resolveId", "load"], reason: "Facade aliases also go to Nitro through the replayed config hook." },
   "vite-hub/deployment-host": { hooks: ["resolveId"], reason: "Vite-host only; Nuxt runs its own Nitro." },
@@ -32,7 +32,7 @@ const notReplayed: Record<string, { hooks: readonly ReplayHook[], reason: string
 const viteBuild = "Nuxt runs it in its own Vite build of the app, with the same plugin object, before Nitro builds."
 
 const configResolvedNotReplayed: Record<string, string> = {
-  "@vite-hub/agent/vite": `${viteBuild} It writes the generated Agent files that the Agent Nitro config aliases.`,
+  "@vite-hub/agent/vite": `${viteBuild} It writes the Agent registry that Nitro aliases. KNOWN GAP: A Nuxt build cache hit skips Vite and can leave the registry pointing to stale Agent Definition paths.`,
   "@vite-hub/channels/vite": "The config hook writes the Nitro Channels registry when it sees the Nitro replay (configureNitroChannels).",
   "@vite-hub/cms/vite": `${viteBuild} It only checks the cms preset requirements.`,
   "@vite-hub/comments/vite": `${viteBuild} It only checks the Comments Definition.`,
@@ -41,7 +41,7 @@ const configResolvedNotReplayed: Record<string, string> = {
   "@vite-hub/email/optional-peer-resolver": "Nuxt calls the plugin's prepareTypes API itself.",
   "@vite-hub/queue/vite": "Nuxt calls the plugin's Queue Nitro config handler in the replay (queueNitroConfigHandler).",
   "@vite-hub/rate-limit/vite": "The config hook merges the Nitro config. Nuxt calls validateNitroBuild for a build.",
-  "@vite-hub/workspace/vite": `${viteBuild} The config hook writes the Nitro Workspace plugin and aliases the assets registry.`,
+  "@vite-hub/workspace/vite": `${viteBuild} The Nitro config hook aliases the assets registry. KNOWN GAP: A Nuxt build cache hit skips the Vite hooks that write the registry, so it can be missing when only the Nuxt cache is restored.`,
   "vite-hub/cloudflare-redirects-file": "It keeps the config only to report hints, and Nuxt defers hints to the Nitro build.",
   "vite-hub/console": "Nuxt filters the Console plugin out and installs consoleOperationFeatures() in Nitro (installNitroBuildPlugins).",
   "vite-hub/database-disabled": "Its state feeds its own resolveId and load. Nuxt sets the disabled Database aliases on the Nitro config.",

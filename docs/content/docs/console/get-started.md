@@ -93,3 +93,49 @@ Sign in with GitHub or a passkey. Each account has a personal team. You can crea
 ## Self-host the Console
 
 The Console is the [`@vite-hub/console`](https://github.com/vite-hub/vitehub/tree/main/packages/console) package. It runs on Node.js with SQLite, on Cloudflare Workers with D1, or on Vercel with hosted libSQL, and its README covers how to build, configure, and deploy it.
+
+Set `console.url` in the app to the origin of your Console. `/_vitehub`, the Console links of the app, Site access visits that start on the app, and the Console segment of the Comments pill then go to your Console and not to `https://console.vitehub.dev`. Guest invites and phone links return to the Console that issued them:
+
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    console: { url: 'https://console.example.com' },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { nitro } from 'nitro/vite'
+
+export default defineConfig({
+  plugins: [vitehub({
+    console: { url: 'https://console.example.com' },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({
+    console: { url: 'https://console.example.com' },
+  })],
+})
+```
+:::
+::
+
+The value must be an `https://` origin without a path. `http://localhost` is allowed for a Console on your computer. The build fails with [`VITE_HUB_B0004`](/docs/development/diagnostics/vite_hub_b0004) for other values.
+
+If the app uses an origin list in its Content Security Policy, [allow the new Console origin in `script-src`](/docs/console/site-access#content-security-policy).
