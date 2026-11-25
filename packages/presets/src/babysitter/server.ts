@@ -1239,11 +1239,11 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           const files = overlap.slice(0, 3).join(", ") + (overlap.length > 3 ? ` and ${overlap.length - 3} more` : "");
           schedulerEvent("babysitter.direct_merge.skipped", { ...owner, reason: `${base} changed files this PR touches after its checks ran: ${files}` });
           if (!await updateBranch(owner, repository, number, decision.head, signal, live)) {
-            const fork = isForkHead(live, repository);
-            if (!fork && !reviewPushBudgetSpent(snapshot, waitPolicy)) return "not-ready";
-            const reopened = fork ? await pullRequestInbox.meta(forkReopenKey(repository, number)) : undefined;
+            const reopened = isForkHead(live, repository) ? await pullRequestInbox.meta(forkReopenKey(repository, number)) : undefined;
             const at = isRuntimeRecord(reopened) ? Number(reopened.at) : Number.NaN;
-            const retryAt = Number.isFinite(at) ? Math.max(at + 60 * 60_000, Date.now() + 60_000) : Date.now() + 10 * 60_000;
+            const reopening = Number.isFinite(at) && at > Date.now() - 60 * 60_000;
+            if (!reopening && !reviewPushBudgetSpent(snapshot, waitPolicy)) return "not-ready";
+            const retryAt = reopening ? Math.max(at + 60 * 60_000, Date.now() + 60_000) : Date.now() + 10 * 60_000;
             await pullRequestInbox.finish(claim, { text: `${base} changed ${files} after its checks ran, and the branch could not be refreshed yet. Waiting for fresh checks or a retry.`, wait: { ...createCheckWait(snapshot, waitPolicy), retryAt } });
             return "blocked";
           }
