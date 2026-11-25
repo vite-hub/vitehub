@@ -166,12 +166,14 @@ describe("readAgentUsage()", { timeout: 60_000 }, () => {
       const time = index % 2 === 0 ? "2026-11-20T00:22:00Z" : "2026-11-19T19:22:00-05:00"
       await store.create({ agentName: "bulk", completedAt: time, createdAt: time, id: `bulk-${String(index).padStart(2, "0")}`, observations: [{ ...finish({ cost: { usd: `0.0${index % 7}` }, usage: { totalTokens: index } }), sequence: 1, timestamp: time, type: "lifecycle" }], status: "completed", traceId: `bulk-${index}`, updatedAt: time })
     }
-    const first = await expected(store, { now })
-    const page = await readAgentUsage(client, { now }, first.period)
+    const query = { agentName: "bulk", now, search: "bulk", status: "completed" } as const
+    const first = await expected(store, query)
+    const page = await readAgentUsage(client, query, first.period)
     expect(withoutTime(page)).toEqual(withoutTime(first.summary))
     expect(page.cursor).toBeDefined()
-    const next = await expected(store, { cursor: page.cursor!, now })
-    expect(withoutTime(await readAgentUsage(client, { cursor: page.cursor!, now }, next.period))).toEqual(withoutTime(next.summary))
+    const nextQuery = { ...query, cursor: page.cursor! }
+    const next = await expected(store, nextQuery)
+    expect(withoutTime(await readAgentUsage(client, nextQuery, next.period))).toEqual(withoutTime(next.summary))
     client.close()
   })
 

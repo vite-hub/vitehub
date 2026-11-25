@@ -194,7 +194,7 @@ evidence AS MATERIALIZED (
     : ""
   const sql = `WITH RECURSIVE ${head}, ${evidence},
 projected AS MATERIALIZED (
-  SELECT id, agent, status, at, bucket, missing, configuredText,
+  SELECT id, agent, status, at, bucket, missing, configuredText, recorded,
     ${flag("finish", `$.attributes."vitehub.observation.truncated"`)} AS truncated,
     CASE WHEN json_type(finish, '$.attributes."usage.record"') = 'object' THEN json_extract(finish, '$.attributes."usage.record"') END AS rec
   FROM evidence
@@ -213,7 +213,7 @@ ownParts AS MATERIALIZED (
 ),
 callTree(id, bucket, rootModel, inherited, node, ${[...metrics, "cost"].map(metric => `covered${metric}`).join(", ")}) AS (
   SELECT o.id, o.bucket, o.model, o.model, CASE WHEN c.type = 'object' THEN c.value END, ${[...metrics, "cost"].map(() => "0").join(", ")}
-  FROM ownParts o, json_each(o.rec, '$.calls') c WHERE o.callCount > 0
+  FROM own o, json_each(o.rec, '$.calls') c WHERE o.callCount > 0
   UNION ALL
   SELECT t.id, t.bucket, t.rootModel, COALESCE(${trimmedText("t.node", "$.model")}, t.inherited), CASE WHEN c.type = 'object' THEN c.value END,
     ${metrics.map(metric => `t.covered${metric} OR ${ownValue("t.node", metric)} IS NOT NULL`).join(", ")},
@@ -237,9 +237,6 @@ nodes AS MATERIALIZED (
     usd, usd IS NULL AND (${validDecimal("usdText")}) AS wide, estimated, ${decimalParts("usd", "cost")}
   FROM callCost
 ),
-calls AS MATERIALIZED (
-  SELECT * FROM nodes WHERE NOT hasCalls
-),
 callSums AS MATERIALIZED (
   SELECT id,
     ${metrics.map(metric => `SUM(CASE WHEN NOT covered${metric} THEN ${metric} END) AS ${metric}, SUM(NOT covered${metric} AND ${metric} IS NULL AND NOT hasCalls) AS ${metric}Gaps`).join(", ")},
@@ -254,7 +251,7 @@ recordedItems AS MATERIALIZED (
   SELECT o.id,
     CASE WHEN json_type(j.value, '$.attributes."usage.hasCost"') = 'false' THEN NULL ELSE ${text("j.value", `$.attributes."usage.costUsd"`)} END AS usdText,
     ${flag("j.value", `$.attributes."usage.costEstimated"`)} AS estimated
-  FROM ownParts o JOIN evidence e USING (id), json_each(e.recorded) j
+  FROM ownCost o, json_each(o.recorded) j
   WHERE o.usd IS NULL AND o.rec IS NOT NULL
 ),
 recordedCost AS MATERIALIZED (
@@ -304,7 +301,7 @@ callPairSums AS MATERIALIZED (
   SELECT id, bucket, modelKey, COUNT(*) AS n,
     ${metrics.map(metric => `SUM(${metric}) AS ${metric}, COUNT(${metric}) AS ${metric}Count`).join(", ")},
     COUNT(usd) AS costCount, MAX(estimated) AS estimated, ${partSums("cost", "sum")}
-  FROM calls GROUP BY id, modelKey
+  FROM nodes WHERE NOT hasCalls GROUP BY id, modelKey
 ),
 callPairTotals AS MATERIALIZED (
   SELECT callPairSums.*, ${carried("sum", "cost")} FROM callPairSums
@@ -319,7 +316,7 @@ pairs AS MATERIALIZED (
   FROM costed WHERE defined AND callCount = 0
 ),
 page AS MATERIALIZED (
-  SELECT id, at FROM costed ${after} ORDER BY at DESC, id DESC LIMIT 51
+  SELECT id, at FROM selected ${after} ORDER BY at DESC, id DESC LIMIT 51
 ),
 expensive AS MATERIALIZED (
   SELECT id, at, costw, printf('%09d%09d%09d%09d', costf1, costf2, costf3, costf4) AS fraction

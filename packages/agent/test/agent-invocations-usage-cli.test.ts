@@ -74,7 +74,7 @@ describe("vitehub agent invocations usage", () => {
       [["--search=cursor"], { search: "cursor" }],
     ] satisfies Array<[string[], AgentUsageQuery]>) {
       const result = await run(["usage", "--database", path, "--json", ...args])
-      expect(result.exitCode).toBe(0)
+      expect(result.exitCode, result.stderr).toBe(0)
       const { generatedAt: _printed, from, to, ...printed } = JSON.parse(result.stdout)
       const period = agentUsagePeriod({ ...query, now: to })
       if ("problem" in period) throw new Error(period.problem)
@@ -90,9 +90,10 @@ describe("vitehub agent invocations usage", () => {
   it("prints the totals as text", async () => {
     const { path } = await fixtureJournal()
     const completed = await run(["usage", "--database", path, "--window", "24h", "--status", "completed"])
-    expect(completed.exitCode).toBe(0)
+    expect(completed.exitCode, completed.stderr).toBe(0)
     expect(completed.stdout).toMatch(/^Agent usage from .+ to .+: 2 Invocations, 112 tokens, \$1\.25\n {2}bot: 1 Invocation, 101 tokens, \$0\.25\n {2}triage: 1 Invocation, 11 tokens, \$1\n$/)
     const all = await run(["usage", "--database", path, "--window", "24h"])
+    expect(all.exitCode, all.stderr).toBe(0)
     expect(all.stdout).toMatch(/: 4 Invocations, tokens not recorded\n[^]*Some Invocations did not record all of their usage\.\n$/)
   })
 
