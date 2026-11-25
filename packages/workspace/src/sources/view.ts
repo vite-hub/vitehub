@@ -1,3 +1,5 @@
+import type { AsyncLocalStorage } from "node:async_hooks"
+
 import { workspaceError } from "../core/errors.ts"
 import { defaultWorkspaceHistoryRef, historyConflict, normalizeHistoryRef, rejectHistoryHead } from "../core/history.ts"
 import { copyJsonFileMetadata } from "../core/file-metadata.ts"
@@ -38,6 +40,7 @@ import type {
   WorkspaceFile,
   WorkspaceSearchHit,
   WorkspaceSearchQuery,
+  WorkspaceMaterializeSourcesProgressEvent,
   WorkspaceMaterializeSourcesResult,
   WorkspaceRebaseOptions,
   WorkspaceSourceItem,
@@ -104,6 +107,7 @@ export interface WorkspaceSourceView {
 
 interface PendingMaterialization {
   fullSource: boolean
+  operation: object
   promise: Promise<WorkspaceMaterializeSourcesResult>
   tail: Promise<void>
 }
@@ -115,7 +119,22 @@ interface MaterializationState {
   pendingBySource: Map<string, PendingMaterialization>
 }
 
+interface MaterializationProgressScope {
+  materialize(sourceKey: string): Promise<void>
+  operation: object
+  started: ReadonlySet<string>
+}
+
 const materializationByStore = new WeakMap<WorkspaceStore, WeakMap<WorkspaceDefinition, MaterializationState>>()
+let materializationProgressScopes: AsyncLocalStorage<MaterializationProgressScope> | undefined
+
+function materializationProgressStorage() {
+  if (materializationProgressScopes) return materializationProgressScopes
+  const Storage = globalThis.process?.getBuiltinModule?.("node:async_hooks")?.AsyncLocalStorage
+  if (!Storage) return
+  materializationProgressScopes = new Storage<MaterializationProgressScope>()
+  return materializationProgressScopes
+}
 
 export async function invalidateWorkspaceSourceMaterialization(definition: WorkspaceDefinition, store: WorkspaceStore, sourceKeys: Iterable<string>): Promise<void> {
   const state = materializationByStore.get(store)?.get(definition)
@@ -133,7 +152,10 @@ export async function invalidateWorkspaceSourceMaterialization(definition: Works
 
 async function waitForMaterialization<T>(pending: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (!signal) return await pending
-  signal.throwIfAborted()
+  if (signal.aborted) {
+    pending.catch(() => {})
+    throw signal.reason
+  }
   let removeAbortListener = () => {}
   const aborted = new Promise<never>((_resolve, reject) => {
     const onAbort = () => reject(signal.reason)
@@ -296,7 +318,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     }
     let pending = prepareBySource.get(sourceKey)
     if (!pending) {
-      pending = prepareWorkspaceSource(source.source, getSourceContext(source)).then(() => undefined)
+      pending = prepareWorkspaceSource(source.source, getSourceContext(source)).then(() => undefined, (error) => {
+        prepareBySource.delete(sourceKey)
+        throw error
+      })
       prepareBySource.set(sourceKey, pending)
     }
     await pending
@@ -316,6 +341,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       return pending ? [pending.tail] : []
     })
     const previous = waitForMaterialization(Promise.all(predecessors), options.abortSignal)
+    const operation = {}
     const current = (async () => {
       await previous
       const generations = new Map(selectedSources.map((source) => {
@@ -344,18 +370,49 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           reusedStartupSources.delete(source.key)
         }
       }
+      const control = {
+        isCurrent,
+        async mutate<T>(mutation: () => Promise<T>) {
+          options.abortSignal?.throwIfAborted()
+          return await trackMutation(mutation)
+        },
+        async checkpoint<T>(mutation: () => Promise<T>) {
+          return await trackMutation(mutation)
+        },
+      }
+      const onProgress = options.onProgress
+      const progressStorage = onProgress ? materializationProgressStorage() : undefined
+      const startedSources = new Set<string>()
+      const nestedBySource = new Map<string, Promise<void>>()
+      const progressScope: MaterializationProgressScope = {
+        operation,
+        started: startedSources,
+        async materialize(sourceKey) {
+          let nested = nestedBySource.get(sourceKey)
+          if (!nested) {
+            nested = materializeWorkspaceSources(definition, store, { abortSignal: options.abortSignal, sources: [sourceKey] }, control).then((nestedResult) => {
+              if (nestedResult.sources.some(source => source.status !== "ready")) nestedBySource.delete(sourceKey)
+            }, (error) => {
+              nestedBySource.delete(sourceKey)
+              throw error
+            })
+            nestedBySource.set(sourceKey, nested)
+          }
+          await nested
+        },
+      }
+      const operationOptions = onProgress && progressStorage
+        ? {
+            ...options,
+            async onProgress(event: WorkspaceMaterializeSourcesProgressEvent) {
+              startedSources.add(event.source)
+              await progressStorage.run(progressScope, async () => await onProgress(event))
+            },
+          }
+        : options
       let result: WorkspaceMaterializeSourcesResult
       try {
-        result = await waitForMaterialization(materializeWorkspaceSources(definition, store, options, {
-          isCurrent,
-          async mutate(operation) {
-            options.abortSignal?.throwIfAborted()
-            return await trackMutation(operation)
-          },
-          async checkpoint(operation) {
-            return await trackMutation(operation)
-          },
-        }), options.abortSignal)
+        result = await waitForMaterialization(materializeWorkspaceSources(definition, store, operationOptions, control), options.abortSignal)
       }
       catch (error) {
         if (options.abortSignal?.aborted && mutations.size) await Promise.allSettled(mutations)
@@ -384,6 +441,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     )
     const entries = new Map(selectedSources.map(source => [source.key, {
       fullSource: materializesCompleteSource(source, options),
+      operation,
       promise: current,
       tail,
     }]))
@@ -404,6 +462,11 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       : verifyRootOwnership || source.mountPath || !sources.some(item => !item.mountPath && item.materialize === "lazy") ? "workspace" : false
     const isUncachedLazySource = source.materialize === "lazy" && source.cache === false
     const pending = pendingBySource.get(sourceKey)
+    const progress = materializationProgressStorage()?.getStore()
+    if (pending && progress?.operation === pending.operation) {
+      if (!progress.started.has(sourceKey)) await progress.materialize(sourceKey)
+      return
+    }
     if (pending?.fullSource) {
       try {
         await pending.promise
