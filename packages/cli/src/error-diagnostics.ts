@@ -234,10 +234,10 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ command }: { command?: unknown }) => `The build output names a deploy command that ViteHub did not write, so it does not run it: ${String(command)}`,
     },
     SETUP_DEPLOY_ENV_MISSING: {
-      fix: ({ firstDeploy, host }: { firstDeploy?: unknown, host?: unknown, names?: unknown, stage?: unknown }) => firstDeploy
+      fix: ({ console, firstDeploy, host }: { console?: unknown, firstDeploy?: unknown, host?: unknown, names?: unknown, stage?: unknown }) => (console === true ? "For VITEHUB_CONSOLE_KEY_*, run `vitehub login`, and deploy links the app in the Console and sets its key. " : "") + (firstDeploy
         ? `Set each name in the shell or in .env.<stage>, then deploy again. If the ${String(host)} project already exists, run \`vitehub link --host ${String(host)}\` first, so deploy reads its variables.`
-        : `Run \`vitehub env push --host ${String(host)}\`, set the names in the ${String(host)} dashboard, or set them in the shell or in .env.<stage> and deploy again.`,
-      why: ({ firstDeploy, host, names, stage }: { firstDeploy?: unknown, host?: unknown, names?: unknown, stage?: unknown }) => firstDeploy
+        : `Run \`vitehub env push --host ${String(host)}\`, set the names in the ${String(host)} dashboard, or set them in the shell or in .env.<stage> and deploy again.`),
+      why: ({ firstDeploy, host, names, stage }: { console?: unknown, firstDeploy?: unknown, host?: unknown, names?: unknown, stage?: unknown }) => firstDeploy
         ? `The app needs ${String(names)}, and no value was found. This is the first deploy to ${String(host)}: the project is not linked, so the host has no variables yet and every required name needs a local value for the ${String(stage)} stage. Nothing was deployed.`
         : `The app needs ${String(names)}, and neither ${String(host)} nor a local value for the ${String(stage)} stage has one. Nothing was deployed.`,
     },
