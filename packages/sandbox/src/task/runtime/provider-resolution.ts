@@ -1,6 +1,7 @@
 import { getActiveCloudflareEnv } from '@vite-hub/internal/runtime/cloudflare-env'
 import { createProviderDetector, isCloudflare, isVercel } from '../internal/shared/provider-detection'
 import { sandboxTaskError } from '../sandbox-task/errors'
+import { assertSandboxTaskTransferOptions } from '../transfer-options'
 
 import type {
   SandboxTaskDefinitionOptions,
@@ -9,7 +10,7 @@ import type {
 import type { SandboxTaskDriver } from '../module-types'
 import { sandboxTaskErrorDiagnostics } from "../error-diagnostics.ts"
 
-const allowedDefinitionKeys = new Set(['timeout', 'env'])
+const allowedDefinitionKeys = new Set(['timeout', 'env', 'transfer'])
 const maxTimeout = 2_147_483_647
 
 /** The timeout of a Sandbox Task run that sets no `timeout`, on every provider. */
@@ -104,11 +105,12 @@ export function unsupportedHostedSandboxTaskProviderError(provider: unknown): Er
 export function assertSandboxTaskDefinitionOptions(local: SandboxTaskDefinitionOptions) {
   const invalidKeys = Object.keys(local).filter(key => !allowedDefinitionKeys.has(key))
   if (invalidKeys.length > 0)
-    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0069({ message: `[vitehub] Sandbox Task Definition options only support timeout and env. Unsupported: ${invalidKeys.join(', ')}` })
+    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0069({ message: `[vitehub] Sandbox Task Definition options only support timeout, env, and transfer. Unsupported: ${invalidKeys.join(', ')}` })
   if (local.timeout !== undefined
     && (!Number.isInteger(local.timeout) || local.timeout <= 0 || local.timeout > maxTimeout)) {
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0070({ message: `[vitehub] Sandbox Task Definition timeout must be a positive integer no greater than ${maxTimeout}.` })
   }
+  assertSandboxTaskTransferOptions(local.transfer)
 }
 
 export async function resolveTaskSandbox(
@@ -133,4 +135,3 @@ export function withSandboxTaskProvider(
     driver: provider,
   } as SandboxTaskDefinitionDriverOptions & { driver: SandboxTaskDriver }
 }
-

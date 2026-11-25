@@ -38,7 +38,7 @@ const consoleSecret = "c".repeat(64)
 const consoleOrigin = "https://console.test"
 const clients: ReturnType<typeof createClient>[] = []
 const commentRoles = ["comments-read", "comments-write", "comments-resolve", "comments-delete"].map(id => ({ id, label: id }))
-const app: { answer: OperationRpcTestResult, calls: { operation: string, user: string }[] } = { answer: { ok: true, value: { write: true, roles: commentRoles } }, calls: [] }
+const app: { answer: OperationRpcTestResult, mcp: string[], calls: { operation: string, user: string }[] } = { answer: { ok: true, value: { write: true, roles: commentRoles } }, mcp: [], calls: [] }
 
 function callerOf(headers: Headers): string {
   const caller: unknown = JSON.parse(Buffer.from(headers.get("x-vitehub-caller") ?? "", "base64url").toString())
@@ -48,11 +48,19 @@ function callerOf(headers: Headers): string {
 beforeEach(() => {
   vi.stubEnv("VITEHUB_CONSOLE_SECRET", consoleSecret)
   app.answer = { ok: true, value: { write: true, roles: commentRoles } }
+  app.mcp = []
   app.calls.length = 0
   vi.stubGlobal("fetch", vi.fn(async (target: Request | string | URL, init?: RequestInit) => {
     expect(String(target)).toBe("https://app.example.com/portal/_vitehub/rpc")
     const body: unknown = JSON.parse(init?.body instanceof ArrayBuffer ? new TextDecoder().decode(init.body) : String(init?.body ?? "{}"))
-    app.calls.push({ operation: operationRpcRequest(body).operation, user: callerOf(new Headers(init?.headers)) })
+    const { operation } = operationRpcRequest(body)
+    const headers = new Headers(init?.headers)
+    app.calls.push({ operation, user: callerOf(headers) })
+    if (operation === "project.get") {
+      const caller: unknown = JSON.parse(Buffer.from(headers.get("x-vitehub-caller") ?? "", "base64url").toString())
+      expect(caller).toMatchObject({ surface: "mcp" })
+      return operationRpcResponse(body, { ok: true, value: { reference: app.mcp.map(name => ({ name })) } })
+    }
     return operationRpcResponse(body, app.answer)
   }))
 })
@@ -277,7 +285,22 @@ describe("Site access in the Console", () => {
     expect(await api("GET", "")).toMatchObject({ status: 403, body: { code: "CONSOLE_ACCESS_DENIED" } })
     state.user = { id: "u-ada" }
     expect((await visitApp(undefined)).location).toMatch(/^\/open\?/)
-    expect(app.calls.every(call => call.operation === "site.access" && call.user === "u-ada")).toBe(true)
+    expect(app.calls.every(call => call.user === "u-ada")).toBe(true)
+  })
+
+  it.each([
+    [[], undefined],
+    [["comments.get"], false],
+    [["comments.get", "comments.resolve"], true],
+  ] as const)("signs the Comments handoff from MCP operations %j", async (operations, resolve) => {
+    const { project, api } = await setup()
+    app.mcp = [...operations]
+    const state = createSiteState()
+    const token = await api("POST", "/token", { path: "/docs", state: await siteStateHash(state) })
+    const match = await verifyAt(project, String(token.body.url), state)
+    expect(match.ok).toBe(true)
+    if (!match.ok) throw new Error("Expected a valid Site access token")
+    expect(match.claims.commentsAgent).toEqual(resolve === undefined ? undefined : { projectId: project.id, teamId: project.teamId, resolve })
   })
 
   it("keeps a pass to the project that issued it when two teams link the same app", async () => {

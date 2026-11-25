@@ -83,7 +83,7 @@ export interface Comments {
   listSends(user: CommentsUser, options?: CommentSendListOptions): Promise<Result<CommentSendView[], Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_SEND_OFF">>>
   /**
    * With `send`: a send of `user` with the threads that `user` may still read, as `comments_get_send` opens it. A send
-   * that reached the agent becomes `working`.
+   * that reached the agent becomes `working`, also while its delivery waits for the receiver's answer.
    */
   readSend(user: CommentsUser, id: string, policy?: CommentSendPolicy): Promise<Result<CommentSendView, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND" | "COMMENTS_SEND_OFF">>>
   /**

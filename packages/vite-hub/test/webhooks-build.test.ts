@@ -259,8 +259,8 @@ describe("Webhooks in a built Nitro 3 app", () => {
       expect(started.data.prompt).toContain(`${origin}/_vitehub/comments/send/pair`)
       const paired = await api("/send/pair", { code: started.data.code, url: "https://203.0.113.10/hooks/abc?token=relay" }, { origin: "https://agent.example" })
       expect(paired.status).toBe(200)
-      const allowed = await (await api("/send/allow?page=/", { code: started.data.code, selection: started.data.selection })).json() as { data: { status: string, id: string } }
-      expect(allowed.data).toEqual({ status: "sent", id: expect.stringMatching(/^send_/) })
+      const allowed = await (await api("/send/allow?page=/", { code: started.data.code, selection: started.data.selection })).json() as { data: { status: string, id: string, inbox: boolean } }
+      expect(allowed.data).toEqual({ status: "sent", id: expect.stringMatching(/^send_/), inbox: false })
       expect(received).toHaveLength(1)
       expect(received[0]!.url).toBe("/hooks/abc?token=relay")
       expect(received[0]!.headers).toMatchObject({ "x-vitehub-event": "comments.send", "x-hub-signature-256": expect.stringMatching(/^sha256=[0-9a-f]{64}$/) })

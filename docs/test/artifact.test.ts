@@ -68,6 +68,19 @@ describe("Cloudflare docs artifact", () => {
     expect(location).toBe("/docs/kv");
   });
 
+  it("redirects a removed primitive landing's Markdown URL to Markdown in one hop", async () => {
+    const options = { headers: { accept: "*/*" }, redirect: "manual" } as const;
+    const redirect = await server.fetch("/forms.md", options);
+    expect(redirect.status).toBe(301);
+    const target = new URL(redirect.headers.get("location") ?? "", "http://localhost").pathname;
+    expect(target).toBe("/raw/docs/forms.md");
+
+    const markdown = await server.fetch(target, options);
+    expect(markdown.status).toBe(200);
+    expect(markdown.headers.get("content-type")).toContain("text/markdown");
+    expect(await markdown.text()).toContain("# Forms");
+  });
+
   it("serves the OpenAPI document", async () => {
     const response = await server.fetch("/openapi.json");
     expect(response.status).toBe(200);

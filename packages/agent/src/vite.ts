@@ -87,7 +87,7 @@ export type { AgentChannelEnv } from "./channel-env-discovery.ts"
 export { normalizeRetention } from "./internal/retention-policy.ts"
 export type { NormalizedRetention, RetentionSizeLimit } from "./internal/retention-policy.ts"
 
-import type { Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
+import type { ConfigEnv, Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
 import type { ProviderDeploymentOutputWriter, ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { OperationContributions } from "@vite-hub/internal/operations"
@@ -100,8 +100,13 @@ interface AgentCliContributingPlugin {
   vitehub?: ViteHubInspectionPluginMetadata & DurabilityPluginMetadata & {
     agent?: {
       transformWorkflowRegistry: (code: string, id: string) => string
-      /** Checks direct folder Agent imports in a server build that does not run Vite transforms. */
-      transformWorkspaceAgent: (code: string, id: string, options: { root: string, serverDirs?: string[] }) => Promise<string | undefined>
+      /** Runs the Agent Definition transform in a server build that does not run Vite transforms, such as Nitro on Nuxt 4.7. */
+      transformAgentDefinition: (code: string, id: string, options: {
+        root: string
+        projectRoot?: string
+        serverDirs?: string[]
+        resolve?: (specifier: string, importer: string) => Promise<string | undefined>
+      }) => Promise<string | undefined>
       /** The Agent files that a generated Workflow registry imports by path. */
       workflowModules: { index: string, runtimeWorkflow: string, serverInternal: string }
     }
@@ -1302,6 +1307,24 @@ async function transformNamedAgentChannels(
   ].join("\n")
 }
 
+async function transformDiscoveredAgentDefinition(
+  code: string,
+  parse: (code: string) => unknown,
+  file: string,
+  definition: DiscoveredAgentDefinition,
+  channels: ReadonlyArray<{ handler: string, name: string }>,
+  resolveModule?: NamedChannelModuleResolver,
+): Promise<string | undefined> {
+  const skills = readColocatedAgentSkills(definition.handler)
+  let transformed = decorateDiscoveredAgentExport(code, parse, [
+    ...declaredWorkspaceDecorators(definition),
+    ...(skills ? [colocatedAgentSkillsDecorator(skills)] : []),
+    discoveredAgentIdentityDecorator(definition),
+  ]) ?? code
+  transformed = await transformNamedAgentChannels(transformed, parse, file, channels, resolveModule) ?? transformed
+  return transformed === code ? undefined : transformed
+}
+
 async function prepareRetainedAgentSources(
   sources: { resolve: (path: string) => string },
   definitions: DiscoveredAgentDefinition[],
@@ -1315,14 +1338,8 @@ async function prepareRetainedAgentSources(
     const retainedChannels = channels.map(channel => ({ ...channel, handler: moduleImportSpecifier(handler, sources.resolve(channel.handler)) }))
     const code = await readFile(handler, "utf8")
     await namedAgentChannelModules(code, parse, definition.handler, channels, resolveModule)
-    const skills = readColocatedAgentSkills(definition.handler)
-    let transformed = decorateDiscoveredAgentExport(code, parse, [
-      ...declaredWorkspaceDecorators(definition),
-      ...(skills ? [colocatedAgentSkillsDecorator(skills)] : []),
-      discoveredAgentIdentityDecorator(definition),
-    ]) ?? code
-    transformed = await transformNamedAgentChannels(transformed, parse, definition.handler, retainedChannels) ?? transformed
-    if (transformed !== code) await writeFile(handler, transformed, "utf8")
+    const transformed = await transformDiscoveredAgentDefinition(code, parse, definition.handler, definition, retainedChannels)
+    if (transformed) await writeFile(handler, transformed, "utf8")
   }
 }
 
@@ -1337,6 +1354,17 @@ function namedChannelModuleResolver(config: Pick<ResolvedConfig, "createResolver
     const local = await resolveModule(specifier, importer, true) ?? specifier
     if (!local.startsWith(".") && !isAbsolute(local)) return
     return await resolveModule(local, importer)
+  }
+}
+
+function applicationModuleResolver(
+  roots: readonly string[],
+  resolveId: (specifier: string, importer: string) => Promise<string | undefined>,
+): NamedChannelModuleResolver {
+  const prefixes = roots.map(root => `${resolve(root).replace(/\\/g, "/")}/`)
+  return async (specifier, importer) => {
+    const id = (await resolveId(specifier, importer))?.split(/[?#]/, 1)[0]!.replace(/\\/g, "/")
+    return id && !id.includes("/node_modules/") && prefixes.some(prefix => id.startsWith(prefix)) ? id : undefined
   }
 }
 
@@ -2112,10 +2140,29 @@ function usesDatabaseLeases(options: { libsqlState?: GeneratedLibsqlAgentStateOp
     && options.runtimeCapabilities?.some(capability => capability.name === "db" && capability.packageName !== false))
 }
 
+function processHostModuleResolver(config: Pick<UserConfig, "root" | "resolve" | "ssr" | "environments">, environment: ConfigEnv) {
+  let resolver: Promise<ReturnType<ResolvedConfig["createResolver"]>> | undefined
+  return async (specifier: string, importer: string) => {
+    resolver ??= import("vite").then(async ({ resolveConfig }) => {
+      const resolved = await resolveConfig({
+        configFile: false,
+        envDir: false,
+        root: config.root,
+        resolve: config.resolve,
+        ssr: config.ssr,
+        environments: { ssr: config.environments?.ssr ?? {} },
+      }, environment.command, environment.mode)
+      return resolved.createResolver()
+    })
+    return (await resolver)(specifier, importer, false, true)
+  }
+}
+
 async function writeAgentWebhookRouteHandler(
   root: string,
-  options: { webhookAliases?: ResolvedAgentModuleOptions["routes"]["aliases"], preparation?: AgentOptions["preparation"], cloudflareState?: boolean, inspectionRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, processDiscordGateway?: boolean, runtime?: "vite", explicitWebhookAliasPaths?: readonly string[], shutdown?: ResolvedAgentModuleOptions["shutdown"], standaloneChannels?: readonly StandaloneChannel[], webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
-  serverDirs = [join(root, "server")],
+  options: { webhookAliases?: ResolvedAgentModuleOptions["routes"]["aliases"], preparation?: AgentOptions["preparation"], cloudflareState?: boolean, inspectionRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, processDiscordGateway?: boolean, runtime?: "vite", explicitWebhookAliasPaths?: readonly string[], shutdown?: ResolvedAgentModuleOptions["shutdown"], standaloneChannels?: readonly StandaloneChannel[], webhookRoute?: false | string } & AgentGeneratedImportOptions,
+  serverDirs: string[],
+  resolveProcessHostModule: ReturnType<typeof processHostModuleResolver>,
 ): Promise<void> {
   const handlerPath = join(root, generatedAgentWebhookRouteHandler)
   const definitions = discoverAgentDefinitions({
@@ -2211,7 +2258,7 @@ async function writeAgentWebhookRouteHandler(
   else {
     await rm(gatewayPluginPath, { force: true })
   }
-  const processHosts = options.libsqlState && !options.cloudflareState ? discoverProcessHostAgentNames(definitions) : []
+  const processHosts = options.libsqlState && !options.cloudflareState ? await discoverProcessHostAgentNames(definitions, resolveProcessHostModule) : []
   const processHostFiles = [generatedAgentProcessHosts, generatedAgentProcessHostsPlugin, generatedAgentProcessHostsDrain, generatedAgentProcessHostsHealth].map(file => join(root, file))
   if (processHosts.length) {
     const routeModule = `./${generatedAgentWebhookRouteHandler.split("/").at(-1)!.replace(/\.ts$/, "")}`
@@ -2977,7 +3024,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
           workflowModules: getWorkflowModules(agent, frameworkOptions),
           workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
           webhookRoute: normalized.routes.webhooks,
-        }, definitionServerDirs)
+        }, definitionServerDirs, processHostModuleResolver(config, config))
         if (normalized.routes.discordGateway && !processDiscordGateway) {
           await writeAgentDiscordGatewayRouteHandler(generatedRoot, {
             discordGatewayRoute: normalized.routes.discordGateway,
@@ -3171,24 +3218,16 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
         const projectModule = typescriptModule
           && (serverProjectModule
             || (!normalizedId.includes("/node_modules/") && normalizedId.startsWith(`${resolve(resolved.root).replace(/\\/g, "/")}/`)))
-        let transformed = code
         if (projectModule) {
           const agentModule = /\.agent\.(?:c|m)?[jt]s$/i.test(normalizedId)
             || definitionServerDirs.some(directory => normalizedId.startsWith(`${resolve(directory, "agents").replace(/\\/g, "/")}/`))
           const definition = agentModule && discoverProjectAgentDefinitions(resolved.root, serverDirs)
             .find(definition => definition.handler.replace(/\\/g, "/") === normalizedId)
           if (definition) {
-            const skills = readColocatedAgentSkills(definition.handler)
-            transformed = decorateDiscoveredAgentExport(transformed, value => this.parse(value), [
-              ...declaredWorkspaceDecorators(definition),
-              ...(skills ? [colocatedAgentSkillsDecorator(skills)] : []),
-              discoveredAgentIdentityDecorator(definition),
-            ]) ?? transformed
+            const transformed = await transformDiscoveredAgentDefinition(code, value => this.parse(value), normalizedId, definition,
+              discoverAgentChannelModules(definitionServerDirs), namedChannelModuleResolver(resolved!))
+            if (transformed) return transformed
           }
-          if (definition) {
-            transformed = await transformNamedAgentChannels(transformed, value => this.parse(value), normalizedId, discoverAgentChannelModules(definitionServerDirs), namedChannelModuleResolver(resolved!)) ?? transformed
-          }
-          if (transformed !== code) return transformed
         }
         if (isGeneratedAgentWorkflowRegistryId(normalizedId)) {
           return transformGeneratedAgentWorkflowRegistry(
@@ -3220,15 +3259,16 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
           runtimeWorkflow: agentRuntimeModule("runtime/workflow"),
           serverInternal: agentRuntimeModule("server/internal"),
         },
-        async transformWorkspaceAgent(code, id, { root, serverDirs }) {
+        async transformAgentDefinition(code, id, { root, projectRoot = root, serverDirs, resolve: resolveId }) {
           const file = id.split(/[?#]/, 1)[0]!.replace(/\\/g, "/")
           const roots = serverDirs ?? [join(root, "server")]
           if (!/\.agent\.(?:c|m)?[jt]s$/i.test(file)
             && !roots.some(directory => file.startsWith(`${resolve(directory, "agents").replace(/\\/g, "/")}/`))) return
           const definition = discoverProjectAgentDefinitions(root, serverDirs)
             .find(definition => definition.handler.replace(/\\/g, "/") === file)
-          if (!definition || !checksDeclaredWorkspace(definition)) return
-          return decorateDiscoveredAgentExport(code, await parseTypeScript(), declaredWorkspaceDecorators(definition))
+          if (!definition) return
+          return await transformDiscoveredAgentDefinition(code, await parseTypeScript(), file, definition,
+            discoverAgentChannelModules(roots), resolveId && applicationModuleResolver([root, projectRoot, ...roots], resolveId))
         },
         transformWorkflowRegistry: (code, id) => isGeneratedAgentWorkflowRegistryId(id)
           ? transformGeneratedAgentWorkflowRegistry(
@@ -3283,7 +3323,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
         }
       },
     },
-    config(config, environment) {
+    async config(config, environment) {
       const resolved = normalizeAgentOptions(agent)
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
       const root = resolve(config.root || process.cwd())
@@ -3339,7 +3379,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       )
       const installPreparation = Boolean(resolved && hasHostedAgents && !denoOutput && resolved.preparation)
       const processHostAgents = resolved && hasHostedAgents
-        ? discoverProcessHostAgentNames(discoverAgentDefinitions({ mode: "server-agents", scanDirs: serverDirs ?? [join(root, "server")] }))
+        ? await discoverProcessHostAgentNames(discoverAgentDefinitions({ mode: "server-agents", scanDirs: serverDirs ?? [join(root, "server")] }), processHostModuleResolver(config, environment))
         : []
       processHostDurability = processHostAgents.length ? { lease: Boolean(recoveryDurability?.sweep) } : undefined
       if (processHostAgents.length) {

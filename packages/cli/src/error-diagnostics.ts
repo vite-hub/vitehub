@@ -285,7 +285,7 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     SETUP_DEPLOY_PUSH_FAILED: {
       fix: ({ fix }: { fix?: unknown, message?: unknown, url?: unknown }) => `${fix ? `${String(fix)} ` : ""}Then run \`vitehub push\`. Do not deploy again.`,
-      why: ({ message, url }: { fix?: unknown, message?: unknown, url?: unknown }) => `The app is deployed to ${String(url)}, but the Workspace push failed: ${String(message)}`,
+      why: ({ message, url }: { fix?: unknown, message?: unknown, url?: unknown }) => `The app is deployed${url === undefined ? "" : ` to ${String(url)}`}, but the Workspace push failed: ${String(message)}`,
     },
     CLI_R0004: {
       fix: "Run it again with --yes, or check the change first with a dry run when the command has one.",

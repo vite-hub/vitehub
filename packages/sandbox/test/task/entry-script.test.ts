@@ -4,10 +4,18 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { createEntrySource } from "../../src/task/runtime/entry-script.injected.ts"
-import { decodeSandboxTaskValue, SANDBOX_VALUE_MARKER } from "../../src/task/runtime/binary-sidecars.ts"
+import { resolveSandboxTaskProject } from "../../src/task/project.ts"
+import { createEntrySource, EXEC_STDIO_OUTPUT_MARKER, MAX_EXEC_DIAGNOSTIC_BYTES } from "../../src/task/runtime/entry-script.injected.ts"
+import { readExecOutputWithRecovery } from "../../src/task/runtime/output-recovery.ts"
+import {
+  decodeSandboxTaskValue,
+  DEFAULT_SANDBOX_TASK_TRANSFER_BYTES,
+  DEFAULT_SANDBOX_TASK_TRANSFER_LIMITS,
+  encodeSandboxTaskValue,
+  SANDBOX_VALUE_MARKER,
+} from "../../src/task/runtime/binary-sidecars.ts"
 
 const tempDirs: string[] = []
 
@@ -21,6 +29,7 @@ async function executePackageEntry(definitionSource: string, options: {
   inputFiles?: Record<number, Uint8Array>
   inputJson?: string
   prelude?: string
+  transfer?: Partial<NonNullable<Parameters<typeof createEntrySource>[3]>>
 } = {}) {
   const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-task-package-entry-"))
   tempDirs.push(root)
@@ -30,7 +39,11 @@ async function executePackageEntry(definitionSource: string, options: {
   const outputPath = join(root, "output.json")
   await Promise.all([
     writeFile(definitionPath, definitionSource, "utf8"),
-    writeFile(entryPath, (options.prelude ?? "") + createEntrySource(definitionPath, options.execution ?? "module"), "utf8"),
+    writeFile(entryPath, (options.prelude ?? "") + createEntrySource(definitionPath, options.execution ?? "module", undefined, {
+      ...DEFAULT_SANDBOX_TASK_TRANSFER_LIMITS,
+      maxOutputBytes: DEFAULT_SANDBOX_TASK_TRANSFER_BYTES,
+      ...options.transfer,
+    }), "utf8"),
     writeFile(inputPath, options.inputJson ?? JSON.stringify(options.input ?? { context: {}, payload: {} }), "utf8"),
   ])
   if (options.inputFiles) {
@@ -46,7 +59,8 @@ async function executePackageEntry(definitionSource: string, options: {
     child.once("error", reject)
     child.once("close", resolve)
   })
-  const output = JSON.parse(await readFile(outputPath, "utf8")) as {
+  const raw = await readFile(outputPath, "utf8")
+  const output = JSON.parse(raw) as {
     error?: { code?: string; message?: string }
     ok: boolean
     result?: unknown
@@ -54,6 +68,8 @@ async function executePackageEntry(definitionSource: string, options: {
   return {
     code,
     output,
+    raw,
+    outputPath,
     readOutputFile: async (id: number) => await readFile(join(`${outputPath}.files`, String(id))),
   }
 }
@@ -84,7 +100,7 @@ describe("package entry result transport", () => {
     ["binary", "new Response(new Uint8Array([0, 127, 255]), { status: 201 })", [0, 127, 255]],
     ["streaming", "new Response(new ReadableStream({ start(controller) { controller.enqueue(new Uint8Array([0, 127])); controller.enqueue(new Uint8Array([255])); controller.close() } }), { status: 201 })", [0, 127, 255]],
     ["null", "new Response(null, { status: 204 })", []],
-  ])("clones a native %s response only once during detection", async (_label, expression, bytes) => {
+  ])("recognizes a native %s response without cloning it", async (_label, expression, bytes) => {
     const execution = await executePackageEntry(`export default () => ${expression}`, {
       prelude: [
         "const proofNativeClone = Response.prototype.clone",
@@ -101,7 +117,7 @@ describe("package entry result transport", () => {
     const sandbox = {} as Parameters<typeof decodeSandboxTaskValue>[0]
     const response = await decodeSandboxTaskValue(sandbox, execution.output.result, "", "result")
     if (!(response instanceof Response)) throw new TypeError("Expected Response")
-    expect(response.headers.get("x-clone-count")).toBe("1")
+    expect(response.headers.get("x-clone-count")).toBeNull()
     expect(response.status).toBe(bytes.length ? 201 : 204)
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array(bytes))
   })
@@ -519,6 +535,31 @@ describe("package entry result transport", () => {
     })
   })
 
+  it("counts result toJSON replacements toward maxDepth", async () => {
+    const execution = await executePackageEntry([
+      `export default async function () {`,
+      `  return { toJSON() { return { nested: true } } }`,
+      `}`,
+      ``,
+    ].join("\n"), { transfer: { maxDepth: 0 } })
+
+    expect(execution.code).not.toBe(0)
+    expect(execution.output.error?.code).toBe("SANDBOX_TASK_TRANSFER_LIMIT")
+    expect(execution.output.error?.message).toContain("maxDepth")
+  })
+
+  it("accepts primitive result toJSON replacements at maxDepth zero", async () => {
+    const execution = await executePackageEntry([
+      `export default async function () {`,
+      `  return { toJSON() { return 1 } }`,
+      `}`,
+      ``,
+    ].join("\n"), { transfer: { maxDepth: 0 } })
+
+    expect(execution.code).toBe(0)
+    expect(execution.output).toMatchObject({ ok: true, result: 1 })
+  })
+
   it("applies array result toJSON before walking its elements", async () => {
     const execution = await executePackageEntry([
       `class Values extends Array {`,
@@ -612,5 +653,240 @@ describe("package entry result transport", () => {
       error: { message: expect.stringContaining(message) },
       ok: false,
     })
+  })
+})
+
+describe("output transfer limits", () => {
+  it("uses package manifest overrides for executable entries", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-task-transfer-"))
+    tempDirs.push(root)
+    const entry = join(root, "index.mjs")
+    const definition = "export default () => Array.from({ length: 65 }, () => new Uint8Array([1]))"
+    await writeFile(join(root, "package.json"), JSON.stringify({
+      private: true,
+      vitehub: { sandboxTask: { transfer: { maxSidecars: 65 } } },
+    }))
+    await writeFile(entry, definition)
+
+    const project = await resolveSandboxTaskProject(entry, root, { readSandboxTaskOptions: true })
+    expect(project.options).toEqual({ transfer: { maxSidecars: 65 } })
+    const execution = await executePackageEntry(definition, { transfer: project.options?.transfer })
+    expect(execution.output).toMatchObject({ ok: true })
+    expect(execution.output.result).toHaveLength(65)
+    expect(await execution.readOutputFile(64)).toEqual(Buffer.from([1]))
+  })
+
+  it.each(["{ nested: true }", "{ toJSON() { return { nested: true } } }"])("accepts one level of result nesting: %s", async (value) => {
+    const execution = await executePackageEntry(`export default () => (${value})`, { transfer: { maxDepth: 1 } })
+    expect(execution.output).toEqual({ ok: true, result: { nested: true } })
+  })
+
+  it("transports a native File as a Blob", async () => {
+    const execution = await executePackageEntry('export default () => new File(["abc"], "upload.txt", { type: "text/plain" })', {
+      transfer: { maxSidecarBytes: 3 },
+    })
+    expect(execution.output).toEqual({
+      ok: true,
+      result: { [SANDBOX_VALUE_MARKER]: { id: 0, kind: "blob", tag: "binary", type: "text/plain" } },
+    })
+    expect(await execution.readOutputFile(0)).toEqual(Buffer.from("abc"))
+  })
+
+  it.each([
+    ['() => { throw new Error("conversion failed") }', { message: "conversion failed" }],
+    ['() => new Uint8Array(4)', { code: "SANDBOX_TASK_TRANSFER_LIMIT", message: "Sandbox result exceeds its maxSidecarBytes limit (4 > 3)." }],
+    ['() => "x".repeat(64)', { code: "SANDBOX_TASK_TRANSFER_LIMIT", message: "Sandbox result exceeds its maxOutputBytes limit (87 > 32)." }],
+  ])("preserves generated failures under a small output limit: %s", async (handler, error) => {
+    const execution = await executePackageEntry(`export default ${handler}`, { transfer: { maxOutputBytes: 32, maxSidecarBytes: 3 } })
+    const sandbox = { provider: "vercel", readFile: (path: string) => readFile(path, "utf8") } as Parameters<typeof readExecOutputWithRecovery>[0]
+    const direct = await readExecOutputWithRecovery(sandbox, execution.outputPath, undefined, undefined, undefined, 32)
+    expect(JSON.parse(direct)).toMatchObject({ ok: false, error })
+    const marker = await readExecOutputWithRecovery(sandbox, execution.outputPath, undefined, undefined, {
+      stderr: EXEC_STDIO_OUTPUT_MARKER + execution.raw,
+    }, 32)
+    expect(marker).toBe(direct)
+  })
+
+  it("bounds oversized diagnostics even when the message needs JSON escapes", async () => {
+    const execution = await executePackageEntry('export default () => { throw new Error("failure: " + "\\u0000".repeat(200_000)) }', {
+      transfer: { maxOutputBytes: 32 },
+    })
+    expect(execution.output.error?.message).toMatch(/^failure: /)
+    expect(Buffer.byteLength(execution.raw)).toBeLessThanOrEqual(MAX_EXEC_DIAGNOSTIC_BYTES)
+  })
+
+  it("cancels a Response stream before consuming its full body", async () => {
+    const execution = await executePackageEntry(`
+      import { writeFileSync } from 'node:fs'
+      export default () => {
+        let pulls = 0
+        return new Response(new ReadableStream({
+          pull(controller) {
+            controller.enqueue(new Uint8Array(1024))
+            if (++pulls === 128) controller.close()
+          },
+          cancel() { writeFileSync(process.argv[3] + '.pulls', String(pulls)) },
+        }))
+      }
+    `, { transfer: { maxOutputBytes: 4096 } })
+    expect(execution.output.error).toMatchObject({ code: "SANDBOX_TASK_TRANSFER_LIMIT" })
+    expect(execution.output.error?.message).toContain("maxOutputBytes")
+    expect(Number(await readFile(`${execution.outputPath}.pulls`, "utf8"))).toBeLessThanOrEqual(4)
+  })
+  it("rejects Blob arrayBuffer overrides", async () => {
+    const execution = await executePackageEntry(
+      `export default () => {
+        const blob = new Blob(["abcd"])
+        blob.arrayBuffer = () => { throw new Error("oversized Blob was read") }
+        return blob
+      }`,
+      { transfer: { maxSidecarBytes: 3 } },
+    )
+    expect(execution.code).toBe(1)
+    expect(execution.output.error).toMatchObject({ code: "SANDBOX_TASK_SERIALIZATION_ERROR" })
+    expect(execution.output.error?.message).toContain("arrayBuffer overrides")
+    await expect(execution.readOutputFile(0)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("rejects Blob subclasses before reading overrideable data", async () => {
+    const execution = await executePackageEntry(
+      `export default () => {
+        class LargeBlob extends Blob {
+          get size() { return 0 }
+          arrayBuffer() { throw new Error("Blob subclass was read") }
+        }
+        return new LargeBlob(["oversized"])
+      }`,
+    )
+    expect(execution.code).toBe(1)
+    expect(execution.output.error).toMatchObject({ code: "SANDBOX_TASK_SERIALIZATION_ERROR" })
+    expect(execution.output.error?.message).toContain("Blob subclasses are not supported")
+  })
+
+  it("uses the intrinsic Blob size despite an overridden size property", async () => {
+    const execution = await executePackageEntry([
+      "export default () => {",
+      "  const blob = new Blob(['oversized'])",
+      "  Object.defineProperty(blob, 'size', { value: 1 })",
+      "  return blob",
+      "}",
+    ].join("\n"), { transfer: { maxSidecarBytes: 3 } })
+
+    expect(execution.code).toBe(1)
+    expect(execution.output.error?.code).toBe("SANDBOX_TASK_TRANSFER_LIMIT")
+    expect(execution.output.error?.message).toContain("maxSidecarBytes")
+  })
+
+  it.each([true, false])("checks UTF-8 output bytes before writing success (accepted: %s)", async (accepted) => {
+    const result = "é".repeat(2048)
+    const bytes = Buffer.byteLength(JSON.stringify({ ok: true, result }))
+    const execution = await executePackageEntry(`export default () => ${JSON.stringify(result)}`, {
+      transfer: { maxSidecarBytes: 1024, maxOutputBytes: bytes - (accepted ? 0 : 1) },
+    })
+    expect(execution.code).toBe(accepted ? 0 : 1)
+    if (accepted) {
+      expect(execution.output.result).toBe(result)
+    }
+    else {
+      expect(execution.output.result).toBeUndefined()
+      expect(execution.output.error).toMatchObject({ code: "SANDBOX_TASK_TRANSFER_LIMIT" })
+      expect(execution.output.error?.message).toContain("maxOutputBytes")
+    }
+  })
+
+  it.each(["array", "object", "escaped"])("rejects excess input Blob bytes in %s values", async (shape) => {
+    const first = new Blob(["ab"])
+    const second = new Blob(["cd"])
+    const value = shape === "array"
+      ? [first, second]
+      : shape === "object"
+        ? { first, second }
+        : { [SANDBOX_VALUE_MARKER]: first, second }
+    const mkdir = vi.fn()
+    const write = vi.fn()
+    // SAFETY: Encoding rejects before any Sandbox operation; the test observes only the spies.
+    const sandbox = { files: { mkdir, write } } as unknown as Parameters<typeof encodeSandboxTaskValue>[0]
+    await expect(encodeSandboxTaskValue(sandbox, value, "/assets", "payload", undefined, {
+      maxDepth: 32,
+      maxSidecars: 2,
+      maxSidecarBytes: 3,
+    })).rejects.toMatchObject({
+      code: "SANDBOX_TASK_TRANSFER_LIMIT",
+      details: { label: "payload", limit: "maxSidecarBytes", maximum: 3, value: 4 },
+    })
+    expect(mkdir).not.toHaveBeenCalled()
+    expect(write).not.toHaveBeenCalled()
+  })
+
+  it.each(["maxSidecars", "maxSidecarBytes"] as const)("bounds files written for %s", async (limit) => {
+    const execution = await executePackageEntry(
+      'export default () => [new Blob([new Uint8Array([1, 2])]), new Uint8Array([3, 4]), Buffer.from([5, 6])]',
+      { transfer: { maxSidecars: 3, maxSidecarBytes: 6, [limit]: limit === "maxSidecars" ? 1 : 3 } },
+    )
+    expect(execution.code).toBe(1)
+    expect(execution.output.error).toMatchObject({ code: "SANDBOX_TASK_TRANSFER_LIMIT" })
+    expect(execution.output.error?.message).toContain(limit)
+    await expect(execution.readOutputFile(0)).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(execution.readOutputFile(1)).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(execution.readOutputFile(2)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it.each(["array", "object", "escaped"])("bounds recovery reads in %s values", async (shape) => {
+    const binary = (id: number) => ({ [SANDBOX_VALUE_MARKER]: { tag: "binary", kind: "uint8array", id } })
+    const value = shape === "array"
+      ? [binary(0), binary(1)]
+      : shape === "object"
+        ? { a: binary(0), b: binary(1) }
+        : { [SANDBOX_VALUE_MARKER]: { tag: "object", entries: [["a", binary(0)], ["b", binary(1)]] } }
+    const read = vi.fn(async () => {
+      await Promise.resolve()
+      return new Uint8Array([1, 2])
+    })
+    // SAFETY: Decoding calls only `files.read` on the Sandbox.
+    const sandbox = { files: { read } } as unknown as Parameters<typeof decodeSandboxTaskValue>[0]
+    await expect(decodeSandboxTaskValue(sandbox, value, "/assets", "result", undefined, {
+      maxDepth: 32,
+      maxSidecars: 1,
+      maxSidecarBytes: 4,
+    })).rejects.toMatchObject({ code: "SANDBOX_TASK_TRANSFER_LIMIT", details: { limit: "maxSidecars" } })
+    expect(read).toHaveBeenCalledTimes(1)
+    await expect(decodeSandboxTaskValue(sandbox, value, "/assets", "result", undefined, {
+      maxDepth: 32,
+      maxSidecars: 2,
+      maxSidecarBytes: 3,
+    })).rejects.toMatchObject({ code: "SANDBOX_TASK_TRANSFER_LIMIT", details: { limit: "maxSidecarBytes" } })
+  })
+
+  it("bounds depth during result recovery", async () => {
+    const read = vi.fn(async () => new Uint8Array([1]))
+    // SAFETY: Decoding calls only `files.read` on the Sandbox.
+    const sandbox = { files: { read } } as unknown as Parameters<typeof decodeSandboxTaskValue>[0]
+    await expect(decodeSandboxTaskValue(sandbox, [[1]], "/assets", "result", undefined, {
+      maxDepth: 1,
+      maxSidecars: 1,
+      maxSidecarBytes: 1,
+    })).rejects.toMatchObject({ code: "SANDBOX_TASK_TRANSFER_LIMIT", details: { limit: "maxDepth", maximum: 1, value: 2 } })
+    await expect(decodeSandboxTaskValue(sandbox, [1], "/assets", "result", undefined, {
+      maxDepth: 1,
+      maxSidecars: 1,
+      maxSidecarBytes: 1,
+    })).resolves.toEqual([1])
+  })
+
+  it("bounds depth during output extraction", async () => {
+    const execution = await executePackageEntry('export default () => [[new Uint8Array([1])]]', {
+      transfer: { maxDepth: 1, maxSidecars: 2, maxSidecarBytes: 4 },
+    })
+    expect(execution.output.error).toMatchObject({ code: "SANDBOX_TASK_TRANSFER_LIMIT" })
+    expect(execution.output.error?.message).toContain("maxDepth")
+    await expect(execution.readOutputFile(0)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("accepts output at the sidecar boundaries", async () => {
+    const execution = await executePackageEntry('export default () => [new Blob(["ab"]), new Uint8Array([3, 4])]', {
+      transfer: { maxDepth: 1, maxSidecars: 2, maxSidecarBytes: 4 },
+    })
+    expect(execution.code).toBe(0)
+    expect(await execution.readOutputFile(1)).toEqual(Buffer.from([3, 4]))
   })
 })
