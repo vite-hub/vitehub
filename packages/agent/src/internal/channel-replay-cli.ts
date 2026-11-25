@@ -200,6 +200,12 @@ function schemaProperties(schema: unknown): Record<string, Record<string, unknow
   return Object.fromEntries(properties)
 }
 
+function queryValueTypes(schema: unknown): unknown[] {
+  if (!isRuntimeRecord(schema)) return [undefined]
+  if (Array.isArray(schema.anyOf)) return schema.anyOf.flatMap(queryValueTypes)
+  return Array.isArray(schema.type) ? schema.type : [schema.type]
+}
+
 /** One help line per query key, from the JSON Schema of the history query. */
 export function channelReplayQueryHelp(schema: unknown): string[] {
   const properties = schemaProperties(schema)
@@ -228,8 +234,11 @@ export function channelReplayQuery(parsed: Pick<ParsedChannelReplayArgs, "filter
   }
   const query: Record<string, string | string[]> = {}
   for (const [name, value] of [...parsed.queryFlags, ...parsed.filters]) {
-    const current = query[name]
-    query[name] = current === undefined ? value : [...(Array.isArray(current) ? current : [current]), value]
+    const current = Object.hasOwn(query, name) ? query[name] : undefined
+    const types = queryValueTypes(properties?.[name])
+    const arrayOnly = types.includes("array") && types.every(type => type === "array" || type === "null")
+    const next = current === undefined ? (arrayOnly ? [value] : value) : [...(Array.isArray(current) ? current : [current]), value]
+    Object.defineProperty(query, name, { configurable: true, enumerable: true, value: next, writable: true })
   }
   return query
 }
