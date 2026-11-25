@@ -337,21 +337,23 @@ describe("GET /_vitehub in an app without Comments", () => {
 })
 
 describe("the /_vitehub/** route", () => {
-  it("serves Site access at /_vitehub/site only in an app with Comments", async () => {
+  it.each(["", "/"])("serves Site access at /_vitehub/site%s only in an app with Comments", async (slash) => {
     const withComments = consoleRoutes({ siteAccess: true })
     const withoutComments = consoleRoutes({ siteAccess: false })
-    const site = await withComments.fetch(new Request(`${origin}/_vitehub/site?return=%2Fdocs`))
+    const site = await withComments.fetch(new Request(`${origin}/_vitehub/site${slash}?return=%2Fdocs`))
     expect(new URL(site.headers.get("location") ?? "").pathname).toBe("/visit")
     expect(site.headers.get("set-cookie")).toMatch(/__Host-vitehub-site-state=/)
-    expect((await withoutComments.fetch(new Request(`${origin}/_vitehub/site?return=%2Fdocs`))).status).toBe(404)
-    expect((await withoutComments.fetch(new Request(`${origin}/portal/_vitehub/site`))).status).toBe(404)
-    expect((await withComments.fetch(new Request(`${origin}/_vitehub/site`, { method: "POST", headers: { origin } }))).status).toBe(204)
-    expect((await withoutComments.fetch(new Request(`${origin}/_vitehub/site`, { method: "POST", headers: { origin } }))).status).toBe(404)
+    expect((await withoutComments.fetch(new Request(`${origin}/_vitehub/site${slash}?return=%2Fdocs`))).status).toBe(404)
+    expect((await withoutComments.fetch(new Request(`${origin}/portal/_vitehub/site${slash}`))).status).toBe(404)
+    expect((await withComments.fetch(new Request(`${origin}/_vitehub/site${slash}`, { method: "POST", headers: { origin } }))).status).toBe(204)
+    expect((await withoutComments.fetch(new Request(`${origin}/_vitehub/site${slash}`, { method: "POST", headers: { origin } }))).status).toBe(404)
   })
 
   it("sends /_vitehub/rpc to the Console RPC and every other path to the entry", async () => {
     for (const routes of [consoleRoutes({ siteAccess: true }), consoleRoutes({ siteAccess: false })]) {
-      expect((await routes.fetch(new Request(`${origin}/portal/_vitehub/rpc`, { method: "PUT" }))).status).toBe(401)
+      for (const slash of ["", "/"]) {
+        expect((await routes.fetch(new Request(`${origin}/portal/_vitehub/rpc${slash}?ticket=invalid`))).status).toBe(401)
+      }
       expect((await routes.fetch(new Request(`${origin}/_vitehub/docs`))).status).toBe(303)
     }
   })
