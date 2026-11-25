@@ -9,7 +9,7 @@ type ReplayHook = "resolveId" | "load" | "transform"
 const replayHooks: readonly ReplayHook[] = ["resolveId", "load", "transform"]
 
 const notReplayed: Record<string, { hooks: readonly ReplayHook[], reason: string }> = {
-  "@vite-hub/agent/vite": { hooks: ["resolveId", "load", "transform"], reason: "The Agent Nitro config aliases its generated modules. KNOWN GAP: Nitro runs transformWorkspaceAgent instead of the original transform that registers named Channels." },
+  "@vite-hub/agent/vite": { hooks: ["resolveId", "load"], reason: "The Agent Nitro config aliases its generated modules." },
   "@vite-hub/channels/vite": { hooks: ["resolveId", "load"], reason: "packages/channels/src/vite.ts configureNitroChannels aliases #vitehub/channels/registry to a generated file." },
   "@vite-hub/connections/vite": { hooks: ["resolveId", "load"], reason: "packages/connections/src/vite.ts aliases #vitehub/connections/registry to a generated file." },
   "@vite-hub/content/vite": { hooks: ["resolveId", "load", "transform"], reason: "The plugin's nitro.setup adds @vite-hub/content/nitro-kv for the KV registration. Without a Vite environment the build makes no Source snapshots, so a cold server parses glob() and files() Sources on its first read." },

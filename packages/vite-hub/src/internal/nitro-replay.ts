@@ -13,6 +13,12 @@ export function isCloudflareDevShim(id: string): id is keyof typeof cloudflareDe
   return Object.hasOwn(cloudflareDevShims, id)
 }
 
+type AgentDefinitionTransform = (code: string, id: string, options: {
+  root: string
+  serverDirs?: string[]
+  resolve?: (specifier: string, importer: string) => Promise<string | undefined>
+}) => Promise<string | undefined>
+
 export const nitroRuntimeResolverNames = new Set([
   "@vite-hub/auth/vite",
   "@vite-hub/blob/vite",
@@ -64,13 +70,13 @@ function withHookFilter<Handler>(hook: unknown, handler: Handler): Handler | { f
 export function nitroRuntimeResolver(plugin: Plugin, config: Record<string, unknown>, agentOptions: { root: string, serverDirs?: string[] }): { plugin: Plugin, originalHooks: Pick<Plugin, "resolveId" | "load" | "transform"> } | undefined {
   const resolveId = nitroRuntimeResolverNames.has(plugin.name) ? pluginResolveIdHandler(plugin) : undefined
   const load = nitroRuntimeResolverNames.has(plugin.name) ? pluginLoadHandler(plugin) : undefined
-  const transformWorkspaceAgent = (plugin as Plugin & {
-    vitehub?: { agent?: { transformWorkspaceAgent?: (code: string, id: string, options: typeof agentOptions) => Promise<string | undefined> } }
-  }).vitehub?.agent?.transformWorkspaceAgent
-  const serverTransform = !transformWorkspaceAgent && nitroServerTransformNames.has(plugin.name)
+  const transformAgentDefinition = (plugin as Plugin & {
+    vitehub?: { agent?: { transformAgentDefinition?: AgentDefinitionTransform } }
+  }).vitehub?.agent?.transformAgentDefinition
+  const serverTransform = !transformAgentDefinition && nitroServerTransformNames.has(plugin.name)
     ? typeof plugin.transform === "function" ? plugin.transform : plugin.transform?.handler
     : undefined
-  if (!resolveId && !load && !transformWorkspaceAgent && !serverTransform) return
+  if (!resolveId && !load && !transformAgentDefinition && !serverTransform) return
 
   const replayResolveId: HookHandler<NonNullable<Plugin["resolveId"]>> | undefined = resolveId && function (id, importer, options) {
     if (isCloudflareDevShim(id) && isRecord(config.alias) && typeof config.alias[id] === "string") return
@@ -82,6 +88,16 @@ export function nitroRuntimeResolver(plugin: Plugin, config: Record<string, unkn
   const replayServerTransform: HookHandler<NonNullable<Plugin["transform"]>> | undefined = serverTransform && function (code, id, options) {
     return serverTransform.call(this, code, id, { moduleType: "js", ...options, ssr: true })
   }
+  const replayAgentTransform = transformAgentDefinition && {
+    filter: { id: /\.[cm]?[jt]s(?:[?#]|$)/i },
+    handler(this: ThisParameterType<HookHandler<NonNullable<Plugin["transform"]>>> | undefined, code: string, id: string) {
+      const resolver = typeof this?.resolve === "function" ? this : undefined
+      return transformAgentDefinition(code, id, {
+        ...agentOptions,
+        ...(resolver ? { resolve: async (specifier: string, importer: string) => (await resolver.resolve(specifier, importer, { skipSelf: true }))?.id } : {}),
+      })
+    },
+  }
   const originalHooks = {
     // SAFETY: the filter comes from the same hook of the replayed plugin, so it has that hook's filter type.
     ...(replayResolveId ? { resolveId: withHookFilter(plugin.resolveId, replayResolveId) as Plugin["resolveId"] } : {}),
@@ -90,6 +106,7 @@ export function nitroRuntimeResolver(plugin: Plugin, config: Record<string, unkn
       // SAFETY: the filter belongs to the same transform hook of the replayed plugin.
       transform: withHookFilter(plugin.transform, replayServerTransform) as Plugin["transform"],
     } : {}),
+    ...(replayAgentTransform ? { transform: replayAgentTransform as Plugin["transform"] } : {}),
   }
   return {
     originalHooks,
@@ -97,12 +114,6 @@ export function nitroRuntimeResolver(plugin: Plugin, config: Record<string, unkn
       name: `vite-hub/nuxt-runtime-resolver:${plugin.name}`,
       ...originalHooks,
       ...(plugin.name === "@vite-hub/i18n/vite" && plugin.renderChunk ? { renderChunk: plugin.renderChunk } : {}),
-      ...(transformWorkspaceAgent ? {
-        transform: {
-          filter: { id: /\.[cm]?[jt]s(?:[?#]|$)/i },
-          handler: (code: string, id: string) => transformWorkspaceAgent(code, id, agentOptions),
-        },
-      } : {}),
     },
   }
 }
