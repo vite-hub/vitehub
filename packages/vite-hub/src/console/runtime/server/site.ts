@@ -64,7 +64,6 @@ async function signIn(event: ConsoleRequestEvent, request: Request, app: string,
   const maxAge = Math.max(1, result.claims.iat + siteSessionLifetime - Math.floor(Date.now() / 1_000))
   const headers = new Headers()
   headers.append("set-cookie", `${session}; Path=/; Max-Age=${maxAge}; HttpOnly; Secure; SameSite=Lax`)
-  headers.append("set-cookie", cookie(names.state, "", 0))
   headers.append("set-cookie", `${viteHubSessionMarkerCookie}=1; Path=/; Max-Age=${maxAge}; SameSite=Lax`)
   headers.append("set-cookie", viteHubPageToolsResetCookie)
   return seeOther(withPageTools(result.destination), headers)
