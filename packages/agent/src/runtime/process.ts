@@ -522,6 +522,9 @@ export function createAgentProcessHosts(options: {
         else agents[name] = { status: "degraded", role: "standby", reason: failures.get(name) }
       }
       for (const [name, host] of hosts) agents[name] = { ...await host.health(), ...gates.has(name) ? { role: "holder" } : {} }
+      if (enabled && !closing) for (const name of options.names) {
+        if (!(name in agents)) agents[name] = { status: "degraded", reason: "Process host is starting." }
+      }
       if (!enabled) for (const name of options.names) agents[name] = { status: "degraded", reason: "Process hosts start in production or with VITEHUB_AGENT_PROCESS_HOSTS=1." }
       const degraded = Object.values(agents).some(agent => isRuntimeRecord(agent) && agent.status !== "healthy")
       return { status: degraded ? "degraded" : "healthy", agents }

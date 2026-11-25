@@ -6,7 +6,7 @@ import { env } from "@vite-hub/env"
 import { defineAgent } from "../src/index.ts"
 import { agentProcessHostIntake, registerAgentProcessHostIntake, withAgentProcessHost, type AgentProcessHostInstance } from "../src/process-host.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
-import { usesProcessHostPreset } from "../src/discovery.ts"
+import { discoverProcessHostAgentNames, usesProcessHostPreset } from "../src/discovery.ts"
 import { createAgentProcessHosts } from "../src/runtime/process.ts"
 import { agentProcessHostLeaseIntervalMs, agentProcessHostLeaseKey, agentProcessHostLeaseTtlMs } from "../src/runtime/process-host-lease.ts"
 import { createMemoryLeaseStore, createSqlLeaseStore, type Lease, type LeaseStore } from "@vite-hub/runtime"
@@ -45,6 +45,36 @@ describe("process host presets", () => {
     expect(usesProcessHostPreset(`const preset = await import("@acme/host/worker")`, file)).toBe(false)
     expect(usesProcessHostPreset(`import { other } from "@acme/host/other"`, file)).toBe(false)
     expect(usesProcessHostPreset(`import { worker } from "@acme/missing/worker"`, file)).toBe(false)
+  })
+
+  it("ignores an import that only brings types from a process host subpath", async () => {
+    const file = join(await hostPackageRoot("vitehub-process-host-types-"), "server", "agents", "worker.ts")
+    expect(usesProcessHostPreset(`import type { WorkerOptions } from "@acme/host/worker"`, file)).toBe(false)
+    expect(usesProcessHostPreset(`import { type WorkerOptions } from "@acme/host/worker"`, file)).toBe(false)
+    expect(usesProcessHostPreset(`export type { WorkerOptions } from "@acme/host/worker"`, file)).toBe(false)
+    expect(usesProcessHostPreset(`import { type WorkerOptions, worker } from "@acme/host/worker"`, file)).toBe(true)
+    expect(usesProcessHostPreset(`export { worker as default } from "@acme/host/worker"`, file)).toBe(true)
+    expect(usesProcessHostPreset(`import "@acme/host/worker"`, file)).toBe(true)
+  })
+
+  it("finds a process host preset that an Agent reaches through relative imports", async () => {
+    const root = await hostPackageRoot("vitehub-process-host-relative-")
+    const files: Record<string, string> = {
+      "server/agents/direct.ts": workerSource,
+      "server/agents/shared.ts": `import { defineAgent } from "vite-hub/agent"\nimport { preset } from "../lib/preset"\nexport default defineAgent({ extends: preset })\n`,
+      "server/agents/reexport.ts": `export { default } from "./direct.ts"\n`,
+      "server/agents/types.ts": `import { defineAgent } from "vite-hub/agent"\nimport type { Preset } from "../lib/preset"\nexport default defineAgent({ name: "types" })\nexport type Local = Preset\n`,
+      "server/agents/plain.ts": `import { defineAgent } from "vite-hub/agent"\nimport { label } from "../lib/cycle-a"\nimport notes from "../lib/notes.json"\nexport default defineAgent({ name: label + notes.length })\n`,
+      "server/lib/preset.ts": `import { worker } from "@acme/host/worker"\nexport const preset = worker\nexport type Preset = typeof worker\n`,
+      "server/lib/cycle-a.ts": `import { other } from "./cycle-b"\nexport const label = "plain" + other\n`,
+      "server/lib/cycle-b.ts": `import { label } from "./cycle-a"\nexport const other = String(label)\n`,
+      "server/lib/notes.json": `[]`,
+    }
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await mkdir(join(root, "server", "lib"), { recursive: true })
+    await Promise.all(Object.entries(files).map(([path, source]) => writeFile(join(root, path), source)))
+    const definitions = ["direct", "shared", "reexport", "types", "plain"].map(name => ({ name, handler: join(root, "server", "agents", `${name}.ts`) }))
+    expect(discoverProcessHostAgentNames(definitions)).toEqual(["direct", "reexport", "shared"])
   })
 })
 
@@ -90,6 +120,25 @@ describe("createAgentProcessHosts", () => {
     expect(hosts.status()).toBe("accepting")
     expect((await hosts.health()).status).toBe("healthy")
     await hosts.close()
+  })
+
+  it("reports a host as starting until its Agent has loaded", async () => {
+    const host = fakeHost()
+    const loaded = deferred<void>()
+    const agent = withAgentProcessHost(defineAgent({ name: "worker", driver: { run: () => "" } }), { create: async () => host })
+    const hosts = createAgentProcessHosts({ names: ["worker"], enabled: true, registry: {
+      worker: async () => {
+        await loaded.promise
+        return { default: agent }
+      },
+    }, state: () => ({ extension: vi.fn() }) })
+    hosts.start()
+    expect(await hosts.health()).toEqual({ status: "degraded", agents: { worker: { status: "degraded", reason: "Process host is starting." } } })
+    loaded.resolve()
+    await vi.waitFor(() => expect(host.started).toBe(1))
+    expect(await hosts.health()).toEqual({ status: "healthy", agents: { worker: { status: "healthy" } } })
+    await hosts.close()
+    expect(await hosts.health()).toEqual({ status: "healthy", agents: {} })
   })
 
   it("does not start outside production unless enabled", async () => {

@@ -1,6 +1,8 @@
 import { readdirSync, readFileSync } from "node:fs"
-import { basename, dirname, relative, resolve } from "node:path"
+import { basename, dirname, extname, relative, resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 
+import { resolveModulePath } from "exsolve"
 import { transformWithOxc } from "vite"
 
 import {
@@ -86,39 +88,50 @@ export function tokenizeAgentSource(source: string, file?: string): { tokens: st
   return moduleTokens(scanModule(source, file))
 }
 
-// Decode ESM string literals without executing the source module.
-function moduleSpecifier(token: string | undefined): string {
-  if (!token) return ""
-  const body = token.slice(1, -1)
-  // Legacy octal and decimal escapes are invalid in strict-mode modules.
-  if (/\\(?:[89]|[1-7][0-7]?|0[0-7]|0(?=[0-9]))/.test(body)) return ""
-  const escapes: Record<string, string> = { b: "\b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v", "0": "\0" }
-  return body.replace(/\\(?:u\{([\da-fA-F]+)\}|u([\da-fA-F]{4})|x([\da-fA-F]{2})|(\r\n|[\n\r\u2028\u2029])|([\s\S]))/g,
-    (_match, codePoint: string | undefined, unicode: string | undefined, hex: string | undefined, continuation: string | undefined, escaped: string | undefined) => {
-      const code = codePoint ?? unicode ?? hex
-      if (code !== undefined) return String.fromCodePoint(Number.parseInt(code, 16))
-      if (continuation !== undefined) return ""
-      return escapes[escaped!] ?? escaped!
-    })
-}
-
-/** Whether an Agent module statically imports a package subpath that declares the `processHost` trait. */
-export function usesProcessHostPreset(source: string, file: string): boolean {
-  const { tokens } = tokenizeAgentSource(source)
-  for (let index = 0; index < tokens.length; index++) {
-    if (tokens[index] !== "import" || tokens[index + 1] === "(") continue
-    for (let next = index + 1; next < tokens.length && tokens[next] !== ";" && tokens[next] !== "import"; next++) {
-      if (!/^['"`]/.test(tokens[next] ?? "")) continue
-      if (hasAgentModuleTrait(moduleSpecifier(tokens[next]), file, "processHost")) return true
-      break
+/** The specifiers of the static imports and re-exports that load a value. Type-only ones are left out. */
+function valueModuleSpecifiers(source: string, file: string): string[] {
+  const specifiers: string[] = []
+  for (const statement of scanModule(source, file).program.body) {
+    if (statement.type === "ImportDeclaration") {
+      if (statement.importKind === "type") continue
+      if (statement.specifiers.length && statement.specifiers.every(specifier => specifier.type === "ImportSpecifier" && specifier.importKind === "type")) continue
+      specifiers.push(statement.source.value)
+    }
+    else if (statement.type === "ExportAllDeclaration") {
+      if (statement.exportKind !== "type") specifiers.push(statement.source.value)
+    }
+    else if (statement.type === "ExportNamedDeclaration" && statement.source) {
+      if (statement.exportKind === "type") continue
+      if (statement.specifiers.length && statement.specifiers.every(specifier => specifier.exportKind === "type")) continue
+      specifiers.push(statement.source.value)
     }
   }
-  return false
+  return specifiers
 }
 
-/** Discovered Agents whose definitions use a process host preset, by discovered name. */
+/** Whether an Agent module statically imports a value from a package subpath that declares the `processHost` trait. */
+export function usesProcessHostPreset(source: string, file: string): boolean {
+  return valueModuleSpecifiers(source, file).some(specifier => hasAgentModuleTrait(specifier, file, "processHost"))
+}
+
+const processHostModuleExtensions = [".ts", ".mts", ".cts", ".tsx", ".js", ".mjs", ".cjs", ".jsx"]
+
+/**
+ * Discovered Agents whose definitions use a process host preset, by discovered name. A definition uses the preset
+ * when its module, or a module that it reaches through relative imports, imports the preset.
+ */
 export function discoverProcessHostAgentNames(definitions: readonly DiscoveredAgentDefinition[]): string[] {
-  return definitions.filter(definition => usesProcessHostPreset(readFileSync(definition.handler, "utf8"), definition.handler)).map(definition => definition.name).sort()
+  const reachesPreset = (file: string, seen: Set<string>): boolean => {
+    if (seen.has(file)) return false
+    seen.add(file)
+    return valueModuleSpecifiers(readFileSync(file, "utf8"), file).some((specifier) => {
+      if (hasAgentModuleTrait(specifier, file, "processHost")) return true
+      if (!specifier.startsWith("./") && !specifier.startsWith("../")) return false
+      const dependency = resolveModulePath(specifier, { from: pathToFileURL(file), extensions: processHostModuleExtensions, try: true })
+      return dependency !== undefined && processHostModuleExtensions.includes(extname(dependency)) && reachesPreset(dependency, seen)
+    })
+  }
+  return definitions.filter(definition => reachesPreset(definition.handler, new Set())).map(definition => definition.name).sort()
 }
 
 const agentEntries = new Set(["@vite-hub/agent", "vite-hub/agent"])
