@@ -282,7 +282,7 @@
   "packages/vite-hub/src/migrate-cli.ts": 2,
   "packages/vite-hub/src/nitro-order.ts": 4,
   "packages/vite-hub/src/nuxt-server-imports.ts": 5,
-  "packages/vite-hub/src/nuxt.ts": 113,
+  "packages/vite-hub/src/nuxt.ts": 104,
   "packages/vite-hub/src/observability-vite.ts": 3,
   "packages/vite-hub/src/page/console-link.ts": 2,
   "packages/vite-hub/src/page/console.ts": 5,

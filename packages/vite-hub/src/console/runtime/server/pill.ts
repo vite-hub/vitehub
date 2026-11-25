@@ -24,6 +24,7 @@ export function consolePageAccount(visitor: ViteHubSiteVisitor, signOut: string)
     ...(visitor.kind === "member" && visitor.email ? { email: visitor.email } : {}),
     ...(visitor.image ? { image: visitor.image } : {}),
     via: "console",
+    ...(visitor.kind === "guest" ? { guest: true } : {}),
     signOut,
   }
 }
