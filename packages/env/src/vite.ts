@@ -23,6 +23,7 @@ import {
   viteHubEnvServerModulePath,
   viteHubEnvServerModuleTypesPath,
 } from "@vite-hub/internal/build/vite"
+import MagicString from "magic-string"
 import { loadEnv } from "vite"
 
 import { createEnvCliContributor } from "./cli.ts"
@@ -392,10 +393,10 @@ export function hubEnv(options: EnvOptions = {}): EnvVitePlugin {
       filter: { code: "/* @vitehub-env */" },
       handler(code) {
         if (!code.includes("/* @vitehub-env */") || !code.includes(ENV_SERVER_ID)) return
-        return code.replace(
-          /\/\* @vite-ignore \*\/\s*\/\* @vitehub-env \*\/\s*[\w$]+/g,
-          JSON.stringify(ENV_SERVER_ID),
-        )
+        const output = new MagicString(code)
+        output.replaceAll(/\/\* @vite-ignore \*\/\s*\/\* @vitehub-env \*\/\s*[\w$]+/g, JSON.stringify(ENV_SERVER_ID))
+        if (!output.hasChanged()) return
+        return { code: output.toString(), map: output.generateMap({ hires: "boundary" }) }
       },
     },
   }
