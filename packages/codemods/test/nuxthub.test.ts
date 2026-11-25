@@ -113,7 +113,7 @@ describe("nuxthub", () => {
       ["package.json", 5, "uses-hub needs @nuxthub/core (dependency"],
     ])
     expect(followUps.find(followUp => followUp.file === "modules/history.ts")?.message).toContain("vitehub.dev/docs/database/configure#contribute-tables-from-a-nuxt-module")
-    expect(followUps.at(-1)?.message).toContain("vitehub.dev/docs/getting-started/migrate-from-nuxthub#modules-that-expect-nuxthub")
+    expect(followUps.at(-1)?.message).toContain("vitehub.dev/docs/compare/nuxthub#modules-that-expect-nuxthub")
   })
 
   it("reports legacy Drizzle relations at the moved schema", async () => {
