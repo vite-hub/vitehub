@@ -40,7 +40,7 @@ export interface CommentSendWebhooks {
   cancelMemberPairing: (owner: string, code: string) => Promise<Result<void, string>>
   allowMemberPairing: (owner: string, code: string, options: { name: string | ((pairing: PairingLike) => string), ownerName?: string, ownerEmail?: string, hosts?: readonly string[] }) => Promise<Result<{ status: "allowed", endpoint: EndpointLike, pairing: PairingLike } | { status: "expired" | "not-owner" }, string>>
   getMemberEndpoint: (owner: string, options?: { address?: string, endpointId?: string }) => Promise<Result<EndpointLike | null, string>>
-  getMemberDeliveryState: (id: string) => Promise<"pending" | "sending" | "sent" | "dead" | "cancelled" | undefined>
+  getMemberDelivery: (id: string) => Promise<{ state: "pending" | "sending" | "sent" | "dead" | "cancelled", inbox: boolean } | undefined>
   sendToMemberEndpoint: (owner: string, body: unknown, options: { event: string, key: string, endpointId: string, deliveryId: string, sealBody: boolean, hosts?: readonly string[] }) => Promise<Result<{ id: string, status: "sent" | "inbox" | "pending" | "failed" }, string>>
 }
 
@@ -96,7 +96,10 @@ export interface CommentSendService {
   send: (caller: CommentSendCaller) => Promise<Result<CommentSendResult, "COMMENTS_FORBIDDEN" | "COMMENTS_SEND_INSECURE" | "COMMENTS_SEND_OFF">>
   /** Opens a send with its read token. */
   read: (id: string, token: string) => Promise<Result<CommentSendView, "COMMENTS_SEND_GRANT_INVALID">>
-  /** Opens a send of `user`, or their latest one that the agent has not read, for the MCP tool. */
+  /**
+   * Opens a send of `user` by its id, also while its delivery waits for the receiver's answer, so an agent can read the
+   * send that it just got. Without an id, it opens the latest delivered send that no agent read yet.
+   */
   readOwn: (user: CommentsUser, id?: string, policy?: CommentSendPolicy) => Promise<CommentSendView | undefined>
   /**
    * The sends of `user` among `states`, newest first, with the threads that `user` may still read. It skips a send
@@ -253,9 +256,13 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
   const insecure = (origin: string): [ResultError<"COMMENTS_SEND_INSECURE">, undefined] | undefined => isSecureOrigin(origin) ? undefined : [commentsErrors.COMMENTS_SEND_INSECURE({ origin }), undefined]
 
   const deliveryFailed = "The agent's receiver did not take the send."
+  async function deliveryOf(row: SendRow) {
+    return row.delivery ? await (await webhooks()).getMemberDelivery(row.delivery) : undefined
+  }
+
   async function reconcile(row: SendRow): Promise<SendRow> {
     if (row.state !== "pending") return row
-    const delivery = row.delivery && await (await webhooks()).getMemberDeliveryState(row.delivery)
+    const delivery = (await deliveryOf(row))?.state
     const state = delivery === "sent" ? "sent"
       : delivery === "dead" || delivery === "cancelled" || (!delivery && Date.now() - row.updatedAt > 60_000) ? "failed"
         : "pending"
@@ -360,12 +367,13 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
     return { ...opened, send: { ...opened.send, state } }
   }
 
-  async function deliver(caller: CommentSendCaller, user: CommentsUser, paired?: { id: string, thread: string | null }, confirmed?: WaitingSelection): Promise<CommentSendResult> {
+  async function deliver(caller: CommentSendCaller, user: CommentsUser, paired?: { id: string, kind: EndpointLike["kind"], thread: string | null }, confirmed?: WaitingSelection): Promise<CommentSendResult> {
     const now = Date.now()
     const endpoint = paired ?? await endpointOf(user.id, await addressOf(caller, user))
     if (!endpoint) return { status: "failed", reason: "No agent is paired. Press Send to pair one." }
+    const inbox = endpoint.kind === "inbox"
     const resultOf = (row: SendRow): CommentSendResult => row.state === "failed" ? { status: "failed", reason: row.error ?? deliveryFailed }
-      : { status: row.state === "pending" ? "pending" : "sent", id: row.id, ...(row.thread ? { thread: row.thread } : {}) }
+      : { status: row.state === "pending" ? "pending" : "sent", id: row.id, ...(row.thread ? { thread: row.thread } : {}), inbox }
     const live = ["pending", "sent", "working", "done"] as const
     const ready = confirmed ?? await waiting(caller, user)
     const threads = [...ready.waiting].sort((left, right) => left.id < right.id ? -1 : 1)
@@ -446,7 +454,7 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       const current = await store.send(id)
       if (current) return resultOf(current)
     }
-    return { status, id, ...(thread ? { thread } : {}) }
+    return { status, id, ...(thread ? { thread } : {}), inbox }
   }
 
   return {
@@ -467,7 +475,7 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
         const byId = new Map(open.map(thread => [thread.id, thread]))
         if (!finished(latest, id => byId.get(id))) {
           const send = { id: latest.id, ...(latest.thread ? { thread: latest.thread } : {}) }
-          last = latest.state === "sent" ? { sent: send } : { working: send }
+          last = latest.state === "sent" ? { sent: { ...send, inbox: (await deliveryOf(latest))?.inbox ?? false } } : { working: send }
         }
         else await store.setSendState(latest.id, ["sent", "working"], "done", now)
       }
@@ -552,7 +560,7 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       })
       if (error) return [undefined, { status: "failed", reason: error.why }]
       if (allowed.status !== "allowed") return allowed.status === "not-owner" ? forbidden() : [commentsErrors.COMMENTS_SEND_CODE_EXPIRED(), undefined]
-      return [undefined, await deliver(caller, user, { id: allowed.endpoint.id, thread: allowed.pairing.address }, confirmed)]
+      return [undefined, await deliver(caller, user, { id: allowed.endpoint.id, kind: allowed.endpoint.kind, thread: allowed.pairing.address }, confirmed)]
     },
 
     async send(caller) {
@@ -577,7 +585,12 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       const found = id ? await store.send(id) : await store.latestSend(user.id, undefined, ["pending", "sent"])
       if (found?.member !== user.id) return undefined
       const row = await reconcile(found)
-      if (row.state === "failed" || row.state === "pending") return undefined
+      if (row.state === "failed") return undefined
+      if (row.state === "pending") {
+        if (!id) return undefined
+        const delivery = (await deliveryOf(row))?.state
+        if (delivery !== "sending" && delivery !== "sent") return undefined
+      }
       return view(row, user, policy)
     },
 
