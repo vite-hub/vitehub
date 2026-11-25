@@ -104,6 +104,7 @@ export interface AgentInvocationWorkflowBinding {
 export interface AgentInvocationRecord {
   /** Durable provider dispatch intent and acknowledged physical identity. */
   workflow?: AgentInvocationWorkflowBinding
+  executionMode?: "inline" | "workflow"
   agentName?: string
   annotations?: Record<string, AgentInvocationAnnotationValue>
   /** Capability IDs observed during this Invocation, including uses omitted from a truncated trace. */
@@ -391,6 +392,7 @@ interface AgentInvocationBindOptions {
   agentName?: string
   cancellationDriver?: AgentInvocationCancellationDriver
   deferClaim?: boolean
+  executionMode?: AgentInvocationRecord["executionMode"]
   /**
    * A Workflow attempt of an Agent turn. A record that an earlier attempt left `running` may have started its Driver,
    * so this attempt does not start the Driver again, even when the earlier claim has expired. See {@link AgentInvocationJournal.driverInterrupted}.
@@ -2516,6 +2518,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           ...(annotations ? { annotations } : {}),
           ...(context.run?.channelId ? { channelId: boundedString(context.run.channelId) } : {}),
           createdAt: now,
+          ...(bindOptions.executionMode ? { executionMode: bindOptions.executionMode } : {}),
           id: recordId,
           observations: [],
           ...(options.observations ? { observationLimits: { ...limits } } : {}),

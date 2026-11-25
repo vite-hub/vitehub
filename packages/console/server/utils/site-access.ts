@@ -4,7 +4,7 @@ import { useDatabase } from "vite-hub/database"
 
 import { isRuntimeDiagnostic } from "@vite-hub/runtime"
 import { normalizeConsoleProjectUrl } from "@vite-hub/runtime/internal/console"
-import { isSitePath, isSiteStateHash, readSiteAccessPolicy, siteAccessOperation, siteAccessRoles, siteRoute } from "@vite-hub/internal/site-token"
+import { isSitePath, isSiteStateHash, readSiteAccessPolicy, signSiteHandoff, siteAccessOperation, siteAccessRoles } from "@vite-hub/internal/site-token"
 
 import { consoleProjects } from "../../src/projects.ts"
 import { hostedCommentGuestRoles } from "../../src/hosted-comments.ts"
@@ -143,10 +143,13 @@ export const siteVisitRoute = withAnonymousAuthorization(() => true, async (requ
 
 export async function openSiteLink(request: Request, kind: "invite" | "code" | "comments"): Promise<Response> {
   if (request.method !== "GET") return new Response(null, { headers: { allow: "GET" }, status: 405 })
-  const secret = new URL(request.url).pathname.split("/")[kind === "comments" ? 3 : 2] ?? ""
+  const url = new URL(request.url)
+  const secret = url.pathname.split("/")[kind === "comments" ? 3 : 2] ?? ""
   const db = useDatabase("default").db
   const what = kind === "code" ? "code" : "invite"
   if (!/^[\w-]{43}$/.test(secret)) return linkProblem(404, `There is no such ${what}.`)
+  let handoff: string | undefined
+  let handoffUnavailable = false
   const opened = await openConsoleSiteLink(db, {
     kind,
     secret,
@@ -154,22 +157,27 @@ export async function openSiteLink(request: Request, kind: "invite" | "code" | "
     allow: async (link) => {
       const project = { id: link.projectId, teamId: link.teamId }
       if (link.kind === "comments") return Boolean(await siteMember(db, project, link.createdBy))
-      if (link.kind === "invite") return (await guestRoles(project, link.createdBy, link.roles ?? [])).length > 0
-      return link.userId !== null && Boolean(await memberAccess(project, link.userId))
+      const allowed = link.kind === "invite"
+        ? (await guestRoles(project, link.createdBy, link.roles ?? [])).length > 0
+        : link.userId !== null && Boolean(await memberAccess(project, link.userId))
+      if (!allowed) return false
+      const projects = useConsoleProjects(project.teamId)
+      const target = projects instanceof Response ? undefined : await projects.target(project.id)
+      handoff = target && await signSiteHandoff({ app: target.project.url, issuer: url.origin, project: project.id, path: link.path, key: target.key })
+      handoffUnavailable = handoff === undefined
+      return !handoffUnavailable
     },
   })
+  if (handoffUnavailable) return linkProblem(503, "The Console cannot start this Site access visit. Ask the Console operator to check the project link and Console origin.")
   if (opened === "forbidden") return linkProblem(403, `The person of this ${what} can no longer give access to this site from the Console.`)
+  if (opened && handoff) {
+    return seeOther(handoff, new Headers({ "set-cookie": sitePassSetCookie(opened.projectId, opened.pass, isSecure(request)) }))
+  }
   const [project] = opened ? await db.select().from(consoleProjects).where(eq(consoleProjects.id, opened.projectId)).limit(1) : []
   if (opened && project) {
-    const headers = new Headers()
-    if (kind === "comments") {
-      headers.append("set-cookie", sitePassSetCookie(project.id, opened.pass, isSecure(request), "comments", opened.expiresAt))
-      const destination = new URL(project.url)
-      destination.searchParams.set("comment", "")
-      return seeOther(destination.href, headers)
-    }
-    headers.append("set-cookie", sitePassSetCookie(project.id, opened.pass, isSecure(request)))
-    return seeOther(`${project.url}${siteRoute}?${new URLSearchParams({ return: opened.path, project: project.id })}`, headers)
+    const destination = new URL(project.url)
+    destination.searchParams.set("comment", "")
+    return seeOther(destination.href, new Headers({ "set-cookie": sitePassSetCookie(project.id, opened.pass, isSecure(request), "comments", opened.expiresAt) }))
   }
   return linkProblem(410, `This ${what} was already opened, revoked, or it expired. Ask for a new one.`)
 }

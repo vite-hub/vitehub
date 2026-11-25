@@ -159,7 +159,9 @@ describe("Site access in the Console", () => {
 
     const opened = await invitePage.fetch(new Request(link))
     expect(opened.status).toBe(303)
-    expect(opened.headers.get("location")).toBe(`https://app.example.com/portal/_vitehub/site?return=%2Fdocs&project=${project.id}`)
+    const handoff = new URL(opened.headers.get("location")!)
+    expect(`${handoff.origin}${handoff.pathname}`).toBe(`${project.url}/_vitehub/site`)
+    expect(Object.fromEntries(handoff.searchParams)).toMatchObject({ return: "/docs", project: project.id, issuer: consoleOrigin, handoff: expect.any(String) })
     expect(opened.headers.getSetCookie()[0]).toMatch(new RegExp(`^__Host-vitehub-site-pass-${project.id}=[\\w-]{43}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800; Secure$`))
     const again = await invitePage.fetch(new Request(link))
     expect(again.status).toBe(410)
@@ -195,6 +197,7 @@ describe("Site access in the Console", () => {
     expect(Date.parse(String(code.body.expiresAt)) - Date.now()).toBeGreaterThan(9 * 60_000)
     const opened = await codePage.fetch(new Request(link, { headers: { "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Safari/604.1" } }))
     expect(opened.status).toBe(303)
+    expect(Object.fromEntries(new URL(opened.headers.get("location")!).searchParams)).toMatchObject({ return: "/runs/42", project: project.id, issuer: consoleOrigin, handoff: expect.any(String) })
     expect((await codePage.fetch(new Request(link))).status).toBe(410)
     const cookie = cookieOf(opened)
     const { location, appState } = await visitApp(cookie)

@@ -59,23 +59,30 @@ describe("the Console segment of the Comments pill", () => {
 })
 
 describe("vitehub() with Comments", () => {
-  it.each([true, false])("hands the Console segment to the Comments pill only with the Console on: %s", async (consoleOn) => {
+  it.each([
+    { consoleOn: true, overlay: true, authorize: false },
+    { consoleOn: true, overlay: true, authorize: true },
+    { consoleOn: false, overlay: true, authorize: false },
+    { consoleOn: true, overlay: false, authorize: false },
+  ])("generates the Comments setup with Console=$consoleOn, overlay=$overlay, authorize=$authorize", async ({ consoleOn, overlay, authorize }) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-pill-comments-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
-      const plugins = vitehub({ comments: true, console: consoleOn && { auth: false }, host: "node" }).flat(3) as Plugin[]
+      const plugins = vitehub({ comments: overlay ? true : { overlay: false }, console: consoleOn && { auth: false, ...(authorize ? { authorize: "./authorize.ts" } : {}) }, host: "node" }).flat(3) as Plugin[]
       const comments = plugins.find(plugin => plugin?.name === "@vite-hub/comments/vite")
       const hook = comments?.config
       if (!hook) throw new TypeError("Expected the Comments config hook.")
       await Reflect.apply("handler" in hook ? hook.handler : hook, {}, [{ root, nitro: { plugins: [] } }, { command: "build", mode: "production" }])
       const generated = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
-      if (consoleOn) {
+      if (consoleOn && overlay) {
         expect(generated).toMatch(/import \{ installConsolePill as pillSegment0 \} from "[^"]+\/console\/runtime\/server\/pill\.(?:ts|js)"/)
-        expect(generated).toContain(`...{"version":${JSON.stringify(readViteHubVersion())}}`)
+        expect(generated).toContain(`...{"version":${JSON.stringify(readViteHubVersion())},"useCurrentGrants":${!authorize}}`)
       }
       else {
         expect(generated).not.toContain("installConsolePill")
       }
+      if (consoleOn && !overlay) expect(generated).toMatch(/siteVisitor: async \(request\) => \(await import\("[^"]+\/console\/runtime\/server\/site-visitor\.(?:ts|js)"\)\)\.readConsoleSiteVisitor/)
+      else expect(generated).not.toContain("siteVisitor:")
     }
     finally {
       await rm(root, { force: true, recursive: true })

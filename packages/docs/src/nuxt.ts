@@ -295,6 +295,7 @@ interface DocsViteServer {
 }
 
 interface NitroOptions {
+  devServer?: { runner?: string }
   hooks?: { "prerender:done"?: (result: PrerenderResult) => void | Promise<void> }
   runtimeConfig?: DiscoveryRuntime
   routeRules?: Record<string, DocsRouteRule & { headers?: Record<string, string>, prerender?: boolean }>
@@ -632,6 +633,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       ownDiscoveryRoutes ? null : discoveryRoutes(pages).filter(route => typeof route !== "string" || route.endsWith("/**") || !isDocsPath(route, config.base)),
       workspacePages(docsManifestPages(pages)).map(page => [page.path, page.layout, page.workspace]),
     ])
+    let packDevFiles = false
 
     // The `llms` option for Content's `llms.txt`. Server code only, so it stays out of the page payload.
     const agentFile = addTemplate({
@@ -826,7 +828,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
           regeneration = regeneration.then(async () => {
             const change = await result
             if (closed || !change) return
-            if (change === "restart") return restart()
+            if (change === "restart" || packDevFiles) return restart()
             const reloaded = !change.shapeChanged && await reloadPages({
               files: change.files,
               manifest: change.manifestChanged,
@@ -1040,6 +1042,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     Reflect.apply(nuxt.hook, nuxt, ["nitro:build:before", startHints])
     let checkSourceLinks: (() => Promise<void>) | undefined
     Reflect.apply(nuxt.hook, nuxt, ["nitro:init", (nitro: NitroInstance) => {
+      packDevFiles = nuxt.options.dev && nuxt.options.experimental.nitroViteEnvironment !== true
+        && (nitro.options.devServer?.runner || process.env.NITRO_DEV_RUNNER) === "miniflare"
       const building = !nuxt.options.dev && !Reflect.get(nuxt.options, "_prepare")
       const seoAudit = options.seoAudit ?? "warn"
       const redirects = docsRedirects(nitro.options.routeRules ?? {})
@@ -1148,11 +1152,14 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         // dependency, so the build failed when a package such as `ws` imported one of them.
         "mocked-exports/proxy": mockedExportsProxy(),
       }
-      // Pack production files into one module to stay below Cloudflare's module limit. Development imports each file
-      // through Vite: Nitro server assets read the folders from disk, and the Cloudflare dev server runs in workerd.
       const stores = [...sourceDirs ? sourceDirs.map((dir, index) => ({ name: `docs-${index}`, dir })) : [{ name: "docs", dir: contentDir }], { name: "docs-agent", dir: agentDir }]
       const order = () => docsManifestPages(manifest).flatMap((page): Array<[string, string]> => [[page.source ?? "docs", page.file], ["docs-agent", `${docsContentSource(page)}/${page.file}`]])
-      nitro.virtual = { ...nitro.virtual, "#docs/files": nuxt.options.dev ? () => docsDevFilesModule(stores) : () => docsFilesModule(stores, order()) }
+      nitro.virtual = {
+        ...nitro.virtual,
+        "#docs/files": () => nuxt.options.dev && !packDevFiles
+          ? docsDevFilesModule(stores, { nitroInVite: nuxt.options.experimental.nitroViteEnvironment === true })
+          : docsFilesModule(stores, order()),
+      }
       nitro.publicAssets = [...nitro.publicAssets ?? [], { baseURL: "/_docs", dir: stylesDir, maxAge: 31_536_000 }]
       // `docs/kv.html` beside the `docs/kv/` folder, and every linked page, as static hosts expect. Development
       // prerenders nothing, and Nuxt would turn listed routes into prerender route rules there.

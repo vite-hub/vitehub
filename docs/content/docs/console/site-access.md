@@ -21,7 +21,7 @@ With `console.authorize`, a member needs the `site` section. The result’s `gra
 | **Link a phone** | Shows a QR code, valid for 10 minutes, that signs the phone in as you. |
 | **Invite someone** | Makes a link for a guest with the name that their comments show and the roles that you pick, such as **Write comments**. It works once, in one browser, for 1, 7 or 30 days. |
 
-A member gets the `console` role, which shows the **Console** segment of the Comments pill, and the page tool roles allowed by `grants` (every page tool when `grants` is omitted). A guest gets the roles that you picked, such as the `comments-read`, `comments-write`, `comments-resolve` and `comments-delete` roles that [Comments checks](/docs/comments/configure#roles-from-site-access). A guest never gets the **Console** segment or into the Console.
+A member gets the `console` role, which shows the **Console** segment of the Comments pill, and the page tool roles allowed by `grants` (every page tool when `grants` is omitted). Without `console.authorize`, a member keeps the roles in their token and gets any new roles from the app's current page tools on the next request. Turning off the Comments overlay does not remove signed Comments API permissions. With `authorize`, only the roles in the token apply until the Console signs the next one. A guest gets the roles that you picked, such as the `comments-read`, `comments-write`, `comments-resolve` and `comments-delete` roles that [Comments checks](/docs/comments/configure#roles-from-site-access). A guest never gets the **Console** segment or into the Console.
 
 The person and the roles live only in the app's site cookie. They are not app users, so routes that check the app's Auth session do not let them in. The page tools, the **Console** segment, and Comments read the person of the site cookie.
 
@@ -71,11 +71,11 @@ The link opens that page of your team's app with that URL, or Home when your tea
 
 Put `/_vitehub` after the app address to open the app in the Console. The rest of the path and the query select the Console page: `https://app.example.com/_vitehub/agents/support?tab=trace` opens `/agents/support?tab=trace` of this app in the Console, and `https://app.example.com/_vitehub` opens the project overview. For an app below a base path, `https://app.example.com/portal/_vitehub` opens the project `https://app.example.com/portal`.
 
-The route answers `303` with a link to `https://console.vitehub.dev/open`. It gives no access, because the Console checks the person and the team when it opens. When you set `vitehub({ publicUrl })`, a build answers only on those origins, and another hostname of the same deployment gets `404`. An app origin that the Console cannot open, such as `http:` on a LAN address, gets `404` too.
+The route answers `303` with a link to `/open` on the Console set by `console.url`, or `https://console.vitehub.dev` by default. It gives no access, because the Console checks the person and the team when it opens. When you set `vitehub({ publicUrl })`, a build answers only on those origins, and another hostname of the same deployment gets `404`. An app origin that the Console cannot open, such as `http:` on a LAN address, gets `404` too.
 
 ## The Console segment of the Comments pill
 
-With `console` set and [Comments](/docs/comments) on, the Comments pill gets a **Console** segment. It opens the app in [console.vitehub.dev](https://console.vitehub.dev) in a new tab, at the Content document that the page shows through [`contentField()`](/docs/content/server-api#field-addresses) attributes, or at the project overview. An app without Comments has no pill and adds no script to its pages. Open its Console from `/_vitehub` or from the Console.
+With `console` set and [Comments](/docs/comments) on, the Comments pill gets a **Console** segment. It opens the configured Console in a new tab, at the Content document that the page shows through [`contentField()`](/docs/content/server-api#field-addresses) attributes, or at the project overview. An app without Comments has no pill and adds no script to its pages. Open its Console from `/_vitehub` or from the Console.
 
 The segment grants nothing, because the Console checks the person and the team when it opens. The pill still hides it from the app's other users:
 
@@ -90,7 +90,7 @@ When you set `vitehub({ publicUrl })`, a build shows the pill only on that origi
 
 ### Content Security Policy
 
-The ViteHub Console serves the script of the segment, at `https://console.vitehub.dev/page/<version>/page-tool.js`. The app serves no Console file. When your pages send a Content Security Policy, add the Console origin to `script-src`:
+The configured Console serves the segment script at `/page/<version>/page-tool.js`. The app serves no Console file. If your Content Security Policy uses an origin list, add the origin from `console.url` to `script-src`. For the default Console:
 
 ```http
 Content-Security-Policy: script-src 'self' https://console.vitehub.dev

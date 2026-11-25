@@ -2,7 +2,7 @@ import "#vitehub/console/app"
 import { readConsolePublicKeys } from "@vite-hub/internal/console-signature"
 import { matchesPublicOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { viteHubPageToolsQuery, viteHubPageToolsResetCookie, viteHubSessionMarkerCookie } from "@vite-hub/internal/runtime/page-tools-shared"
-import { createSiteState, isSitePath, siteRoute, siteStateHash, siteVisitUrl, verifySiteToken } from "@vite-hub/internal/site-token"
+import { createSiteState, isSitePath, siteRoute, siteStateHash, siteVisitUrl, verifySiteHandoff, verifySiteToken } from "@vite-hub/internal/site-token"
 import { configuredConsoleOrigin } from "@vite-hub/runtime/internal/console"
 import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { configuredPublicOrigins } from "@vite-hub/runtime/internal/public-url"
@@ -64,10 +64,18 @@ async function visit(request: Request, app: string): Promise<Response> {
   const url = new URL(request.url)
   const page = url.searchParams.get("return") ?? "/"
   if (!isSitePath(page)) throw consoleRequestError(400, "Use a path of the app as `return`, such as /docs.")
+  const project = url.searchParams.get("project") ?? undefined
+  const issuer = url.searchParams.get("issuer")
+  const handoff = url.searchParams.get("handoff")
+  if (issuer !== null || handoff !== null) {
+    const keys = readConsolePublicKeys(consoleRequestEnv(request))
+    if (!issuer || !handoff || !project || !(keys instanceof Map) || !await verifySiteHandoff({ app, issuer, project, path: page, handoff, keys })) {
+      throw consoleRequestError(400, "This Site access handoff is invalid or expired. Ask the issuing Console for a new link.")
+    }
+  }
   const current = cookieValue(request, siteStateCookie)
   const state = current && statePattern.test(current) ? current : createSiteState()
-  const project = url.searchParams.get("project") ?? undefined
-  const location = siteVisitUrl({ console: configuredConsoleOrigin(), app, state: await siteStateHash(state), path: page, ...(project ? { project } : {}) })
+  const location = siteVisitUrl({ console: issuer ?? configuredConsoleOrigin(), app, state: await siteStateHash(state), path: page, ...(project ? { project } : {}) })
   return seeOther(location, new Headers({ "set-cookie": cookie(siteStateCookie, state, siteStateLifetime) }))
 }
 

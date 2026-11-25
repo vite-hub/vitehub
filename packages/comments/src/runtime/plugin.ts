@@ -1,4 +1,4 @@
-import { installViteHubPageTools, registerViteHubPageTool } from "@vite-hub/internal/runtime/page-tools"
+import { installViteHubPageTools, installViteHubSiteVisitor, registerViteHubPageTool } from "@vite-hub/internal/runtime/page-tools"
 import { registerViteHubUserData } from "@vite-hub/internal/runtime/user-data"
 import { installRequestStandardContext } from "@vite-hub/runtime/internal/h3"
 import { configuredPublicOrigins } from "@vite-hub/runtime/internal/public-url"
@@ -11,6 +11,7 @@ import { commentsTableNames } from "../table-names.ts"
 import { resolveCommentsIdentity, resolveCommentsPage } from "./session.ts"
 
 import type { Comments } from "../index.ts"
+import type { ViteHubSiteVisitorReader } from "@vite-hub/internal/runtime/page-tools"
 import type { InstallCommentsOptions } from "../install.ts"
 import type { CommentsRuntime } from "../operations-core/service.ts"
 import type { CommentsDatabase } from "../operations-core/store.ts"
@@ -19,6 +20,7 @@ import type { CommentsGitHubLogin } from "./github-login.ts"
 import type { CommentsSessionOptions } from "./session.ts"
 
 export interface CommentsPluginOptions extends CommentsSessionOptions {
+  siteVisitor?: ViteHubSiteVisitorReader
   comments: Comments
   /** Offers GitHub sign-in or account switching through the overlay, even before read access is granted. */
   githubLogin?: CommentsGitHubLogin
@@ -107,6 +109,7 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
       },
     })
 
+    if (options.siteVisitor) installViteHubSiteVisitor(options.siteVisitor)
     // `overlay: false` leaves the page tool out; the API, the operations, and the Console stay.
     if (options.overlay === false) return
     const script = options.overlay

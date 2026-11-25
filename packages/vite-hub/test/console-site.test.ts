@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { registerViteHubPageTool, respondViteHubPageSession } from "@vite-hub/internal/runtime/page-tools"
+import { installViteHubPageTools, registerViteHubPageTool, respondViteHubPageSession, viteHubSiteVisitorReader } from "@vite-hub/internal/runtime/page-tools"
 import { readViteHubPageSession } from "@vite-hub/internal/runtime/page-tools-shared"
-import { siteStateHash, signSiteToken } from "@vite-hub/internal/site-token"
+import { signSiteHandoff, siteStateHash, signSiteToken } from "@vite-hub/internal/site-token"
 
+import { defineComments } from "../../comments/dist/index.js"
+import { createCommentsHandler, defineCommentsPlugin } from "../../comments/dist/runtime/index.js"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
 import { consoleOperationRegistry, installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
@@ -78,6 +80,7 @@ beforeEach(() => {
 
 afterEach(() => {
   Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.access"))
+  Reflect.deleteProperty(globalThis, Symbol.for("vitehub.page-tools"))
   installConsoleDevelopment("/app", false)
   vi.unstubAllEnvs()
   vi.unstubAllGlobals()
@@ -85,6 +88,28 @@ afterEach(() => {
 })
 
 describe("GET /_vitehub/site?return=", () => {
+  it("uses the configured Console for app visits and the signed issuer for handoffs", async () => {
+    vi.stubGlobal("__VITEHUB_CONSOLE_URL__", "https://self-hosted.example.com")
+    expect((await startVisit()).location.origin).toBe("https://self-hosted.example.com")
+    const app = `${origin}/portal`
+    const issuer = "https://console.vitehub.dev"
+    const url = await signSiteHandoff({ app, issuer, project: "hosted-project", path: "/docs?tab=1", key: key.key })
+    expect(url).toBeDefined()
+    const response = await siteAccessRoute.fetch(new Request(url!))
+    expect(response.status).toBe(303)
+    const location = new URL(response.headers.get("location")!)
+    const state = cookieValue(setCookies(response)["__Host-vitehub-site-state"])
+    expect(`${location.origin}${location.pathname}`).toBe(`${issuer}/visit`)
+    expect(Object.fromEntries(location.searchParams)).toEqual({ app, project: "hosted-project", return: "/docs?tab=1", state: await siteStateHash(state) })
+
+    for (const [name, value] of [["issuer", "https://other.example.com"], ["project", "other-project"], ["return", "/other"]] as const) {
+      const tampered = new URL(url!)
+      tampered.searchParams.set(name, value)
+      expect((await siteAccessRoute.fetch(new Request(tampered))).status).toBe(400)
+    }
+    expect((await siteAccessRoute.fetch(new Request(`${app}/_vitehub/site?issuer=${encodeURIComponent(issuer)}`))).status).toBe(400)
+  })
+
   it("keeps a state in a cookie and sends the browser to the Console visit URL with the hash of the state", async () => {
     const { response, state, location } = await startVisit("/docs?tab=1")
     expect(response.status).toBe(303)
@@ -146,6 +171,51 @@ describe("the site cookie", () => {
     expect(await readConsoleSiteVisitor(new Request(`${origin}/docs`, { headers: { cookie: guest } }))).toMatchObject({ id: "guest-1", roles: ["comments-write"], kind: "guest" })
   })
 
+  it("gives a member only new grants from the request app's current tools", async () => {
+    const member = await signIn({ roles: ["console"] })
+    const app = { async fetch(request: Request) { return Response.json((await viteHubSiteVisitorReader()?.(request))?.roles) } }
+    installViteHubPageTools(app)
+    installConsolePill(app, { version: "0.4.0", useCurrentGrants: true })
+    const tool = { id: "review", label: "Review", icon: "i-lucide-eye", script: "/review.js", allowed: async () => true }
+    registerViteHubPageTool(app, { ...tool, grants: [{ id: "review-read", label: "Read reviews" }] })
+    registerViteHubPageTool(app, { ...tool, grants: [{ id: "review-write", label: "Write reviews" }] })
+    registerViteHubPageTool({}, { ...tool, grants: [{ id: "other-app", label: "Other app" }] })
+    const request = new Request(`${origin}/docs`, { headers: { cookie: member } })
+    expect(await (await app.fetch(request)).json()).toEqual(["console", "review-write"])
+  })
+
+  it("keeps signed Comments API permissions when only the overlay is disabled", async () => {
+    const cookie = await signIn({ roles: ["console", "comments-read", "comments-write", "comments-resolve", "comments-delete"] })
+    const comments = defineComments()
+    for (const overlay of ["/comments.js", false] as const) {
+      Reflect.deleteProperty(globalThis, Symbol.for("vitehub.page-tools"))
+      const app = createCommentsHandler({ comments, realtime: false })
+      defineCommentsPlugin({
+        comments,
+        overlay,
+        database: () => undefined,
+        ...(overlay ? { pillSegments: [app => installConsolePill(app, { version: "0.4.0", useCurrentGrants: true })] } : { siteVisitor: readConsoleSiteVisitor }),
+      })(app)
+      const response = await app.fetch(new Request(`${origin}/_vitehub/comments/session`, { headers: { cookie } }))
+      expect(response.status).toBe(200)
+      expect(await response.json()).toMatchObject({ data: { can: { read: true, comment: true, resolve: true, delete: true } } })
+    }
+  })
+
+  it("keeps the signed roles of a member and a guest when console.authorize may limit the grants", async () => {
+    installConsoleAccess({ mode: "token", authorize: () => ({ sections: ["site:read"], grants: ["comments-read"] }) })
+    const member = await signIn({ roles: ["console", "comments-read"] })
+    const guest = await signIn({ sub: "guest-1", name: "Ana", email: undefined, roles: ["comments-write"] })
+    for (const useCurrentGrants of [false, true]) {
+      const app = { async fetch(request: Request) { return Response.json((await viteHubSiteVisitorReader()?.(request))?.roles) } }
+      installViteHubPageTools(app)
+      installConsolePill(app, { version: "0.4.0", useCurrentGrants })
+      registerViteHubPageTool(app, { id: "review", label: "Review", icon: "i-lucide-eye", script: "/review.js", allowed: async () => true, grants: [{ id: "review-write", label: "Write reviews" }] })
+      if (!useCurrentGrants) expect(await (await app.fetch(new Request(`${origin}/docs`, { headers: { cookie: member } }))).json()).toEqual(["console", "comments-read"])
+      expect(await (await app.fetch(new Request(`${origin}/docs`, { headers: { cookie: guest } }))).json()).toEqual(["comments-write"])
+    }
+  })
+
   it("ends 12 hours after the Console signed the token, and after the key of the link is gone", async () => {
     const cookie = await signIn()
     vi.useFakeTimers({ toFake: ["Date"] })
@@ -173,7 +243,7 @@ describe("the site cookie", () => {
     expect(await signOut({ "sec-fetch-site": "same-site", origin })).toBe(403)
   })
 
-  it("gives the pill the account of a member, and the Console segment to members only", async () => {
+  it("marks guest accounts and gives the Console segment to members only", async () => {
     const nitroApp = {}
     installConsolePill(nitroApp, { version: "0.4.0" })
     registerViteHubPageTool(nitroApp, { id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "/comments.js", allowed: async () => true })
@@ -183,7 +253,7 @@ describe("the site cookie", () => {
     expect(member.account).toEqual({ name: "Ada", email: "ada@example.com", via: "console", signOut: "/_vitehub/site" })
     const guest = await session(await signIn({ name: "Ana", roles: ["comments-write"] }))
     expect(guest.tools.map(tool => tool.id)).toEqual(["comments"])
-    expect(guest.account).toEqual({ name: "Ana", via: "console", signOut: "/_vitehub/site" })
+    expect(guest.account).toEqual({ name: "Ana", via: "console", guest: true, signOut: "/_vitehub/site" })
     expect(await session()).toEqual({ tools: [expect.objectContaining({ id: "comments" })] })
   })
 })
