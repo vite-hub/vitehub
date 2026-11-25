@@ -530,18 +530,27 @@ export async function planFromJsonSchema(input: PlanInput): Promise<SchemaPlan> 
     const schemaKind = found && schemaFieldKind(found, leaf)
     const access = schemaKind ? found : undefined
     const kind = schemaKind || plainFieldKind(leaf)
+    const credential = looksSecret(configPath)
+    const variable = nuxtVariableName(section, configPath)
     const stay = (reason: string) => {
       plan.unmigrated.push(label)
       follow(`${label} ${reason} It stays in runtimeConfig. Read it with useRuntimeConfig(), or move it to Env by hand.`, { runtimeConfig: label })
     }
+    const configValue = runtimeValue?.json
+    if (kind && ((kind === "json" && leaf.kind === "object") || isRecord(configValue))) {
+      const warning = credential ? " Remove any hardcoded credentials before deploying." : ""
+      stay(`can receive nested overrides such as ${variable}_*, but one Env declaration reads only the whole value.${warning}`)
+      return
+    }
     const moduleInput = runtimeValue?.literal ?? runtimeValue?.processEnv?.fallback
-    const jsonDefault = kind === "json" ? runtimeValue?.json : undefined
+    const jsonDefault = kind === "json" ? configValue : undefined
     if (kind && access && isAsyncSchema(access.schema, [undefined, moduleInput ?? jsonDefault])) {
       stay("has an async validator, and Env runs schemas synchronously.")
       return
     }
     if (kind && runtimeValue?.expression && jsonDefault === undefined) {
-      stay(`has the value ${runtimeValue.expression} in runtimeConfig, which the codemod cannot keep as an Env default.`)
+      const value = credential ? "a computed credential value" : `the value ${runtimeValue.expression}`
+      stay(`has ${value} in runtimeConfig, which the codemod cannot keep as an Env default. Use ${variable} for the Env declaration.`)
       return
     }
     if (kind && access && moduleInput === undefined && jsonDefault === undefined && hasSchemaDefault(access.schema)) {
@@ -563,17 +572,17 @@ export async function planFromJsonSchema(input: PlanInput): Promise<SchemaPlan> 
       section,
       configPath,
       envPath: section === "public" ? [flatPublicName(configPath)] : configPath,
-      variable: nuxtVariableName(section, configPath),
+      variable,
       kind,
       ...(kind === "enum" && leaf.kind === "enum" ? { values: leaf.values } : {}),
       required: required && !leaf.nullable,
-      secret: section === "server" && kind !== "enum" && looksSecret(configPath),
+      secret: section === "server" && kind !== "enum" && credential,
       ...(access ? { schema: { steps: access.steps } } : {}),
     }
-    if (section === "server" && kind === "enum" && looksSecret(configPath)) {
+    if (section === "server" && kind === "enum" && credential) {
       follow(`${label} looks like a credential, but an enum cannot be a secret because its values are public metadata. Use a string if the value is secret.`, { env: field })
     }
-    if (section === "public" && looksSecret(configPath)) {
+    if (section === "public" && credential) {
       follow(`${label} looks like a credential. Public Env is bundled into client code. Move it to the server section if it is secret.`, { env: field })
     }
     if (leaf.nullable) follow(`${label} accepts null. Env has no null value, so the field is optional and is undefined when the variable is not set.`, { env: field })
@@ -597,7 +606,8 @@ export async function planFromJsonSchema(input: PlanInput): Promise<SchemaPlan> 
     let defaultValue: EnvField["default"] = jsonDefault ?? (runtimeInput === undefined ? undefined : toDefault(runtimeInput))
     if (runtimeValue?.literal !== undefined) {
       if (defaultValue === undefined) {
-        follow(`runtimeConfig.${label} has the value ${literalText(runtimeValue.literal)}, which is not a valid ${kind}. It was not kept as a default.`, { env: field })
+        const value = credential ? "a credential value" : `the value ${literalText(runtimeValue.literal)}`
+        follow(`runtimeConfig.${label} has ${value}, which is not a valid ${kind}. It was not kept as a default.${credential ? ` Set ${variable} instead.` : ""}`, { env: field })
       }
     }
     else if (runtimeValue?.processEnv) {
@@ -620,12 +630,13 @@ export async function planFromJsonSchema(input: PlanInput): Promise<SchemaPlan> 
       }
     }
     if (defaultValue !== undefined && rejection !== undefined) {
-      follow(`${label} had the value ${literalText(defaultValue)}, which its $schema rejects: ${rejection}. The module treats this validation failure as fatal, so the codemod kept no default and Env requires ${field.variable}.`, { env: field })
+      const value = credential ? "a credential default, which its $schema rejects" : `the value ${literalText(defaultValue)}, which its $schema rejects: ${rejection}`
+      follow(`${label} had ${value}. The module treats this validation failure as fatal, so the codemod kept no default and Env requires ${field.variable}.`, { env: field })
       field.required = true
       defaultValue = undefined
     }
     if (defaultValue !== undefined && defaultValue !== "" && field.secret) {
-      follow(`${label} is secret, so its value ${literalText(defaultValue)} was not kept as a default. Defaults are written into the server build. Set ${field.variable} instead.`, { env: field })
+      follow(`${label} is secret, so its value was not kept as a default. Defaults are written into the server build. Set ${field.variable} instead.`, { env: field })
       defaultValue = undefined
     }
     if (defaultValue !== undefined) field.default = defaultValue

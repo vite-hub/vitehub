@@ -269,6 +269,36 @@ describe("defaults that the field schema rejects", () => {
     expect(rejected.report).toContain("allowedOrigins had the value [\"not a url\"], which its $schema rejects")
   })
 
+  it("keeps whole objects in runtimeConfig for nested Nuxt overrides", async () => {
+    const { code, report } = await migrateSchemaConfig(`export default defineNuxtConfig({
+      modules: ['nuxt-safe-runtime-config'],
+      safeRuntimeConfig: { $schema: './schema', validateAtRuntime: true },
+      runtimeConfig: { labels: { color: 'red' }, apiKeys: { billing: 'synthetic-credential' }, port: 3000 },
+    })`, "v.object({ labels: v.record(v.string(), v.string()), apiKeys: v.record(v.string(), v.string()), port: v.number() })")
+    expect(code).toContain("labels: { color: 'red' }")
+    expect(code).toContain("apiKeys: { billing: 'synthetic-credential' }")
+    expect(code).not.toMatch(/(labels|apiKeys): env/)
+    expect(code).toContain("port: env.number(")
+    expect(report).toContain("NUXT_LABELS_*")
+    expect(report).toContain("NUXT_API_KEYS_*")
+    expect(report).not.toContain("synthetic-credential")
+  })
+
+  it.each([
+    ["['synthetic-credential']", "v.array(v.string())", "was not kept as a default"],
+    ["['synthetic-credential']", "v.pipe(v.array(v.string()), v.check(() => false, issue => String(issue.input)))", "which its $schema rejects"],
+    ["['synthetic-credential', String(1)]", "v.array(v.string())", "cannot keep as an Env default"],
+  ])("redacts secret defaults and diagnostics for %s with %s", async (value, validator, reason) => {
+    const { report } = await migrateSchemaConfig(`export default defineNuxtConfig({
+      modules: ['nuxt-safe-runtime-config'],
+      safeRuntimeConfig: { $schema: './schema', validateAtRuntime: true },
+      runtimeConfig: { apiKeys: ${value} },
+    })`, `v.object({ apiKeys: ${validator} })`)
+    expect(report).toContain("NUXT_API_KEYS")
+    expect(report).toContain(reason)
+    expect(report).not.toContain("synthetic-credential")
+  })
+
   it.each([
     ["a default that only its $schema owns", "{}", "v.object({ tags: v.optional(v.array(v.string()), ['a']) })", "tags gets its default from its $schema"],
     ["a computed value", "{ tags: ['a', String(1)] }", "v.object({ tags: v.array(v.string()) })", "tags has the value ['a', String(1)] in runtimeConfig"],
