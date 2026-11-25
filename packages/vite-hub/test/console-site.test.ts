@@ -40,9 +40,10 @@ function cookieValue(line: string | undefined): string {
   return pair.slice(pair.indexOf("=") + 1)
 }
 
-async function startVisit(page = "/docs", base = ""): Promise<{ response: Response, state: string, location: URL }> {
-  const response = await siteAccessRoute.fetch(new Request(`${origin}${base}/_vitehub/site?${new URLSearchParams({ return: page })}`))
-  return { response, state: cookieValue(setCookies(response)["__Host-vitehub-site-state"]), location: new URL(response.headers.get("location") ?? "", origin) }
+async function startVisit(page = "/docs", base = "", cookie = "") {
+  const response = await siteAccessRoute.fetch(new Request(`${origin}${base}/_vitehub/site?${new URLSearchParams({ return: page })}`, { headers: { cookie } }))
+  const stateCookie = response.headers.getSetCookie()[0]?.split(";")[0] ?? ""
+  return { response, state: cookieValue(stateCookie), stateCookie, location: new URL(response.headers.get("location") ?? "", origin) }
 }
 
 async function token(state: string, claims: Partial<Omit<SiteTokenClaims, "iat" | "exp">> = {}, options: { now?: number, signer?: typeof key.key } = {}): Promise<string> {
@@ -53,8 +54,8 @@ async function token(state: string, claims: Partial<Omit<SiteTokenClaims, "iat" 
   })
 }
 
-async function finish(value: string, state: string, base = ""): Promise<Response> {
-  return await siteAccessRoute.fetch(new Request(`${origin}${base}/_vitehub/site?${new URLSearchParams({ token: value })}`, { headers: { cookie: `__Host-vitehub-site-state=${state}` } }))
+async function finish(value: string, state: string, base = "", cookie = `__Host-vitehub-site-state=${state}`): Promise<Response> {
+  return await siteAccessRoute.fetch(new Request(`${origin}${base}/_vitehub/site?${new URLSearchParams({ token: value })}`, { headers: { cookie } }))
 }
 
 async function signIn(claims: Partial<Omit<SiteTokenClaims, "iat" | "exp">> = {}): Promise<string> {
@@ -99,8 +100,40 @@ describe("GET /_vitehub/site?return=", () => {
 
   it("keeps the state of this browser, so the visit of another tab still ends here", async () => {
     const first = await startVisit()
-    const again = await siteAccessRoute.fetch(new Request(`${origin}/_vitehub/site?return=/`, { headers: { cookie: `__Host-vitehub-site-state=${first.state}` } }))
-    expect(cookieValue(setCookies(again)["__Host-vitehub-site-state"])).toBe(first.state)
+    const second = await startVisit("/other", "", first.stateCookie)
+    expect(second.state).toBe(first.state)
+    const one = await finish(await token(first.state), first.state)
+    expect(one.status).toBe(303)
+    expect(setCookies(one)["__Host-vitehub-site-state"]).toBeUndefined()
+    const two = await finish(await token(second.state, { path: "/other" }), second.state)
+    expect(two.headers.get("location")).toBe(`${origin}/other?vitehub`)
+  })
+
+  it("keeps pending visits and sessions independent across app bases on one origin", async () => {
+    const [portal, shop] = await Promise.all([startVisit("/docs", "/portal"), startVisit("/docs", "/shop")])
+    const nameOf = (cookie: string) => cookie.split("=")[0]!
+    expect(nameOf(portal.stateCookie)).not.toBe(nameOf(shop.stateCookie))
+    const states = `${portal.stateCookie}; ${shop.stateCookie}`
+    const complete = async (base: string, state: string, sub: string) => {
+      const response = await finish(await token(state, { aud: `${origin}${base}`, sub }), state, base, states)
+      expect(response.status).toBe(303)
+      return response.headers.getSetCookie()[0]!.split(";")[0]!
+    }
+    const sessionA = await complete("/portal", portal.state, "portal-user")
+    const sessionB = await complete("/shop", shop.state, "shop-user")
+    expect(nameOf(sessionA)).not.toBe(nameOf(sessionB))
+    const sessions = `${sessionA}; ${sessionB}`
+    expect(await readConsoleSiteVisitor(new Request(`${origin}/portal/docs`, { headers: { cookie: sessions } }), "/portal/")).toMatchObject({ id: "portal-user" })
+    expect(await readConsoleSiteVisitor(new Request(`${origin}/shop/docs`, { headers: { cookie: sessions } }), "/shop")).toMatchObject({ id: "shop-user" })
+    const entry = await siteEntryRoute.fetch(new Request(`${origin}/shop/_vitehub/docs`, { headers: { cookie: sessions } }))
+    expect(entry.headers.get("location")).toBe("/shop/docs?vitehub")
+    const signedOut = await siteAccessRoute.fetch(new Request(`${origin}/shop/_vitehub/site/`, { method: "POST", headers: { origin, cookie: sessions } }))
+    expect(signedOut.status).toBe(204)
+    const cleared = setCookies(signedOut)
+    expect(cleared[nameOf(sessionB)]).toContain("Max-Age=0")
+    expect(cleared[nameOf(shop.stateCookie)]).toContain("Max-Age=0")
+    expect(cleared[nameOf(sessionA)]).toBeUndefined()
+    expect(cleared[nameOf(portal.stateCookie)]).toBeUndefined()
   })
 
   it("names the app with its base, and refuses a return that is not a path of the app", async () => {
@@ -121,7 +154,6 @@ describe("GET /_vitehub/site?token=", () => {
     expect(response.headers.get("location")).toBe(`${origin}/docs?tab=1&vitehub`)
     const cookies = setCookies(response)
     expect(cookies["__Host-vitehub-site"]).toMatch(new RegExp(`^__Host-vitehub-site=${state}\\.${value.replaceAll(".", "\\.")}; Path=/; Max-Age=(4319[0-9]|43200); HttpOnly; Secure; SameSite=Lax$`))
-    expect(cookies["__Host-vitehub-site-state"]).toMatch(/^__Host-vitehub-site-state=; .*Max-Age=0/)
     expect(cookies.vitehub_session).toMatch(/^vitehub_session=1; /)
   })
 
@@ -219,6 +251,7 @@ describe("the site cookie", () => {
     expect(await signOut({ origin: "null" })).toBe(403)
     expect(await signOut({ origin: "https://evil.example" })).toBe(403)
     expect(await signOut({ "sec-fetch-site": "same-site", origin })).toBe(403)
+    expect(await signOut({ "sec-fetch-site": "same-origin", origin: "null" })).toBe(403)
   })
 
   it("marks guest accounts and gives the Console segment to members only", async () => {
