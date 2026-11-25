@@ -1,13 +1,13 @@
 import { existsSync } from "node:fs"
 import { createServer } from "node:http"
-import { createRequire } from "node:module"
 import type { AddressInfo } from "node:net"
 import { join } from "node:path"
 
+import { chromium } from "playwright-core"
 import { afterAll } from "vitest"
 
 import { createConsoleKeyPair, signConsoleRequest } from "../../../packages/internal/src/console-signature.ts"
-import { repoRoot, run } from "../packed-app.ts"
+import { run } from "../packed-app.ts"
 import { envDeclaration, expectJson, setServerEnv, type Mode, type PrepareContext, type PrimitiveRow, type ProbeContext, type Target } from "./row.ts"
 
 const contract = process.env.VITEHUB_CONSUMER_CONTRACT === "1"
@@ -154,24 +154,6 @@ interface BundleReport {
 async function readBundleReport(appDir: string): Promise<BundleReport> {
   const { stdout } = await run("pnpm", ["exec", "vitehub", "bundle", "--json"], appDir, commandEnv())
   return JSON.parse(stdout) as BundleReport
-}
-
-interface PlaywrightPage {
-  goto(url: string): Promise<unknown>
-  route(url: string, handler: (route: { abort(): Promise<void> }) => Promise<void>): Promise<void>
-  waitForFunction(source: string, argument?: unknown, options?: { timeout: number }): Promise<unknown>
-  evaluate<T>(source: string): Promise<T>
-  on(event: "console" | "pageerror", handler: (message: { text?(): string, message?: string }) => void): void
-}
-
-interface PlaywrightBrowser {
-  newContext(): Promise<{ newPage(): Promise<PlaywrightPage> }>
-  close(): Promise<void>
-}
-
-function chromium(): { launch(): Promise<PlaywrightBrowser> } {
-  const require = createRequire(join(repoRoot, "packages/device/package.json"))
-  return (require("playwright-core") as { chromium: { launch(): Promise<PlaywrightBrowser> } }).chromium
 }
 
 const deviceText = (state: { value: string, status: string, stored: string }) =>
@@ -324,13 +306,13 @@ export const ops: PrimitiveRow[] = [
       `,
     },
     async probe({ origin }) {
-      const browser = await chromium().launch()
+      const browser = await chromium.launch()
       try {
         await retry(3, async () => {
           const page = await (await browser.newContext()).newPage()
           const messages: string[] = []
-          page.on("console", message => messages.push(message.text?.() ?? ""))
-          page.on("pageerror", error => messages.push(error.message ?? ""))
+          page.on("console", message => messages.push(message.text()))
+          page.on("pageerror", error => messages.push(error.message))
           const step = async (label: string, source: string) => {
             await page.waitForFunction(source, undefined, { timeout: 30_000 }).catch(async (error: unknown) => {
               const text = await page.evaluate<string>(`document.body?.innerText ?? ""`).catch(() => "")

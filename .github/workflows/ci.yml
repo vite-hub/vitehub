@@ -234,7 +234,9 @@ jobs:
             --manifest .release/npm/release-manifest.json \
             --workspace . \
             --source-sha "$GITHUB_SHA"
-      - name: Test package contracts against exact release tarballs
+      - name: Install Chromium
+        run: pnpm exec playwright-core install --with-deps --only-shell chromium
+      - name: Test no-hoist consumers against exact release tarballs
         env:
           VITEHUB_RELEASE_MANIFEST: ${{ github.workspace }}/.release/npm/release-manifest.json
         run: vp run test:consumer
@@ -603,9 +605,8 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/setup
       - uses: ./.github/actions/setup-deno
-      # The Device row of the Nuxt primitives test opens its page in Chromium.
       - name: Install Chromium
-        run: ./packages/device/node_modules/.bin/playwright-core install --with-deps --only-shell chromium
+        run: pnpm exec playwright-core install --with-deps --only-shell chromium
       - run: vp run test:consumer --shard=${{ matrix.shard }}
 
   # Keep the default success() condition: needs alone can lose failed matrix
@@ -638,7 +639,7 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/setup
       - name: Install Chromium
-        run: ./packages/device/node_modules/.bin/playwright-core install --with-deps --only-shell chromium
+        run: pnpm exec playwright-core install --with-deps --only-shell chromium
       - run: vp run test:consumer -t Nuxt
         env:
           VITEHUB_CONSUMER_NUXT: "4.7"

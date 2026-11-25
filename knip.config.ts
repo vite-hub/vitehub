@@ -217,7 +217,6 @@ const config: KnipConfiguration = {
       ignoreDependencies: [
         "oxlint",
         "@vercel/blob",
-        "playwright-core",
         "sharp",
       ],
       vitest: { config: ["vitest.config.ts", "test/consumer/vitest.config.ts", "test/output/vitest.config.ts"] },
