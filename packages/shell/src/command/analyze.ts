@@ -1,7 +1,7 @@
 import { BinCmdOperator, LangVariant, RedirOperator, createSourceIndex, walk, type File } from "sh-syntax"
 
 import { wordText } from "./parse.ts"
-import { parseShell } from "./sh-syntax.ts"
+import { shellParser } from "./sh-syntax.ts"
 
 import type { ShellAnalyzeOptions, ShellAnalyzeResult } from "../runtime/types.ts"
 import { shellErrorDiagnostics } from "../error-diagnostics.ts"
@@ -23,7 +23,8 @@ export async function analyzeShellCommand(
   }
 
   try {
-    const file = await withTimeout(parseWithShSyntax(command), options.timeoutMs ?? defaultTimeoutMs)
+    const parse = await shellParser()
+    const file = await withTimeout(parse(command, { keepComments: true, variant: LangVariant.LangBash }), options.timeoutMs ?? defaultTimeoutMs)
     const metadata = analyzeAst(file, command)
     return {
       ...metadata,
@@ -38,10 +39,6 @@ export async function analyzeShellCommand(
       parser: "sh-syntax",
     }
   }
-}
-
-async function parseWithShSyntax(command: string) {
-  return parseShell(command, { keepComments: true, variant: LangVariant.LangBash })
 }
 
 function analyzeAst(file: File, command: string) {
