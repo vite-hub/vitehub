@@ -46,7 +46,7 @@ import { serverFetch } from "nitro/app"
 
 export default defineMiddleware(async (event) => {
   if (event.url.pathname !== "/account") return
-  const items = await serverFetch("/api/items", { headers: { cookie: event.req.headers.get("cookie") ?? "" } })
+  const items = await serverFetch("/api/items", { headers: event.req.headers })
   return new Response(\`Account of \${(await items.json()).email}\`)
 })
 `)

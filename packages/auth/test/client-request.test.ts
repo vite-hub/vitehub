@@ -64,15 +64,18 @@ describe("server Auth helpers in a request that the server serves in process", (
     const definition = auth(memory())
     const cookie = await signUp(definition, url, headers)
     const page = new Request(`${url}/items`, { headers: { accept: "text/html", cookie, host: new URL(url).host, ...headers } })
-    const api = () => new Request("http://localhost/api/items", { headers: { cookie, ...headers } })
+    const { host, protocol } = new URL(url)
+    for (const inProcessOrigin of ["http://localhost", `http://${host}`, ...(protocol === "https:" ? [`http://${host}:443`] : [])]) {
+      const api = () => new Request(`${inProcessOrigin}/api/items`, { headers: { cookie, ...headers } })
 
-    await serve(page, async () => {
-      expect((await requireAuth(api(), definition)).user.email).toBe("ada@example.com")
-      expect((await requireAuthorization(api(), true, definition)).user.email).toBe("ada@example.com")
-      const request = api()
-      const session = await authForRequest(request, undefined, definition).api.getSession({ headers: request.headers })
-      expect(session?.user.email).toBe("ada@example.com")
-    })
+      await serve(page, async () => {
+        expect((await requireAuth(api(), definition)).user.email).toBe("ada@example.com")
+        expect((await requireAuthorization(api(), true, definition)).user.email).toBe("ada@example.com")
+        const request = api()
+        const session = await authForRequest(request, undefined, definition).api.getSession({ headers: request.headers })
+        expect(session?.user.email).toBe("ada@example.com")
+      })
+    }
   })
 
   it("reads the session at the URL of the request outside a client request", async () => {
@@ -93,13 +96,17 @@ describe("server Auth helpers in a request that the server serves in process", (
     }))
   })
 
-  it("keeps the origin of a request to another origin", async () => {
+  it("keeps the origin of a request to another origin, also for the relative requests it sends", async () => {
     vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { support: site, sales: "https://sales.example.com" } })
     const definition = defineFixedAuth(options(memory()))
-    const request = new Request("https://sales.example.com/api/items")
+    const sales = new Request("https://sales.example.com/api/items")
+    const baseURL = (request: Request) => resolveAuthOptions(definition, { request }).options.baseURL
 
     await serve(new Request(`${site}/items`), async () => {
-      expect(resolveAuthOptions(definition, { request }).options.baseURL).toBe("https://sales.example.com")
+      expect(baseURL(sales)).toBe("https://sales.example.com")
+      await serve(sales, async () => {
+        expect(baseURL(new Request("http://localhost/api/other"))).toBe("https://sales.example.com")
+      })
     })
   })
 })
