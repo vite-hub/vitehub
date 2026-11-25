@@ -1955,9 +1955,10 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
       rateLimit: "vite-hub/rate-limit",
       realtime: generatedModules.commentsRealtime,
       runtime: "vite-hub/comments/runtime",
+      ...(configuredConsole ? { siteVisitor: generatedModules.consoleSiteVisitor } : {}),
       webhooks: "vite-hub/webhooks",
     },
-    ...configuredConsole ? { pillSegments: [{ module: generatedModules.consolePill, export: "installConsolePill", options: { version: readViteHubVersion() } }] } : {},
+    ...configuredConsole ? { pillSegments: [{ module: generatedModules.consolePill, export: "installConsolePill", options: { version: readViteHubVersion(), useCurrentGrants: configuredConsole.authorize === undefined } }] } : {},
   })
   if (options.realtime) {
     plugins.push(requireOptionalOwner(ownerModules.realtimeVite, "realtime").hubRealtime({

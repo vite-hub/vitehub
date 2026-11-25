@@ -18,4 +18,5 @@ export const generatedModules = {
   consolePill: ownModule(import.meta.url, "console/runtime/server/pill"),
   consoleSections: ownModule(import.meta.url, "console/runtime/server/sections"),
   consoleSetup: ownModule(import.meta.url, "console/runtime/server/setup"),
+  consoleSiteVisitor: ownModule(import.meta.url, "console/runtime/server/site-visitor"),
 }
