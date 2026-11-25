@@ -316,6 +316,10 @@ function applyProbe(probe: ConsoleProjectProbe, current: ConsoleLinkedProject): 
  */
 export function switchConsoleProject(id: string): void {
   const projects = useState()
+  if (projects.mode === "account" && projects.gate.value.kind === "home") {
+    openAccountProject(id)
+    return
+  }
   projects.store.select(id)
   if (projects.mode === "account") rememberAccountProject(projects.account.value?.teamId, id)
   const project = projects.store.get(id)
@@ -611,6 +615,7 @@ function startAccountState(account: ConsoleAccount | undefined, options: Console
   if (options.boot === "shell") started.openingView = "shell"
   const invitation = consoleInvitationOf(options.pathname)
   const page = accountPageOf(options.pathname)
+  consoleInviteRequested.value = Boolean(account && page === "team" && new URLSearchParams(search).get("invite") === "1")
   // Signed out, an `/open` link waits for the sign-in. Each sign-in method comes back to it.
   const returnTo = !account && !invitation && options.pathname.replace(/\/+$/, "") === `${options.home.replace(/\/+$/, "")}/open`
     ? consoleOpenReturnPath(options.home, search)
@@ -624,7 +629,7 @@ function startAccountState(account: ConsoleAccount | undefined, options: Console
     earlyProbe?.read.stop()
     earlyProbe = undefined
   }
-  return address ?? (missingApp ? options.home : undefined)
+  return consoleInviteRequested.value ? options.pathname : address ?? (missingApp ? options.home : undefined)
 }
 
 /**
@@ -754,15 +759,17 @@ let showAccountPath: ((path: string) => void) | undefined
  * Show a page of an `account` Console outside the projects, such as `/team`. Before a project opens, the page changes in
  * place. In an open project, the Console loads again, because the router owns the path there.
  */
-export function showConsoleAccountPage(page: ConsoleAccountPage): void {
+export function showConsoleAccountPage(page: ConsoleAccountPage, action?: "invite"): void {
   const projects = useState()
   // An earlier app-opening response must not replace the page the person selected.
   ++probeVersion
   const path = `${projects.home.replace(/\/+$/, "")}/${page}`
+  const invite = page === "team" && action === "invite"
   if (projects.gate.value.kind === "ready") {
-    projects.navigate(path)
+    projects.navigate(invite ? `${path}?invite=1` : path)
     return
   }
+  consoleInviteRequested.value = invite
   showAccountPath?.(path)
   projects.gate.value = { kind: "home", page }
 }

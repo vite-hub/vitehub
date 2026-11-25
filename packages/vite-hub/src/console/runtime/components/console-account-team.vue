@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, shallowRef } from "vue";
+import { computed, nextTick, onMounted, ref, shallowRef, watchPostEffect } from "vue";
 
 import type { ConsoleTeamDetails, ConsoleTeamMember } from "../client/account";
 import { cancelConsoleInvitation, earlyConsoleTeam, inviteConsoleMember, loadConsoleTeam, removeConsoleMember } from "../client/account";
@@ -44,9 +44,12 @@ async function load(answer = loadConsoleTeam()): Promise<void> {
 // The link to this page starts the load when the pointer or the focus reaches it.
 onMounted(() => {
   void load(earlyConsoleTeam.take());
+});
+
+watchPostEffect(() => {
   if (!consoleInviteRequested.value) return;
   consoleInviteRequested.value = false;
-  setTimeout(() => document.getElementById("vitehub-team-invite-email")?.focus(), 50);
+  document.getElementById("vitehub-team-invite-email")?.focus();
 });
 
 function initials(text: string): string {

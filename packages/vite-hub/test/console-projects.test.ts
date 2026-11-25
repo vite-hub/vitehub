@@ -268,6 +268,34 @@ describe("account Console", () => {
     return { module, state }
   }
 
+  it("leaves the team Env page when switching to an app", async () => {
+    const { module, state } = await account(async () => Response.json(projectGet))
+    state.gate.value = { kind: "home", page: "env" }
+    module.switchConsoleProject(linked.id)
+    expect(state.navigate).toHaveBeenCalledWith("/")
+  })
+
+  it("carries the Invite action through app navigation and consumes it on Members", async () => {
+    const { module, state } = await account(async () => Response.json(projectGet))
+    vi.stubGlobal("fetch", withAccount(() => state.account.value, async () => Response.json(projectGet)))
+    state.gate.value = { kind: "ready" }
+    module.showConsoleAccountPage("team", "invite")
+    expect(state.navigate).toHaveBeenCalledWith("/team?invite=1")
+    expect(module.consoleInviteRequested.value).toBe(false)
+
+    const boot = { home: "/", navigate: vi.fn(), pageOrigin: "https://console.example.com", pathname: "/team", showPath: vi.fn() }
+    expect(await module.startConsoleAccount({ ...boot, search: "?invite=1" })).toBe("/team")
+    expect(module.useConsoleProjects().gate.value).toEqual({ kind: "home", page: "team" })
+    expect(module.consoleInviteRequested.value).toBe(true)
+
+    await module.startConsoleAccount(boot)
+    expect(module.consoleInviteRequested.value).toBe(false)
+    module.showConsoleAccountPage("team", "invite")
+    expect(module.consoleInviteRequested.value).toBe(true)
+    module.showConsoleAccountPage("team")
+    expect(module.consoleInviteRequested.value).toBe(false)
+  })
+
   it("opens the page of a hostedConsoleUrl() link in the app of the team with that URL", async () => {
     const { consoleOpenLink } = await import("../src/console/runtime/client/project-session.ts")
     const { hostedConsoleUrl } = await import("@vite-hub/runtime")

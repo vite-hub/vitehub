@@ -5,7 +5,7 @@ import type { CommandPaletteGroup, CommandPaletteItem, DropdownMenuItem } from "
 import type { ConsoleAppIdentity } from "../client/app-identity";
 import type { ConsoleLinkedProject } from "../client/projects";
 import { consoleAppIdentity } from "../client/app-identity";
-import { canManageConsoleProjects, checkConsoleProjects, consoleInviteRequested, recentAccountProjects, reloadConsoleAccount, showConsoleAccountPage, switchConsoleProject, useConsoleProjects } from "../client/project-session";
+import { canManageConsoleProjects, checkConsoleProjects, recentAccountProjects, reloadConsoleAccount, showConsoleAccountPage, switchConsoleProject, useConsoleProjects } from "../client/project-session";
 import { orderSwitcherProjects } from "../client/projects";
 import { consoleSidebarOpen } from "../client/sidebar";
 import { useConsoleToast } from "../client/toast";
@@ -35,6 +35,7 @@ const current = computed(() => props.app ? projects.current.value : undefined);
 const open = ref(false);
 const query = ref("");
 const creating = ref(false);
+let inviteOnClose = false;
 
 const teamIdentity = computed<ConsoleAppIdentity>(() => {
   const name = team.value?.name ?? "Team";
@@ -84,10 +85,21 @@ const teamItems = computed<DropdownMenuItem[][]>(() => [
   [{ icon: "i-lucide-plus", label: "Create team", onSelect: () => { open.value = false; creating.value = true; } }],
 ]);
 
-function go(page: "home" | "team" | "team-settings", invite = false): void {
+function go(page: "home" | "team" | "team-settings"): void {
   open.value = false;
-  consoleInviteRequested.value = invite;
   showConsoleAccountPage(page);
+}
+
+function invite(): void {
+  inviteOnClose = true;
+  open.value = false;
+}
+
+function afterClose(event: Event): void {
+  if (!inviteOnClose) return;
+  event.preventDefault();
+  inviteOnClose = false;
+  showConsoleAccountPage("team", "invite");
 }
 
 function linkApp(): void {
@@ -110,7 +122,7 @@ const label = computed(() => props.app
   <UPopover
     v-if="switcher"
     v-model:open="open"
-    :content="{ side: 'bottom', align: 'start', sideOffset: 4 }"
+    :content="{ side: 'bottom', align: 'start', sideOffset: 4, onCloseAutoFocus: afterClose }"
     :ui="{ content: 'vitehub-switcher' }"
     @update:open="onOpen"
   >
@@ -136,7 +148,7 @@ const label = computed(() => props.app
           </button>
         </UDropdownMenu>
         <div class="vitehub-switcher__team-actions">
-          <UButton v-if="manage" size="xs" color="neutral" variant="ghost" icon="i-lucide-user-plus" label="Invite" @click="go('team', true)" />
+          <UButton v-if="manage" size="xs" color="neutral" variant="ghost" icon="i-lucide-user-plus" label="Invite" @click="invite" />
           <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-users" label="Members" @click="go('team')" />
           <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-settings" label="Settings" @click="go('team-settings')" />
         </div>
@@ -146,7 +158,7 @@ const label = computed(() => props.app
         v-model:search-term="query"
         :groups="groups"
         :placeholder="`Search ${projects.projects.value.length} apps`"
-        :fuse="{ resultLimit: 100 }"
+        :fuse="{ resultLimit: projects.projects.value.length }"
         size="sm"
         autofocus
         class="vitehub-switcher__apps"
