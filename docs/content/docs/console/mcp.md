@@ -151,6 +151,7 @@ With the account address, the agent works on the apps of the team that you opene
 
 | Tool | Does |
 | --- | --- |
+| `whoami` | Shows who the agent acts as, and the team and roles that it acts on. |
 | `list_apps` | Lists the apps that your team linked. |
 | `link_app` | Links an app by its URL, and returns the `VITEHUB_CONSOLE_KEY_<NAME>` line to set on it. With `kind: "site"`, it registers a site for [Hosted Comments](/docs/comments/configure#add-hosted-comments) and returns the script tag to add to its pages. Only owners and admins of the team can link. |
 | `check_app` | Answers `linked: true` when the app takes its link's signed calls. |
@@ -159,7 +160,18 @@ With the account address, the agent works on the apps of the team that you opene
 | `read_operation` | Runs one operation that only reads, such as `kv.list`. The app refuses an operation that changes data. |
 | `run_operation` | Runs one operation that changes data, such as `comments.create`. |
 
-To link an app, have the agent call `link_app` with its URL, set the returned line in the app's environment with `console: true`, and deploy. `check_app` then answers `linked: true`.
+To link an app, have the agent call `link_app` with its URL, set the returned line in the app's environment with `console: true`, and deploy. `check_app` then answers `linked: true`. An app that deploys with [`vitehub deploy`](/docs/cli/project#link-the-app-in-the-console) after `vitehub login` needs none of these steps: deploy links it.
+
+Each tool has a matching CLI command, so an agent can use either:
+
+| Tool | CLI |
+| --- | --- |
+| `whoami` | `vitehub whoami` |
+| `list_apps` | `vitehub apps list` |
+| `link_app` | `vitehub apps link <url>` |
+| `check_app` | `vitehub apps check <id>` |
+| `unlink_app` | `vitehub apps unlink <id> --delete-hosted-comments` |
+| `list_operations`, `read_operation`, `run_operation` | `vitehub <namespace> <operation> --url <app>` |
 
 The Console runs each operation with a [signed request](/docs/console/signed-requests), as its UI does, so the app's `console.authorize` gets `via: "console"` and your Console user and decides what the agent may do. The agent's sign-in and the link's key never reach your app or the agent. An operation's `mcp` field can hide it (`false`). `read_operation` is marked read-only, so clients can run it without asking before a change. The app refuses a change through it. A `destructive` operation, such as `content.publish`, runs only when the agent sends `confirm: true`, so the agent asks you first.
 

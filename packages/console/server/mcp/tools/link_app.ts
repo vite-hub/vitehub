@@ -29,7 +29,7 @@ export default defineMcpTool({
     return {
       app: project,
       variable: `${project.keyVariable}=${project.publicKey}`,
-      next: `Set ${project.keyVariable} in the environment of ${project.url}, with console: true in its vitehub config. Deploy it, then call check_app with id ${project.id}.`,
+      next: `Set ${project.keyVariable} in the environment of ${project.url}, with console: true in its vitehub config. Deploy it, then call check_app with id ${project.id}. When the app deploys with \`vitehub deploy\` after \`vitehub login\`, deploy does all of this.`,
     }
   },
 })
