@@ -19,7 +19,7 @@ Pick one framework integration and one deployment host. A host is a named target
 Both build the server output with Nitro.
 [Nitro and UnJS](/docs/frameworks-hosts/nitro-unjs) explains where ViteHub
 packages register Nitro handlers. To move a Nuxt app off NuxtHub, read
-[Migrate from NuxtHub](/docs/getting-started/migrate-from-nuxthub).
+[Migrate from NuxtHub](/docs/compare/nuxthub#migrate-from-nuxthub).
 
 ## Choose a host
 

@@ -83,7 +83,8 @@ const agentCapabilities = {
 
 const movedLearningPages = new Map(Object.entries({
   "/docs/ui/built-for-vue": "/docs/getting-started/built-for-vue",
-  "/docs/frameworks-hosts/migrate-from-nuxthub": "/docs/getting-started/migrate-from-nuxthub",
+  "/docs/frameworks-hosts/migrate-from-nuxthub": "/docs/compare/nuxthub",
+  "/docs/getting-started/migrate-from-nuxthub": "/docs/compare/nuxthub",
   "/docs/getting-started/concepts/workspace-and-sources": "/docs/workspace/concepts",
   "/docs/getting-started/concepts/auth-users-and-agent-invokers": "/docs/agents/invokers",
   "/docs/getting-started/concepts/runtime-policy-approvals-and-traces": "/docs/agents/runtime-policy",
@@ -188,11 +189,12 @@ export const docsPageRedirects = {
   ...Object.fromEntries(Object.entries(movedDiagnostics).flatMap(([section, { from, codes }]) => codes.map(code => [`/docs/${from}/diagnostics/${code}`, `/docs/${section}/diagnostics/${code}`]))),
 } satisfies Record<string, string>;
 
-/**
- * Fragments that moved with the Blob page split, with the CMS move to its own section, and with the moves of packages to their own sections.
- * The old page redirect keeps the hash, so `/docs/content/cms-preset#github-store` lands on `/docs/cms#github-store`.
- */
 export const docsLegacyFragmentRedirects = {
+  "/docs/compare/nuxthub": {
+    "where-nuxthub-is-stronger": "/docs/compare/nuxthub#what-nuxthub-has-that-vitehub-does-not",
+    "move-a-nuxt-app-from-nuxthub": "/docs/compare/nuxthub#migrate-from-nuxthub",
+    "related-guides": "/docs/compare/nuxthub#next-steps",
+  },
   "/docs/blob": {
     "quick-start": "/docs/blob/get-started",
     install: "/docs/blob/get-started",

@@ -490,7 +490,7 @@ describe("schema conversion", () => {
     expect(plan.unmigrated).toEqual(["optional", "nullable", "branded", "readonly", "defaulted", "public.value", "promised"])
   })
 
-  it("reports Zod 3 transforms and checks that Env cannot keep, including branded refinements", async () => {
+  it("reports Zod 3 transforms and checks that the codemod cannot keep, including branded refinements", async () => {
     const { z } = await import("zod/v3")
     const schema = z.object({
       title: z.string().trim().toLowerCase(),
@@ -512,7 +512,7 @@ describe("schema conversion", () => {
     const plan = await planFromJsonSchema({ jsonSchema, issues, runtimeConfig: new Map() })
     expect(plan.fields).toHaveLength(5)
     for (const name of Object.keys(schema.shape)) {
-      expect(plan.followUps).toContainEqual(expect.objectContaining({ message: expect.stringContaining(`${name}: Env does not keep`) }))
+      expect(plan.followUps).toContainEqual(expect.objectContaining({ message: expect.stringContaining(`${name}: the codemod did not keep`) }))
     }
   })
 

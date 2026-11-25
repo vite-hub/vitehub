@@ -19,7 +19,7 @@
     "@vercel/blob": "^2.0.1",
     "drizzle-kit": "^0.31.8",
     "drizzle-orm": "^0.45.1",
-    "nuxt": "^4.3.0"
+    "nuxt": "npm:nuxt-nightly@5x"
   },
   "devDependencies": {
     "@nuxt/eslint-config": "^1.13.0",
