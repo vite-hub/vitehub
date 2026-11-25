@@ -11,7 +11,7 @@ import { access } from "./nuxt-primitives/access.ts"
 import { content } from "./nuxt-primitives/content.ts"
 import { jobs } from "./nuxt-primitives/jobs.ts"
 import { ops } from "./nuxt-primitives/ops.ts"
-import { isRow, modes, type Mode, type Target } from "./nuxt-primitives/row.ts"
+import { isRow, modes, type Mode, type PrimitiveRow, type Target } from "./nuxt-primitives/row.ts"
 import { storage } from "./nuxt-primitives/storage.ts"
 import {
   availablePort,
@@ -46,15 +46,36 @@ async function viteHubFeatureKeys() {
   return [...new Set([...featureIds.map(id => featurePackages[id] ?? id), ...owners])].sort()
 }
 
-function nuxtConfig(target: Target) {
-  const vitehub = Object.assign({ agent: false, host: target }, ...rows.map(row => row.vitehub?.(target) ?? {}))
+function nuxtConfig(target: Target, active: PrimitiveRow[]) {
+  const vitehub = Object.assign({ agent: false, host: target }, ...active.map(row => row.vitehub?.(target) ?? {}))
   const nitro = target === "cloudflare"
     ? { cloudflare: { deployConfig: true }, preset: "cloudflare_module" }
     : { preset: "node-server" }
   return `export default defineNuxtConfig(${JSON.stringify({ compatibilityDate: "2026-10-01", modules: ["vite-hub/nuxt"], nitro, vitehub }, null, 2)})\n`
 }
 
-async function withServer<T>(command: string, args: string[], cwd: string, ready: RegExp | undefined, callback: (origin: string) => Promise<T>) {
+async function writeAppFiles(appDir: string, files: Record<string, string>) {
+  for (const [path, source] of Object.entries(files)) {
+    await mkdir(dirname(join(appDir, path)), { recursive: true })
+    await writeFile(join(appDir, path), source)
+  }
+}
+
+const readyPath = "/api/primitives/harness-ready"
+const readyPrefix = "nuxt-primitives-ready:"
+
+async function nitroWorker(origin: string, timeout: number) {
+  try {
+    const response = await fetch(`${origin}${readyPath}`, { redirect: "manual", signal: AbortSignal.timeout(timeout) })
+    const body = await response.text()
+    if (response.status === 200 && body.startsWith(readyPrefix)) return body
+  }
+  catch {
+    return undefined
+  }
+}
+
+async function withServer<T>(command: string, args: string[], cwd: string, ready: RegExp | undefined, callback: (origin: string) => Promise<T>, readySamples = 1) {
   const port = await availablePort()
   const child = spawn(command, args.map(arg => arg.replace("{port}", String(port))), {
     cwd,
@@ -73,11 +94,16 @@ async function withServer<T>(command: string, args: string[], cwd: string, ready
       if (Date.now() > deadline) throw new Error(`${command} ${args.join(" ")} did not start.\n${logs}`)
       await new Promise(resolve => setTimeout(resolve, 100))
     }
-    while (true) {
+    let worker: string | undefined
+    let samples = 0
+    while (samples < readySamples) {
       if (child.exitCode !== null) throw new Error(`${command} ${args.join(" ")} exited early.\n${logs}`)
-      const status = await fetch(origin, { signal: AbortSignal.timeout(60_000) }).then(response => response.status, () => 0)
-      if (status > 0 && status < 500) break
-      if (Date.now() > deadline) throw new Error(`${origin} answered ${status} after it started.\n${logs}`)
+      const remaining = deadline - Date.now()
+      if (remaining <= 0) throw new Error(`${origin}${readyPath} did not report a stable Nitro worker.\n${logs}`)
+      const current = await nitroWorker(origin, Math.min(remaining, 60_000))
+      samples = current ? (current === worker ? samples + 1 : 1) : 0
+      worker = current
+      if (samples === readySamples) break
       await new Promise(resolve => setTimeout(resolve, 500))
     }
     return await callback(origin).catch((error: unknown) => {
@@ -106,23 +132,20 @@ describe("Nuxt primitives", () => {
   describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")(`packed app on ${nuxtVersion}`, () => {
     let root: string
     let appDir: string
-    let built: Target | undefined
+    let rowFiles: string[] = []
 
     async function exec(command: string, args: string[]) {
       await run("pnpm", ["exec", command, ...args], appDir, { ...process.env, CI: "1", NO_COLOR: "1", NUXT_TELEMETRY_DISABLED: "1" })
     }
 
-    async function configure(target: Target) {
+    async function configure(target: Target, active: PrimitiveRow[]) {
       await rm(join(appDir, ".vitehub/data"), { force: true, recursive: true })
-      await writeFile(join(appDir, "nuxt.config.ts"), nuxtConfig(target))
-    }
-
-    async function build(target: Target) {
-      if (built === target) return
-      await configure(target)
-      await rm(join(appDir, ".output"), { force: true, recursive: true })
-      await exec("nuxt", ["build"])
-      built = target
+      const files: Record<string, string> = Object.assign({}, ...active.map(row => row.files))
+      for (const path of rowFiles) {
+        if (!Object.hasOwn(files, path)) await rm(join(appDir, path), { force: true })
+      }
+      rowFiles = Object.keys(files)
+      await writeAppFiles(appDir, { ...files, "nuxt.config.ts": nuxtConfig(target, active) })
     }
 
     beforeAll(async () => {
@@ -134,6 +157,12 @@ describe("Nuxt primitives", () => {
       const specs = await packWorkspacePackages(packDir, packages)
       const files: Record<string, string> = {
         "app/app.vue": "<template><main>Nuxt primitives</main></template>\n",
+        [`server${readyPath}.get.ts`]: `
+          import { defineEventHandler } from "nitro/h3"
+
+          let worker: string | undefined
+          export default defineEventHandler(() => worker ??= ${JSON.stringify(readyPrefix)} + crypto.randomUUID())
+        `,
         "package.json": JSON.stringify({
           dependencies: {
             ...Object.fromEntries([...packages].map(name => [name, specs[name]])),
@@ -147,12 +176,8 @@ describe("Nuxt primitives", () => {
           type: "module",
         }, null, 2),
         "pnpm-workspace.yaml": workspaceConfig(specs, consumerNuxt.overrides),
-        ...Object.assign({}, ...rows.map(row => row.files)),
       }
-      for (const [path, source] of Object.entries(files)) {
-        await mkdir(dirname(join(appDir, path)), { recursive: true })
-        await writeFile(join(appDir, path), source)
-      }
+      await writeAppFiles(appDir, files)
       await installApp(appDir, "--no-strict-peer-dependencies")
     }, 900_000)
 
@@ -160,21 +185,21 @@ describe("Nuxt primitives", () => {
       if (root) await rm(root, { force: true, recursive: true })
     }, 300_000)
 
-    async function serve(mode: Mode, target: Target, callback: (origin: string) => Promise<void>) {
+    async function serve(mode: Mode, callback: (origin: string) => Promise<void>) {
       if (mode === "node-build") return withServer(process.execPath, [join(appDir, ".output/server/index.mjs")], appDir, undefined, callback)
       if (mode === "cloudflare-build") {
         return withServer("pnpm", ["exec", "wrangler", "dev", "--config", ".output/server/wrangler.json", "--persist-to", ".wrangler/state", "--ip", "127.0.0.1", "--port", "{port}", "--local", "--show-interactive-dev-session=false"], appDir, /Ready on/, callback)
       }
-      return withServer("pnpm", ["exec", "nuxt", "dev", "--no-fork", "--host", "127.0.0.1", "--port", "{port}"], appDir, /Ready in|Local:/, callback)
+      return withServer("pnpm", ["exec", "nuxt", "dev", "--no-fork", "--host", "127.0.0.1", "--port", "{port}"], appDir, /Ready in|Local:/, callback, 3)
     }
 
     it.each(modes)(`answers each primitive route in %s`, async (mode) => {
       const target: Target = mode.startsWith("cloudflare") ? "cloudflare" : "node"
       const active = rows.filter(row => !row.exempt?.[mode])
-      if (mode.endsWith("-build")) await build(target)
-      else {
-        built = undefined
-        await configure(target)
+      await configure(target, active)
+      if (mode.endsWith("-build")) {
+        await rm(join(appDir, ".output"), { force: true, recursive: true })
+        await exec("nuxt", ["build"])
       }
       for (const row of active) {
         await row.prepare?.({
@@ -185,7 +210,7 @@ describe("Nuxt primitives", () => {
         })
       }
       const failures: string[] = []
-      await serve(mode, target, async (origin) => {
+      await serve(mode, async (origin) => {
         for (const row of active) {
           try {
             await row.probe({ fetch: (path, init) => fetch(`${origin}${path}`, { ...init, signal: AbortSignal.timeout(60_000) }), mode, target })
