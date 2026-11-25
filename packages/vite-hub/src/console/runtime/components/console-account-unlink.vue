@@ -3,7 +3,6 @@ import { ref, watch } from "vue";
 
 import { forgetConsoleProject } from "../client/project-session";
 
-/** Asks before an app leaves the team. The app keeps its variable, but the token behind it stops working. */
 const props = defineProps<{ projectId: string, name: string }>();
 const open = defineModel<boolean>("open", { required: true });
 
@@ -34,7 +33,7 @@ async function unlink(): Promise<void> {
   <UModal
     v-model:open="open"
     :title="`Unlink ${name}?`"
-    description="The variable you set stops working. Linking the app again makes a new one."
+    description="The link key stops working. Hosted comment threads and replies for this app are permanently deleted."
     :dismissible="!busy"
     :close="{ disabled: busy }"
     :ui="{ content: 'sm:max-w-[440px]' }"
@@ -45,7 +44,7 @@ async function unlink(): Promise<void> {
     <template #footer>
       <div class="flex w-full justify-end gap-2">
         <UButton color="neutral" variant="ghost" label="Cancel" :disabled="busy" @click="open = false" />
-        <UButton color="error" :label="`Unlink ${name}`" :loading="busy" @click="unlink" />
+        <UButton color="error" label="Unlink and delete comments" :loading="busy" @click="unlink" />
       </div>
     </template>
   </UModal>

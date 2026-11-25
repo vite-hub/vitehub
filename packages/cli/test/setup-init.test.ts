@@ -8,7 +8,7 @@ import { locateViteHubConfig } from "@vite-hub/internal/config-edit"
 import { featureIds, featureSupport } from "@vite-hub/internal/features"
 import { describe, expect, it } from "vitest"
 
-import { initPackages, nuxiPackage } from "../src/setup/init.ts"
+import { initPackages, nuxiPackage, nuxtNitroPackage } from "../src/setup/init.ts"
 import { createProject, runSetup } from "./setup-helpers.ts"
 
 import type { ViteHubCliSpawn } from "@vite-hub/internal/cli"
@@ -160,10 +160,10 @@ describe("vitehub init", () => {
     const parent = await createProject()
     const result = await init(["app", "--host", "node", "--features", "database", "--no-install", "--yes"], parent)
     expect(result.exitCode, result.stdout).toBe(0)
-    expect(result.json.install.packages).toEqual(expect.arrayContaining(["@vite-hub/database", "drizzle-orm@1.0.0-rc.5 || ^1.0.0"]))
-    expect(result.json.install.devPackages).toEqual(expect.arrayContaining(["drizzle-kit@1.0.0-rc.5 || ^1.0.0"]))
-    expect(result.json.install.command).toContain('"drizzle-orm@1.0.0-rc.5 || ^1.0.0"')
-    expect(result.json.install.command).toContain('"drizzle-kit@1.0.0-rc.5 || ^1.0.0"')
+    expect(result.json.install.packages).toEqual(expect.arrayContaining(["@vite-hub/database", "drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"]))
+    expect(result.json.install.devPackages).toEqual(expect.arrayContaining(["drizzle-kit@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"]))
+    expect(result.json.install.command).toContain('"drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"')
+    expect(result.json.install.command).toContain('"drizzle-kit@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"')
   })
 
   it("plans nodemailer for the SMTP Email driver on Node", async () => {
@@ -353,7 +353,7 @@ describe("vitehub init", () => {
     const result = await init(["app", "--host", "node", "--features", "database", "--yes"], parent, async () => ({ exitCode: 1 }))
     expect(result.exitCode).toBe(1)
     expect(result.json.error).toMatchObject({ code: "SETUP_INSTALL_FAILED" })
-    expect(result.json.error?.message).toContain('"drizzle-orm@1.0.0-rc.5 || ^1.0.0"')
+    expect(result.json.error?.message).toContain('"drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"')
     expect(result.json.error?.fix).toContain("app files were written")
     expect(result.json.error?.fix).not.toContain("did not write")
     const files = await snapshot(join(parent, "app"))
@@ -435,7 +435,7 @@ describe("vitehub init", () => {
     expect((await runSetup<StatusResult>(["status", "--json"], join(parent, "site"))).json.stack).toEqual(result.json.stack)
   })
 
-  it.each([undefined, "latest", "6.0.0", "npm:nuxt-nightly@latest"])("rejects a scaffold without a known Nuxt 5 version (%s)", async (nuxt) => {
+  it.each([undefined, "latest", "6.0.0", "npm:nuxt-nightly@latest"])("rejects a scaffold without a supported Nuxt version (%s)", async (nuxt) => {
     const parent = await createProject()
     const files = {
       "package.json": JSON.stringify({ dependencies: { nuxt }, type: "module" }),
@@ -469,15 +469,66 @@ describe("vitehub init", () => {
       })
       const result = await init([".", "--host", "node", "--features", "kv", "--no-install", "--yes"], root)
       expect(result.exitCode, result.stdout).toBe(0)
+      expect(result.json.install.packages).not.toContain(nuxtNitroPackage)
       const config = await readFile(join(root, "nuxt.config.ts"), "utf8")
       expect(locateViteHubConfig("nuxt.config.ts", config)).toMatchObject({ ok: true, site: { keys: { kv: { value: true }, host: { value: "node" } } } })
       expect(await readFile(join(root, "package.json"), "utf8")).toBe(manifest)
     }
   })
 
-  it.each(["dependencies", "devDependencies"])("rejects an existing Nuxt app without a known Nuxt 5 version in %s before any install or write", async (dependencyKey) => {
+  it.each(["4.7.0", "^4.7.0", "~4.7.2", ">=4.7.0 <5.0.0", "^4.7.0 || ^5.0.0-0", "npm:nuxt@^4.7.0"])("adopts a Nuxt %s app and installs nitro when the app does not declare it", async (nuxt) => {
+    const root = await createProject({
+      "package.json": JSON.stringify({ dependencies: { nuxt }, type: "module" }),
+      "nuxt.config.ts": "export default defineNuxtConfig({})\n",
+    })
+    const calls: string[][] = []
+    const result = await init([".", "--host", "node", "--features", "kv", "--pm", "pnpm", "--yes"], root, async (command, args) => {
+      calls.push([command, ...args])
+      return { exitCode: 0 }
+    })
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(result.json.install.packages.slice(0, initPackages.nuxt.prod.length + 1)).toEqual([...initPackages.nuxt.prod, nuxtNitroPackage])
+    expect(calls).toEqual([["pnpm", "add", ...result.json.install.packages]])
+    const config = await readFile(join(root, "nuxt.config.ts"), "utf8")
+    expect(locateViteHubConfig("nuxt.config.ts", config)).toMatchObject({ ok: true, site: { keys: { kv: { value: true }, host: { value: "node" } } } })
+  })
+
+  it.each([
+    { dependencies: { nitro: "3.0.261103-rc", nuxt: "^4.7.0" } },
+    { dependencies: { nuxt: "^4.7.0" }, devDependencies: { nitro: "^3.0.261103-rc" } },
+  ])("adopts a Nuxt 4.7 app that declares nitro without installing nitro again (%j)", async (dependencies) => {
+    const manifest = JSON.stringify({ ...dependencies, type: "module" })
+    const root = await createProject({
+      "package.json": manifest,
+      "nuxt.config.ts": "export default defineNuxtConfig({})\n",
+    })
+    const result = await init([".", "--host", "node", "--features", "kv", "--no-install", "--yes"], root)
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(result.json.install.packages.some(spec => spec.startsWith("nitro"))).toBe(false)
+    expect(await readFile(join(root, "package.json"), "utf8")).toBe(manifest)
+  })
+
+  it.each([
+    { dependencies: { nitro: "3.0.0" } },
+    { devDependencies: { nitro: "3.0.261102-rc" } },
+    { dependencies: { nitro: "^3.0.0" } },
+    { dependencies: { nitro: "^3.0.261103-rc" }, devDependencies: { nitro: "3.0.0" } },
+  ])("rejects an incompatible Nitro declaration before writing files (%j)", async ({ dependencies, devDependencies }) => {
+    const root = await createProject({
+      "package.json": JSON.stringify({ dependencies: { nuxt: "4.7.0", ...dependencies }, devDependencies }),
+      "nuxt.config.ts": "export default defineNuxtConfig({})\n",
+    })
+    const before = await snapshot(root)
+    const result = await init([".", "--host", "node", "--features", "kv", "--no-install", "--yes"], root)
+    expect(result.exitCode, result.stdout).toBe(3)
+    expect(result.json.error?.code).toBe("SETUP_INIT_NITRO_VERSION")
+    expect(result.json.error?.fix).toContain("^3.0.261103-rc")
+    expect(await snapshot(root)).toEqual(before)
+  })
+
+  it.each(["dependencies", "devDependencies"])("rejects an existing Nuxt app without a supported Nuxt version in %s before any install or write", async (dependencyKey) => {
     for (const nuxt of [
-      undefined, "^4.6.4", "latest", "*", "npm:nuxt-nightly@latest", "npm:other@5.0.0",
+      undefined, "^4.6.4", "^4.0.0", "4.7.0-alpha.1", ">=4.7.0", "^4.7.0 || 6.0.0", "latest", "*", "npm:nuxt-nightly@latest", "npm:other@5.0.0",
       "6.x", ">=5.0.0", ">=5.0.0 <=6.0.0", "5.x || 6.0.0", "5.x || 6.0.0-beta.1",
       ">=5.0.0 <6.0.0-beta.2", ">=5.0.0 <5.0.0", "<0.0.0-0", "not a range",
     ]) {
@@ -494,6 +545,7 @@ describe("vitehub init", () => {
       expect(result.exitCode, result.stdout).toBe(3)
       expect(result.json.error?.code).toBe("SETUP_INIT_NUXT_VERSION")
       expect(result.json.error?.fix).not.toContain("scaffold files")
+      expect(result.json.error?.fix).toContain("pnpm add nuxt@^4.7.0 nitro")
       expect(calls).toEqual([])
       expect(await snapshot(root)).toEqual(before)
     }

@@ -64,7 +64,7 @@ function previewSpec(packageName, preview) {
   return `https://pkg.pr.new/vite-hub/vitehub/${packageName}@${preview}`
 }
 
-function renderWorkspaceYaml(overrides, vitePlusVersion, vitestVersion) {
+function renderWorkspaceYaml(overrides, vitePlus) {
   const overrideLines = Object.entries(overrides).map(([name, spec]) => `  ${JSON.stringify(name)}: ${JSON.stringify(spec)}`)
   return [
     "allowBuilds:",
@@ -76,9 +76,9 @@ function renderWorkspaceYaml(overrides, vitePlusVersion, vitestVersion) {
     "  node-liblzma: true",
     "  vue-demi: false",
     "catalog:",
-    `  vite: npm:@voidzero-dev/vite-plus-core@${vitePlusVersion}`,
-    `  vitest: ${vitestVersion}`,
-    `  vite-plus: ${vitePlusVersion}`,
+    `  vite: ${vitePlus.dependencies.vite}`,
+    `  vitest: ${vitePlus.dependencies.vitest}`,
+    `  vite-plus: ${vitePlus.version}`,
     "overrides:",
     "  vite: \"catalog:\"",
     "  vitest: \"catalog:\"",
@@ -94,8 +94,8 @@ function renderWorkspaceYaml(overrides, vitePlusVersion, vitestVersion) {
   ].join("\n")
 }
 
-async function writeFixtureFiles(overrides, vitePlusVersion, vitestVersion) {
-  await writeFile(join(appDir, "pnpm-workspace.yaml"), renderWorkspaceYaml(overrides, vitePlusVersion, vitestVersion), "utf8")
+async function writeFixtureFiles(overrides, vitePlus) {
+  await writeFile(join(appDir, "pnpm-workspace.yaml"), renderWorkspaceYaml(overrides, vitePlus), "utf8")
   await mkdir(join(appDir, "src", "lib"), { recursive: true })
   await mkdir(join(appDir, "server", "agents"), { recursive: true })
   await writeFile(join(appDir, "src", "lib", "reply.ts"), "export const replyMarker = \"netlify-alias-ok\"\n", "utf8")
@@ -207,7 +207,7 @@ async function createProject({ packageSource, preview }) {
     : { "vite-hub": previewSpec("vite-hub", preview) }
   const workspace = parseYaml(await readFile(join(repoRoot, "pnpm-workspace.yaml"), "utf8"))
   overrides.nuxt = workspace.catalogs.nuxt.nuxt
-  await writeFixtureFiles(overrides, vitePlus.version, vitePlus.dependencies.vitest)
+  await writeFixtureFiles(overrides, vitePlus)
 
   const packageSpecs = fixturePackages.map(packageName).map(name => packageSource === "local"
     ? overrides[name]

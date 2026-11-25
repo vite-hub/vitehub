@@ -73,7 +73,7 @@ describe("database generate with Nuxt aliases", () => {
     // Rewriting must still read the application config, rather than the generated config.
     await writeGeneratedDatabaseArtifacts(config, options)
     await execFileAsync(process.execPath, [
-      join(import.meta.dirname, "../node_modules/drizzle-kit/bin.cjs"),
+      join(import.meta.dirname, "../node_modules/drizzle-kit/bin.js"),
       "generate", "--config", config.generatedDrizzleConfigFile,
     ], { cwd: appDir })
     const migrationsDir = join(appDir, config.databases.default!.migrationsDir)
@@ -97,7 +97,7 @@ describe("database generate with Nuxt aliases", () => {
     const config = resolveDBViteConfig(undefined, appDir)!
     await writeGeneratedDatabaseArtifacts(config, { alias })
     await execFileAsync(process.execPath, [
-      join(import.meta.dirname, "../node_modules/drizzle-kit/bin.cjs"),
+      join(import.meta.dirname, "../node_modules/drizzle-kit/bin.js"),
       "generate",
       "--config",
       config.generatedDrizzleConfigFile,

@@ -3,7 +3,7 @@ import linguiMacroPlugin from "@lingui/babel-plugin-lingui-macro"
 
 import { macroNames } from "./lingui.ts"
 
-import type { BabelFileResult, PluginObj, types as BabelTypes } from "@babel/core"
+import type { FileResult, InputOptions, PluginObject, types as BabelTypes } from "@babel/core"
 import type { LinguiConfigNormalized } from "@lingui/conf"
 
 export type DescriptorFields = "all" | "id-only"
@@ -15,8 +15,17 @@ function parserPlugins(id: string): ("typescript" | "jsx")[] {
   return ["jsx"]
 }
 
+async function importsMacros(code: string, packages: readonly string[], plugins: ReturnType<typeof parserPlugins>): Promise<boolean> {
+  const lang = plugins.includes("typescript") ? plugins.includes("jsx") ? "tsx" : "ts" : "jsx"
+  const { parseAst } = await import("vite")
+  return parseAst(code, { lang }).body.some(statement =>
+    statement.type === "ImportDeclaration" && statement.importKind !== "type" && packages.includes(statement.source.value)
+    && statement.specifiers.some(specifier => specifier.type === "ImportSpecifier" && specifier.importKind !== "type"
+      && macroNames.has(specifier.imported.type === "Identifier" ? specifier.imported.name : specifier.imported.value)))
+}
+
 function splitRuntimeImports(packages: readonly string[], importBase: string, tNames: Set<string>) {
-  return ({ types: t }: { types: typeof BabelTypes }): PluginObj => ({
+  return ({ types: t }: { types: typeof BabelTypes }): PluginObject => ({
     name: "vite-hub-i18n-split-imports",
     visitor: {
       ImportDeclaration(path) {
@@ -36,12 +45,26 @@ function splitRuntimeImports(packages: readonly string[], importBase: string, tN
   })
 }
 
+type SourceMap = Exclude<InputOptions["inputSourceMap"], boolean | null | undefined>
+
+function plainSourceMap(map: FileResult["map"]): SourceMap | undefined {
+  if (!map) return undefined
+  const { sourcesContent } = map
+  return {
+    ...map,
+    file: map.file ?? "",
+    names: [...map.names],
+    sources: map.sources.map(source => source ?? ""),
+    sourcesContent: sourcesContent?.every((content): content is string => content !== null) ? [...sourcesContent] : undefined,
+  }
+}
+
 function importedName(node: BabelTypes.Identifier | BabelTypes.StringLiteral): string {
   return node.type === "Identifier" ? node.name : node.value
 }
 
 function bindVueMessages(importBase: string, tNames: ReadonlySet<string>) {
-  return ({ types: t }: { types: typeof BabelTypes }): PluginObj => ({
+  return ({ types: t }: { types: typeof BabelTypes }): PluginObject => ({
     name: "vite-hub-i18n-vue-messages",
     visitor: {
       Program(path) {
@@ -96,10 +119,13 @@ export async function transformMacros(
   config: LinguiConfigNormalized,
   importBase: string,
   descriptorFields: DescriptorFields,
-): Promise<{ code: string, map: NonNullable<BabelFileResult["map"]> | null } | undefined> {
+  options?: { macroImportsOnly: boolean },
+): Promise<{ code: string, map: SourceMap | null } | undefined> {
   const packages = config.macro.corePackage
   if (!packages.some(name => code.includes(`"${name}"`) || code.includes(`'${name}'`))) return undefined
   const filename = id.split("?")[0]!
+  const syntax = parserPlugins(filename)
+  if (options?.macroImportsOnly && !await importsMacros(code, packages, syntax)) return undefined
   const tNames = new Set<string>()
   const result = await transformAsync(code, {
     filename,
@@ -107,22 +133,22 @@ export async function transformMacros(
     configFile: false,
     sourceMaps: true,
     ast: true,
-    parserOpts: { sourceType: "module", plugins: parserPlugins(id) },
+    parserOpts: { sourceType: "module", plugins: syntax },
     plugins: [
       splitRuntimeImports(packages, importBase, tNames),
       [linguiMacroPlugin, { linguiConfig: config, descriptorFields }],
     ],
   })
   if (!result?.code) return undefined
-  if (!filename.endsWith(".vue") || !result.ast) return { code: result.code, map: result.map ?? null }
+  if (!filename.endsWith(".vue") || !result.ast) return { code: result.code, map: plainSourceMap(result.map) ?? null }
   const bound = await transformFromAstAsync(result.ast, result.code, {
     filename,
     babelrc: false,
     configFile: false,
     sourceMaps: true,
-    inputSourceMap: result.map ?? undefined,
+    inputSourceMap: plainSourceMap(result.map),
     plugins: [bindVueMessages(importBase, tNames)],
   })
   if (!bound?.code) return undefined
-  return { code: bound.code, map: bound.map ?? null }
+  return { code: bound.code, map: plainSourceMap(bound.map) ?? null }
 }

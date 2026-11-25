@@ -25,7 +25,7 @@ On Slimbook, run it through the shared lock:
 
 The run takes a few minutes. It does these steps:
 
-1. Starts Postgres 17 and Redis 7 from `compose.yaml` on free ports. With
+1. Starts Postgres 17 and Redis 8 from `compose.yaml` on free ports. With
    `--no-redis`, it starts only Postgres.
 2. Packs the workspace packages and installs the fixture app from `app/` in a
    temporary directory outside the repository, with Nuxt 5 and the `node` host.

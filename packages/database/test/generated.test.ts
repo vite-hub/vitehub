@@ -13,7 +13,7 @@ import { writeGeneratedDatabaseArtifacts } from "../src/internal/generated.ts"
 const nodeMajor = Number(process.versions.node.split(".")[0])
 
 const execFileAsync = promisify(execFile)
-const drizzleKitBin = join(dirname(createRequire(import.meta.url).resolve("drizzle-kit")), "bin.cjs")
+const drizzleKitBin = join(dirname(createRequire(import.meta.url).resolve("drizzle-kit")), "bin.js")
 const tempDirs: string[] = []
 
 afterEach(async () => {

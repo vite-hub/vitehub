@@ -230,7 +230,7 @@ describe("vitehub database up", () => {
       "",
     ].join("\n"))
     // An older ViteHub, or `drizzle-kit up` alone, converted the folder and kept `members_email_unique` as an index.
-    const kit = join(dirname(createRequire(import.meta.url).resolve("drizzle-kit")), "bin.cjs")
+    const kit = join(dirname(createRequire(import.meta.url).resolve("drizzle-kit")), "bin.js")
     await expect(realSpawn(process.execPath, [kit, "up", "--dialect", "sqlite", "--out", migrationsDir], { cwd: project.rootDir })).resolves.toEqual({ exitCode: 0 })
     await expect(project.run("up")).resolves.toMatchObject({ exitCode: 0, stdout: expect.stringContaining("already uses the layout of Drizzle Kit 1.0") })
     const tags = await migrationTags(migrationsDir)
@@ -261,7 +261,7 @@ describe("vitehub database up", () => {
     const refused = await project.run("up")
     expect(refused.exitCode).toBe(1)
     expect(refused.stderr).toContain("`vitehub database up` needs drizzle-kit 1.0, and")
-    expect(refused.stderr).toContain("has drizzle-kit 0.31.4. Install the version that ViteHub uses, for example with `pnpm add -D drizzle-kit@1.0.0-rc.5`")
+    expect(refused.stderr).toContain("has drizzle-kit 0.31.4. Install the version that ViteHub uses, for example with `pnpm add -D drizzle-kit@1.0.0-rc.6`")
     await expect(readdir(project.database.migrationsDir)).resolves.toContain("meta")
   })
 
@@ -1180,7 +1180,7 @@ describe("vitehub database migrate with D1 over HTTP", () => {
     project.database.cloudflare = { binding: "DB", databaseId: "database-id", http: true, migrationsDir }
     // Drizzle Kit 0.31 wrote these, and Wrangler applied them as `0000_init.sql` and `0001_add_body.sql`.
     await cp(join(import.meta.dirname, "fixtures/drizzle-kit-0x-migrations"), migrationsDir, { recursive: true })
-    const kit = join(dirname(createRequire(import.meta.url).resolve("drizzle-kit")), "bin.cjs")
+    const kit = join(dirname(createRequire(import.meta.url).resolve("drizzle-kit")), "bin.js")
     await expect(realSpawn(process.execPath, [kit, "up", "--dialect", "sqlite", "--out", migrationsDir], { cwd: project.rootDir })).resolves.toEqual({ exitCode: 0 })
     expect(existsSync(join(migrationsDir, "meta"))).toBe(false)
     await project.writeSchema(["title", "body", "tags"])
@@ -1213,6 +1213,17 @@ describe("vitehub database migrate with D1 over HTTP", () => {
   }, 120_000)
 
   it("upgrades the merged Console D1 history without replaying applied migrations", async () => {
+    const migrationNames = [
+      "0000_careful_stature.sql",
+      "0001_keep_sign_in_method.sql",
+      "0002_sign_project_calls.sql",
+      "0003_comments.sql",
+      "0004_cli_auth.sql",
+      "0005_site_access.sql",
+      "0006_mcp_client.sql",
+      "0007_hosted_comments.sql",
+      "0008_hosted_comments_sessions.sql",
+    ]
     const project = await createProject()
     const migrationsDir = project.database.migrationsDir
     project.database.cloudflare = { binding: "DB", databaseId: "database-id", http: true, migrationsDir }
@@ -1231,9 +1242,7 @@ describe("vitehub database migrate with D1 over HTTP", () => {
       const applied = await project.run("migrate", ["--allow-data-loss"], { ...process.env, ...d1Env })
       expect(applied).toMatchObject({ exitCode: 0, stderr: "" })
       expect(applied.stdout).toContain("applied 0002_sign_project_calls.sql.")
-      await expect(d1.rows("SELECT name FROM d1_migrations ORDER BY id")).resolves.toEqual([
-        ["0000_careful_stature.sql"], ["0001_keep_sign_in_method.sql"], ["0002_sign_project_calls.sql"], ["0003_comments.sql"], ["0004_cli_auth.sql"],
-      ])
+      await expect(d1.rows("SELECT name FROM d1_migrations ORDER BY id")).resolves.toEqual(migrationNames.map(name => [name]))
       const columns = (await d1.rows("SELECT name FROM pragma_table_info('console_projects')")).flat()
       expect(columns).toContain("key_sealed")
       expect(columns).toContain("public_key")
@@ -1242,7 +1251,7 @@ describe("vitehub database migrate with D1 over HTTP", () => {
 
       const staged = join(project.rootDir, "staged")
       await copyD1MigrationFiles(migrationsDir, staged)
-      expect((await readdir(staged)).sort()).toEqual(["0000_careful_stature.sql", "0001_keep_sign_in_method.sql", "0002_sign_project_calls.sql", "0003_comments.sql", "0004_cli_auth.sql"])
+      expect((await readdir(staged)).sort()).toEqual(migrationNames)
       await expect(readFile(join(staged, "0000_careful_stature.sql"), "utf8")).resolves.toBe(initial)
     }
     finally {
