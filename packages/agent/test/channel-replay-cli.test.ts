@@ -3,9 +3,11 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createConsoleKeyPair } from "@vite-hub/internal/console-signature"
 import { refreshWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
+import * as v from "valibot"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { channelReplayQuery, channelReplayQueryHelp, parseChannelReplayArgs, runAgentChannelReplayCli } from "../src/internal/channel-replay-cli.ts"
+import { agentToolJsonSchema } from "../src/tool-schema.ts"
 import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 const querySchema = {
@@ -71,6 +73,18 @@ describe("vitehub channels replay", () => {
     ["filter", ["--filter", "label=work"]],
   ] as const)("sends a single %s array value as an array", (_mode, args) => {
     expect(channelReplayQuery(parseChannelReplayArgs([...args, "--folder", "inbox"]), querySchema)).toEqual({ folder: "inbox", label: ["work"] })
+  })
+
+  it("wraps nullable arrays but keeps single values scalar when the query also accepts a string", () => {
+    const nullableArray = v.nullable(v.array(v.string()))
+    const historyQuery = v.object({ label: nullableArray, folder: v.union([nullableArray, v.string()]) })
+    const schema = agentToolJsonSchema(historyQuery, "input")
+    const parsed = parseChannelReplayArgs(["--filter", "label=work", "--folder", "inbox"])
+
+    const query = channelReplayQuery(parsed, schema)
+
+    expect(query).toEqual({ label: ["work"], folder: "inbox" })
+    expect(v.parse(historyQuery, query)).toEqual(query)
   })
 
   it("keeps scalar, repeated scalar, and schema-free filter values", () => {
