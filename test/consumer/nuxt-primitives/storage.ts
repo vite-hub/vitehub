@@ -73,7 +73,6 @@ export const storage: PrimitiveEntry[] = [
         import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
         import { defineDatabase } from "vite-hub/database"
 
-        // The Sync row syncs this table.
         export const primitiveTodos = sqliteTable("primitive_todos", {
           id: text("id").primaryKey(),
           title: text("title").notNull(),
@@ -176,6 +175,7 @@ export const storage: PrimitiveEntry[] = [
     files: {
       "server/api/primitives/cache.ts": `
         import { defineEventHandler, getQuery } from "nitro/h3"
+        import { useKV } from "nitro/kv"
         import { defineCachedFunction, invalidateTag } from "vite-hub/cache"
 
         const stamp = defineCachedFunction(async (key: string) => ({ key, stamp: crypto.randomUUID() }), {
@@ -191,14 +191,15 @@ export const storage: PrimitiveEntry[] = [
             await invalidateTag(\`primitive:\${key}\`)
             return { invalidated: true }
           }
-          return await stamp(key)
+          return { ...await stamp(key), driver: useKV().getMount("cache").driver.name }
         })
       `,
     },
     async probe({ fetch, mode }) {
       const key = `${mode}-${crypto.randomUUID()}`
-      const first = await readJson<{ key: string, stamp: string }>(await fetch(`/api/primitives/cache?key=${key}`))
+      const first = await readJson<{ driver: string, key: string, stamp: string }>(await fetch(`/api/primitives/cache?key=${key}`))
       if (first.key !== key || typeof first.stamp !== "string") throw new Error(`The cached function returned ${JSON.stringify(first)}.`)
+      if (mode === "cloudflare-build") expectEqual(first.driver, "cloudflare-kv-binding", "Cache driver")
       await expectJson(await fetch(`/api/primitives/cache?key=${key}`), first)
       await expectJson(await fetch(`/api/primitives/cache?key=${key}`, { method: "DELETE" }), { invalidated: true })
       const fresh = await readJson<{ key: string, stamp: string }>(await fetch(`/api/primitives/cache?key=${key}`))
@@ -220,7 +221,6 @@ export const storage: PrimitiveEntry[] = [
         import { defineEventHandler, getQuery } from "nitro/h3"
         import { useDatabase } from "vite-hub/database"
 
-        // A write of server code, which the Sync triggers must capture.
         export default defineEventHandler(async (event) => {
           const { db, schema } = useDatabase()
           const query = getQuery(event)
@@ -280,6 +280,7 @@ export const storage: PrimitiveEntry[] = [
       await expectJson(await fetch(`/api/primitives/rate-limit?key=${key}`), { allowed: true })
       const limited = await fetch(`/api/primitives/rate-limit?key=${key}`)
       if (limited.status !== 429) throw new Error(`The third request answered ${limited.status}: ${(await limited.text()).slice(0, 2000)}`)
+      if (mode === "cloudflare-build") expectEqual(limited.headers.get("Retry-After"), null, "Cloudflare Rate Limit Retry-After")
       await expectJson(await fetch(`/api/primitives/rate-limit?key=${key}-other`), { allowed: true })
     },
   },
