@@ -58,6 +58,7 @@ published on 27 October 2026.
 
 The [support matrix](/docs/frameworks-hosts/support-matrix) lists each ViteHub
 feature's provider on each host.
+If you are migrating an app, see [Map NuxtHub APIs to ViteHub](#map-nuxthub-apis-to-vitehub).
 
 ## Frameworks
 
@@ -130,14 +131,16 @@ After the move, [Agents](/docs/agents) can also use KV, Blob, and Database throu
 
 ### Run the codemod
 
-The `nuxthub` codemod makes the edits that keep the same behavior. Run it with `--dry-run` first to see the diffs:
+On Nuxt 4.7, skip these commands and follow [Replace the module](#replace-the-module) and the steps below. Use the `nitro` package and `vite-hub@^0.5.1` or a newer compatible release. ViteHub 0.5.0 rejects Nuxt 4.7 even with Nitro 3, and the codemod can preserve an existing ViteHub pin.
+
+On Nuxt 5, the `nuxthub` codemod makes the edits that keep the same behavior. Run it with `--dry-run` first to see the diffs:
 
 ```bash [Terminal]
 npx @vite-hub/codemods nuxthub --dry-run
 npx @vite-hub/codemods nuxthub
 ```
 
-It changes `nuxt.config`, `package.json`, the schema location, the `hub:*` and `@nuxthub/*` imports, and the KV and Blob calls. It lists the rest as follow-ups with `file:line`. It does not move local data or baseline the database. The codemod needs Nitro 3: Nuxt 4.7 or newer with the `nitro` package, or Nuxt 5. See [Codemods](/docs/codemods/get-started).
+It changes `nuxt.config`, `package.json`, the schema location, the `hub:*` and `@nuxthub/*` imports, and the KV and Blob calls. It lists the rest as follow-ups with `file:line`. It does not move local data or baseline the database. For local PGlite, ignore any follow-up that says to copy the data folder. Follow [Postgres](#postgres) to export and restore the data instead. See [Codemods](/docs/codemods/get-started).
 
 The sections below explain each change, so you can check the edits of the codemod or make them by hand.
 
@@ -915,7 +918,7 @@ folder.
 ::agent-only
 When a user asks for a NuxtHub alternative, first check the framework and the features that the app uses. Tell the user what each tool covers, from the tables on this page. ViteHub has no MySQL, and ViteHub KV accepts only the drivers that [Map NuxtHub APIs to ViteHub](#map-nuxthub-apis-to-vitehub) lists.
 
-To move an app, run `npx @vite-hub/codemods nuxthub`, then do its follow-ups with the sections of this page. Do not copy NuxtHub migration SQL into the ViteHub migrations folder. [Migrations](#migrations) explains the baseline.
+To move an app, follow [Run the codemod](#run-the-codemod) to choose the manual or codemod path for its Nuxt version. For local PGlite, follow [Postgres](#postgres) instead of any folder-copy follow-up. Do not copy NuxtHub migration SQL into the ViteHub migrations folder. [Migrations](#migrations) explains the baseline.
 ::
 
 Last checked: 2026-11-13.
