@@ -269,5 +269,5 @@ jobs:
             if (( ${#notes} > 120000 )); then
               notes="$(grep -m1 '^\*\*Full Changelog\*\*: ' <<< "$notes" || echo "**Full Changelog**: https://github.com/${GH_REPO}/commits/${release_tag}")"
             fi
-            printf '%s\n' "$notes" | gh release create "$release_tag" "${args[@]}" --notes-file -
+            printf '%s\n' "$notes" | gh release create "$release_tag" "${args[@]}" --title "$release_tag" --notes-file -
           fi
