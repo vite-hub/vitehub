@@ -220,6 +220,11 @@
       "import": "./dist/ui/vue.js",
       "default": "./dist/ui/vue.js"
     },
+    "./usage": {
+      "types": "./dist/usage.d.ts",
+      "import": "./dist/usage.js",
+      "default": "./dist/usage.js"
+    },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js",

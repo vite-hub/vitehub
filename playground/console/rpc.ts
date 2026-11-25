@@ -47,6 +47,7 @@ const fixtureRoutes: Record<string, string> = {
   "env.inspect": "env-inspect",
   "invocations.capabilities": "invocation-capabilities",
   "invocations.list": "invocations",
+  "invocations.usage": "usage",
   "kv.list": "kv",
   "logs.list": "logs",
   "search.query": "search",

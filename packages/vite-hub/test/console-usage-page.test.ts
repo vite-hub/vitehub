@@ -22,8 +22,11 @@ vi.mock("../src/console/runtime/components/console-icon.vue", async () => {
 vi.mock("../src/console/runtime/client/request", () => ({
   // The error state of a failed load checks for this class.
   ConsoleRequestError: class ConsoleRequestError extends Error {},
-  requestConsole: async (base: string, options?: { query?: Record<string, string> }) => {
+  requestConsole: async (base: string) => {
     if (base.endsWith("/status")) return { agents: [] }
+    throw new Error(`unexpected request to ${base}`)
+  },
+  requestConsoleUsage: async (_base: string, options?: { query?: Record<string, string> }) => {
     requests.push(options?.query)
     const response = responses.shift()
     if (response instanceof Error) throw response

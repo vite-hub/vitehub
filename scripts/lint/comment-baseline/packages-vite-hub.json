@@ -457,7 +457,6 @@
   "packages/vite-hub/test/console-usage-pagination.test.ts": 2,
   "packages/vite-hub/test/console-usage-roll.browser.mjs": 8,
   "packages/vite-hub/test/console-usage-truncated-finish.test.ts": 2,
-  "packages/vite-hub/test/console-usage-workerd.test.ts": 2,
   "packages/vite-hub/test/console-usage.test.ts": 1,
   "packages/vite-hub/test/console-webhooks.test.ts": 2,
   "packages/vite-hub/test/console-workspace-history.test.ts": 1,

@@ -653,6 +653,14 @@ The export bounds each trace:
 
 `recordTruncated: true` marks an entry whose content the journal shortened when it recorded it. `contentOmitted` lists `tool.input` or `tool.output` when the journal content policy did not keep them, so `input`, `exitCode`, and `outputBytes` can be absent. The trace has no per-tool token counts, because Drivers report usage per model step, not per tool call.
 
+Add up the token use and cost of the Invocations that ended:
+
+```sh
+vitehub agent invocations usage --database /data/agent-invocations.sqlite --window 7d --agent support
+```
+
+With `--database`, SQLite groups and adds up the rows in one query and creates no table. A search reads matching metadata first. Unusually large or precise prices require a separate read of usage evidence to keep the totals exact. With `--url`, the app adds up its own journal the same way, through the `invocations.usage` operation. Other journals, such as the dev server and Postgres, use `summarizeAgentUsage()` from `@vite-hub/agent/usage`. Each path gives the Console's totals, including nested calls. `--window` takes `24h`, `7d`, `14d`, `30d` (the default), or `90d`. `--status` takes `completed`, `failed`, or `cancelled`. `--search` keeps Invocations whose id, title, or Agent name has the text. `--json` prints the whole summary, with buckets, models, and the most expensive runs.
+
 `delete` and `prune` open a SQLite or libSQL journal directly:
 
 ```sh
