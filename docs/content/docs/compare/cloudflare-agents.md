@@ -19,8 +19,8 @@ app. The build writes output for the host you pick: `cloudflare`, `vercel`,
 - Choose ViteHub to keep the option to change hosts, or if your Agents need
   other ViteHub Server Primitives.
 
-The `agents` package is at 0.31.0 on npm. ViteHub is at 0.5.x, and its public
-API still changes.
+The `agents` package is at 0.31.0 on npm. ViteHub has no 1.0 release, and its
+public API still changes.
 
 ## What the Agents SDK is
 

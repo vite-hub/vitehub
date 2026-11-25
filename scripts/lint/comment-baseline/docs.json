@@ -88,7 +88,7 @@
   "docs/modules/diagnostics/pages.ts": 20,
   "docs/modules/vitehub-docs/capability-references.ts": 3,
   "docs/modules/vitehub-docs/index.ts": 2,
-  "docs/modules/vitehub-docs/redirects.ts": 12,
+  "docs/modules/vitehub-docs/redirects.ts": 11,
   "docs/modules/vitehub-docs/skill-references.ts": 5,
   "docs/nuxt.config.ts": 20,
   "docs/scripts/bench-worker.mjs": 27,

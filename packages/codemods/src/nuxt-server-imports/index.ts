@@ -9,6 +9,7 @@ import { isCodemodError } from "../error-diagnostics.ts"
 import { readDependencies } from "../shared/detect.ts"
 import { findModuleEntry, readNuxtConfig, unwrapExpression } from "../shared/nuxt-config.ts"
 import { nuxtServerLayout } from "../shared/nuxt-server-layout.ts"
+import { allowsNuxt5 } from "../shared/nuxt-version.ts"
 import { addServerImports, appServerImports, freeReferences, serverLayoutFollowUps, unknownServerImports, viteHubServerImportSources } from "../shared/server-imports.ts"
 
 import type { File } from "@babel/types"
@@ -115,7 +116,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     const from = viteHubServerImportSources.get(name)
     notes.push(`${appNames.get(name)} gives \`${name}\`, and Nuxt still auto-imports it, so ${files.size} file(s) keep the app's \`${name}\`. Import ViteHub's from "${from}" where you need it.`)
   }
-  if (nitroFiles.length) {
+  if (nitroFiles.length && await allowsNuxt5(cwd)) {
     notes.push(`Nuxt 5 also stops auto-importing the Nitro and H3 helpers, such as defineEventHandler, in ${nitroFiles.length} server file(s), for example ${nitroFiles[0]}. Import each one from the module that the Nuxt 5 build error names: "nitro/h3" or "nuxt/server".`)
   }
   return {

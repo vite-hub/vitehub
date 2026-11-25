@@ -6,6 +6,7 @@ import { requireCaller } from "../src/server.ts"
 
 import type { BetterAuthPlugin } from "better-auth"
 import type { H3Event } from "h3"
+import type { McpTokenInvalidData } from "../src/mcp.ts"
 import type { AuthFor } from "../src/types.ts"
 
 it("returns the codes that each MCP helper can fail with", async () => {
@@ -70,4 +71,19 @@ it("narrows the caller of requireCaller() by kind", async () => {
     // @ts-expect-error Only an agent caller has a client.
     void caller.client
   }
+})
+
+it("narrows the data of a refused MCP token by its code", async () => {
+  const event = {} as H3Event
+  const [verifyError] = await verifyMcpRequest(event.req)
+  if (verifyError?.code === "AUTH_MCP_TOKEN_INVALID") {
+    expectTypeOf(verifyError.data).toEqualTypeOf<McpTokenInvalidData>()
+    expectTypeOf(verifyError.data.reason).toEqualTypeOf<McpTokenInvalidData["reason"]>()
+    expectTypeOf(verifyError.data.clientId).toEqualTypeOf<string | undefined>()
+  }
+  if (verifyError?.code === "AUTH_MCP_TOKEN_MISSING") expectTypeOf(verifyError.data).toEqualTypeOf<undefined>()
+
+  const [callerError] = await requireCaller(event)
+  if (callerError?.code === "AUTH_MCP_TOKEN_INVALID") expectTypeOf(callerError.data).toEqualTypeOf<McpTokenInvalidData>()
+  if (callerError?.code === "AUTH_SIGNED_OUT") expectTypeOf(callerError.data).toEqualTypeOf<undefined>()
 })
