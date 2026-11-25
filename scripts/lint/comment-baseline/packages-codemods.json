@@ -46,7 +46,6 @@
   "packages/codemods/src/runtime-contracts/index.ts": 18,
   "packages/codemods/src/shared/cli-calls.ts": 2,
   "packages/codemods/src/shared/config-editor.ts": 4,
-  "packages/codemods/src/shared/package-json.ts": 1,
   "packages/codemods/src/shared/result-calls.ts": 9,
   "packages/codemods/src/shell-driver/index.ts": 15,
   "packages/codemods/src/t3-env/call-sites.ts": 2,

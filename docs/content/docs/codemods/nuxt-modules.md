@@ -9,10 +9,18 @@ icon: i-lucide-package
 These codemods move a Nuxt app from a community module to the ViteHub feature that does the same work, through `vite-hub/nuxt`. `npx @vite-hub/codemods` detects the modules that the app uses. To run one codemod, pass its name:
 
 ```bash [Terminal]
-npx @vite-hub/codemods nuxt-safe-runtime-config [dir] [--dry-run]
+npx @vite-hub/codemods nuxt-safe-runtime-config [dir] [--dry-run] [--nuxt-nightly]
 ```
 
-ViteHub supports Nuxt 5 only. The codemods do not upgrade Nuxt. The report warns when `package.json` requires an older version.
+These codemods add `vite-hub/nuxt`, which needs Nitro 3: Nuxt 4.7 with the `nitro` package, or Nuxt 5. On Nuxt 4.7, the codemod adds `nitro` to `package.json`, or replaces a `nitro` range that Nuxt 4.7 cannot build with. When `package.json` allows a Nuxt version before 4.7, the command stops, writes nothing, and exits with `1`. Upgrade with `pnpm add nuxt@^4.7.0 nitro`, or add `--nuxt-nightly` to set `"nuxt": "npm:nuxt-nightly@5x"` in `package.json` and migrate in the same run:
+
+```bash [Terminal]
+npx @vite-hub/codemods nuxt-safe-runtime-config --nuxt-nightly
+```
+
+Each codemod also adds `vite-hub` and the packages of each ViteHub feature that it turns on to `package.json`, such as `@vite-hub/email` for `resend`, and `@vite-hub/schedule` and `@vite-hub/kv` for `nuxt-cron` on Node. Without them, the build stops with `VITE_HUB_R0136`. Run the install command that the report lists.
+
+New feature packages use the app's existing `vite-hub` version, range, or matching ViteHub preview. If the codemod cannot match that dependency, it stops before writing the migration and asks you to update the `vite-hub` entry.
 
 ## nuxt-safe-runtime-config
 
@@ -21,7 +29,7 @@ The codemod moves the `nuxt-safe-runtime-config` module to ViteHub [Env](/docs/e
 - `safeRuntimeConfig.envSchema` points at a `.env.example` with `@env-spec` annotations. The codemod replaces it with `envSchema(new URL("./.env.example", import.meta.url), { prefix: "NUXT_" })` from `@vite-hub/env/vite`. With the `NUXT_` prefix, `NUXT_PUBLIC_*` keys become Public Env, and other `NUXT_*` keys become Server Env, with the same names and variables. See [Import an environment schema](/docs/env/configure#import-an-environment-schema).
 - `safeRuntimeConfig.$schema` is a Valibot, Zod 3, Zod 4, or ArkType schema, inline or in a module. The codemod converts it to JSON Schema and writes `env()`, `env.number()`, `env.boolean()`, and `env.enum()` declarations under `vitehub.env`. Each declaration reads its `NUXT_*` variable with `env.source()`. Literal `runtimeConfig` values become defaults. The codemod checks each default against its field schema, applying the source module’s input coercion for runtime validation. A rejected value, such as `""` for `v.minLength(16)`, is dropped when validation is fatal, so Env requires its variable. Nonfatal `onError` modes do not drop a default solely because validation rejects it. The checks follow the installed module version. Before 0.4.0, the module checked only at build unless `validateAtRuntime: true`. From 0.4.0, it also checks when the server starts unless `validateAtRuntime: false`, so `validateAtBuild: false` alone still rejects. When the codemod cannot read the version, it uses the 0.4.0 rules. Keys under `runtimeConfig.public` become Public Env with `mode: "build"`. Credential-like server names become `secret: true`.
 
-In both cases, the codemod replaces `'nuxt-safe-runtime-config'` with `'vite-hub/nuxt'` in `modules`, removes `safeRuntimeConfig` and the migrated `runtimeConfig` keys, sets `vitehub.host`, and swaps the package in `package.json`. It rewrites `useSafeRuntimeConfig()` to `useServerEnv()` from `#vitehub/env/server` in server files, and to `usePublicEnv()` from `#vitehub/env/public` in app files.
+In both cases, the codemod replaces `'nuxt-safe-runtime-config'` with `'vite-hub/nuxt'` in `modules`, removes `safeRuntimeConfig` and the migrated `runtimeConfig` keys, sets `vitehub.host`, and swaps the package in `package.json`. It rewrites `useSafeRuntimeConfig()` to `useServerEnv()` from `vite-hub/env` in server files, and to `usePublicEnv()` from `#vitehub/env/public` in app files.
 
 When `safeRuntimeConfig` declares no schema and the app has no layers, the module validates nothing. The codemod then removes the module, unless code still calls `useSafeRuntimeConfig()`.
 
