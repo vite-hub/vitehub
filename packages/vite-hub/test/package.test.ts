@@ -21,6 +21,7 @@ import * as ownerBlobMedia from "@vite-hub/blob/media";
 import * as ownerBlobVue from "@vite-hub/blob/vue";
 import { setActiveCloudflareEnv as ownerCloudflareEnvSetter } from "@vite-hub/database/runtime/cloudflare-env";
 import { setActiveCloudflareEnv as ownerDatabaseStateSetter } from "@vite-hub/database/runtime/state";
+import * as ownerEnvVite from "@vite-hub/env/vite";
 import * as ownerRateLimit from "@vite-hub/rate-limit";
 import * as ownerWebContainer from "@vite-hub/web-container";
 import * as ownerWebContainerConnect from "@vite-hub/web-container/connect";
@@ -37,6 +38,7 @@ import * as frameworkAuthVue from "vite-hub/auth/vue";
 import * as frameworkBlobClient from "vite-hub/blob/client";
 import * as frameworkBlobMedia from "vite-hub/blob/media";
 import * as frameworkBlobVue from "vite-hub/blob/vue";
+import * as frameworkEnvVite from "vite-hub/env/vite";
 import * as frameworkRateLimit from "vite-hub/rate-limit";
 import * as frameworkWebContainer from "vite-hub/web-container";
 import * as frameworkWebContainerConnect from "vite-hub/web-container/connect";
@@ -256,6 +258,24 @@ describe("framework package contract", () => {
     expect(frameworkWebContainer.bootWebContainer).toBe(ownerWebContainer.bootWebContainer);
     expect(frameworkWebContainerConnect.defineConnect).toBe(ownerWebContainerConnect.defineConnect);
     expect(frameworkCapabilities.nodeRuntimeResources).toBe(ownerRuntimeNode.nodeRuntimeResources);
+  });
+
+  it("exports envSchema from vite-hub/env/vite with the same declarations", async () => {
+    expect(Object.keys(frameworkEnvVite).sort()).toEqual(Object.keys(ownerEnvVite).sort());
+    expect(frameworkEnvVite.envSchema).toBe(ownerEnvVite.envSchema);
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-env-schema-"));
+    try {
+      const file = join(directory, ".env.example");
+      await writeFile(file, "# @public\nNUXT_PUBLIC_SITE_URL=https://example.com\n\n# @type=number\nNUXT_RETRIES=3\n");
+      const url = pathToFileURL(file);
+      const declarations = frameworkEnvVite.envSchema(url, { prefix: "NUXT_" });
+      expect(Object.keys(declarations.public ?? {})).toEqual(["siteUrl"]);
+      expect(Object.keys(declarations.server ?? {})).toEqual(["retries"]);
+      expect(JSON.stringify(declarations)).toBe(JSON.stringify(ownerEnvVite.envSchema(url, { prefix: "NUXT_" })));
+    }
+    finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it("keeps the Database environment setter on its owner runtime instance", () => {

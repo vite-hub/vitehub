@@ -1,12 +1,8 @@
-import { existsSync } from "node:fs"
-import { readFile } from "node:fs/promises"
-import { dirname, join } from "node:path"
-
 import { intersects, lt, minVersion, parse, Range, satisfies, subset, validRange } from "semver"
-import { parseDocument } from "yaml"
 
 import { codemodError, codemodsErrorDiagnostics } from "../error-diagnostics.ts"
 import { readDependencies } from "./detect.ts"
+import { readPnpmCatalogVersion } from "./pnpm-catalog.ts"
 
 export const nuxtNightlyRange = "npm:nuxt-nightly@5x"
 
@@ -21,24 +17,6 @@ type Manifest = Record<string, unknown>
 
 function isRecord(value: unknown): value is Manifest {
   return typeof value === "object" && value !== null && !Array.isArray(value)
-}
-
-function catalogEntry(value: unknown, key: string): unknown {
-  return value instanceof Map ? value.get(key) : undefined
-}
-
-async function readPnpmCatalogVersion(cwd: string, name: string, catalog: string): Promise<string | undefined> {
-  let directory = cwd
-  while (!existsSync(join(directory, "pnpm-workspace.yaml"))) {
-    if (dirname(directory) === directory) return
-    directory = dirname(directory)
-  }
-  const document = parseDocument(await readFile(join(directory, "pnpm-workspace.yaml"), "utf8"))
-  const workspace: unknown = document.toJS({ mapAsMap: true })
-  const fallback = catalog === "default" ? catalogEntry(catalogEntry(workspace, "catalog"), name) : undefined
-  const named = catalogEntry(catalogEntry(workspace, "catalogs"), catalog)
-  const version = catalogEntry(named, name) ?? fallback
-  if (typeof version === "string") return version
 }
 
 function admitsNuxt5(range: string): boolean {
