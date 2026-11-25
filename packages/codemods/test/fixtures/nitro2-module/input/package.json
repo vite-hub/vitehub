@@ -1,0 +1,1 @@
+{"name":"nitro-only","private":true,"type":"module","dependencies":{"nitropack":"^2.13.0","nuxt-safe-runtime-config":"^0.4.0","valibot":"^1.1.0"}}

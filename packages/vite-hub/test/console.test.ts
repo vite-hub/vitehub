@@ -43,7 +43,7 @@ import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-
 import { agentWithColocatedSkills, workspaceAgentWithSourceRoot } from "../../agent/dist/runtime/workflow.js"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
-import type { AgentInvocations, AgentRuntimeContext } from "@vite-hub/agent"
+import type { AgentInvocationRecord, AgentInvocations, AgentRuntimeContext } from "@vite-hub/agent"
 import type { ResolvedAuthViteConfig } from "@vite-hub/auth"
 import type { Plugin } from "vite"
 import type { ConsoleInvocationRootState } from "../src/console/vite.ts"
@@ -185,10 +185,12 @@ describe("Agent invocation console", () => {
 
       expect(config.nitro.handlers.map((handler) => handler.route)).toEqual([
         "/_vitehub/**",
+        "/_vitehub",
+        "/_vitehub/rpc",
       ])
       expect(config.nitro.publicAssets).toBeUndefined()
       expect(consoleAppFile(plugin)).toBe(resolve(root, ".vitehub/nitro/console/app.mjs"))
-      expect(config.nitro.plugins ?? []).toEqual([])
+      expect(config.nitro.plugins).toEqual([expect.stringMatching(/runtime\/operation-loader\.js$/)])
       await expect(readFile(consoleAppFile(plugin), "utf8")).resolves.toContain(`installConsoleSections(${JSON.stringify(root)}, ["agents","usage","blob","kv"])`)
       await expect(readFile(consoleAppFile(plugin), "utf8")).resolves.toContain(`installConsoleProjectName(${JSON.stringify(root)}, "console-host")`)
       await expect(readFile(consoleAppFile(plugin), "utf8")).resolves.toMatch(/installConsoleBuild\(\{"time":"\d{4}-/)
@@ -322,6 +324,8 @@ describe("Agent invocation console", () => {
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
         `${mount}/_vitehub/**`,
+        `${mount}/_vitehub`,
+        `${mount}/_vitehub/rpc`,
       ])
       expect(config.nitro?.publicAssets ?? []).toEqual([])
     }
@@ -350,6 +354,8 @@ describe("Agent invocation console", () => {
 
       expect(resolvedConfig.nitro?.handlers.map(handler => handler.route)).toEqual([
         "/portal/_vitehub/**",
+        "/portal/_vitehub",
+        "/portal/_vitehub/rpc",
       ])
       // The app keeps its own assets below /_vitehub. The Console adds none.
       expect(resolvedConfig.nitro?.publicAssets).toEqual([
@@ -370,7 +376,7 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.config, {}, [config, { command: "serve", mode: "development" }])
       await callPluginHook(plugin.configResolved, {}, [withViteLogger({ ...config, base: "/" })])
 
-      expect(config.nitro.plugins).toEqual([])
+      expect(config.nitro.plugins).toEqual([expect.stringMatching(/runtime\/operation-loader\.js$/)])
       const generated = await readFile(consoleAppFile(plugin), "utf8")
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["setup","kv"], ["setup"])`)
       expect(generated).toContain(`true, "/__vitehub/setup")`)
@@ -401,7 +407,7 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(resolved)])
 
       expect(resolved.nitro.handlers.filter(handler => handler.route?.startsWith("/.well-known/"))).toEqual(applicationHandlers)
-      expect(resolved.nitro.handlers.map(handler => handler.route).filter(route => !route?.startsWith("/.well-known/"))).toEqual(["/portal/_vitehub/**"])
+      expect(resolved.nitro.handlers.map(handler => handler.route).filter(route => !route?.startsWith("/.well-known/"))).toEqual(["/portal/_vitehub/**", "/portal/_vitehub", "/portal/_vitehub/rpc"])
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -413,7 +419,7 @@ describe("Agent invocation console", () => {
     addConsoleRpcHandler(config, "/runtime", "/early/")
     addConsoleRpcHandler(config, "/runtime", "/portal/")
 
-    expect(config.handlers.map(handler => handler.route)).toEqual(["/portal/_vitehub/**"])
+    expect(config.handlers.map(handler => handler.route)).toEqual(["/portal/_vitehub/**", "/portal/_vitehub", "/portal/_vitehub/rpc"])
   })
 
   it("refuses an app route in the Nitro routes option on a Console path", () => {
@@ -446,6 +452,8 @@ describe("Agent invocation console", () => {
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
         "/_vitehub/**",
+        "/_vitehub",
+        "/_vitehub/rpc",
       ])
       const generated = await readFile(consoleAppFile(plugin), "utf8")
       expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
@@ -507,7 +515,7 @@ describe("Agent invocation console", () => {
 
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
-      expect(config.nitro?.handlers.map((handler) => handler.route)).toEqual(["/_vitehub/**"])
+      expect(config.nitro?.handlers.map((handler) => handler.route)).toEqual(["/_vitehub/**", "/_vitehub", "/_vitehub/rpc"])
       const generated = await readFile(consoleAppFile(plugin), "utf8")
       expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
@@ -643,6 +651,8 @@ describe("Agent invocation console", () => {
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
         "/_vitehub/**",
+        "/_vitehub",
+        "/_vitehub/rpc",
       ])
       const generated = await readFile(consoleAppFile(plugin), "utf8")
       expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
@@ -687,6 +697,8 @@ describe("Agent invocation console", () => {
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
         "/_vitehub/**",
+        "/_vitehub",
+        "/_vitehub/rpc",
       ])
       const generated = await readFile(consoleAppFile(plugin), "utf8")
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["env","queues"])`)
@@ -730,6 +742,8 @@ describe("Agent invocation console", () => {
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
         "/_vitehub/**",
+        "/_vitehub",
+        "/_vitehub/rpc",
       ])
       const generated = await readFile(consoleAppFile(plugin), "utf8")
       expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
@@ -807,6 +821,8 @@ describe("Agent invocation console", () => {
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
         "/_vitehub/**",
+        "/_vitehub",
+        "/_vitehub/rpc",
       ])
       const generated = await readFile(consoleAppFile(plugin), "utf8")
       expect(generated).toContain(`from ${JSON.stringify(generatedModules.consoleSetup)}`)
@@ -1036,9 +1052,9 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
       // App Auth access routes leave a request that Nitro routes to the Console to its own check: a signed RPC POST, a
       // one-time ticket GET, or the way in from a page.
-      expect(config.nitro?.handlers).toEqual([
-        { handler: expect.stringMatching(/server\/entry\.js$/), lazy: true, meta: { vitehubAuthAccess: "handler" }, route: "/_vitehub/**" },
-      ])
+      expect(config.nitro?.handlers).toEqual(["/_vitehub/**", "/_vitehub", "/_vitehub/rpc"].map(route => ({
+        handler: expect.stringMatching(/server\/entry\.js$/), lazy: true, meta: { vitehubAuthAccess: "handler" }, route,
+      })))
       const generated = await readFile(resolve(root, ".vitehub/nitro/console/app.mjs"), "utf8")
       expect(generated).toContain('installConsoleAccess({ mode: "token" })')
       expect(generated).toContain(`installConsoleAgentDefinitions([], { projectRoot: ${JSON.stringify(root)}, invoke: true })`)
@@ -2797,7 +2813,7 @@ describe("Agent invocation console", () => {
       status: "completed" as const,
       traceId: "trace-raw-only-usage",
       updatedAt: "2026-08-27T10:00:00.000Z",
-    } satisfies Parameters<typeof invocationUsage>[0]
+    } satisfies AgentInvocationRecord
 
     const projected = invocationUsage(record)
     expect(projected).not.toHaveProperty("cost")

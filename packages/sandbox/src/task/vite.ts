@@ -31,16 +31,24 @@ export type { DiscoveredSandboxTaskDefinition } from './discovery'
 export { inspectSandboxTaskDefinitions, type SandboxTaskInspectionOptions, sandboxTaskConsoleSection } from './inspect'
 
 export type SandboxTaskOptions = AgentSandboxTaskConfig | false
+type SandboxTaskNitroBuildConfig = {
+  builder: string
+  rolldown?: { resolve?: { alias?: Record<string, string | string[] | false> } }
+}
+type SandboxTaskNitroHost = {
+  hooks: {
+    hook(name: 'build:before', callback: () => void): void
+    hook(name: 'build:config', callback: (nitro: unknown, config: SandboxTaskNitroBuildConfig) => void): void
+  }
+  options: { alias?: unknown, dev?: boolean, devServer?: unknown, noExternals?: unknown }
+}
 export type SandboxTaskVitePlugin = Plugin & {
   /** The variables that Sandbox Tasks read on the deployed host. See `sandboxDeploymentEnv()`. */
   api: { deploymentEnv: DeploymentEnvContribution }
   vitehub: ViteHubInspectionPluginMetadata
   nitro: {
     name: string
-    setup: (nitro: {
-      hooks: { hook: (name: 'build:before', callback: () => void) => void }
-      options: Record<string, unknown>
-    }) => void
+    setup: (nitro: SandboxTaskNitroHost) => void
   }
 }
 
@@ -60,8 +68,9 @@ type SandboxTaskAlias = Alias & { replacement: string }
 type SandboxTaskHostingProvider = keyof typeof sandboxTaskRuntimeDependencyByProvider
 
 function mergeSandboxTaskNitroProviderAliases(
-  nitro: Record<string, unknown>,
+  nitro: SandboxTaskNitroHost['options'],
   aliases: AliasMap,
+  frameworkSpecifier: string | undefined,
 ) {
   const providerAliases = Object.fromEntries(
     sandboxTaskProviderLoaderSpecifiers.flatMap((specifier) => {
@@ -69,6 +78,9 @@ function mergeSandboxTaskNitroProviderAliases(
       return replacement ? [[specifier, replacement]] : []
     }),
   )
+  const facade = aliases[SANDBOX_PACKAGE_ID]
+  if (frameworkSpecifier && facade)
+    providerAliases[frameworkSpecifier] = facade
   if (!Object.keys(providerAliases).length)
     return
 
@@ -77,7 +89,7 @@ function mergeSandboxTaskNitroProviderAliases(
 }
 
 function mergeSandboxTaskNitroNoExternals(
-  nitro: Record<string, unknown>,
+  nitro: SandboxTaskNitroHost['options'],
   provider: string | undefined,
 ) {
   if (provider !== 'cloudflare' && provider !== 'vercel')
@@ -252,7 +264,7 @@ export function hubSandboxTask(options?: SandboxTaskOptions): SandboxTaskVitePlu
   let resolvedConfig: ResolvedConfig | undefined
   let sandboxTaskEnabled = integrationOptions !== false
   let localDev = false
-  let nitroOptions: Record<string, unknown> | undefined
+  let nitroOptions: SandboxTaskNitroHost['options'] | undefined
   let selectedProvider: SandboxTaskHostingProvider | undefined
   let earlyNitroTarget: Record<string, unknown> | undefined
   let earlyNitroSnapshot: Record<string, unknown> | undefined
@@ -267,22 +279,27 @@ export function hubSandboxTask(options?: SandboxTaskOptions): SandboxTaskVitePlu
       throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_LOCAL_NITRO_RUNNER()
   }
 
-  const sandboxTaskNitroModule = (nitro: {
-    hooks: { hook: (name: 'build:before', callback: () => void) => void }
-    options: object
-  }) => {
-    // SAFETY: Nitro options are a plain object; the merges below only read and set its alias and noExternals keys.
-    const options = nitro.options as Record<string, unknown>
+  const sandboxTaskNitroModule = (nitro: SandboxTaskNitroHost) => {
+    const { options } = nitro
     nitroOptions = options
     assertLocalDevRunner()
     mergeSandboxTaskNitroNoExternals(options, selectedProvider)
     if (selectedProvider)
-      mergeSandboxTaskNitroProviderAliases(options, generatedAliases)
+      mergeSandboxTaskNitroProviderAliases(options, generatedAliases, internalOptions?.providerImportSpecifier)
     nitro.hooks.hook('build:before', () => {
       mergeSandboxTaskNitroNoExternals(options, selectedProvider)
       if (selectedProvider)
-        mergeSandboxTaskNitroProviderAliases(options, generatedAliases)
+        mergeSandboxTaskNitroProviderAliases(options, generatedAliases, internalOptions?.providerImportSpecifier)
     })
+    if (options.dev) {
+      nitro.hooks.hook('build:config', (_nitro, config) => {
+        const resolver = config.builder === 'rolldown' ? config.rolldown?.resolve : undefined
+        const specifier = internalOptions?.providerImportSpecifier
+        const facade = generatedAliases[SANDBOX_PACKAGE_ID]
+        if (resolver && selectedProvider && specifier && facade)
+          resolver.alias = { ...resolver.alias, [specifier]: facade }
+      })
+    }
   }
 
   function cloneConfigValue<T>(value: T): T {

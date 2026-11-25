@@ -3,7 +3,7 @@ import { join } from "node:path"
 import { end, findProperty, keyName, line, start } from "@vite-hub/internal/ast"
 import { createJiti } from "jiti"
 
-import { defaultExport, literalValue, objectProperty, unwrapExpression } from "../shared/nuxt-config.ts"
+import { defaultExport, literalValue, objectProperty, staticOptionsObject, unwrapExpression } from "../shared/nuxt-config.ts"
 import { codemodError } from "../error-diagnostics.ts"
 
 import type { Node, ObjectExpression, ObjectProperty } from "@babel/types"
@@ -14,6 +14,9 @@ export const moduleName = "nuxt-safe-runtime-config"
 export interface StaticOptions {
   envSchema?: { file: string, paths: Record<string, string> }
   schemaPath?: string
+  onError?: string
+  validateAtBuild?: boolean
+  validateAtRuntime?: boolean
   /** `$schema` is an inline expression; the evaluated config supplies it. */
   inlineSchema: boolean
   /** An option could not be read without running the config. */
@@ -35,7 +38,7 @@ function readStaticPaths(node: Node | undefined): Record<string, string> | undef
   return paths
 }
 
-/** Reads `envSchema` and `$schema` from one options object without running code. */
+/** Reads the schema and validation options without running code. */
 export function readStaticOptions(options: Node | undefined): StaticOptions {
   const result: StaticOptions = { inlineSchema: false, dynamic: false }
   if (!options) return result
@@ -47,6 +50,12 @@ export function readStaticOptions(options: Node | undefined): StaticOptions {
       continue
     }
     const key = keyName(property.key, property.computed)
+    if (key === "onError" || key === "validateAtBuild" || key === "validateAtRuntime") {
+      const value = literalValue(property.value)
+      if (key === "onError" && typeof value === "string") result.onError = value
+      else if (key !== "onError" && typeof value === "boolean") result[key] = value
+      else result.dynamic = true
+    }
     if (key === "envSchema") {
       const literal = literalValue(property.value)
       const value = unwrapExpression(property.value)
@@ -73,10 +82,14 @@ export function readStaticOptions(options: Node | undefined): StaticOptions {
   return result
 }
 
+export type JsonLiteral = LiteralValue | null | JsonLiteral[] | { [key: string]: JsonLiteral }
+
 /** A value in the `runtimeConfig` object literal. */
 export interface RuntimeConfigValue {
   property: ObjectProperty
   literal?: LiteralValue
+  /** An array or object literal that holds only JSON values. */
+  json?: JsonLiteral[] | { [key: string]: JsonLiteral }
   /** `process.env.NAME`, optionally with a `||` or `??` literal fallback. */
   processEnv?: { name: string, fallback?: LiteralValue, operator?: "||" | "??" }
   /** Source text of a value the codemod cannot read statically. */
@@ -94,11 +107,29 @@ function processEnvName(node: Node): string | undefined {
   return keyName(value.property, value.computed)
 }
 
+function jsonLiteral(node: Node): JsonLiteral | undefined {
+  const value = unwrapExpression(node)
+  if (value.type === "NullLiteral") return null
+  if (value.type === "ArrayExpression") {
+    const items = value.elements.map(element => element && element.type !== "SpreadElement" ? jsonLiteral(element) : undefined)
+    return items.every(item => item !== undefined) ? items : undefined
+  }
+  if (value.type === "ObjectExpression") {
+    const object = staticOptionsObject(value)
+    if (!object) return undefined
+    const entries = object.properties.map(entry => entry.type === "ObjectProperty" ? [keyName(entry.key, entry.computed), jsonLiteral(entry.value)] as const : [undefined, undefined] as const)
+    return entries.every((entry): entry is readonly [string, JsonLiteral] => entry[0] !== undefined && entry[0] !== "__proto__" && entry[1] !== undefined) ? Object.fromEntries(entries) : undefined
+  }
+  return literalValue(value)
+}
+
 export function readRuntimeConfigValue(code: string, property: ObjectProperty): RuntimeConfigValue {
   const node = unwrapExpression(property.value)
   const base = { property, line: line(property) }
   const literal = literalValue(node)
   if (literal !== undefined) return { ...base, literal }
+  const json = node.type === "ArrayExpression" ? jsonLiteral(node) : undefined
+  if (Array.isArray(json)) return { ...base, json, expression: code.slice(start(node), end(node)) }
   const envName = processEnvName(node)
   if (envName) return { ...base, processEnv: { name: envName } }
   if (node.type === "LogicalExpression" && (node.operator === "||" || node.operator === "??")) {
@@ -121,7 +152,10 @@ export function readRuntimeConfig(config: NuxtConfigFile): { object?: ObjectExpr
       if (!key) continue
       const value = unwrapExpression(property.value)
       if (value.type === "ObjectExpression") {
+        const json = jsonLiteral(value)
+        const expression = config.code.slice(start(value), end(value))
         groups.add([...path, key].join("."))
+        values.set([...path, key].join("."), { property, line: line(property), expression, ...(json !== null && typeof json === "object" ? { json } : {}) })
         visit(value, [...path, key])
       }
       else {
@@ -136,7 +170,6 @@ export function readRuntimeConfig(config: NuxtConfigFile): { object?: ObjectExpr
 /** Imports a module that default-exports a schema, resolved from the project directory. */
 export async function loadSchemaModule(cwd: string, specifier: string): Promise<unknown> {
   try {
-    // Default interop would return a Zod schema's `default` method instead of the schema.
     const jiti = createJiti(join(cwd, "codemod.loader.mjs"), { moduleCache: false, fsCache: false, interopDefault: false })
     return defaultExport(await jiti.import(jiti.esmResolve(specifier)))
   }

@@ -138,6 +138,7 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
   i18n: { ignoreDependencies: ["@diglot/cli"] },
   internal: {
     ignoreDependencies: [
+      "rolldown",
       "sharp",
     ],
   },

@@ -1,6 +1,6 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { basename, join } from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -59,23 +59,30 @@ describe("the Console segment of the Comments pill", () => {
 })
 
 describe("vitehub() with Comments", () => {
-  it.each([true, false])("hands the Console segment to the Comments pill only with the Console on: %s", async (consoleOn) => {
+  it.each([
+    { consoleOn: true, overlay: true, authorize: false },
+    { consoleOn: true, overlay: true, authorize: true },
+    { consoleOn: false, overlay: true, authorize: false },
+    { consoleOn: true, overlay: false, authorize: false },
+  ])("generates the Comments setup with Console=$consoleOn, overlay=$overlay, authorize=$authorize", async ({ consoleOn, overlay, authorize }) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-pill-comments-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
-      const plugins = vitehub({ comments: true, console: consoleOn && { auth: false }, host: "node" }).flat(3) as Plugin[]
+      const plugins = vitehub({ comments: overlay ? true : { overlay: false }, console: consoleOn && { auth: false, ...(authorize ? { authorize: "./authorize.ts" } : {}) }, host: "node" }).flat(3) as Plugin[]
       const comments = plugins.find(plugin => plugin?.name === "@vite-hub/comments/vite")
       const hook = comments?.config
       if (!hook) throw new TypeError("Expected the Comments config hook.")
       await Reflect.apply("handler" in hook ? hook.handler : hook, {}, [{ root, nitro: { plugins: [] } }, { command: "build", mode: "production" }])
       const generated = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
-      if (consoleOn) {
+      if (consoleOn && overlay) {
         expect(generated).toMatch(/import \{ installConsolePill as pillSegment0 \} from "[^"]+\/console\/runtime\/server\/pill\.(?:ts|js)"/)
-        expect(generated).toContain(`...{"version":${JSON.stringify(readViteHubVersion())}}`)
+        expect(generated).toContain(`...{"version":${JSON.stringify(readViteHubVersion())},"useCurrentGrants":${!authorize}}`)
       }
       else {
         expect(generated).not.toContain("installConsolePill")
       }
+      if (consoleOn && !overlay) expect(generated).toMatch(/siteVisitor: async \(request\) => \(await import\("[^"]+\/console\/runtime\/server\/site-visitor\.(?:ts|js)"\)\)\.readConsoleSiteVisitor/)
+      else expect(generated).not.toContain("siteVisitor:")
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -99,9 +106,7 @@ describe("the Console link", () => {
       .toBe("https://console.vitehub.dev/open?project=https%3A%2F%2Fapp.example.com&path=%2Fcontent%2Fposts%2Fhello")
     expect(consoleDocumentPath(["settings#title"])).toBe("/content/settings")
     expect(consoleDocumentPath(["docs:guide/intro page#title"])).toBe("/content/docs/guide/intro%20page")
-    // A layout singleton next to the post: the document with an id wins.
     expect(consoleDocumentPath(["settings#title", "posts:hello#title"])).toBe("/content/posts/hello")
-    // Two posts, or nothing that parses: the project overview.
     expect(consoleDocumentPath(["posts:a#title", "posts:b#title"])).toBe("/")
     expect(consoleDocumentPath(["", "not a field"])).toBe("/")
   })
@@ -140,7 +145,7 @@ describe("a Console app without Comments", () => {
     }
   })
 
-  it("serves no page tools route and no public /_vitehub assets but the skills", async () => {
+  it("serves no page tools route or public /_vitehub assets", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-page-routes-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
@@ -154,9 +159,8 @@ describe("a Console app without Comments", () => {
       for (const options of [{ console: {}, sections: [] }, { rpcOnly: true, sections: [] }]) {
         const config = await nitro(options)
         expect(config?.handlers?.map(handler => handler.route)).not.toContain("/_vitehub/page/tools")
-        expect(config?.plugins ?? []).toEqual([])
-        expect((config?.publicAssets ?? []).map(asset => asset.baseURL)).not.toContain("/_vitehub/console/assets")
-        expect((config?.publicAssets ?? []).map(asset => asset.baseURL)).not.toContain("/_vitehub/page/assets")
+        expect((config?.plugins ?? []).map(plugin => basename(plugin))).toEqual(["operation-loader.js"])
+        expect(config?.publicAssets ?? []).toEqual([])
       }
     }
     finally {

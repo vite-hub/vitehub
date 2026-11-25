@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/docs",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "A documentation site on ViteHub primitives: typed Markdown pages, navigation, tutorials, search, agent resources, Console editing, and a docs assistant.",
   "keywords": [
     "content",
@@ -124,7 +124,8 @@
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
-    "vue": "catalog:ui"
+    "vue": "catalog:ui",
+    "workerd": "1.20260730.1"
   },
   "peerDependencies": {
     "@comark/html": "^0.8.1 || ^0.9.0",
@@ -134,7 +135,7 @@
     "@vite-hub/gateways": "workspace:*",
     "comark": "^0.8.1 || ^0.9.0",
     "comark-ui": "^0.12.0",
-    "nuxt": "catalog:nuxt-compat",
+    "nuxt": "^4.7.0 || >=5.0.0-0",
     "vue": "catalog:vue-compat"
   },
   "peerDependenciesMeta": {

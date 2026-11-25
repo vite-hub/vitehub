@@ -499,9 +499,9 @@ Give your pill a viewport-safe maximum width and let it scroll horizontally if i
 | `pairing` | Setup prompt copied, a spinner, and `×`. With `reason`: **Setup code expired** or **That URL isn't `host`**, and **Copy again**. |
 | `confirm` | The agent's logo, name, and host, and **Allow and send N**. |
 | `sending` | Sending, as wide as **Send N**, so the pill holds still. |
-| `sent` | Sent, for 2 seconds. |
+| `sent` | Sent, or In inbox, until the agent reads the send, and for at least 2 seconds. **Send N** comes back beside it when a new comment waits. |
 | `working` | Working and **Open thread**. **Send N** comes back beside them when a new comment waits. |
-| `failed` | Not delivered and **Retry**. |
+| `failed` | Not delivered and **Retry**. Retry repeats the step that failed: after a failed pairing it pairs again, after a failed Allow it loads the status again, and after a failed send it sends again. |
 | `limited` | Limit reached, and the time to try again. |
 
 The client asks `status()` while the agent works. Give the transport `subscribe` to push `working`, `done`, and `count` events instead. In a unit test, give it a fake transport: every state is plain data in `send.state`.

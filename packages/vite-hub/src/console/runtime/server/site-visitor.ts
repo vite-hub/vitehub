@@ -1,5 +1,5 @@
 import { readConsolePublicKeys } from "@vite-hub/internal/console-signature"
-import { verifySiteToken } from "@vite-hub/internal/site-token"
+import { siteStateHash, verifySiteToken } from "@vite-hub/internal/site-token"
 import { resolvePublicUrl } from "@vite-hub/runtime"
 import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 
@@ -7,12 +7,18 @@ import { isConsoleDevelopmentBuild } from "./development.ts"
 
 import type { ViteHubSiteVisitor } from "@vite-hub/internal/runtime/page-tools"
 
-/** The cookie of a browser that Site access signed in: the state and the token, `<state>.<token>`. */
-export const siteCookie = "__Host-vitehub-site"
+const siteCookie = "__Host-vitehub-site"
+const siteStateCookie = "__Host-vitehub-site-state"
 /** Seconds that a browser stays signed in after the Console signed its token. */
 export const siteSessionLifetime: number = 12 * 60 * 60
 /** The length of the state part of the site cookie. */
 export const siteStateLength = 43
+
+export async function siteCookieNames(base: string): Promise<{ session: string, state: string }> {
+  const path = base.replace(/\/+$/, "")
+  const suffix = path ? `-${await siteStateHash(path)}` : ""
+  return { session: `${siteCookie}${suffix}`, state: `${siteStateCookie}${suffix}` }
+}
 
 /** The value of the cookie `name` of a request. */
 export function cookieValue(request: Request, name: string): string | undefined {
@@ -31,7 +37,8 @@ function siteApp(request: Request, base: string, development: boolean): string |
 const visitors = new WeakMap<Request, Promise<ViteHubSiteVisitor | undefined>>()
 
 async function readVisitor(request: Request, base: string, development: boolean): Promise<ViteHubSiteVisitor | undefined> {
-  const value = cookieValue(request, siteCookie)
+  if (!request.headers.has("cookie")) return undefined
+  const value = cookieValue(request, (await siteCookieNames(base)).session)
   if (!value || value[siteStateLength] !== ".") return undefined
   const keys = readConsolePublicKeys({ ...globalThis.process?.env, ...getStandardContext(request).runtime?.cloudflare?.env })
   if (!(keys instanceof Map)) return undefined

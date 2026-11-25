@@ -428,7 +428,7 @@ describe("generated Console access", () => {
     expect(plugin).toContain('installConsoleAccess({ mode: "token" })')
   })
 
-  it.each([["/", "/_vitehub/**"], ["/portal/", "/portal/_vitehub/**"]])("marks the Console route below %s for app Auth access routes to leave to it", async (base, route) => {
+  it.each(["/", "/portal/"])("marks the Console routes below %s for app Auth access routes to leave to them", async (base) => {
     const auth: ResolvedAuthViteConfig = {
       access: { routes: [{ route: "/**" }] },
       basePath: "/api/auth",
@@ -442,9 +442,9 @@ describe("generated Console access", () => {
     // The exception follows the route that Nitro dispatches to, not a path, so the generated plugin names none.
     expect(plugin).not.toContain("vite-hub/auth/runtime/server")
     const { authAccessHandlerMeta } = await import("@vite-hub/auth/runtime/server")
-    expect(config.nitro.handlers.filter(handler => handler.meta)).toEqual([
-      expect.objectContaining({ route, meta: { ...authAccessHandlerMeta } }),
-    ])
+    expect(config.nitro.handlers.filter(handler => handler.meta)).toEqual(["/**", "", "/rpc"].map(path =>
+      expect.objectContaining({ route: `${base}_vitehub${path}`, meta: { ...authAccessHandlerMeta } }),
+    ))
   })
 
   it("serves development operations with Setup-only navigation", async () => {
@@ -462,12 +462,13 @@ describe("generated Console access", () => {
     ["/portal/", false, "entry.js"],
     ["/", true, "entry-site-access.js"],
     ["/portal/", true, "entry-site-access.js"],
-  ] as const)("registers one Console route below %s (Site access: %s)", async (base, siteAccess, file) => {
+  ] as const)("registers Console routes below %s (Site access: %s)", async (base, siteAccess, file) => {
     const mount = base.replace(/\/$/, "")
     const config: { base: string, nitro: { handlers: Array<{ handler: string, middleware?: boolean, route: string }>, publicAssets?: Array<{ baseURL?: string }> } } = { base, nitro: { handlers: [] } }
     await generatedPlugin({ console: {}, comments: siteAccess }, "build", config)
 
-    expect(config.nitro.handlers.map(handler => [handler.route, basename(handler.handler)])).toEqual([[`${mount}/_vitehub/**`, file]])
+    const paths = ["/**", "", "/rpc", ...(siteAccess ? ["/site"] : [])]
+    expect(config.nitro.handlers.map(handler => [handler.route, basename(handler.handler)])).toEqual(paths.map(path => [`${mount}/_vitehub${path}`, file]))
   })
 
   it.each([
@@ -488,7 +489,7 @@ describe("generated Console access", () => {
       if (!configHook) throw new TypeError("Expected a Console config hook.")
       await Reflect.apply("handler" in configHook ? configHook.handler : configHook, {}, [config, { command: "build", mode: "production" }])
 
-      expect(config.nitro.handlers.map(handler => basename(handler.handler))).toEqual([file])
+      expect(new Set(config.nitro.handlers.map(handler => basename(handler.handler)))).toEqual(new Set([file]))
       const sections = /installConsoleSections\([^,]+, (\[[^\]]*\])\)/.exec(await readFile(join(root, ".vitehub/nitro/console/app.mjs"), "utf8"))?.[1]
       expect(JSON.parse(sections ?? "[]").includes("site")).toBe(file === "entry-site-access.js")
     }

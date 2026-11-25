@@ -354,8 +354,10 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
 
   async function view(row: SendRow, user: CommentsUser, policy?: CommentSendPolicy): Promise<CommentSendView> {
     const opened = await viewOf(row, user, policy)
-    await store.setSendState(row.id, ["sent"], "working", Date.now())
-    return { ...opened, send: { ...opened.send, state: row.state === "sent" ? "working" : row.state } }
+    if (row.state !== "sent" && row.state !== "pending") return opened
+    const started = await store.setSendState(row.id, ["pending", "sent"], "working", Date.now())
+    const state = started ? "working" : (await store.send(row.id))?.state ?? row.state
+    return { ...opened, send: { ...opened.send, state } }
   }
 
   async function deliver(caller: CommentSendCaller, user: CommentsUser, paired?: { id: string, thread: string | null }, confirmed?: WaitingSelection): Promise<CommentSendResult> {
@@ -414,7 +416,10 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       return winner ? resultOf(winner) : { status: "failed", reason: deliveryFailed }
     }
     const fail = async (reason: string): Promise<CommentSendResult> => {
-      await store.setSendState(id, ["pending"], "failed", Date.now(), { error: reason })
+      if (!await store.setSendState(id, ["pending"], "failed", Date.now(), { error: reason })) {
+        const current = await store.send(id)
+        if (current) return resultOf(current)
+      }
       return { status: "failed", reason }
     }
     let data: CommentSendData = null
@@ -437,7 +442,10 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
     const [error, delivered] = await (await webhooks()).sendToMemberEndpoint(user.id, body, { event: "comments.send", key, endpointId: endpoint.id, deliveryId: delivery, sealBody: true, hosts })
     if (error || delivered.status === "failed") return fail(error?.why ?? deliveryFailed)
     const status = delivered.status === "pending" ? "pending" : "sent"
-    await store.setSendState(id, ["pending"], status, Date.now(), { delivery: delivered.id })
+    if (!await store.setSendState(id, ["pending"], status, Date.now(), { delivery: delivered.id })) {
+      const current = await store.send(id)
+      if (current) return resultOf(current)
+    }
     return { status, id, ...(thread ? { thread } : {}) }
   }
 
@@ -454,13 +462,16 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       ])
       const latest = candidate && await reconcile(candidate)
       const agent = agentOf(endpoint)
-      let working: CommentSendStatus["working"]
+      let last: Pick<CommentSendStatus, "sent" | "working"> = {}
       if (latest?.state === "sent" || latest?.state === "working") {
         const byId = new Map(open.map(thread => [thread.id, thread]))
-        if (!finished(latest, id => byId.get(id))) working = { id: latest.id, ...(latest.thread ? { thread: latest.thread } : {}) }
+        if (!finished(latest, id => byId.get(id))) {
+          const send = { id: latest.id, ...(latest.thread ? { thread: latest.thread } : {}) }
+          last = latest.state === "sent" ? { sent: send } : { working: send }
+        }
         else await store.setSendState(latest.id, ["sent", "working"], "done", now)
       }
-      return { count: ready.length, selection: await selectionOf(caller.subject, ready), ...(agent ? { agent } : {}), ...(working ? { working } : {}), ...(latest?.state === "pending" ? { pending: true } : {}), ...(limitedUntil === undefined ? {} : { retryAt: limitedUntil }) }
+      return { count: ready.length, selection: await selectionOf(caller.subject, ready), ...(agent ? { agent } : {}), ...last, ...(latest?.state === "pending" ? { pending: true } : {}), ...(limitedUntil === undefined ? {} : { retryAt: limitedUntil }) }
     },
 
     async start(caller) {

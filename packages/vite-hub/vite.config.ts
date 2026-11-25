@@ -134,7 +134,8 @@ const runtimeEntries = [
   "src/console/runtime/skills.ts",
   // The generated Console app module imports these with the first Console request. Own files keep each route small.
   "src/console/runtime/server/access-policy.ts",
-  "src/console/runtime/server/agent-capability.ts",
+  "src/console/runtime/server/agent-console.ts",
+  "src/console/runtime/operation-loader.ts",
   "src/console/runtime/server/development.ts",
   "src/console/runtime/server/runtime.ts",
   "src/console/runtime/server/agents.get.ts",
@@ -648,7 +649,8 @@ export default defineConfig({
           delete exports["./console/runtime/server/env"];
           delete exports["./console/runtime/server/logs.get"];
           delete exports["./console/runtime/server/access-policy"];
-          delete exports["./console/runtime/server/agent-capability"];
+          delete exports["./console/runtime/server/agent-console"];
+          delete exports["./console/runtime/operation-loader"];
           delete exports["./console/runtime/server/development"];
           delete exports["./console/runtime/server/operation-contributions"];
           delete exports["./console/runtime/server/pill"];

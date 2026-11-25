@@ -53,7 +53,7 @@ import { dailyPassResumeAt, nextReviewPushBudget, repairPushAllowance, type Prog
 import { createForgeQuota, createProviderQuota } from "./provider-quota.ts";
 import { baseFixedSinceFailure, staleBaseOverlap, type BaseFreshnessReader } from "./base-freshness.ts";
 import { currentActionRuns, failedOwnActions, inheritedBypassSafety, inheritedCheckEvaluation, jobFailureFacts, parseFailedActionOutput, sameActionFailure, unrelatedFailureWait, type FailedActionOutput, type FailureCause, type InheritedCheckEvaluation, type JobFailureFacts } from "./ci-attribution.ts";
-import { nonDefaultBase, stackRetargetBase, directMergeBranchSafety, sameRepositoryBranches, stackChildBaseDeletion, foldParent, foldMethod, isForkHead, runsOnPush } from "./stack.ts";
+import { nonDefaultBase, stackRetargetBase, directMergeBranchSafety, sameRepositoryBranches, stackChildBaseDeletion, foldParent, foldMethod, headInBaseRepository, isForkHead, runsOnPush } from "./stack.ts";
 import { babysitterModelAdmission, type BabysitterAdmissionResult } from "./admission.ts";
 import { boundedMergeReady } from "./merge-ready.ts";
 import { createBabysitterInstaller } from "./install.ts";
@@ -467,9 +467,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           throw error;
         }
       },
-      async write(path, body) {
+      async write(path, body, method = "POST") {
         const { provider } = await forge(repository, signal);
-        return (await provider.request<unknown>("POST", `/${path}`, { body, signal })).data;
+        return (await provider.request<unknown>(method, `/${path}`, { body, signal })).data;
       },
     };
   }
@@ -483,7 +483,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       await pullRequestInbox.setMeta(mainRepairKey(repository), Date.now() + mainRepairIntervalMs, signal);
       signal.throwIfAborted();
       mainRepairRunning.add(repository);
-      void track(repairBaseBranch(mainRepairGitHub(repository, AbortSignal.timeout(5 * 60_000)), { repository, branchPrefix: mainRepairPrefix, mainRepair, event: schedulerEvent })
+      void track(repairBaseBranch(mainRepairGitHub(repository, AbortSignal.timeout(5 * 60_000)), { repository, branchPrefix: mainRepairPrefix, repairAuthor: verifiedHostIdentity, mainRepair, event: schedulerEvent })
         .catch(async (error: unknown) => {
           await noteForgeQuota(error, "main-repair");
           schedulerError("babysitter.main_repair.failed", error, { repository });
@@ -508,9 +508,9 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     if (!authors) return false;
     const { repository, number } = snapshot;
     const allowed = (pr: unknown): pr is Record<string, unknown> => {
-      if (!isRuntimeRecord(pr) || pr.draft !== true || !isRuntimeRecord(pr.user) || !isRuntimeRecord(pr.head) || !isRuntimeRecord(pr.head.repo)) return false;
+      if (!isRuntimeRecord(pr) || pr.draft !== true || !isRuntimeRecord(pr.user) || !isRuntimeRecord(pr.head)) return false;
       return pr.head.sha === snapshot.pr?.head?.sha && hasRuntimeType(pr.user.login, "string") && authors.has(pr.user.login.toLowerCase())
-        && String(pr.head.repo.full_name).toLowerCase() === repository.toLowerCase();
+        && headInBaseRepository(pr, repository) === true;
     };
     if (!allowed(snapshot.pr)) return false;
     let failure: string | undefined;
@@ -594,7 +594,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     if (!hostIdentity) return false;
     const key = forkReopenKey(repository, number);
     const previous = await pullRequestInbox.meta(key);
-    if (isRuntimeRecord(previous) && (previous.closing === true || Number(previous.at) > Date.now() - 60 * 60_000)) return false;
+    if (isRuntimeRecord(previous) && (previous.closing === true || Number(previous.at) > Date.now() - 60 * 60_000)) {
+      schedulerEvent("babysitter.fork_checks.reopen_skipped", { ...owner, reason: previous.closing === true ? "reopen in flight" : "reopened in the last hour" });
+      return false;
+    }
     const { provider } = await forge(repository, signal);
     try {
       const live = (await provider.request<unknown>("GET", `/repos/${repository}/pulls/${number}`, { signal })).data;
@@ -1235,7 +1238,15 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         if (overlap.length) {
           const files = overlap.slice(0, 3).join(", ") + (overlap.length > 3 ? ` and ${overlap.length - 3} more` : "");
           schedulerEvent("babysitter.direct_merge.skipped", { ...owner, reason: `${base} changed files this PR touches after its checks ran: ${files}` });
-          if (!await updateBranch(owner, repository, number, decision.head, signal, live)) return "not-ready";
+          if (!await updateBranch(owner, repository, number, decision.head, signal, live)) {
+            const reopened = isForkHead(live, repository) ? await pullRequestInbox.meta(forkReopenKey(repository, number)) : undefined;
+            const at = isRuntimeRecord(reopened) ? Number(reopened.at) : Number.NaN;
+            const reopening = Number.isFinite(at) && at > Date.now() - 60 * 60_000;
+            if (!reopening && !reviewPushBudgetSpent(snapshot, waitPolicy)) return "not-ready";
+            const retryAt = reopening ? Math.max(at + 60 * 60_000, Date.now() + 60_000) : Date.now() + 10 * 60_000;
+            await pullRequestInbox.finish(claim, { text: `${base} changed ${files} after its checks ran, and the branch could not be refreshed yet. Waiting for fresh checks or a retry.`, wait: { ...createCheckWait(snapshot, waitPolicy), retryAt } });
+            return "blocked";
+          }
           schedulerEvent("babysitter.branch.updated", { ...owner, files: overlap.slice(0, 10) });
           return await parkMerge(`Updated the branch with ${base} because ${base} changed ${files} after its checks ran; waiting for checks on the new head.`);
         }

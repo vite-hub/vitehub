@@ -103,6 +103,8 @@ The tables show what CI exercises on each host. See the [live smoke runs](https:
 
 Local Vite and Nitro and UnJS have no test status. Local Vite is the dev server, and Nitro is integration glue.
 
+The Nuxt module has two tested paths. CI on `main` builds the packed Nuxt apps of the consumer tests, starts them, and calls their routes on the Nuxt 5 nightly. A second job runs the same apps on Nuxt 4.7 with the `nitro` package.
+
 On Cloudflare and Vercel, the status changes per primitive. A dash means that the host has no provider for the primitive.
 
 <!-- support-matrix:test-status:start -->

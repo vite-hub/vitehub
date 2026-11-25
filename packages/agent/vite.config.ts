@@ -116,6 +116,7 @@ export default defineConfig({
       "src/test.ts",
       "src/ui.ts",
       "src/ui/vue.ts",
+      "src/usage.ts",
       "src/vue.ts",
       "src/vite.ts",
     ],
