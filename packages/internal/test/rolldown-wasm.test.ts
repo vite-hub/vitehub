@@ -41,3 +41,17 @@ it("keeps a WebAssembly module import next to a bundle for other targets", async
   expect(file).toMatch(/^empty-[\da-f]{8}\.wasm$/)
   expect(await readFile(outfile, "utf8")).toContain(`import("./${file}")`)
 })
+
+it("keeps a plain WebAssembly import next to a bundle for other targets", async () => {
+  tempDir = await mkdtemp(join(tmpdir(), "vitehub-internal-rolldown-wasm-"))
+  const entry = join(tempDir, "entry.mjs")
+  const outfile = join(tempDir, "out/bundle.mjs")
+  await writeFile(join(tempDir, "empty.wasm"), new Uint8Array([0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00]))
+  await writeFile(entry, 'import wasm from "./empty.wasm"\nexport default wasm\n', "utf8")
+
+  await bundleEsmEntry(entry, outfile, { conditions: ["workerd", "worker", "browser", "default"], format: "esm", platform: "neutral" })
+
+  const [file] = (await readdir(join(tempDir, "out"))).filter(name => name.endsWith(".wasm"))
+  expect(file).toMatch(/^empty-[\da-f]{8}\.wasm$/)
+  expect(await readFile(outfile, "utf8")).toMatch(new RegExp(`from\\s*"\\./${file}"`))
+})
