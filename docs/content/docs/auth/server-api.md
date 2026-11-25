@@ -433,7 +433,7 @@ With the evlog Nitro module, added through `vitehub({ observability })` or by ha
 | `path` | The Better Auth endpoint, such as `/sign-in/email`. It is not set when Better Auth refused the request before an endpoint ran, such as for its rate limit, or for a guard. |
 | `provider` | The OAuth provider of a callback or a social sign-in. |
 | `status` | The HTTP status of a failure or a refusal. |
-| `code` | Better Auth's error code, such as `INVALID_EMAIL_OR_PASSWORD`, the `error` of an OAuth callback redirect, or the code of a guard refusal: `SIGNED_OUT` or `FORBIDDEN`. |
+| `code` | Better Auth's error code, such as `INVALID_EMAIL_OR_PASSWORD`, the `error` of an OAuth error response such as `invalid_grant` or of an OAuth callback redirect, or the code of a guard refusal: `SIGNED_OUT` or `FORBIDDEN`. |
 | `userId` | The user of a completed sign-in or sign-up. |
 
 Better Auth's warnings and errors also go on the event, with `[Better Auth]` before the message. Auth keeps your `logger` option: your `logger.log`, or Better Auth's console output, still gets every message.
