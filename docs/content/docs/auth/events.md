@@ -142,8 +142,8 @@ Each event has `id`, `type`, `time`, `actor`, `userId`, and `metadata`. The acto
 | `user.signed_in` | `method`, coarse `device`, and `sessionId`. A new session completes authentication. |
 | `user.signed_out` | `sessionId`. Sign-out deletes a stored session. |
 | `sign_in.failed` | `method`. A sign-in endpoint returns a Better Auth API error. No email or attempted user ID is saved. |
-| `session.revoked` | `sessionId`. A stored session is deleted, other than at sign-out, the end of impersonation, or expiry, including cleanup after a ban or user deletion. |
-| `session.expired` | `sessionId`. Better Auth deletes a session that is past its expiry, such as when `/get-session` reads it. The actor is `system`. |
+| `session.revoked` | `sessionId`. A stored session is deleted, other than at sign-out, the end of impersonation, or expiry cleanup, including cleanup after a ban or user deletion. Revoking a session that has already expired is still `session.revoked`. |
+| `session.expired` | `sessionId`. Better Auth deletes the request's own session because its lookup finds it past its expiry, such as in `/get-session`. The actor is `system`, also for an impersonation session. |
 | `user.banned`, `user.unbanned` | No metadata. Admin ban, unban, or an admin update of `banned`. |
 | `user.role_changed` | `role`. Admin changes the user's role. |
 | `user.updated` | `fields`. Admin updates user fields or sets a password. Field values and ban reasons are omitted. |

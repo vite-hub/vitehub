@@ -16,13 +16,13 @@ function record(value: unknown): Record<string, unknown> {
 function identifier(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 && value.length <= 256 ? value : undefined
 }
-function actor(ctx: GenericEndpointContext | null, fallback?: string): AuthEventActor {
+function actor(ctx: GenericEndpointContext | null, fallback?: string | null): AuthEventActor {
+  if (fallback === null) return "system"
   const session = ctx?.context.session
   const id = identifier(session?.session.impersonatedBy) ?? session?.user.id ?? fallback
   return id ? `user:${id}` : "system"
 }
 function method(ctx: GenericEndpointContext | null): string {
-  if (ctx && forwardSignIns.has(ctx.context)) return "forward"
   const path = ctx?.path ?? ""
   const providers = ctx?.context.socialProviders ?? []
   const candidate = path.startsWith("/callback/") || path.startsWith("/oauth2/callback/")
@@ -54,7 +54,9 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
   const wrappedAdapters = new WeakSet<object>()
   const createdSessions = new WeakSet<object>()
   const recordedSessions = new WeakSet<object>()
-  async function append(type: AuthEventType, userId: string | null, ctx: GenericEndpointContext | null, metadata: AuthEventMetadata = {}, fallback?: string): Promise<boolean> {
+  const forwardSessions = new WeakSet<object>()
+  const expiredLookups = new WeakMap<object, Set<string>>()
+  async function append(type: AuthEventType, userId: string | null, ctx: GenericEndpointContext | null, metadata: AuthEventMetadata = {}, fallback?: string | null): Promise<boolean> {
     const event: AuthEvent = { id: crypto.randomUUID(), type, time: new Date().toISOString(), actor: actor(ctx, fallback), userId, metadata }
     try {
       await options.store.append(event)
@@ -97,12 +99,13 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
     }
     await task
   }
-  async function deleted(session: { userId: string, id: string, impersonatedBy?: unknown, expiresAt?: unknown }, ctx: GenericEndpointContext | null) {
-    const expiresAt = session.expiresAt instanceof Date || typeof session.expiresAt === "string" ? new Date(session.expiresAt).getTime() : Number.NaN
+  async function deleted(session: { userId: string, id: string, token?: unknown, impersonatedBy?: unknown }, ctx: GenericEndpointContext | null) {
+    const expired = typeof session.token === "string" && ctx?.context !== undefined && expiredLookups.get(ctx.context)?.has(session.token) === true
     const type = ctx?.path === "/sign-out" ? "user.signed_out"
       : ctx?.path === "/admin/stop-impersonating" ? "impersonation.stopped"
-        : expiresAt <= Date.now() ? "session.expired" : "session.revoked"
-    await append(type, session.userId, ctx, { sessionId: session.id }, identifier(session.impersonatedBy) ?? (type === "user.signed_out" ? session.userId : undefined))
+        : expired ? "session.expired" : "session.revoked"
+    const fallback = type === "session.expired" ? null : identifier(session.impersonatedBy) ?? (type === "user.signed_out" ? session.userId : undefined)
+    await append(type, session.userId, ctx, { sessionId: session.id }, fallback)
   }
   return {
     id: "vitehub-auth-events",
@@ -122,7 +125,7 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
           const session = record(record(parsed).session)
           const id = identifier(session.id)
           const userId = identifier(session.userId)
-          if (id && userId && session.token === key) await deleted({ id, userId, impersonatedBy: session.impersonatedBy, expiresAt: session.expiresAt }, deletionContext.getStore() ?? null)
+          if (id && userId && session.token === key) await deleted({ id, userId, token: key, impersonatedBy: session.impersonatedBy }, deletionContext.getStore() ?? null)
         },
       }
     },
@@ -134,7 +137,7 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
     init: () => ({ options: { databaseHooks: {
       user: {
         create: { async after(user, ctx) {
-          await append("user.signed_up", user.id, ctx, { method: method(ctx) }, !ctx || ctx.path?.startsWith("/admin/") ? undefined : user.id)
+          await append("user.signed_up", user.id, ctx, { method: forwardSignIns.getStore() ? "forward" : method(ctx) }, !ctx || ctx.path?.startsWith("/admin/") ? undefined : user.id)
         } },
         update: { async after(user, ctx) {
           const path = ctx?.path
@@ -154,6 +157,7 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
       session: {
         create: { async after(session, ctx) {
           createdSessions.add(session)
+          if (forwardSignIns.getStore()) forwardSessions.add(session)
           if (session.impersonatedBy || ctx?.path === "/admin/impersonate-user") {
             if (await append("impersonation.started", session.userId, ctx, { sessionId: session.id }, identifier(session.impersonatedBy))) return
             // An impersonation without a record must not start. Better Auth sets no cookie when this hook throws.
@@ -165,7 +169,7 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
           }
           else if (!ctx) {
             recordedSessions.add(session)
-            await append("user.signed_in", session.userId, ctx, { method: method(ctx), device: "unknown", sessionId: session.id })
+            await append("user.signed_in", session.userId, ctx, { method: forwardSessions.has(session) ? "forward" : method(ctx), device: "unknown", sessionId: session.id })
           }
         } },
         delete: { async after(session, ctx) {
@@ -182,14 +186,26 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
             const token = await ctx.getSignedCookie(cookie.name, ctx.context.secret)
             if (token && await ctx.context.internalAdapter.findVerificationValue(token)) challenges.add(ctx.context)
           }
-          // Carry request attribution to the atomic secondary-storage deletion.
-          if (!ctx.context.options.secondaryStorage || ctx.context.options.session?.storeSessionInDatabase) return
           const adapter = ctx.context.internalAdapter
+          const findSession: typeof adapter.findSession = async (...args) => {
+            const found = await adapter.findSession(...args)
+            if (found && new Date(found.session.expiresAt).getTime() <= Date.now()
+              && await ctx.getSignedCookie(ctx.context.authCookies.sessionToken.name, ctx.context.secret) === found.session.token) {
+              const tokens = expiredLookups.get(ctx.context) ?? new Set()
+              expiredLookups.set(ctx.context, tokens.add(found.session.token))
+            }
+            return found
+          }
+          // Carry request attribution to the atomic secondary-storage deletion.
+          const storageOnly = ctx.context.options.secondaryStorage && !ctx.context.options.session?.storeSessionInDatabase
           ctx.context.internalAdapter = {
             ...adapter,
-            deleteSession: token => deletionContext.run(ctx, () => adapter.deleteSession(token)),
-            deleteSessions: tokens => deletionContext.run(ctx, () => adapter.deleteSessions(tokens)),
-            deleteUserSessions: userId => deletionContext.run(ctx, () => adapter.deleteUserSessions(userId)),
+            findSession,
+            ...storageOnly ? {
+              deleteSession: (token: string) => deletionContext.run(ctx, () => adapter.deleteSession(token)),
+              deleteSessions: (tokens: string[]) => deletionContext.run(ctx, () => adapter.deleteSessions(tokens)),
+              deleteUserSessions: (userId: string) => deletionContext.run(ctx, () => adapter.deleteUserSessions(userId)),
+            } : {},
           }
         }),
       }, {
@@ -238,7 +254,7 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
           // This plugin runs after the app plugins, so only completed sign-ins count.
           if (signedIn && createdSessions.has(signedIn.session) && !signedIn.session.impersonatedBy && path !== "/admin/impersonate-user" && !recordedSessions.has(signedIn.session)) {
             recordedSessions.add(signedIn.session)
-            await append("user.signed_in", signedIn.user.id, ctx, { method: method(ctx), device: authEventDevice(ctx.headers?.get("user-agent") ?? ctx.request?.headers.get("user-agent")), sessionId: signedIn.session.id }, signedIn.user.id)
+            await append("user.signed_in", signedIn.user.id, ctx, { method: forwardSessions.has(signedIn.session) ? "forward" : method(ctx), device: authEventDevice(ctx.headers?.get("user-agent") ?? ctx.request?.headers.get("user-agent")), sessionId: signedIn.session.id }, signedIn.user.id)
           }
           if (!signedIn && outcome instanceof APIError && (path.startsWith("/sign-in/") || path === "/magic-link/verify" || path === "/passkey/verify-authentication" || path === "/siwe/verify" || challenges.has(ctx.context))) {
             await append("sign_in.failed", null, ctx, { method: method(ctx) })

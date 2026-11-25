@@ -1,3 +1,4 @@
+import { APIError } from "better-auth"
 import { memoryAdapter } from "better-auth/adapters/memory"
 import { describe, expect, it, vi } from "vitest"
 
@@ -47,6 +48,14 @@ function cookiePairs(response: Response): string {
 
 function getSession(definition: AuthDefinition, headers: Record<string, string>): Promise<Response> {
   return handleAuthRequest(definition, new Request(`${origin}/api/auth/get-session`, { headers }))
+}
+
+function post(definition: AuthDefinition, path: string, body: object, headers: Record<string, string> = {}): Promise<Response> {
+  return handleAuthRequest(definition, new Request(`${origin}/api/auth/${path}`, {
+    body: JSON.stringify(body),
+    headers: { "content-type": "application/json", origin, ...headers },
+    method: "POST",
+  }))
 }
 
 function guarded(definition: AuthDefinition) {
@@ -232,6 +241,61 @@ describe("forwardAuth()", () => {
     await getSession(definition, { [header]: "gho_ada" })
 
     expect(onRefused).toHaveBeenCalledWith(expect.objectContaining({ code: "unable_to_create_session" }))
+  })
+
+  it("keeps the method of a password sign-in and an email sign-up on a request that `forwardAuth()` handles", async () => {
+    const refused = createForwardAuth(({ value }) => value === "gho_unverified" ? { ...ada, emailVerified: false } : null)
+    expect((await post(refused.definition, "sign-up/email", { email: ada.email, name: "Ada", password: "passwordpassword" })).status).toBe(200)
+    refused.events.splice(0)
+
+    expect((await post(refused.definition, "sign-in/email", { email: ada.email, password: "passwordpassword" }, { [header]: "gho_unverified" })).status).toBe(200)
+    expect((await post(refused.definition, "sign-in/email", { email: ada.email, password: "wrong-password" }, { [header]: "gho_unverified" })).status).toBe(401)
+
+    expect(refused.events.map(event => [event.type, event.metadata.method])).toEqual([["user.signed_in", "email-password"], ["sign_in.failed", "email-password"]])
+
+    const accepted = createForwardAuth()
+    expect((await post(accepted.definition, "sign-up/email", { email: "eve@example.com", name: "Eve", password: "passwordpassword" }, { [header]: "gho_grace" })).status).toBe(200)
+
+    const signUps = accepted.events.filter(event => event.type === "user.signed_up")
+    const userIds = Object.fromEntries((accepted.db.user ?? []).map(user => [String(user.email), user.id]))
+    expect(signUps.map(event => [event.userId, event.metadata.method])).toEqual(expect.arrayContaining([[userIds["grace@example.com"], "forward"], [userIds["eve@example.com"], "email-password"]]))
+    expect(signUps).toHaveLength(2)
+  })
+
+  it("tells `onRefused` when a provider requires a verified email", async () => {
+    const onRefused = vi.fn()
+    const { definition } = createForwardAuth(({ value }) => value === "gho_grace" ? { ...grace, emailVerified: false } : null, {
+      socialProviders: { github: { clientId: "github-client", clientSecret: "github-secret", requireEmailVerification: true } },
+    }, onRefused)
+
+    expect(await (await getSession(definition, { [header]: "gho_grace" })).json()).toBeNull()
+
+    expect(onRefused).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ code: "email_not_verified" }))
+  })
+
+  it("tells `onRefused` about a denial that Better Auth throws, and keeps its response", async () => {
+    const validated = vi.fn()
+    const byValidation = createForwardAuth(undefined, { user: { validateUserInfo: () => ({ error: "blocked_domain" }) } }, validated)
+    const hooked = vi.fn()
+    const byHook = createForwardAuth(undefined, { databaseHooks: { session: { create: { before: async () => {
+      throw new APIError("FORBIDDEN", { message: "Sessions are closed." })
+    } } } } }, hooked)
+
+    expect((await getSession(byValidation.definition, { [header]: "gho_ada" })).status).toBe(403)
+    expect((await getSession(byHook.definition, { [header]: "gho_ada" })).status).toBe(403)
+
+    expect(validated).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ code: "denied", error: expect.objectContaining({ body: expect.objectContaining({ code: "blocked_domain" }) }) }))
+    expect(hooked).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ code: "denied", identity: expect.objectContaining({ accountId: "1" }) }))
+  })
+
+  it("does not call `onRefused` for a server error", async () => {
+    const onRefused = vi.fn()
+    const { definition } = createForwardAuth(undefined, { databaseHooks: { session: { create: { before: async () => {
+      throw new Error("The database is down.")
+    } } } } }, onRefused)
+
+    expect((await getSession(definition, { [header]: "gho_ada" })).status).toBe(500)
+    expect(onRefused).not.toHaveBeenCalled()
   })
 
   it("fails the request when `verify` returns a value that is not an identity", async () => {

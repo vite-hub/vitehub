@@ -218,6 +218,39 @@ describe("auth events with real Better Auth and Node SQLite", () => {
     expect((await app.store.list({ type: "session.expired" })).events).toEqual([expect.objectContaining({ actor: "system", userId: user.id, metadata: { sessionId: expect.any(String) } })])
   })
 
+  it("keeps an admin revoke and a ban of expired sessions as session.revoked", async () => {
+    const app = await setup()
+    const owner = await app.signUp("revoker")
+    app.sqlite.prepare("UPDATE user SET role = 'admin' WHERE id = ?").run(owner.id)
+    const member = await app.signUp("stale")
+    const second = await (await app.request("sign-in/email", { email: "stale@example.com", password: "passwordpassword" })).json() as { token: string }
+    app.sqlite.prepare("update session set expiresAt = ? where userId = ?").run(new Date(Date.now() - 60_000).toISOString(), member.id)
+
+    expect((await app.request("admin/revoke-user-session", { sessionToken: second.token }, owner.cookie)).status).toBe(200)
+    expect((await app.request("admin/ban-user", { userId: member.id }, owner.cookie)).status).toBe(200)
+
+    expect(app.sqlite.prepare("select count(*) as count from session where userId = ?").get(member.id)).toEqual({ count: 0 })
+    expect((await app.store.list({ type: "session.expired" })).events).toEqual([])
+    expect((await app.store.list({ type: "session.revoked" })).events).toEqual([
+      expect.objectContaining({ actor: `user:${owner.id}`, userId: member.id }),
+      expect.objectContaining({ actor: `user:${owner.id}`, userId: member.id }),
+    ])
+  })
+
+  it("records the expiry of an impersonation session with actor system", async () => {
+    const app = await setup()
+    const owner = await app.signUp("impersonator")
+    app.sqlite.prepare("UPDATE user SET role = 'admin' WHERE id = ?").run(owner.id)
+    const member = await app.signUp("impersonee")
+    const impersonation = await app.request("admin/impersonate-user", { userId: member.id }, owner.cookie)
+    expect(impersonation.status).toBe(200)
+    app.sqlite.prepare("update session set expiresAt = ? where impersonatedBy is not null").run(new Date(Date.now() - 60_000).toISOString())
+
+    expect(await (await app.request("get-session", undefined, cookies(impersonation))).json()).toBeNull()
+
+    expect((await app.store.list({ type: "session.expired" })).events).toEqual([expect.objectContaining({ actor: "system", userId: member.id })])
+  })
+
   it("atomically records concurrent secondary-storage deletions", async () => {
     const values = new Map<string, string>()
     let deleting = false
