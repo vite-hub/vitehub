@@ -96,13 +96,15 @@ An app without Comments opens through the Console at `https://console.vitehub.de
 
 ## Remove the Site access data
 
-Site access now lives in the ViteHub Console. The app keeps no Site access user, session or store, and it checks only the token that the Console signs. Earlier releases left data in the app Database:
+Site access now lives in the ViteHub Console. New Site access sign-ins use a token signed by the Console and do not create an app Auth user or session. Earlier releases left data in the app Database:
 
 - the `vitehub_console_site` table, for Site access links and sessions,
 - with app Auth, a guest user for each guest, with the email `guest-<uuid>@guests.invalid`, its sessions, and an `account` row with `provider_id = 'vitehub-site-guest'`,
 - with app Auth, the `console` and `comments-*` roles that Site access added to the `user.role` of members.
 
-The SQL finds guests by the `vitehub-site-guest` account, not by the email, so it does not delete other users with such an email. Guests and members sign in again through the Console. Routes that check the app's Auth session do not let them in. Run this SQL once on each app Database. It is safe to run again, and a statement that finds nothing changes nothing. Without app Auth, run only the first statement.
+The SQL finds guests by the `vitehub-site-guest` account, not by the email, so it does not delete other users with such an email. Run it once on each app Database. It is safe to run again, and a statement that finds nothing changes nothing. Without app Auth, run only the first statement.
+
+The SQL deletes guest sessions, but it does not revoke existing member sessions. Earlier Site access sign-ins issued ordinary Better Auth sessions with no Site access marker. Those sessions can still satisfy an app's sign-in check after the SQL removes the Site access roles. If those members must lose app access, identify the affected accounts before cleanup and revoke their sessions under [Auth → Users](/docs/auth/console#pages). Revoke all sessions for each affected account if you cannot identify individual sessions; this also signs out ordinary app logins for those users.
 
 ::tabs
 :::tabs-item{label="SQLite and D1"}
@@ -161,9 +163,9 @@ The SQL keeps the other roles of a member, such as `admin` or `user`, as they ar
 
 ## Drop the usage tables
 
-The Console kept an index of Agent usage next to the Agent Invocation journal. The Console now reads usage from the journal, so the index tables and their triggers are not used. Each change to the journal still runs the triggers until you drop them.
+The Console kept an index of Agent usage next to the Agent Invocation journal. [The usage-index removal (#5409)](https://github.com/vite-hub/vitehub/pull/5409) switches those builds to reading usage directly from the journal. The old triggers still run on journal changes until you drop them.
 
-Run this SQL only after every running instance of the app uses this release. An older instance still writes the index, and it fails without the tables.
+Run this SQL only after every running instance that uses the journal runs a build containing the usage-index removal. Upgrading to a build that contains only the Console migration codemods is not enough. A build that still uses the index can fail or recreate the tables after the drop.
 
 ```sql [drop-console-usage.sql]
 DROP TRIGGER IF EXISTS "vitehub_console_usage_v2_insert";

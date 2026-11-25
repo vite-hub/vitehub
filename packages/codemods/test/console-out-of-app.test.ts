@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { afterAll, describe, expect, it } from "vitest"
+import { afterAll, describe, expect, it, vi } from "vitest"
 
 import { detectCodemods, formatReport, runCodemod, upgradeCodemods } from "../src/index.ts"
 import { migrateConsoleAuthorize } from "../src/console-out-of-app/index.ts"
@@ -50,6 +50,37 @@ describe("console-out-of-app", () => {
       "})",
     ))
     expect((await detectCodemods(cwd)).map(entry => entry.codemod.name)).not.toContain("console-out-of-app")
+  })
+
+  it("preserves statement boundaries when removing consecutive page checks", () => {
+    const input = lines(
+      "export default (ctx) => {",
+      "  logRequest(ctx)",
+      "  if (ctx.via === 'page') { return false }",
+      "  if (ctx.via === 'page') { return true }",
+      "  ['cli'].includes(ctx.via) && audit(ctx)",
+      "  return true",
+      "}",
+    )
+    const result = migrateConsoleAuthorize("server/console-authorize.js", input)
+    expect(result.followUps).toEqual([])
+    expect(result.code).not.toContain("if (")
+    const ctx = { via: "cli" }
+    for (const code of [input, result.code]) {
+      const log = vi.fn()
+      const audit = vi.fn()
+      const authorize = new Function("logRequest", "audit", code.replace("export default", "return"))(log, audit)
+      expect(authorize(ctx)).toBe(true)
+      expect(log).toHaveBeenCalledWith(ctx)
+      expect(audit).toHaveBeenCalledWith(ctx)
+    }
+  })
+
+  it("reports a branch that declares a function-scoped binding", () => {
+    const input = "export default (ctx) => { if (ctx.via === 'page') { var allow = true; return allow }; return Boolean(allow) }\n"
+    const result = migrateConsoleAuthorize("server/console-authorize.js", input)
+    expect(result.code).toBe(input)
+    expect(result.followUps).toHaveLength(1)
   })
 
   it("removes a member check with its comment, in a function declared apart", () => {

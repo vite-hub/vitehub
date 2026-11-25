@@ -98,7 +98,7 @@ npx @vite-hub/codemods vitehub-options [dir] [--dry-run]
 
 The codemod also moves Logs options in literal Nuxt environment overrides. It keeps Evlog enabled when local capture was conditional or disabled. If it cannot preserve whether Evlog starts, such as when a read-only source is set next to Evlog options without a `service`, it reports a manual follow-up instead of changing the config.
 
-The report also lists `preset` next to `host`, `sandbox` options that are not a boolean, `cloudflare.secretsFile`, `console.auth: 'app'` and `console.auth: { ... }`, Console journal options that it cannot move because `agent.invocations` is not an object literal, Env expressions or conflicting Env declarations, and source lines that name a renamed option type, such as `KVModuleOptions`, which is now `KVOptions`.
+The report also lists `preset` next to `host`, `sandbox` options that are not a boolean, `cloudflare.secretsFile`, `console.auth: 'app'` and `console.auth: { ... }`, Env expressions or conflicting Env declarations, and source lines that name a renamed option type, such as `KVModuleOptions`, which is now `KVOptions`. The codemod leaves a Console journal option in place and reports it when the move could change the effective journal, would overwrite an existing option, or would put `databaseUrl` on an explicit store where it has no effect.
 
 Sandbox Task option objects move like the other keys: into `vitehub({ sandboxTask })`, the `vite-hub/nuxt` options, or an existing `hubSandboxTask()` call without arguments.
 

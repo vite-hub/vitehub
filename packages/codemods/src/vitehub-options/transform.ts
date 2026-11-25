@@ -29,7 +29,7 @@ const ownerPlugins: Record<string, { name: string, previousName?: string, packag
 
 const removedConsoleOptions: Record<string, string> = {
   embed: "Apps do not serve the Console page. Open the app in the ViteHub Console at https://console.vitehub.dev.",
-  mcp: "Apps do not serve a Console MCP. Agents use the ViteHub MCP at https://console.vitehub.dev/mcp.",
+  mcp: "Apps do not serve a Console MCP. Link the app in the ViteHub Console and connect agents to https://console.vitehub.dev/mcp/account.",
   mcpClient: "The MCP client section of the ViteHub Console connects to MCP servers from the Console server. Remove @modelcontextprotocol/sdk if nothing else imports it, and remove VITEHUB_CONSOLE_MCP_KEY.",
   origins: "The ViteHub Console signs calls on its server, so apps take no Console calls from browsers.",
   pill: "The Comments pill loads the Console segment from the ViteHub Console. An app without Comments opens through https://console.vitehub.dev.",
@@ -98,6 +98,51 @@ function property(object: ObjectExpression, name: string): ObjectProperty | unde
 function objectValue(node: Node | undefined): ObjectExpression | undefined {
   const value = node ? unwrapExpression(node) : undefined
   return value?.type === "ObjectExpression" ? value : undefined
+}
+
+function hasOpaqueKeys(object: ObjectExpression): boolean {
+  return object.properties.some(item => item.type === "SpreadElement" || keyName(item.key, item.computed) === undefined)
+}
+
+function hasProperty(object: ObjectExpression, name: string): boolean {
+  return object.properties.some(item => item.type !== "SpreadElement" && keyName(item.key, item.computed) === name)
+}
+
+function hasAmbiguousProperty(object: ObjectExpression, name: string): boolean {
+  const matches = object.properties.filter(item => item.type !== "SpreadElement" && keyName(item.key, item.computed) === name)
+  return matches.length > 1 || matches.some(item => item.type !== "ObjectProperty")
+}
+
+function hasStaticNuxtScopes(root: ObjectExpression): boolean {
+  if (hasOpaqueKeys(root) || hasProperty(root, "extends") || hasProperty(root, "_extends")) return false
+  return root.properties.every((item) => {
+    if (item.type === "SpreadElement") return false
+    const name = keyName(item.key, item.computed)
+    if (!name?.startsWith("$")) return true
+    const scope = item.type === "ObjectProperty" && objectValue(item.value)
+    if (!scope || hasOpaqueKeys(scope) || hasAmbiguousProperty(root, name)) return false
+    if (name !== "$env") return true
+    return scope.properties.every(entry => entry.type === "ObjectProperty" && objectValue(entry.value))
+  })
+}
+
+function hasStaticNuxtOptions(scope: ObjectExpression, entry: Node | undefined): boolean {
+  if (hasOpaqueKeys(scope) || hasProperty(scope, "extends") || hasProperty(scope, "_extends")) return false
+  if (hasAmbiguousProperty(scope, "vitehub") || hasAmbiguousProperty(scope, "modules")) return false
+  if (hasProperty(scope, "vitehub") && !objectValue(property(scope, "vitehub")?.value)) return false
+  const modulesValue = property(scope, "modules")?.value
+  if (!modulesValue) return true
+  const modules = unwrapExpression(modulesValue)
+  if (modules.type !== "ArrayExpression") return false
+  return modules.elements.every((element) => {
+    if (!element) return true
+    const module = unwrapExpression(element)
+    if (module === entry) return module.type !== "ArrayExpression" || !module.elements[1] || Boolean(objectValue(module.elements[1]))
+    if (module.type === "StringLiteral") return module.value !== "vite-hub/nuxt"
+    if (module.type !== "ArrayExpression" || !module.elements[0]) return false
+    const head = unwrapExpression(module.elements[0])
+    return head.type === "StringLiteral" && head.value !== "vite-hub/nuxt"
+  })
 }
 
 function nuxtEnvironmentOverrides(root: ObjectExpression): ObjectExpression[] {
@@ -215,23 +260,28 @@ export function migrateViteHubOptions(file: string, code: string, findOptions?: 
 
   const moveToInvocations = (options: ObjectExpression, items: ObjectProperty[]): boolean => {
     const entries = items.map(text)
-    if (options.properties.some(item => item.type === "SpreadElement")) return false
+    if (importedOptions || !staticNuxtOptions || options === legacyAgentTarget) return false
+    if (nuxt && allOptions.some(other => other !== options &&
+      (hasOpaqueKeys(other) || hasProperty(other, "agent") || hasProperty(other, "console")))) return false
+    if (hasOpaqueKeys(options) || hasAmbiguousProperty(options, "agent") || hasAmbiguousProperty(options, "console")) return false
+    const consoleOptions = objectValue(property(options, "console")?.value)
+    if (!consoleOptions || hasOpaqueKeys(consoleOptions) || items.some(item => hasAmbiguousProperty(consoleOptions, keyName(item.key)!))) return false
     const agent = property(options, "agent")
     if (!agent) {
-      if (options === legacyAgentTarget) return false
       insertProperties(options, [`agent: { invocations: { ${entries.join(", ")} } }`])
       return true
     }
     const agentObject = objectValue(agent.value)
-    if (!agentObject || agentObject.properties.some(item => item.type === "SpreadElement")) return false
+    if (!agentObject || hasOpaqueKeys(agentObject) || hasAmbiguousProperty(agentObject, "invocations")) return false
     const invocations = property(agentObject, "invocations")
     if (!invocations) {
       insertProperties(agentObject, [`invocations: { ${entries.join(", ")} }`])
       return true
     }
     const invocationsObject = objectValue(invocations.value)
-    if (!invocationsObject || invocationsObject.properties.some(item => item.type === "SpreadElement")) return false
-    if (items.some(item => property(invocationsObject, keyName(item.key, item.computed) ?? ""))) return false
+    if (!invocationsObject || hasOpaqueKeys(invocationsObject)) return false
+    if (items.some(item => hasProperty(invocationsObject, keyName(item.key)!) ||
+      (keyName(item.key) === "databaseUrl" && hasProperty(invocationsObject, "store")))) return false
     insertProperties(invocationsObject, entries)
     return true
   }
@@ -282,18 +332,17 @@ export function migrateViteHubOptions(file: string, code: string, findOptions?: 
   const optionObjects: ObjectExpression[] = importedOptions ?? []
   const environmentOptions: ObjectExpression[] = []
   const emptyCalls: Array<Node & { type: "CallExpression" }> = []
+  let staticNuxtOptions = true
   if (!importedOptions && nuxt) {
-    const key = objectValue(property(root, "vitehub")?.value)
-    if (key) optionObjects.push(key)
-    const entry = findViteHubEntry({ code, fileName: file, path: file, program, root })
-    const inline = entry?.type === "ArrayExpression" ? objectValue(entry.elements[1] ?? undefined) : undefined
-    if (inline) optionObjects.push(inline)
-    for (const scope of nuxtEnvironmentOverrides(root)) {
+    staticNuxtOptions = hasStaticNuxtScopes(root)
+    for (const scope of [root, ...nuxtEnvironmentOverrides(root)]) {
+      const target = scope === root ? optionObjects : environmentOptions
       const options = objectValue(property(scope, "vitehub")?.value)
-      if (options) environmentOptions.push(options)
+      if (options) target.push(options)
       const entry = findViteHubEntry({ code, fileName: file, path: file, program, root: scope })
       const inline = entry?.type === "ArrayExpression" ? objectValue(entry.elements[1] ?? undefined) : undefined
-      if (inline) environmentOptions.push(inline)
+      if (inline) target.push(inline)
+      staticNuxtOptions &&= hasStaticNuxtOptions(scope, entry)
     }
   }
   else if (!importedOptions) {
@@ -311,7 +360,8 @@ export function migrateViteHubOptions(file: string, code: string, findOptions?: 
   const viteObject = importedOptions ? undefined : nuxt ? objectValue(property(root, "vite")?.value) : root
   const legacyAgentTarget = viteObject && property(viteObject, "agent") && optionObjects.length === 1 && !emptyCalls.length ? optionObjects[0] : undefined
 
-  for (const options of new Set([...optionObjects, ...environmentOptions])) {
+  const allOptions = [...new Set([...optionObjects, ...environmentOptions])]
+  for (const options of allOptions) {
     renameKey(options, "preset", "host", "Both preset and host are set. Remove preset: host picks the deployment target.")
     const sandbox = property(options, "sandbox")
     const sandboxValue = sandbox ? unwrapExpression(sandbox.value) : undefined

@@ -442,6 +442,57 @@ describe("vitehub-options transform", () => {
   })
 
   it.each([
+    "vitehub: { agent: { invocations: 'database' } }, $production: { vitehub: { console: { retention: 7 } } }",
+    "vitehub: { agent: { invocations: false } }, $env: { preview: { vitehub: { console: { retention: 7 } } } }",
+    "vitehub: { console: { retention: 7 } }, $development: { vitehub: { agent: { invocations: false } } }",
+    "modules: [['vite-hub/nuxt', { agent: { invocations: 'database' } }]], vitehub: { console: { retention: 7 } }",
+    "modules: [['vite-hub/nuxt', { console: { retention: 7 } }]], get vitehub() { return otherOptions }",
+    "modules: [['vite-hub/nuxt', otherOptions]], vitehub: { console: { retention: 7 } }",
+    "vitehub: { console: { retention: 7 } }, $production: { [key]: otherOptions }",
+    "vitehub: { console: { retention: 7 } }, $env: { preview: previewOptions }",
+    "extends: ['../shared-layer'], vitehub: { console: { retention: 7 } }",
+  ])("reports a journal move across ambiguous Nuxt config scopes: %s", (options) => {
+    const input = `export default defineNuxtConfig({ ${options} })\n`
+    const result = migrateViteHubOptions("nuxt.config.ts", input)
+    expect(result.code).toBe(input)
+    expect(result.followUps.map(followUp => followUp.message)).toEqual([expect.stringContaining("console.retention was removed")])
+  })
+
+  it("moves journal options in a self-contained Nuxt environment override", () => {
+    const input = "export default defineNuxtConfig({ modules: ['vite-hub/nuxt'], vitehub: { host: 'node' }, $production: { vitehub: { console: { retention: { days: 7 } } } } })\n"
+    const result = migrateViteHubOptions("nuxt.config.ts", input)
+    expect(result.followUps).toEqual([])
+    expect(result.code.replace(/\s+/g, "")).toContain("$production:{vitehub:{console:{},agent:{invocations:{retention:{days:7}}},}}")
+  })
+
+  it("moves retention into an explicit store without changing that store", () => {
+    const input = "export default defineNuxtConfig({ vitehub: { agent: { invocations: { store: 'database', database: 'jobs' } }, console: { retention: { maxRecords: 50 } } } })\n"
+    const result = migrateViteHubOptions("nuxt.config.ts", input)
+    expect(result.followUps).toEqual([])
+    expect(result.code.replace(/\s+/g, "")).toContain("invocations:{store:'database',database:'jobs',retention:{maxRecords:50},}")
+  })
+
+  it.each([
+    "agent: { invocations: { store: 'database' } }",
+    "agent: { invocations: { store: 'memory' } }",
+    "agent: { invocations: { get store() { return 'database' } } }",
+    "agent: { invocations: { get databaseUrl() { return url } } }",
+    "agent: { get invocations() { return false } }",
+    "get agent() { return { invocations: false } }",
+    "[key]: { invocations: false }",
+  ])("does not move console.databaseUrl into %s", (options) => {
+    const input = `import { vitehub } from 'vite-hub'\nexport default { plugins: [vitehub({ ${options}, console: { databaseUrl: 'file:x.db' } })] }\n`
+    const result = migrateViteHubOptions("vite.config.ts", input)
+    expect(result.code).toBe(input)
+    expect(result.followUps.map(followUp => followUp.message)).toEqual([expect.stringContaining("console.databaseUrl was removed")])
+  })
+
+  it("points project MCP clients to the account endpoint", () => {
+    const result = migrateViteHubOptions("nuxt.config.ts", "export default defineNuxtConfig({ vitehub: { console: { mcp: true } } })\n")
+    expect(result.notes).toEqual([expect.stringContaining("https://console.vitehub.dev/mcp/account")])
+  })
+
+  it.each([
     ["a spread in the options", "export default { plugins: [vitehub({ ...shared, console: { retention: 7 } })] }\n"],
     ["a spread after agent", "export default { plugins: [vitehub({ agent: {}, ...shared, console: { retention: 7 } })] }\n"],
     ["a legacy top-level agent key", "export default { agent: { tools: [] }, plugins: [vitehub({ console: { retention: 7 } })] }\n"],

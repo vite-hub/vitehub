@@ -31,6 +31,15 @@ function isFunction(node: Node | null | undefined): node is FunctionNode {
 
 type Resolve = ReturnType<typeof bindingResolver>
 
+function declaresHoistedBinding(branch: Node): boolean {
+  let found = false
+  walk(branch, (node, ancestors) => {
+    if (found || ancestors.some(isNestedScope)) return
+    if (node.type === "FunctionDeclaration" || (node.type === "VariableDeclaration" && node.kind === "var")) found = true
+  })
+  return found
+}
+
 function isNestedScope(node: Node): boolean {
   return isFunction(node) || node.type === "ObjectMethod" || node.type === "ClassMethod" || node.type === "ClassPrivateMethod"
 }
@@ -122,8 +131,8 @@ export function migrateConsoleAuthorize(file: string, code: string): { code: str
   const output = new MagicString(code)
   let changed = false
   const removedRanges: Array<[number, number]> = []
-  const removeRange = (range: [number, number]) => {
-    output.remove(range[0], range[1])
+  const removeRange = (range: [number, number], replacement = "") => {
+    output.update(range[0], range[1], replacement)
     removedRanges.push(range)
     changed = true
   }
@@ -150,7 +159,12 @@ export function migrateConsoleAuthorize(file: string, code: string): { code: str
       const removable = match === "remove" && (node.operator === "===" || node.operator === "==")
         && parent?.type === "IfStatement" && parent.test === node && !parent.alternate
         && (block?.type === "BlockStatement" || block?.type === "Program")
-      if (removable) removeRange(listItemRemoval(code, parent))
+      if (removable && !declaresHoistedBinding(parent.consequent)) {
+        const statements = block.body
+        const next = statements[statements.indexOf(parent) + 1]
+        if (next?.type === "ExpressionStatement") removeRange([start(parent), end(parent)], ";")
+        else removeRange(listItemRemoval(code, parent))
+      }
       else follow(node, pageBranch)
     })
   }
