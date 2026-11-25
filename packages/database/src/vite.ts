@@ -193,6 +193,7 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined, dev: bo
       : dev
         ? `    config: resolveDevRemoteConfig(${renderDatabaseConfigExpression(definition.name, config, `definition_${index}`, localLimits)}, definition_${index}.remote),`
         : `    config: ${renderDatabaseConfigExpression(definition.name, config, `definition_${index}`, localLimits)},`,
+    ...(dev && config.databases[definition.name]?.dialect === "sqlite" ? [`    projectRoot: ${JSON.stringify(config.rootDir)},`] : []),
     `    relations: relations_${index},`,
     `    schema: schema_${index},`,
     "  },",

@@ -1,12 +1,15 @@
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+import { pathToFileURL } from "node:url"
 
+import { createClient } from "@libsql/client"
 import { afterEach, expect, it, vi } from "vitest"
 import * as definitionCatalog from "@vite-hub/internal/definition-catalog"
 
 import { resolveDBViteConfig } from "../src/config.ts"
 import { writeGeneratedDatabaseArtifacts } from "../src/internal/generated.ts"
+import { sharedRuntimeKey } from "../src/runtime/shared-runtime.ts"
 import { DB_VIRTUAL_DATABASES_ID, DB_VIRTUAL_SCHEMA_ID, hubDatabase } from "../src/vite.ts"
 
 vi.mock("../src/internal/generated.ts", async (importOriginal) => ({
@@ -45,6 +48,35 @@ function hooks(plugin: ReturnType<typeof hubDatabase>) {
     load: (plugin.load as { handler: (id: string) => Promise<string> }).handler,
   }
 }
+
+it("opens the migrated SQLite file from the Database root in development", async () => {
+  const { root } = await createProject()
+  const viteRoot = join(root, "app")
+  const { configResolved, load } = hooks(hubDatabase({ projectRoot: root }))
+  await configResolved({ command: "serve", root: viteRoot })
+
+  const source = (await load(`\0${DB_VIRTUAL_DATABASES_ID}`))
+    .replace(/^import .+$/gm, "")
+    .replace("export const databases", "const databases")
+    .replace("export default databases", "return { default: databases }")
+  const runtime = new Function("definition_0", "schema_0", "relations_0", "resolveRuntimeCloudflareConfig", "resolveDevRemoteConfig", source)
+  const dbFile = join(root, ".vitehub/data/database/sqlite.db")
+  await mkdir(dirname(dbFile), { recursive: true })
+  const client = createClient({ url: pathToFileURL(dbFile).href })
+  try {
+    await client.execute("CREATE TABLE notes (id INTEGER PRIMARY KEY)")
+    vi.doMock("#vitehub/database/databases", () => runtime({}, {}, {}, () => undefined, (config: unknown) => config))
+    const { getRuntimeDatabases } = await import("../src/runtime/drizzle-runtime.ts")
+    const { db } = getRuntimeDatabases().databases.default
+    await db.run("INSERT INTO notes VALUES (7)")
+    expect((await client.execute("SELECT id FROM notes")).rows).toEqual([{ id: 7 }])
+  }
+  finally {
+    client.close()
+    vi.doUnmock("#vitehub/database/databases")
+    Reflect.deleteProperty(globalThis, sharedRuntimeKey)
+  }
+})
 
 it("serializes startup and hot-update writes and waits for the latest artifacts before loading or invalidating", async () => {
   const { definition, root } = await createProject()

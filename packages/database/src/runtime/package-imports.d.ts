@@ -6,6 +6,7 @@ declare module "#vitehub/database/definition-runtime" {
     config: import("../types.ts").RuntimeDrizzleDatabaseConfig,
     relations: TRelations,
     migrationsDir?: string,
+    projectRoot?: string,
   ): import("../types.ts").RuntimeDrizzleDatabase<TSchema, TRelations>
 }
 

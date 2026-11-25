@@ -8,6 +8,7 @@ import { fallbackDatabasesMarker, sharedRuntimeKey } from "./shared-runtime.ts"
 
 interface RuntimeDatabaseModule {
   config?: ResolvedDrizzleDatabaseConfig
+  projectRoot?: string
   /** Generated Postgres entries create their database client directly. */
   db?: RuntimeDrizzleDatabase<Record<string, unknown>, AnyRelations>
   /** Every table of the merged schema, with the relations of the Definition, its Nuxt layers, and contributed tables. */
@@ -36,12 +37,13 @@ function createRuntimeDatabase(
   config: ResolvedDrizzleDatabaseConfig | undefined,
   relations: AnyRelations,
   name: string,
+  projectRoot?: string,
 ) {
   if (!config) {
     return createMissingDatabaseProxy(name)
   }
 
-  return createConfiguredDatabase(config, relations, config.migrationsDir)
+  return createConfiguredDatabase(config, relations, config.migrationsDir, projectRoot)
 }
 
 function resolveDatabases() {
@@ -51,7 +53,7 @@ function resolveDatabases() {
     Object.entries(runtimeEntries).map(([name, entry]) => [
       name,
       {
-        db: entry.db ?? createRuntimeDatabase(entry.config, entry.relations, name),
+        db: entry.db ?? createRuntimeDatabase(entry.config, entry.relations, name, entry.projectRoot),
         relations: entry.relations,
         schema: entry.schema,
       } satisfies RuntimeDatabaseEntry<Record<string, unknown>>,
