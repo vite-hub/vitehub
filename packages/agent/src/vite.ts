@@ -100,8 +100,13 @@ interface AgentCliContributingPlugin {
   vitehub?: ViteHubInspectionPluginMetadata & DurabilityPluginMetadata & {
     agent?: {
       transformWorkflowRegistry: (code: string, id: string) => string
-      /** Checks direct folder Agent imports in a server build that does not run Vite transforms. */
-      transformWorkspaceAgent: (code: string, id: string, options: { root: string, serverDirs?: string[] }) => Promise<string | undefined>
+      /** Runs the Agent Definition transform in a server build that does not run Vite transforms, such as Nitro on Nuxt 4.7. */
+      transformAgentDefinition: (code: string, id: string, options: {
+        root: string
+        projectRoot?: string
+        serverDirs?: string[]
+        resolve?: (specifier: string, importer: string) => Promise<string | undefined>
+      }) => Promise<string | undefined>
       /** The Agent files that a generated Workflow registry imports by path. */
       workflowModules: { index: string, runtimeWorkflow: string, serverInternal: string }
     }
@@ -1302,6 +1307,24 @@ async function transformNamedAgentChannels(
   ].join("\n")
 }
 
+async function transformDiscoveredAgentDefinition(
+  code: string,
+  parse: (code: string) => unknown,
+  file: string,
+  definition: DiscoveredAgentDefinition,
+  channels: ReadonlyArray<{ handler: string, name: string }>,
+  resolveModule?: NamedChannelModuleResolver,
+): Promise<string | undefined> {
+  const skills = readColocatedAgentSkills(definition.handler)
+  let transformed = decorateDiscoveredAgentExport(code, parse, [
+    ...declaredWorkspaceDecorators(definition),
+    ...(skills ? [colocatedAgentSkillsDecorator(skills)] : []),
+    discoveredAgentIdentityDecorator(definition),
+  ]) ?? code
+  transformed = await transformNamedAgentChannels(transformed, parse, file, channels, resolveModule) ?? transformed
+  return transformed === code ? undefined : transformed
+}
+
 async function prepareRetainedAgentSources(
   sources: { resolve: (path: string) => string },
   definitions: DiscoveredAgentDefinition[],
@@ -1315,14 +1338,8 @@ async function prepareRetainedAgentSources(
     const retainedChannels = channels.map(channel => ({ ...channel, handler: moduleImportSpecifier(handler, sources.resolve(channel.handler)) }))
     const code = await readFile(handler, "utf8")
     await namedAgentChannelModules(code, parse, definition.handler, channels, resolveModule)
-    const skills = readColocatedAgentSkills(definition.handler)
-    let transformed = decorateDiscoveredAgentExport(code, parse, [
-      ...declaredWorkspaceDecorators(definition),
-      ...(skills ? [colocatedAgentSkillsDecorator(skills)] : []),
-      discoveredAgentIdentityDecorator(definition),
-    ]) ?? code
-    transformed = await transformNamedAgentChannels(transformed, parse, definition.handler, retainedChannels) ?? transformed
-    if (transformed !== code) await writeFile(handler, transformed, "utf8")
+    const transformed = await transformDiscoveredAgentDefinition(code, parse, definition.handler, definition, retainedChannels)
+    if (transformed) await writeFile(handler, transformed, "utf8")
   }
 }
 
@@ -1337,6 +1354,17 @@ function namedChannelModuleResolver(config: Pick<ResolvedConfig, "createResolver
     const local = await resolveModule(specifier, importer, true) ?? specifier
     if (!local.startsWith(".") && !isAbsolute(local)) return
     return await resolveModule(local, importer)
+  }
+}
+
+function applicationModuleResolver(
+  roots: readonly string[],
+  resolveId: (specifier: string, importer: string) => Promise<string | undefined>,
+): NamedChannelModuleResolver {
+  const prefixes = roots.map(root => `${resolve(root).replace(/\\/g, "/")}/`)
+  return async (specifier, importer) => {
+    const id = (await resolveId(specifier, importer))?.split(/[?#]/, 1)[0]!.replace(/\\/g, "/")
+    return id && !id.includes("/node_modules/") && prefixes.some(prefix => id.startsWith(prefix)) ? id : undefined
   }
 }
 
@@ -3171,24 +3199,16 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
         const projectModule = typescriptModule
           && (serverProjectModule
             || (!normalizedId.includes("/node_modules/") && normalizedId.startsWith(`${resolve(resolved.root).replace(/\\/g, "/")}/`)))
-        let transformed = code
         if (projectModule) {
           const agentModule = /\.agent\.(?:c|m)?[jt]s$/i.test(normalizedId)
             || definitionServerDirs.some(directory => normalizedId.startsWith(`${resolve(directory, "agents").replace(/\\/g, "/")}/`))
           const definition = agentModule && discoverProjectAgentDefinitions(resolved.root, serverDirs)
             .find(definition => definition.handler.replace(/\\/g, "/") === normalizedId)
           if (definition) {
-            const skills = readColocatedAgentSkills(definition.handler)
-            transformed = decorateDiscoveredAgentExport(transformed, value => this.parse(value), [
-              ...declaredWorkspaceDecorators(definition),
-              ...(skills ? [colocatedAgentSkillsDecorator(skills)] : []),
-              discoveredAgentIdentityDecorator(definition),
-            ]) ?? transformed
+            const transformed = await transformDiscoveredAgentDefinition(code, value => this.parse(value), normalizedId, definition,
+              discoverAgentChannelModules(definitionServerDirs), namedChannelModuleResolver(resolved!))
+            if (transformed) return transformed
           }
-          if (definition) {
-            transformed = await transformNamedAgentChannels(transformed, value => this.parse(value), normalizedId, discoverAgentChannelModules(definitionServerDirs), namedChannelModuleResolver(resolved!)) ?? transformed
-          }
-          if (transformed !== code) return transformed
         }
         if (isGeneratedAgentWorkflowRegistryId(normalizedId)) {
           return transformGeneratedAgentWorkflowRegistry(
@@ -3220,15 +3240,16 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
           runtimeWorkflow: agentRuntimeModule("runtime/workflow"),
           serverInternal: agentRuntimeModule("server/internal"),
         },
-        async transformWorkspaceAgent(code, id, { root, serverDirs }) {
+        async transformAgentDefinition(code, id, { root, projectRoot = root, serverDirs, resolve: resolveId }) {
           const file = id.split(/[?#]/, 1)[0]!.replace(/\\/g, "/")
           const roots = serverDirs ?? [join(root, "server")]
           if (!/\.agent\.(?:c|m)?[jt]s$/i.test(file)
             && !roots.some(directory => file.startsWith(`${resolve(directory, "agents").replace(/\\/g, "/")}/`))) return
           const definition = discoverProjectAgentDefinitions(root, serverDirs)
             .find(definition => definition.handler.replace(/\\/g, "/") === file)
-          if (!definition || !checksDeclaredWorkspace(definition)) return
-          return decorateDiscoveredAgentExport(code, await parseTypeScript(), declaredWorkspaceDecorators(definition))
+          if (!definition) return
+          return await transformDiscoveredAgentDefinition(code, await parseTypeScript(), file, definition,
+            discoverAgentChannelModules(roots), resolveId && applicationModuleResolver([root, projectRoot, ...roots], resolveId))
         },
         transformWorkflowRegistry: (code, id) => isGeneratedAgentWorkflowRegistryId(id)
           ? transformGeneratedAgentWorkflowRegistry(
