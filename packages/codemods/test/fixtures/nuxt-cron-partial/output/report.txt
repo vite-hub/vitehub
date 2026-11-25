@@ -18,5 +18,5 @@ Notes:
   - nuxt-cron stays because 1 job could not be moved. Remove it after the follow-ups.
 
 Next steps:
-  - Run `pnpm install` to install vite-hub.
+  - Run `pnpm install` to install vite-hub and @vite-hub/schedule.
   - Run `npx nuxi prepare`, then type-check the app.

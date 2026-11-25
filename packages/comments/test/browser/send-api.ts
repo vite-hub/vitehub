@@ -12,7 +12,7 @@ import { commentSendsTables } from "../../src/send/database.ts"
 import { commentsMigration } from "../harness.ts"
 
 import type { CommentsDatabase } from "../../src/operations-core/store.ts"
-import type { CommentSendWebhooks } from "../../src/send/service.ts"
+import type { CommentSendBody, CommentSendWebhooks } from "../../src/send/service.ts"
 
 const people: Record<string, { id: string, name: string }> = { ana: { id: "ana", name: "Ana" }, bob: { id: "bob", name: "Bob" } }
 
@@ -25,12 +25,14 @@ export async function createSendApi() {
   // SAFETY: The libSQL Drizzle database implements the batch contract that ViteHub Databases expose.
   const database = drizzle({ client }) as unknown as CommentsDatabase
   const control = { fail: false, delay: 0, deliveries: 0 }
+  let read: CommentSendBody["read"] = null
   const webhooks: CommentSendWebhooks = {
     ...realWebhooks,
     getMemberDeliveryState: async () => undefined,
-    sendToMemberEndpoint: async () => {
+    sendToMemberEndpoint: async (_owner, body) => {
       await new Promise(resolve => setTimeout(resolve, control.delay))
       control.deliveries++
+      read = control.fail ? null : (body as CommentSendBody).read
       return [undefined, { id: `whd_${control.deliveries}`, status: control.fail ? "failed" : "sent" }]
     },
   }
@@ -45,6 +47,10 @@ export async function createSendApi() {
   return {
     fetch: (request: Request) => app.fetch(request),
     control,
+    readDelivery: () => {
+      if (!read) throw new Error("No delivery to read")
+      return app.fetch(new Request(read.url, { headers: { authorization: `Bearer ${read.token}` } }))
+    },
     comment: async (as: string, body: string) => {
       const [error, thread] = await comments.create({ page, body, author: people[as]! })
       if (error) throw error
