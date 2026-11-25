@@ -769,6 +769,36 @@ describe("migrateOnStart with Cloudflare D1 over HTTP", () => {
     }
   })
 
+  it("refuses a full delete from a new D1 table when its trigger can remove older rows", async () => {
+    const root = await createD1Project()
+    const d1 = await startD1Proxy(root)
+    try {
+      const query = createD1QueryAt(d1.url, "proxy-token", problem => new Error(problem))
+      const createAccounts = { ...init, sql: "CREATE TABLE accounts (id integer PRIMARY KEY);" }
+      const files = [
+        createAccounts,
+        {
+          sql: [
+            "CREATE TABLE scratch (id integer PRIMARY KEY);",
+            "CREATE TRIGGER remove_account AFTER DELETE ON scratch BEGIN DELETE FROM accounts WHERE id = OLD.id; END;",
+            "INSERT INTO scratch VALUES (1);",
+          ].join("\n"),
+          tag: "create_scratch",
+          when: init.when,
+        },
+        { sql: "DELETE FROM scratch;", tag: "clear_scratch", when: init.when },
+      ]
+      await migrateOnStart([d1Database("default", d1.url, [createAccounts], query)], { log: () => {} })
+      await d1.rows("INSERT INTO accounts (id) VALUES (1)")
+      await expect(migrateOnStart([d1Database("default", d1.url, files, query)], { log: () => {} })).rejects.toMatchObject({ code: "DATABASE_MIGRATION_DATA_LOSS" })
+      await expect(d1.rows("SELECT id FROM accounts")).resolves.toEqual([[1]])
+      await expect(d1.rows("SELECT name FROM d1_migrations")).resolves.toEqual([["0000_migration.sql"]])
+    }
+    finally {
+      await d1.close()
+    }
+  })
+
   it("goes on when another server applied a batch of more than 100 files first", async () => {
     const root = await createD1Project()
     const d1 = await startD1Proxy(root)

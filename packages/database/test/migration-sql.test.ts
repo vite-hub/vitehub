@@ -181,6 +181,14 @@ describe("migration data loss", () => {
       expect(runLosses([...createNotes, trigger], ["DROP TABLE `notes`;"])).toEqual([])
     })
 
+    it("keeps losses when a delete or cascade can fire a SQLite trigger", () => {
+      const child = "CREATE TABLE child (id integer PRIMARY KEY, parent_id integer REFERENCES parent(id) ON DELETE SET NULL);"
+      const trigger = "CREATE TRIGGER remove_account AFTER UPDATE OF parent_id ON child BEGIN DELETE FROM accounts WHERE id = OLD.id; END;"
+      expect(runLosses([...createParent, child, trigger], ["DROP TABLE parent;"])).toEqual(["drops table \"parent\""])
+      expect(runLosses([...createParent, child, trigger], ["DELETE FROM parent;"])).toEqual(["deletes every row of \"parent\""])
+      expect(runLosses([...createParent, child, trigger], ["DROP TABLE child;"])).toEqual([])
+    })
+
     it("flags data loss on tables that existed before the run", () => {
       expect(runLosses(["DROP TABLE `notes`;"])).toEqual(["drops table \"notes\""])
       expect(runLosses(["CREATE TABLE IF NOT EXISTS `notes` (`id` integer);"], ["DROP TABLE `notes`;"])).toEqual(["drops table \"notes\""])

@@ -355,6 +355,8 @@ interface NewTables {
   /** True between `CREATE TRIGGER` and its `END`, which the statement split cuts into parts. */
   inTrigger: boolean
   referencedBy: Map<string, Set<string>>
+  deleteOrUpdateTriggers: Set<string>
+  unknownTriggerSeen: boolean
   /** Temporary SQLite tables make unqualified names switch schemas after a drop or rename. */
   temporaryTableSeen: boolean
 }
@@ -387,17 +389,20 @@ function renameReferences(from: string, to: string, tables: NewTables) {
   }
 }
 
-function holdsNoOlderRows(table: string, tables: NewTables): boolean {
+function holdsNoOlderRows(table: string, tables: NewTables, dropped: ReadonlySet<string> | undefined): boolean {
   const visited = new Set<string>()
   const visit = (name: string): boolean => {
     if (visited.has(name)) return true
     visited.add(name)
-    return tables.noOlderRows.has(name) && [...tables.referencedBy.get(referenceKey(name, tables)) ?? []].every(visit)
+    const key = referenceKey(name, tables)
+    if (dropped && (tables.unknownTriggerSeen || (!dropped.has(key) && tables.deleteOrUpdateTriggers.has(key)))) return false
+    return tables.noOlderRows.has(name) && [...tables.referencedBy.get(key) ?? []].every(visit)
   }
   return visit(table)
 }
 
 const createTrigger = /^CREATE\s+(?:TEMP(?:ORARY)?\s+)?TRIGGER\b/i
+const sqliteTriggerTarget = new RegExp(String.raw`^CREATE\s+(?:TEMP(?:ORARY)?\s+)?TRIGGER\s+(?:IF\s+NOT\s+EXISTS\s+)?${qualifiedName}\s+(?:(?:BEFORE|AFTER|INSTEAD\s+OF)\s+)?(INSERT|DELETE|UPDATE)(?:\s+OF\s+${identifier}(?:\s*,\s*${identifier})*)?\s+ON\s+(${qualifiedName})(?=\s|$)`, "i")
 
 function feedByTrigger(statement: string, tables: NewTables) {
   const match = statement.match(writeInto)
@@ -416,6 +421,11 @@ function trackNewTables(statement: string, tables: NewTables) {
     return
   }
   if (createTrigger.test(statement)) {
+    if (tables.dialect === "sqlite") {
+      const trigger = statement.match(sqliteTriggerTarget)
+      if (!trigger) tables.unknownTriggerSeen = true
+      else if (trigger[1]!.toUpperCase() !== "INSERT") tables.deleteOrUpdateTriggers.add(referenceKey(tableKey(trigger[2]!), tables))
+    }
     const begin = keywordIndexes(statement, "BEGIN")[0]
     if (begin === undefined) {
       noOlderRows.clear()
@@ -464,6 +474,7 @@ function trackNewTables(statement: string, tables: NewTables) {
     else forget(to)
     add(from)
     renameReferences(from, to, tables)
+    if (tables.deleteOrUpdateTriggers.has(referenceKey(from, tables))) tables.deleteOrUpdateTriggers.add(referenceKey(to, tables))
     return
   }
   if ((match = statement.match(dropTable))) {
@@ -486,18 +497,23 @@ function trackNewTables(statement: string, tables: NewTables) {
  * hold no rows from before the run. `migrations` are the pending migrations in the order they run. A table that gets
  * rows copied from an older table, like a SQLite rebuild of an existing table, keeps its data loss. So does a table that
  * a table with older rows references with a foreign key that this run declares, because a drop runs its ON DELETE
- * action. A foreign key from before the run counts when the snapshot lists it, see `findDataLoss()`. PostgreSQL names
+ * action. SQLite triggers on affected tables can also change older rows. A foreign key from before the run counts
+ * when the snapshot lists it, see `findDataLoss()`. PostgreSQL names
  * must be schema-qualified because the search path can resolve the same unqualified name to different tables.
  */
 export function withoutNewTableDataLoss<T extends DataLossMigration>(migrations: readonly T[], dialect: DatabaseDialect = "sqlite"): T[] {
-  const tables: NewTables = { dialect, fedByTrigger: new Set(), inTrigger: false, noOlderRows: new Set(), referencedBy: new Map(), temporaryTableSeen: false }
+  const tables: NewTables = { deleteOrUpdateTriggers: new Set(), dialect, fedByTrigger: new Set(), inTrigger: false, noOlderRows: new Set(), referencedBy: new Map(), temporaryTableSeen: false, unknownTriggerSeen: false }
   return migrations.map((migration) => {
     const losses = [...migration.dataLoss]
     const dataLoss: DataLossStatement[] = []
     for (const statement of migration.statements.flatMap(splitSqlStatements)) {
       if (losses[0]?.statement === statement) {
         const loss = losses.shift()!
-        if (!loss.tables?.length || !loss.tables.every(table => holdsNoOlderRows(table, tables))) dataLoss.push(loss)
+        const dropping = statement.match(dropTable)?.[1]
+        const dropped = dropping || deleteFrom.test(statement)
+          ? new Set([...dropping?.matchAll(new RegExp(qualifiedName, "g")) ?? []].map(([name]) => referenceKey(tableKey(name), tables)))
+          : undefined
+        if (!loss.tables?.length || !loss.tables.every(table => holdsNoOlderRows(table, tables, dropped))) dataLoss.push(loss)
       }
       trackNewTables(statement, tables)
     }
