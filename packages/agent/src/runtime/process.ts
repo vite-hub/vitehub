@@ -516,7 +516,7 @@ export function createAgentProcessHosts(options: {
       const agents: Record<string, unknown> = {}
       for (const [name, reason] of failures) agents[name] = { status: "degraded", reason }
       for (const [name, gate] of gates) {
-        if (gate.role() !== "standby") continue
+        if (gate.role() !== "standby" || gate.starting()) continue
         const holder = gate.holder()
         if (!failures.has(name) || holder) agents[name] = { status: "healthy", role: "standby", holder }
         else agents[name] = { status: "degraded", role: "standby", reason: failures.get(name) }

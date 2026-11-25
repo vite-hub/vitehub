@@ -1068,9 +1068,9 @@ package lists each subpath that attaches a process host in `vitehub.agent.proces
 }
 ```
 
-An Agent module that imports a value from a listed subpath, directly or through
-its relative imports, gets the generated process host plugin. A type-only import
-does not count. `registerAgentProcessHostIntake()`
+An Agent module that imports a listed subpath directly or imports its preset
+through a relative module gets the generated process host plugin. Unrelated
+named exports and type-only imports do not count. `registerAgentProcessHostIntake()`
 lets a running host receive verified webhook deliveries for its Agent.
 
 With a ViteHub Database, the generated plugin runs each host on one server at a
