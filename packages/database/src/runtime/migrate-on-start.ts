@@ -228,34 +228,63 @@ export async function migrateOnStart(databases: StartMigrationDatabase[], option
   })
 }
 
+type D1StartFile = StartD1Migrations["files"][number]
+
 interface D1StartPlan {
+  batches: D1StartFile[][]
   client: D1HttpClient
   database: StartMigrationDatabase & { d1: StartD1Migrations }
   ledger: D1Ledger
 }
 
-/** Reads Wrangler's table of a D1 HTTP database and refuses pending migrations that lose data, unless `allowDataLoss` is set. */
+/**
+ * Reads Wrangler's table of a D1 HTTP database and refuses pending migrations that lose data, unless `allowDataLoss` is
+ * set. A table that an earlier pending file creates has no older rows, so a later file may drop it. That later file goes
+ * in one request with the earlier one: when another server applies only the earlier file first, D1 rejects the whole
+ * request, and the table that now has rows keeps them.
+ */
 async function planD1(client: D1HttpClient, database: StartMigrationDatabase, options: MigrateOnStartOptions): Promise<D1StartPlan> {
   if (!database.d1) {
     throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: database.name, problem: "It uses Cloudflare D1 over HTTP, and the build shipped no D1 migrations for it." })
   }
   const { files } = database.d1
   const ledger = await readD1LedgerOf(client.query, client.migrationsTable, files, database.migrations.map(migration => ({ hash: migration.hash, tag: migration.name, when: migration.when })))
+  const pending = files.filter(file => !ledger.applied.has(file.name))
+  const checked = withoutNewTableDataLoss(pending, "sqlite")
   if (!options.allowDataLoss) {
-    const losses = files.filter(file => !ledger.applied.has(file.name))
-      .flatMap(file => withoutNewTableDataLoss([file]))
-      .flatMap(file => file.dataLoss.map(loss => `${file.tag}: ${loss.reason}: ${loss.statement}`))
+    const losses = checked.flatMap(file => file.dataLoss.map(loss => `${file.tag}: ${loss.reason}: ${loss.statement}`))
     if (losses.length) throw databaseErrorDiagnostics.DATABASE_MIGRATION_DATA_LOSS({ database: database.name, statements: losses })
   }
-  return { client, database: { ...database, d1: database.d1 }, ledger }
+  return { batches: batchD1Files(pending, checked), client, database: { ...database, d1: database.d1 }, ledger }
 }
 
-async function applyD1({ client, database, ledger }: D1StartPlan, log: (message: string) => void) {
+function batchD1Files(pending: readonly D1StartFile[], checked: readonly D1StartFile[]): D1StartFile[][] {
+  const lossesFrom = (start: number, end: number) => withoutNewTableDataLoss(pending.slice(start, end + 1), "sqlite").at(-1)!.dataLoss.length
+  const starts = pending.map((_, end) => {
+    const losses = checked[end]!.dataLoss.length
+    if (lossesFrom(end, end) === losses) return end
+    let start = end - 1
+    while (start > 0 && lossesFrom(start, end) !== losses) start--
+    return start
+  })
+  const batches: D1StartFile[][] = []
+  let end = pending.length
+  let reach = end
+  for (let index = pending.length - 1; index >= 0; index--) {
+    reach = Math.min(reach, starts[index]!)
+    if (reach < index) continue
+    batches.unshift(pending.slice(index, end))
+    end = index
+  }
+  return batches
+}
+
+async function applyD1({ batches, client, database, ledger }: D1StartPlan, log: (message: string) => void) {
   const tags = new Map(database.d1.files.map(file => [file.name, file.tag]))
   await applyD1MigrationFiles(
     client.query,
     ledger,
-    database.d1.files.map(file => ({ name: file.name, sql: () => file.sql })),
+    batches.map(batch => batch.map(file => ({ name: file.name, sql: () => file.sql }))),
     name => log(`[vitehub] Database "${database.name}": applied ${tags.get(name)}.`),
     migration => log(`[vitehub] Database "${database.name}": recorded ${migration.tag} from ${migration.from} in ${ledger.table}.`),
   )

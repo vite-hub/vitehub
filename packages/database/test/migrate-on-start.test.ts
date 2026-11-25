@@ -686,14 +686,52 @@ describe("migrateOnStart with Cloudflare D1 over HTTP", () => {
     await expect(query("SELECT name FROM d1_migrations")).rejects.toThrow("HTTP 200")
   })
 
-  it("does not carry the D1 data-loss exemption across migration files", async () => {
+  it("lets a fresh D1 database drop a table that an earlier pending file creates, in one request", { timeout: 60_000 }, async () => {
     const root = await createD1Project()
     await writeMigrations(root, [init, dropLegacy])
     const d1 = await startD1Proxy(root)
     try {
       const server = await buildNodeServer(root, { migrateOnStart: true })
-      await expect(server.start({ D1_HTTP_TOKEN: "proxy-token", D1_HTTP_URL: d1.url })).rejects.toMatchObject({ stderr: expect.stringContaining("DATABASE_MIGRATION_DATA_LOSS") })
-      await expect(d1.rows("SELECT name FROM sqlite_master WHERE type = 'table'")).resolves.toEqual([])
+      const { stdout } = await server.start({ D1_HTTP_TOKEN: "proxy-token", D1_HTTP_URL: d1.url })
+      expect(stdout).toContain('[vitehub] Database "default": applied 20231114221322_drop_legacy.')
+      await expect(d1.rows("SELECT name FROM d1_migrations ORDER BY id")).resolves.toEqual([["0000_init.sql"], ["0001_drop_legacy.sql"]])
+      await expect(d1.rows("SELECT name FROM sqlite_master WHERE name = 'legacy'")).resolves.toEqual([])
+      expect(d1.requests.filter(sql => sql.includes("CREATE TABLE `legacy`"))).toEqual([expect.stringContaining("DROP TABLE `legacy`")])
+    }
+    finally {
+      await d1.close()
+    }
+  })
+
+  it("refuses to drop a D1 table that an earlier start created", async () => {
+    const root = await createD1Project()
+    const d1 = await startD1Proxy(root)
+    try {
+      const query = createD1QueryAt(d1.url, "proxy-token", problem => new Error(problem))
+      await migrateOnStart([d1Database("default", d1.url, [init], query)], { log: () => {} })
+      await d1.rows("INSERT INTO legacy (id) VALUES (1)")
+      await expect(migrateOnStart([d1Database("default", d1.url, [init, dropLegacy], query)], { log: () => {} })).rejects.toMatchObject({ code: "DATABASE_MIGRATION_DATA_LOSS" })
+      await expect(d1.rows("SELECT id FROM legacy")).resolves.toEqual([[1]])
+    }
+    finally {
+      await d1.close()
+    }
+  })
+
+  it("keeps the rows of a D1 table that another server creates after the plan", async () => {
+    const root = await createD1Project()
+    const d1 = await startD1Proxy(root)
+    try {
+      const direct = createD1QueryAt(d1.url, "proxy-token", problem => new Error(problem))
+      const olderServerAppliesInitFirst: D1Query = async (sql, params, mode) => {
+        if (sql.includes("DROP TABLE `legacy`")) {
+          await direct(`${init.sql.replaceAll("--> statement-breakpoint", "")}\n;\nINSERT INTO d1_migrations (name) VALUES ('0000_migration.sql');\nINSERT INTO legacy (id) VALUES (1);`, undefined, "write")
+        }
+        return direct(sql, params, mode)
+      }
+      await expect(migrateOnStart([d1Database("default", d1.url, [init, dropLegacy], olderServerAppliesInitFirst)], { log: () => {} })).rejects.toThrow()
+      await expect(d1.rows("SELECT id FROM legacy")).resolves.toEqual([[1]])
+      await expect(d1.rows("SELECT name FROM d1_migrations")).resolves.toEqual([["0000_migration.sql"]])
     }
     finally {
       await d1.close()
