@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net"
 import { commentsTables } from "../../../packages/comments/src/tables.ts"
 import { formsTables } from "../../../packages/forms/src/database.ts"
 import { webhooksTables } from "../../../packages/webhooks/src/database.ts"
-import { envDeclaration, expectJson, setServerEnv, type PrimitiveEntry } from "./row.ts"
+import { envDeclaration, expectJson, setServerEnv, type PrimitiveRow } from "./row.ts"
 
 const rootSecret = "nuxt-primitives-root-secret-0123456789abcdef"
 
@@ -74,7 +74,7 @@ function startWebhookReceiver() {
 
 const webhookSecret = "nuxt-primitives-webhook-secret"
 
-export const access: PrimitiveEntry[] = [
+export const access: PrimitiveRow[] = [
   {
     id: "env",
     packages: ["@vite-hub/env"],

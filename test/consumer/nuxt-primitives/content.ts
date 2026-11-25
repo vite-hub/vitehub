@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
-import { expectJson, type PrimitiveEntry } from "./row.ts"
+import { expectJson, type PrimitiveRow } from "./row.ts"
 import { migrateDatabase } from "./storage.ts"
 
 const placeholderD1Id = "00000000-0000-0000-0000-000000000000"
@@ -18,7 +18,7 @@ function expectEqual(actual: unknown, expected: unknown, what: string) {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(`${what}: ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`)
 }
 
-export const content: PrimitiveEntry[] = [
+export const content: PrimitiveRow[] = [
   {
     id: "source",
     packages: ["@vite-hub/source"],

@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net"
 import { afterAll } from "vitest"
 
 import { startAiEmulator, type AiEmulator } from "../../../packages/agent/src/internal/ai-emulator.ts"
-import { expectJson, type PrimitiveEntry } from "./row.ts"
+import { expectJson, type PrimitiveRow } from "./row.ts"
 
 const emulatorPackages = { "@emulators/ai": "0.14.0", "@emulators/core": "0.14.0" }
 const greeting = "Hello from the AI emulator."
@@ -51,7 +51,7 @@ function postJson(body: unknown): RequestInit {
   return { body: JSON.stringify(body), headers: { "content-type": "application/json" }, method: "POST" }
 }
 
-export const agents: PrimitiveEntry[] = [
+export const agents: PrimitiveRow[] = [
   {
     id: "agent",
     packages: ["@vite-hub/agent"],
