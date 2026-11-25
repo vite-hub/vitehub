@@ -1,3 +1,4 @@
+import { createRequire } from "node:module"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
@@ -148,8 +149,8 @@ export const jobs: PrimitiveEntry[] = [
   {
     id: "sandbox",
     packages: ["@vite-hub/sandbox"],
-    dependencies: { "@cloudflare/sandbox": "1.0.3", typescript: "6.0.3" },
-    vitehub: target => target === "cloudflare" ? { sandboxTask: true } : {},
+    dependencies: { "@cloudflare/sandbox": "1.0.3", "@vercel/sandbox": "4.0.0", typescript: "6.0.3" },
+    vitehub: target => ({ sandboxTask: target === "cloudflare" ? true : { driver: "vercel" } }),
     files: {
       "server/sandbox-tasks/primitive-sum/package.json": `${JSON.stringify({ private: true, type: "module", vitehub: { sandboxTask: { timeout: 60_000 } } }, null, 2)}\n`,
       "server/sandbox-tasks/primitive-sum/index.ts": `
@@ -173,8 +174,7 @@ export const jobs: PrimitiveEntry[] = [
       await expectJson(await fetch("/api/primitives/sandbox?values=2,3,37", { method: "POST" }), { sum: 42, node: true })
     },
     exempt: {
-      "node-build": "The Node host has no Sandbox provider. `sandboxTask` on Node needs `driver: \"vercel\"` and Vercel Sandbox credentials, which a local check does not have.",
-      "node-dev": "With the Node host, `nuxt dev` has no Sandbox provider: only the Cloudflare and Vercel hosts run Sandbox Tasks as local processes in dev.",
+      "node-build": "The Vercel Sandbox driver needs credentials in a Node production build, which this local check does not have.",
       "cloudflare-build": "`wrangler dev` does not start the Sandbox Container on a local machine: workerd logs `kj/timer.c++:30: overloaded: operation timed out` and then `exec() cannot be called on a container that is not running`, with rootless Docker and with rootful Docker 29. The repository's local e2e also treats Sandbox as live-only, and the `Sandbox Task Live E2E` job in live-smoke.yml runs it on Cloudflare.",
     },
   },
@@ -199,9 +199,10 @@ export const jobs: PrimitiveEntry[] = [
         })
       `,
     },
-    async probe({ fetch, mode }) {
+    async probe({ appDir, fetch, mode }) {
       const origin = new URL((await fetch("/")).url).origin
-      const client = await import(pathToFileURL(join(import.meta.dirname, "../../../packages/realtime/dist/client/browser.js")).href) as RealtimeClient
+      const resolve = createRequire(join(appDir, "package.json")).resolve
+      const client = await import(pathToFileURL(resolve("@vite-hub/realtime/client/browser.js")).href) as RealtimeClient
       const room = `${mode}-${crypto.randomUUID()}`
       const tab = client.connectRealtimeRoom("primitive-tabs", room, { origin })
       tab.onRequest(body => ({ asked: body, title: `tab ${room}` }))

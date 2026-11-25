@@ -69,7 +69,7 @@ export interface DeployContext {
 }
 
 export interface DeployResult {
-  url: string
+  url?: string
   deploymentId?: string
   version?: string
   /** The claim link of a temporary deploy. */

@@ -17,7 +17,7 @@ import { removeViteHubDevServerFile, writeViteHubDevServerFile } from "@vite-hub
 import { describeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
 import { generatedModules } from "./internal/generated-modules.ts"
 import { nitroOptionalPeers } from "./internal/nitro-optional-peers.ts"
-import { cloudflareDevShims, isCloudflareDevShim, nitroConfigResolvedNames, nitroRuntimeResolver } from "./internal/nitro-replay.ts"
+import { cloudflareDevShims, isCloudflareDevShim, type NitroAgentOptions, nitroRuntimeResolver, replaysNitroConfigResolved } from "./internal/nitro-replay.ts"
 import { nitroViteImports } from "./internal/nitro-vite-imports.ts"
 import { forgeBuildCheckPlugin } from "./internal/forge-build-check.ts"
 import { drizzleBuildCheckPlugin } from "./internal/drizzle-build-check.ts"
@@ -341,7 +341,7 @@ async function finalizeNitroReplayPlugins(plugins: Plugin[], config: UserConfig,
   // Nuxt can reuse its Vite build cache and only build Nitro. Resolve the Database owner first so consumers such as
   // KV can read its Definitions, layers, and contributions without waiting for Vite's configResolved or buildStart.
   const databaseOwners = plugins.filter(plugin => plugin.name === "@vite-hub/database/vite")
-  const consumers = plugins.filter(plugin => nitroConfigResolvedNames.has(plugin.name) || (nitroOnly && plugin.name === "@vite-hub/env/vite"))
+  const consumers = plugins.filter(plugin => plugin.name !== "@vite-hub/database/vite" && replaysNitroConfigResolved(plugin.name, nitroOnly))
   for (const plugin of [...databaseOwners, ...consumers]) {
     const configResolved = pluginConfigResolvedHandler(plugin)
     if (!configResolved) continue
@@ -350,7 +350,7 @@ async function finalizeNitroReplayPlugins(plugins: Plugin[], config: UserConfig,
   }
 }
 
-function installNitroRuntimeResolvers(config: Record<string, unknown>, plugins: Plugin[], agentOptions: { root: string, serverDirs?: string[] }): void {
+function installNitroRuntimeResolvers(config: Record<string, unknown>, plugins: Plugin[], agentOptions: NitroAgentOptions): void {
   const resolvers = plugins.map(plugin => nitroRuntimeResolver(plugin, config, agentOptions)?.plugin).filter((plugin): plugin is Plugin => Boolean(plugin))
   if (!resolvers.length) return
 
@@ -1550,6 +1550,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     if (!nuxt.options.experimental?.nitroViteEnvironment) {
       installNitroRuntimeResolvers(config, replayPlugins, {
         root: replayConfig.root || viteRoot,
+        projectRoot: rootDir,
         serverDirs: resolveNuxtServerDirs(nuxt.options),
       })
       await installNitroViteImports(config, rootDir)
