@@ -86,12 +86,40 @@ The client registers itself (Dynamic Client Registration), and the browser opens
 
 The account tools act on the team that the person opened last in the Console, else their first team, and they keep the rules of the HTTP routes because they call the same code:
 
-- `link_app` and `unlink_app` need the `owner` or `admin` role. `link_app` returns the variable line that the app must set, such as `VITEHUB_CONSOLE_KEY_CONSOLE_3F9A12BC=<public key>`.
+- `link_app` and `unlink_app` need the `owner` or `admin` role. `link_app` returns the variable line that the app must set, such as `VITEHUB_CONSOLE_KEY_CONSOLE_3F9A12BC=<public key>`. With `kind: "site"` it registers a site for Hosted Comments, as `POST /api/projects` does, and returns the `<script>` tag of the embed instead.
+- `unlink_app` permanently deletes the app's hosted threads and replies. Pass `deleteHostedComments: true` after the user confirms.
 - `check_app` calls `project.get`, and `list_operations` returns the sections and operations of the app. An app with an older vite-hub refuses the MCP fields of the caller as a malformed header (`CONSOLE_SIGNATURE_INVALID`). `check_app` then calls `project.get` as the Console page does, so the app shows as linked, and the other tools answer `CONSOLE_APP_VITEHUB_OUTDATED` with the version of the app. They do not send the call without the MCP fields, because the app would then run it without its MCP rules.
 - The account tools call the app's Operations endpoint through the forward, signed with the key of the link for the person, with `surface: "mcp"` in the signed `x-vitehub-caller`. The Agent's access token never reaches the app. The app applies its MCP rules: it refuses operations with `mcp: false` (such as `documents.action`), runs the others with the `mcp` surface (so `content.save` needs `ifDigest`), and lists only those in `project.get`.
 - `read_operation` runs an operation that only reads. The Console signs `readOnly: true` in the caller, and the app refuses a write or destructive call. The tool has `readOnlyHint: true`, so an MCP client can run it without asking the person. For example, `env.inspect` returns the Server Env status of an app, with the host variable names and no values.
 - `run_operation` runs an operation that changes data. It has `destructiveHint: true`, so an MCP client can ask the person first.
 - `run_operation` refuses a destructive call with `409` until the Agent sends `confirm: true`. The Console then signs `confirmed: true` in the caller, so a header cannot add or remove the confirmation. The tool tells the Agent to ask the person first.
+
+## MCP client
+
+The **MCP** section of an app opened in the Console connects to MCP servers from the Console server, not from the app. The page sends each call to `POST /p/<id>/mcp-client` with the same `mcp-client.*` operation names as the app's own section. Each connection belongs to one person on one project. The Console seals it with `VITEHUB_CONSOLE_SECRET`, bound to that person, project, and id, in `console_mcp_connections`. OAuth client registrations are in `console_mcp_clients`, below a SHA-256 of the server and redirect URL. The OAuth callback is `<console origin>/mcp-client/callback`, so register that URL when a server needs a fixed callback. API keys cannot use the connections.
+
+The Console refuses private MCP addresses, such as `localhost` and `10.0.0.8`, as it does for project links. To use an MCP server that only listens on your computer:
+
+- Run a self-hosted Console on the same computer or network with `VITEHUB_CONSOLE_ALLOW_PRIVATE=true`. It then also accepts `http:` for private addresses.
+- Or put the server behind an HTTPS tunnel and connect to the tunnel URL.
+
+## Skills and page tools for apps
+
+The Console serves the public ViteHub skill of its `vite-hub` version, in the same well-known format as an app at `<base>/_vitehub/.well-known/skills`. The build copies the files from the built `vite-hub` package, so build `vite-hub` first.
+
+```sh
+npx skills add https://console.vitehub.dev               # the Console's version
+npx skills add https://console.vitehub.dev/skills/0.4.0  # one version; another version answers 404
+```
+
+The Console also serves the Console segment of the page tools pill (`page-tool.js`) and the account item (`account.js`). `/page/<version>/<file>` moves with `307` to `/page/<version>/<hash>/<file>`, which never changes and has `cache-control: public, max-age=31536000, immutable`. The move keeps the query. The files are public, with `access-control-allow-origin: *`, so a page loads them as cross-origin modules without cookies.
+
+The contract with an app's page tools loader:
+
+- The app decides who sees the pill. Its session route `<base>/_vitehub/page/tools` reads the app's own `__Host-vitehub-site` token and gives the Console tool only to a token with the `console` role. The Console never reads a cookie for these files: browsers block third-party cookies.
+- The `script` of the Console tool is `<console origin>/page/<vite-hub version>/page-tool.js?base=<app base>`. The segment reads the app base from `base` and opens the Console that served it.
+- The account item is `<console origin>/page/<vite-hub version>/account.js`. Its default export is `mountViteHubPageAccount` from `@vite-hub/internal/runtime/page-account`.
+- An app with a Content Security Policy adds the Console origin to `script-src`, for example `script-src 'self' https://console.vitehub.dev`. A policy with `'strict-dynamic'` ignores origins, so the app must then serve the same files itself.
 
 ## Configure
 
@@ -128,13 +156,17 @@ The `/api/projects` routes and the forward need a session or an API key. They ac
 | --- | --- |
 | `GET /api/account` | The person, their teams, their roles in the session's team, and its projects, with one session check. The page HTML starts this read with `<link rel="preload">` when the request has a session cookie. Signed out, it answers `401`. |
 | `GET /api/projects` | The projects of the team, with the public key of each link (`publicKey`) and its variable (`keyVariable`). |
-| `POST /api/projects` | Owners and admins link a project: `{ "url": "https://app.example.com", "label": "Docs" }`. Answers `201` with the project, `400` for a URL that is not `https://` or is private, and `409` when the team already linked the URL. |
+| `POST /api/projects` | Owners and admins link a project with `{ "url": "https://app.example.com", "label": "Docs" }`. Set `"kind": "site"` to register a static site for Hosted Comments. A site registration has `publicKey: null` and `keyVariable: null`. Answers `201` with the project, `400` for an invalid URL, and `409` when the team already linked the URL. |
 | `POST /api/projects/<id>/check` | Call `project.get` on the project. `linked` is `true` once the project has the public key. |
 | `PATCH /api/projects/<id>` | Owners and admins rename a project: `{ "label": "Docs" }`. `{ "label": null }` removes the label, so the Console shows the name that the app reports. The key of the link does not change. |
-| `DELETE /api/projects/<id>` | Owners and admins unlink a project. Remove its variable from the project as well. |
+| `DELETE /api/projects/<id>?deleteHostedComments=true` | Owners and admins unlink a project and permanently delete its hosted comment threads and replies. The query parameter confirms deletion. Without it, the Console returns `409`. Remove the link's variable from the project as well. |
 | `/p/<id>/_vitehub/**` | The forward to the project's data routes. |
 | `POST /mcp`, `POST /mcp/account` | The ViteHub MCP. `/mcp` needs no session; `/mcp/account` needs an OAuth access token instead of a session. |
 | `GET /oauth` | The sign-in and consent page of MCP clients. It needs no session. |
+| `POST /p/<id>/mcp-client` | With a session: one `mcp-client.*` operation of the MCP section, run by the Console server. |
+| `GET /mcp-client/callback` | The OAuth callback of the MCP section. The page completes the sign-in. |
+| `GET /.well-known/skills/**`, `GET /skills/<version>/.well-known/skills/**` | The public ViteHub skill. `latest` names the Console's version. No session. |
+| `GET /page/<version>/<file>` | `page-tool.js` and `account.js` for the page tools pill of apps. No session. |
 | `GET /api/sign-in-methods` | `{ "github": true }` when GitHub sign-in is configured. |
 | `GET /api/whoami` | With an API key: the person, the team, the roles, the projects of the key, and its expiry. `vitehub whoami` calls it. |
 | `GET /api/api-keys`, `POST /api/api-keys` | With a session: list the person's API keys, or make one with `{ "name": "CI", "teamId": "<team>", "projectIds": ["<project>"], "days": 90 }`. Only `name` is required. The answer of `POST` holds the key once, in `key`. |
@@ -145,6 +177,14 @@ The `/api/projects` routes and the forward need a session or an API key. They ac
 | `DELETE /api/projects/<id>/env/<stage>/<NAME>` | Owners and admins delete a value. |
 | `POST /api/projects/<id>/env/<stage>/reveal` | Owners and admins read values: `{ "names": ["API_TOKEN"] }`, or `{}` for every value of the stage. |
 | `GET /api/projects/<id>/env/<stage>/<NAME>/activity` | Owners and admins read the writes and reveals of a name. |
+| `GET /api/projects/<id>/site` | Site access of a project: the browsers with a pass (`sessions`, with the roles of the guest invite or of the member's last token), the open guest invites, and the roles that the app gives the caller (`grants`). Each Site access route first asks the app with the signed `site.access` call, so `console.authorize` decides; the routes that change Site access also need write access to the `site` section. |
+| `POST /api/projects/<id>/site/invites` | Invite a guest: `{ "name": "Grace", "grants": ["comments-write"], "expiresInDays": 7, "path": "/docs" }`. `expiresInDays` is 1, 7, or 30. Guests never get `console` or a role that the app marks `membersOnly`. The answer of `201` holds the link `/i/<secret>` once. |
+| `DELETE /api/projects/<id>/site/invites/<id>` | Revoke an invite that nobody opened. |
+| `POST /api/projects/<id>/site/codes` | A one-time code for the caller, such as for a phone: `{ "path": "/runs/42" }`. The answer holds the link `/go/<secret>`. It works once, for 10 minutes. |
+| `DELETE /api/projects/<id>/site/sessions/<id>` | Revoke the pass of a browser. The Console signs no new token for it. |
+| `POST /api/projects/<id>/site/token` | A Site access token for the caller, a member of the team: `{ "path": "/docs", "state": "<state hash of the app>" }`. The answer is `{ "url": "<app>/_vitehub/site?token=vst1.…" }`. |
+| `GET /visit?app=<app URL>&state=<state hash>&return=<path>&project=<id>` | The app's `/_vitehub/site` sends a browser here. With a pass of this browser, or a session of a team member, of the `project` when it is set, the Console asks the app with the signed `site.access` call and signs a token for 60 seconds with the roles of the current policy. A guest gets only the invite roles that the inviter can still give. Then it goes back to the app. Else it opens `/open?…&app=<id>`, which asks for a sign-in. It needs no session. |
+| `GET /i/<secret>`, `GET /go/<secret>` | Open a guest invite or a one-time code once. First the Console asks the app with `site.access`: for a code, as its member; for an invite, as the inviter, who must still give at least one of the invite's roles to guests. If not, it answers `403` and the link stays unused. The browser gets a pass for 7 days, renewed on each visit, and goes to the app's `/_vitehub/site?project=<id>`. A second open answers `410`. They need no session. |
 | `GET /device` | The page where a person approves `vitehub login`. It needs no session to open. |
 | `/api/auth/**` | Better Auth: sign-in, passkeys, and teams (`/api/auth/organization/*`). |
 

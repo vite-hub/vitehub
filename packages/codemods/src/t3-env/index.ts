@@ -137,6 +137,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   return {
     summary: `migrated ${fields.length} variable${fields.length === 1 ? "" : "s"} from ${envFile} to vite-hub/nuxt Env (${fields.filter(field => field.section === "public").length} public, ${fields.filter(field => field.section === "server").length} server)${host ? `, host "${host}"` : ""}.`,
     edits,
+    requiresNitro3: true,
     followUps: [...configFollowUps, ...planFollowUps, ...calls.followUps],
     notes,
     nextSteps: [

@@ -163,6 +163,34 @@ export async function createConsoleKeyPair(): Promise<{ publicKey: string, priva
   return { privateKey: base64url(pkcs8.slice(-32)), publicKey: base64url(publicKey) }
 }
 
+/** Bytes as base64url without padding, the encoding of every key, digest, and signature of the Console. */
+export function encodeConsoleBase64url(bytes: Uint8Array): string {
+  return base64url(bytes)
+}
+
+/** The bytes of a base64url value, or `undefined` when it is not canonical base64url without padding. */
+export function decodeConsoleBase64url(value: string): Uint8Array<ArrayBuffer> | undefined {
+  return fromBase64url(value)
+}
+
+/** The Ed25519 signature of `bytes` with a Console private key, base64url. Other signed formats, such as Site access tokens, build on it. */
+export async function signConsoleBytes(key: ConsoleSigningKey, bytes: Uint8Array<ArrayBuffer>): Promise<string> {
+  if (!isConsoleKeyName(key.name)) throw internalErrorDiagnostics.INTERNAL_CONSOLE_KEY_NAME_INVALID({ name: key.name })
+  return base64url(new Uint8Array(await crypto.subtle.sign(ed25519, await importPrivateKey(key.privateKey), bytes)))
+}
+
+/** Whether `signature`, base64url, is the Ed25519 signature of `bytes` with `publicKey`. A malformed key or signature does not match. */
+export async function verifyConsoleBytes(publicKey: Uint8Array<ArrayBuffer>, signature: string, bytes: Uint8Array<ArrayBuffer>): Promise<boolean> {
+  const decoded = fromBase64url(signature)
+  if (decoded?.length !== 64) return false
+  try {
+    return await crypto.subtle.verify(ed25519, await crypto.subtle.importKey("raw", publicKey, ed25519, false, ["verify"]), decoded, bytes)
+  }
+  catch {
+    return false
+  }
+}
+
 /** The `x-vitehub-caller` value of a caller: its JSON as base64url. */
 export function encodeConsoleCaller(caller: ConsoleCaller): string {
   return base64url(encoder.encode(JSON.stringify(caller)))

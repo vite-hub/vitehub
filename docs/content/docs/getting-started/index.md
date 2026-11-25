@@ -34,4 +34,4 @@ Agents use these APIs through [Capabilities](/docs/agents/capabilities). Give an
 
 ## Understand or deploy the app
 
-Read [How ViteHub works](/docs/getting-started/concepts) for shared terms and [Build and deploy](/docs/getting-started/build-and-deploy) for host setup. For a NuxtHub app, use [Migrate from NuxtHub](/docs/getting-started/migrate-from-nuxthub).
+Read [How ViteHub works](/docs/getting-started/concepts) for shared terms and [Build and deploy](/docs/getting-started/build-and-deploy) for host setup. For a NuxtHub app, use [Migrate from NuxtHub](/docs/compare/nuxthub#migrate-from-nuxthub).

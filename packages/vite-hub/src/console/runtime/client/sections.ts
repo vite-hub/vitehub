@@ -3,7 +3,8 @@ import type { ConsoleSectionDetails, ConsoleSectionId } from "../sections"
 import type { RouteLocationNormalized, RouteLocationRaw, RouteRecordRaw, Router } from "vue-router"
 
 import { parseConsoleContributedSection } from "../definitions"
-import { consoleSectionDetails, consoleSectionRouteName, isConsoleBuiltinSectionId, isConsoleSectionId } from "../sections"
+import { consoleSectionDetails, consoleSectionRouteName, insertConsoleSection, isConsoleBuiltinSectionId, isConsoleSectionId } from "../sections"
+import { consoleProject } from "./project"
 import { requestConsole } from "./request"
 
 export interface ConsoleNavigation {
@@ -69,13 +70,17 @@ export function resolveConsoleSectionDetails(
     : undefined
 }
 
+function withConsoleServerSections(navigation: ConsoleNavigation): ConsoleNavigation {
+  return consoleProject().remote ? { ...navigation, sections: insertConsoleSection(navigation.sections, "mcp-client") } : navigation
+}
+
 export async function loadConsoleNavigation(base: string): Promise<ConsoleNavigation | undefined> {
   let request = navigationRequests.get(base)
   if (!request) {
     request = requestConsole(base)
       .then((value) => {
         navigationErrors.delete(base)
-        const navigation = parseConsoleNavigation(value)
+        const navigation = withConsoleServerSections(parseConsoleNavigation(value))
         navigationValues.set(base, navigation)
         for (const subscriber of navigationSubscribers.get(base) || []) subscriber(navigation)
         return navigation
@@ -95,7 +100,8 @@ export async function loadConsoleNavigation(base: string): Promise<ConsoleNaviga
  * `sections.list` call. A newer answer, such as the answer of this visit after a stored one, replaces it, and the
  * subscribers get it when it changed.
  */
-export function seedConsoleNavigation(base: string, navigation: ConsoleNavigation): void {
+export function seedConsoleNavigation(base: string, answer: ConsoleNavigation): void {
+  const navigation = withConsoleServerSections(answer)
   const known = navigationValues.get(base)
   navigationErrors.delete(base)
   navigationRequests.set(base, Promise.resolve(navigation))

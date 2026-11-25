@@ -86,11 +86,11 @@ it("packages optional Agent runtimes into immutable Nuxt output", { timeout: 360
     await writeFile(join(root, "package.json"), `${JSON.stringify({
       dependencies: {
         "@vite-hub/agent": "file:./vite-hub-agent-0.0.1.tgz",
-        "drizzle-orm": "1.0.0-rc.5",
+        "drizzle-orm": "1.0.0-rc.6",
         nuxt: "npm:nuxt-nightly@5.0.0-2611052317-a04317f",
         vite: "8.2.2",
       },
-      packageManager: "pnpm@12.16.1",
+      packageManager: "pnpm@12.21.0",
       private: true,
       type: "module",
     }, null, 2)}\n`, "utf8")

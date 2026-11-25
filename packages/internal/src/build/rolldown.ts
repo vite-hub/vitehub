@@ -74,6 +74,28 @@ export async function importRolldown(): Promise<typeof Rolldown> {
   return await import(pathToFileURL(entry).href)
 }
 
+/** Loads the built-in plugins from the bundler's Rolldown package directory or entry when supplied. */
+export async function importRolldownExperimental(root: string, rolldownPath?: string): Promise<{ viteImportGlobPlugin: (config: { root: string }) => Rolldown.RolldownPluginOption }> {
+  return await import(pathToFileURL(await resolveRolldownExperimentalEntry(root, rolldownPath)).href)
+}
+
+async function resolveRolldownExperimentalEntry(root: string, rolldownPath?: string): Promise<string> {
+  if (rolldownPath) {
+    const path = await realpath(rolldownPath.startsWith("file:") ? fileURLToPath(rolldownPath) : resolve(root, rolldownPath))
+    const importer = (await stat(path)).isDirectory() ? join(path, "package.json") : path
+    return createRequire(importer).resolve("rolldown/experimental")
+  }
+
+  const require = createRequire(import.meta.url)
+  try {
+    return require.resolve("rolldown/experimental", { paths: [root, dirname(fileURLToPath(import.meta.resolve("vite")))] })
+  }
+  catch (error) {
+    if (!(error instanceof Error) || !("code" in error) || error.code !== "MODULE_NOT_FOUND") throw error
+    return require.resolve("vite/rolldown/experimental")
+  }
+}
+
 function normalizePathSeparators(path: string): string {
   return path.replaceAll("\\", "/")
 }

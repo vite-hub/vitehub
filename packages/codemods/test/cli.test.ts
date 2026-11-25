@@ -90,7 +90,8 @@ describe("codemods CLI", () => {
   it("lists every codemod with one line for --help", async () => {
     const result = await cli(["--help"])
     expect(result.code).toBe(0)
-    expect(result.stdout).toContain("Usage: npx @vite-hub/codemods [dir] [--dry-run]\n       npx @vite-hub/codemods <codemod> [dir] [--dry-run]")
+    expect(result.stdout).toContain("Usage: npx @vite-hub/codemods [dir] [--dry-run] [--nuxt-nightly]\n       npx @vite-hub/codemods <codemod> [dir] [--dry-run] [--nuxt-nightly]")
+    expect(result.stdout).toContain("  --nuxt-nightly  Set nuxt to npm:nuxt-nightly@5x in package.json")
     for (const codemod of codemods) expect(result.stdout).toContain(`  ${codemod.name.padEnd(Math.max(...codemods.map(entry => entry.name.length)))}  ${codemod.description}\n`)
   })
 

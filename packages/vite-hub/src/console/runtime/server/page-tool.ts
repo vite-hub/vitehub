@@ -84,6 +84,7 @@ export function consolePageAccount({ user, signOut }: ConsolePageUser): ViteHubP
     ...(shownEmail ? { email: shownEmail } : {}),
     ...(image ? { image } : {}),
     ...(roles.includes("console") ? { via: "console" as const } : {}),
+    ...(roles.includes("guest") ? { guest: true as const } : {}),
     signOut,
   }
 }

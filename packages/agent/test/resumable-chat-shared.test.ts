@@ -31,15 +31,18 @@ const encoder = new TextEncoder()
 
 type Handler = ReturnType<typeof createChannelChatRouteHandler>
 
-function chatRequest(method: "DELETE" | "GET" | "POST", messageId = "message-1"): Request {
-  const query = method === "GET" ? "?id=chat-1" : method === "DELETE" ? `?id=chat-1&messageId=${messageId}` : ""
-  return new Request(`https://example.com/_vitehub/agents/support/chat${query}`, {
-    ...(method === "POST"
-      ? { body: JSON.stringify({ id: "chat-1", messageId, messages: [{ id: messageId, parts: [{ text: "hello", type: "text" }], role: "user" }] }) }
-      : {}),
-    headers: { "content-type": "application/json", "x-user": "user-1" },
-    method,
-  })
+function createChatRequests() {
+  const id = randomUUID()
+  return (method: "DELETE" | "GET" | "POST", messageId = "message-1"): Request => {
+    const query = method === "GET" ? `?id=${id}` : method === "DELETE" ? `?id=${id}&messageId=${messageId}` : ""
+    return new Request(`https://example.com/_vitehub/agents/support/chat${query}`, {
+      ...(method === "POST"
+        ? { body: JSON.stringify({ id, messageId, messages: [{ id: messageId, parts: [{ text: "hello", type: "text" }], role: "user" }] }) }
+        : {}),
+      headers: { "content-type": "application/json", "x-user": "user-1" },
+      method,
+    })
+  }
 }
 
 function sharedHandler(invocations: AgentInvocationsSetting, run: (context: AgentRunContext) => Response | Promise<Response>): Handler {
@@ -88,6 +91,7 @@ interface Processes {
 
 function sharedStreamScenarios(processes: () => Processes) {
   it("resumes a stream on process B after the client leaves process A in the middle", async () => {
+    const chatRequest = createChatRequests()
     const { a, b } = processes()
     const source = controlledStream()
     const runA = vi.fn(() => new Response(source.body, { headers: { "content-type": "text/event-stream" } }))
@@ -122,6 +126,7 @@ function sharedStreamScenarios(processes: () => Processes) {
   })
 
   it("resumes a finished stream on process B to its full content", async () => {
+    const chatRequest = createChatRequests()
     const { a, b } = processes()
     const bytes = Uint8Array.from({ length: 700_000 }, (_, index) => (index * 31) % 251)
     const processA = sharedHandler(a, () => new Response(bytes, { headers: { "content-type": "application/octet-stream" } }))
@@ -136,6 +141,7 @@ function sharedStreamScenarios(processes: () => Processes) {
   })
 
   it("stops the writer on process A from a DELETE on process B", async () => {
+    const chatRequest = createChatRequests()
     const { a, b } = processes()
     const source = controlledStream()
     const processA = sharedHandler(a, () => new Response(source.body))
@@ -177,6 +183,7 @@ describe("shared resumable chat on SQLite", () => {
   sharedStreamScenarios(() => current)
 
   it("signals the Driver when DELETE arrives before its response", async () => {
+    const chatRequest = createChatRequests()
     let start!: () => void
     let cancel!: (reason: unknown) => void
     const started = new Promise<void>(resolve => start = resolve)
@@ -202,6 +209,7 @@ describe("shared resumable chat on SQLite", () => {
 
   it("rejects the shared scope when the journal keeps no database", async () => {
     const run = vi.fn(() => new Response("must not run"))
+    const chatRequest = createChatRequests()
     const response = await sharedHandler({ store: "memory" }, run)(chatRequest("POST"), { agentName: "support" })
     expect(response.status).toBe(500)
     expect(run).not.toHaveBeenCalled()

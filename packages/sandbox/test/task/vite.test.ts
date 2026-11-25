@@ -8,7 +8,7 @@ import { collectViteHubDefinitionInspectors, collectViteHubResourceSummaries } f
 import { build as esbuild } from "esbuild"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { VITEHUB_FEATURES, VITEHUB_PREPARE } from "@vite-hub/internal/build/vite"
-import { build as viteBuild, type AliasOptions } from "vite"
+import { build as viteBuild, resolveConfig, type AliasOptions } from "vite"
 
 import type { SandboxTaskRegistryEntry } from "../../src/task/runtime/state.ts"
 
@@ -73,24 +73,17 @@ function readAlias(alias: AliasOptions | undefined, id: string) {
   return (alias as Record<string, string> | undefined)?.[id]
 }
 
-type SandboxTaskNitroPlugin = {
-  nitro: {
-    setup: (nitro: {
-      hooks: { hook: (name: "build:before", callback: () => void) => void }
-      options: Record<string, unknown>
-    }) => void
-  }
-}
+type SandboxTaskNitroPlugin = Pick<import("../../src/task/vite.ts").SandboxTaskVitePlugin, "nitro">
 
 function createSandboxTaskNitroLifecycle(
   plugin: SandboxTaskNitroPlugin,
   initial: Array<string | RegExp> = [],
 ) {
-  const options: Record<string, unknown> = { noExternals: initial }
+  const options: Parameters<SandboxTaskNitroPlugin["nitro"]["setup"]>[0]["options"] = { noExternals: initial }
   let buildBefore: (() => void) | undefined
   plugin.nitro.setup({
     hooks: {
-      hook(name, callback) {
+      hook(name: string, callback: (...args: never[]) => void) {
         expect(name).toBe("build:before")
         buildBefore = callback
       },
@@ -1214,6 +1207,76 @@ describe("hubSandboxTask", () => {
     ]))
   })
 
+  it("points the framework import at the generated runtime in Nitro, which bundles without Vite in Nuxt 4.7", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandboxTask } = await import("../../src/task/vite.ts")
+    const plugin = hubSandboxTask({ driver: "vercel", providerImportAliases: {}, providerImportSpecifier: "vite-hub/sandbox/task" } as never)
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    await configHook({ root: rootDir, plugins: [{ name: "nitro:main" }], nitro: {} }, { command: "build", mode: "production" })
+
+    const aliases = createSandboxTaskNitroLifecycle(plugin)().alias as Record<string, string>
+    expect(aliases["vite-hub/sandbox/task"]).toBe(join(rootDir, ".vitehub/sandbox-task/runtime/sandbox-task.mjs"))
+    expect(aliases).not.toHaveProperty("@vite-hub/sandbox/task")
+  })
+
+  it.skipIf(process.platform === "win32")("rebuilds a Nitro dev route after the initial Sandbox generation is pruned", async () => {
+    const rootDir = await createViteRoot()
+    const { build, createNitro } = await import("nitro/builder")
+    const { rolldown } = await import("vite/rolldown")
+    const { hubSandboxTask } = await import("../../src/task/vite.ts")
+    const options = { driver: "vercel" as const, providerImportAliases: {}, providerImportSpecifier: "vite-hub/sandbox/task" }
+    const plugin = hubSandboxTask(options)
+    const refresh = () => resolveConfig({ root: rootDir, plugins: [plugin] }, "serve")
+    await refresh()
+
+    const facade = join(rootDir, ".vitehub/sandbox-task/runtime/sandbox-task.mjs")
+    const initialFacade = await realpath(facade)
+    const definition = join(rootDir, "src/tools/release-notes.sandbox-task.ts")
+    const route = join(rootDir, "server/api/release-notes.ts")
+    const writeRoute = (label: string) => writeFile(route, [
+      'import { runSandboxTask } from "vite-hub/sandbox/task"',
+      `export default async () => ({ route: ${JSON.stringify(label)}, result: await runSandboxTask("tools/release-notes", {}) })`,
+    ].join("\n"))
+    await mkdir(dirname(route), { recursive: true })
+    await writeRoute("initial")
+    const nitro = await createNitro({ rootDir, dev: true, builder: "rolldown", deps: { install: false }, modules: [plugin.nitro] })
+    const stopAfterConfig = new Error("Nitro dev resolver captured")
+    let resolveOptions: Parameters<typeof rolldown>[0]["resolve"]
+    try {
+      nitro.hooks.hook("build:config", (_nitro, config) => {
+        resolveOptions = config.rolldown?.resolve
+        throw stopAfterConfig
+      })
+      await expect(build(nitro)).rejects.toBe(stopAfterConfig)
+    }
+    finally {
+      await nitro.close()
+    }
+    const runRoute = async (label: string) => {
+      const bundle = await rolldown({ cwd: rootDir, input: route, resolve: resolveOptions, platform: "node", external: [/^@vite-hub\/sandbox\//] })
+      const output = join(rootDir, `${label}.mjs`)
+      try {
+        await bundle.write({ file: output, codeSplitting: false })
+      }
+      finally {
+        await bundle.close()
+      }
+      const handler = await import(pathToFileURL(output).href)
+      return await handler.default()
+    }
+    await expect(runRoute("initial")).resolves.toEqual({ route: "initial", result: [undefined, { ok: true }] })
+    for (const version of [1, 2]) {
+      await writeFile(definition, [
+        'import { defineSandboxTask } from "@vite-hub/sandbox/task"',
+        `export default defineSandboxTask({ handler: async () => ({ version: ${version} }) })`,
+      ].join("\n"))
+      await refresh()
+    }
+    await expect(lstat(initialFacade)).rejects.toMatchObject({ code: "ENOENT" })
+    await writeRoute("updated")
+    await expect(runRoute("updated")).resolves.toEqual({ route: "updated", result: [undefined, { version: 2 }] })
+  })
+
   it("does not contribute Nitro Sandbox externals when Sandbox is disabled", async () => {
     const rootDir = await createViteRoot()
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
@@ -1772,7 +1835,6 @@ describe("hubSandboxTask", () => {
 
   it("writes declarations before Nuxt writes the referenced tsconfig files", async () => {
     const rootDir = await createViteRoot()
-    // A fresh clone of a Nuxt app: `nuxt prepare` writes `.nuxt/tsconfig.*.json` after the Vite hooks run.
     await writeFile(join(rootDir, "tsconfig.json"), JSON.stringify({ files: [], references: [{ path: "./.nuxt/tsconfig.app.json" }, { path: "./.nuxt/tsconfig.server.json" }] }))
     await writeFile(join(rootDir, "src/tools/notes.ts"), "export const notes: string = 'from helper'\n")
     await writeFile(join(rootDir, "src/tools/release-notes.sandbox-task.ts"), [
@@ -1784,7 +1846,6 @@ describe("hubSandboxTask", () => {
     const { prepareSandboxTaskRuntime } = await import("../../src/task/internal/runtime-preparation.ts")
     const env = { command: "serve" as const, mode: "development" }
 
-    // `nuxt dev` and `nuxt build` run after Nuxt writes the files, and keep reading the app's tsconfig.
     await expect(prepareSandboxTaskRuntime({ env, userConfig: { root: rootDir } })).rejects.toThrow(/TSCONFIG_ERROR/)
     await prepareSandboxTaskRuntime({ env, userConfig: { root: rootDir, [VITEHUB_PREPARE]: true } })
     await expect(readFile(join(rootDir, ".vitehub/sandbox-task/runtime/sandbox-task.d.ts"), "utf8")).resolves.toContain('"tools/release-notes"')

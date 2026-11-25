@@ -515,7 +515,7 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     VITE_HUB_B0023: {
       ...dynamicError,
-      fix: "Upgrade to Nuxt 5, which supplies Nitro 3 and H3 2. Until Nuxt 5 is stable, run pnpm add nuxt@npm:nuxt-nightly@5x.",
+      fix: "Follow the steps in the error message to run your Nuxt server with Nitro 3.",
     },
     VITE_HUB_B0024: {
       ...dynamicError,
@@ -556,12 +556,6 @@ export const viteHubErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     VITE_HUB_CONSOLE_JSON_INVALID: {
       why: ({ subject }: { subject: "The payload" | "This value" }) => `${subject} is not valid JSON.`,
       fix: "Correct the JSON in the editor. Put strings and keys in double quotes, and remove a comma after the last item of an object or array.",
-    },
-    VITE_HUB_CONSOLE_MCP_LIST_INCOMPLETE: {
-      why: ({ reason }: { reason: "repeated-cursor" | "too-many-pages" }) => reason === "repeated-cursor"
-        ? "The server returned a repeated pagination cursor. It could not finish the list."
-        : "The server returned more than 1,000 pages. It could not finish the list.",
-      fix: "Check the pagination of the MCP server: each page must return a new `nextCursor`, and a list must end within 1,000 pages.",
     },
     VITE_HUB_CONSOLE_NUMBER_REQUIRED: {
       why: "Enter a number.",

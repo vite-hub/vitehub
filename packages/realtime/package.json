@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/realtime",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Realtime document primitives and Vite integration for ViteHub.",
   "keywords": [
     "collaboration",
@@ -132,8 +132,8 @@
     "@types/node": "catalog:tooling",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/internal": "workspace:*",
-    "happy-dom": "21.0.3",
-    "linkedom": "^0.18.13",
+    "happy-dom": "21.0.4",
+    "linkedom": "^0.18.15",
     "nitro": "catalog:unjs",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
@@ -159,7 +159,7 @@
     "nitro": "catalog:nitro-compat",
     "vite": "catalog:vite-compat",
     "vue": "catalog:vue-compat",
-    "drizzle-orm": "1.0.0-rc.5 || ^1.0.0",
+    "drizzle-orm": "1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0",
     "yjs": "catalog:realtime"
   },
   "peerDependenciesMeta": {

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { copyFile, mkdir, mkdtemp, writeFile } from "node:fs/promises"
+import { copyFile, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
@@ -28,10 +28,11 @@ await build({
 })
 `
 
-const serverEntry = `import { usePublicEnv, useServerEnv } from "@vite-hub/env"
+const serverEntry = `import { writeFileSync } from "node:fs"
+import { usePublicEnv, useServerEnv } from "@vite-hub/env"
 
 const serverEnv = useServerEnv()
-console.log(JSON.stringify({
+writeFileSync("result.json", JSON.stringify({
   allowedOrigins: serverEnv.allowedOrigins,
   apiBase: usePublicEnv().apiBase,
   apiSecretLength: serverEnv.apiSecret.unseal().length,
@@ -75,7 +76,7 @@ describe("a migrated Valibot schema with transforms and checks", () => {
   it("keeps the transforms and the default", async () => {
     const result = await runNode(["dist/server.mjs"], { NUXT_API_SECRET: "0123456789abcdef", NUXT_ALLOWED_ORIGINS: "a,b" })
     expect(result.code, result.output).toBe(0)
-    expect(JSON.parse(result.output)).toEqual({ allowedOrigins: ["a", "b"], apiBase: "https://api.example.com", apiSecretLength: 16, port: 3000 })
+    expect(JSON.parse(await readFile(join(root, "result.json"), "utf8"))).toEqual({ allowedOrigins: ["a", "b"], apiBase: "https://api.example.com", apiSecretLength: 16, port: 3000 })
   })
 
   it("rejects a secret shorter than the schema allows", async () => {

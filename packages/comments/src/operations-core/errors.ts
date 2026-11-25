@@ -160,5 +160,13 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ file }: { file: string }) => `${file} turns on Send, and Send delivers through the member endpoints of Webhooks, which this app does not have.`,
       fix: "Use Comments through `vitehub()`, which adds Webhooks, and install `@vite-hub/webhooks` when you use the packages one by one. `comments()` without `vite-hub` has no Send.",
     },
+    COMMENTS_TENANT_DELETE_USER: {
+      why: "Deleting a user from shared Comments tables requires access to all projects.",
+      fix: "Delete the user's messages through the project that owns them.",
+    },
+    COMMENTS_TENANT_SCOPE_INVALID: {
+      why: ({ scope, tenantScope }: { scope: string, tenantScope: string }) => `The thread asks for scope ${JSON.stringify(scope)}, but this store keeps ${JSON.stringify(tenantScope)}.`,
+      fix: "Start a thread on a page in this project.",
+    },
   },
 })

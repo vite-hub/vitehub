@@ -14,12 +14,12 @@ Pick one framework integration and one deployment host. A host is a named target
 | Framework | Register | Guide |
 | --- | --- | --- |
 | Vite | `vitehub()` from `vite-hub`. It includes Nitro's Vite plugin. | [Installation](/docs/getting-started/installation) |
-| Nuxt | The `vite-hub/nuxt` module | [Nuxt](/docs/frameworks-hosts/nuxt) |
+| Nuxt | The `vite-hub/nuxt` module, on Nuxt 4.7 with `nitro` and ViteHub 0.5.1 or newer, or on Nuxt 5 | [Nuxt](/docs/frameworks-hosts/nuxt) |
 
 Both build the server output with Nitro.
 [Nitro and UnJS](/docs/frameworks-hosts/nitro-unjs) explains where ViteHub
 packages register Nitro handlers. To move a Nuxt app off NuxtHub, read
-[Migrate from NuxtHub](/docs/getting-started/migrate-from-nuxthub).
+[Migrate from NuxtHub](/docs/compare/nuxthub#migrate-from-nuxthub).
 
 ## Choose a host
 

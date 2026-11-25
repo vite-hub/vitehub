@@ -993,7 +993,9 @@ export async function createCloudflareWorkflowNitroConfig(options: CloudflareWor
   if (!artifacts.providerDefinitions.length) return options.nitro
 
   const nitro = { ...options.nitro }
-  const middlewareFile = resolve(ensureGeneratedDir(options.rootDir, productName), "nitro-middleware.ts")
+  const middlewareDir = resolve(options.rootDir, ".vitehub", "nitro", productName)
+  const middlewareFile = resolve(middlewareDir, "cloudflare-middleware.ts")
+  await mkdir(middlewareDir, { recursive: true })
   await writeFile(middlewareFile, [
     'import { defineMiddleware } from "nitro"',
     'import { env, waitUntil } from "cloudflare:workers"',

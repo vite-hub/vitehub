@@ -13,7 +13,7 @@ import type { ObjectExpression } from "@babel/types"
 import type { NuxtConfigFile } from "../shared/nuxt-config.ts"
 import type { FollowUp } from "../types.ts"
 
-const guide = "https://vitehub.dev/docs/getting-started/migrate-from-nuxthub#modules-that-expect-nuxthub"
+const guide = "https://vitehub.dev/docs/compare/nuxthub#modules-that-expect-nuxthub"
 const contributions = "https://vitehub.dev/docs/database/configure#contribute-tables-from-a-nuxt-module"
 const customMigration = "Put the SQL in a migration that you write by hand with `vitehub database generate --custom`."
 
@@ -47,7 +47,7 @@ async function findHooks(cwd: string, config: NuxtConfigFile): Promise<FollowUp[
     }
     const seen = new Set<string>()
     walk(program, (node) => {
-      const value = node.type === "StringLiteral" ? node.value : node.type === "TemplateLiteral" && node.expressions.length === 0 ? node.quasis[0]?.value.cooked : undefined
+      const value = node.type === "StringLiteral" ? node.value : node.type === "TemplateLiteral" && node.expressions.length === 0 ? node.quasis[0]?.value.cooked ?? undefined : undefined
       const message = value === undefined ? undefined : hookMessages.get(value)
       if (!value || !message || seen.has(value)) return
       seen.add(value)

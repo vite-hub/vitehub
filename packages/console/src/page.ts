@@ -31,6 +31,15 @@ export function consolePageBoot(request: Request): ConsolePageBoot {
 export const consoleAccountPath = "/api/account"
 
 /**
+ * Whether the HTML fallback serves the Console page at a path. Routes and assets under /api, /p, /assets, /mcp, /page
+ * and /.well-known answer a JSON 404 instead, and so do the skill files under /skills/<version>/. The bare /skills path
+ * is the Skills screen of the Console page.
+ */
+export function consolePageServes(pathname: string): boolean {
+  return !/^\/(?:(?:api|p|assets|mcp|page|\.well-known)(?:\/|$)|skills\/.)/.test(pathname)
+}
+
+/**
  * The page with the first paint of the request's view. A page of the sidebar also marks its row. With a session cookie,
  * the HTML starts the boot read, so the account loads while the page code downloads.
  */

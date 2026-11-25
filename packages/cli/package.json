@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/cli",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Command-line workflows for ViteHub projects.",
   "keywords": [
     "agent",
@@ -48,7 +48,7 @@
     "test": "vp run --cache -t vite-hub#build && vp run --cache -t @vite-hub/cli#build && vp test"
   },
   "dependencies": {
-    "@babel/parser": "^7.29.9",
+    "@babel/parser": "^8.1.3",
     "@dotenvx/primitives": "^4.4.0",
     "@noble/ciphers": "^2.4.0",
     "@noble/hashes": "^2.4.0",
@@ -58,7 +58,7 @@
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs",
     "rc9": "^3.1.0",
-    "semver": "^7.8.5"
+    "semver": "^7.8.6"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
@@ -74,7 +74,7 @@
   },
   "peerDependencies": {
     "@vite-hub/forge": "workspace:*",
-    "nuxt": "catalog:nuxt-compat",
+    "nuxt": "^4.7.0 || >=5.0.0-0",
     "vite": "catalog:vite-compat"
   },
   "engines": {

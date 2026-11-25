@@ -2,7 +2,7 @@
   "name": "env-schema-app",
   "private": true,
   "dependencies": {
-    "nuxt": "^4.5.2",
+    "nuxt": "npm:nuxt-nightly@5x",
     "nuxt-safe-runtime-config": "^0.3.2"
   }
 }

@@ -228,9 +228,20 @@ describe("ViteHub MCP at /mcp/account", () => {
 
     const kept = await call("unlink_app", { id: linked.app.id }, tokens.bob)
     expect(kept.body!.result).toMatchObject({ content: [{ text: "CONSOLE_PROJECT_FORBIDDEN: Only owners and admins of the team unlink projects." }], isError: true })
-    const removed = await call("unlink_app", { id: linked.app.id }, tokens.ada)
+    const unconfirmed = await call("unlink_app", { id: linked.app.id }, tokens.ada)
+    expect(unconfirmed.body!.result).toMatchObject({ isError: true })
+    expect((await call("list_apps", {}, tokens.ada)).body!.result.structuredContent).toMatchObject({ apps: [{ id: linked.app.id }] })
+    const removed = await call("unlink_app", { id: linked.app.id, deleteHostedComments: true }, tokens.ada)
     expect(removed.body!.result.structuredContent).toMatchObject({ unlinked: linked.app.id })
     expect((await call("list_apps", {}, tokens.ada)).body!.result.structuredContent).toMatchObject({ apps: [] })
+  })
+
+  it("registers a site for Hosted Comments with kind: \"site\"", async () => {
+    const { body } = await call("link_app", { kind: "site", url: "https://docs.example.com" }, tokens.ada)
+    const site = body!.result.structuredContent as { app: { id: string }, script: string }
+    expect(site.app).toMatchObject({ keyVariable: null, publicKey: null })
+    expect(site.script).toBe(`<script type="module" src="${origin}/hosted-comments.js" data-vitehub-comments="${site.app.id}"></script>`)
+    await call("unlink_app", { id: site.app.id, deleteHostedComments: true }, tokens.ada)
   })
 
   it("signs operations for the person as the mcp surface, and keeps the app's MCP rules", async () => {
