@@ -218,6 +218,18 @@ describe("auth events with real Better Auth and Node SQLite", () => {
     expect((await app.store.list({ type: "session.expired" })).events).toEqual([expect.objectContaining({ actor: "system", userId: user.id, metadata: { sessionId: expect.any(String) } })])
   })
 
+  it("records expiry when two-factor verification looks up the session", async () => {
+    const app = await setup()
+    const user = await app.signUp("expired-two-factor")
+    app.sqlite.prepare("update session set expiresAt = ?").run(new Date(Date.now() - 60_000).toISOString())
+
+    await app.request("two-factor/verify-totp", { code: "invalid" }, user.cookie)
+
+    expect(app.sqlite.prepare("select count(*) as count from session").get()).toEqual({ count: 0 })
+    expect((await app.store.list({ type: "session.expired" })).events).toEqual([expect.objectContaining({ actor: "system", userId: user.id })])
+    expect((await app.store.list({ type: "session.revoked" })).events).toEqual([])
+  })
+
   it("keeps an admin revoke and a ban of expired sessions as session.revoked", async () => {
     const app = await setup()
     const owner = await app.signUp("revoker")

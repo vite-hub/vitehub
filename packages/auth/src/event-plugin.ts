@@ -186,11 +186,6 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
       before: [{
         matcher: () => true,
         handler: createAuthMiddleware(async (ctx) => {
-          if (ctx.path?.startsWith("/two-factor/verify-") && !await getSessionFromCtx(ctx, { disableRefresh: true })) {
-            const cookie = ctx.context.createAuthCookie("two_factor")
-            const token = await ctx.getSignedCookie(cookie.name, ctx.context.secret)
-            if (token && await ctx.context.internalAdapter.findVerificationValue(token)) challenges.add(ctx.context)
-          }
           const adapter = ctx.context.internalAdapter
           const findSession: typeof adapter.findSession = async (...args) => {
             const found = await adapter.findSession(...args)
@@ -211,6 +206,11 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
               deleteSessions: (tokens: string[]) => deletionContext.run(ctx, () => adapter.deleteSessions(tokens)),
               deleteUserSessions: (userId: string) => deletionContext.run(ctx, () => adapter.deleteUserSessions(userId)),
             } : {},
+          }
+          if (ctx.path?.startsWith("/two-factor/verify-") && !await getSessionFromCtx(ctx, { disableRefresh: true })) {
+            const cookie = ctx.context.createAuthCookie("two_factor")
+            const token = await ctx.getSignedCookie(cookie.name, ctx.context.secret)
+            if (token && await adapter.findVerificationValue(token)) challenges.add(ctx.context)
           }
         }),
       }, {
