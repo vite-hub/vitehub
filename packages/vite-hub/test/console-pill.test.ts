@@ -159,8 +159,8 @@ describe("a Console app without Comments", () => {
       for (const options of [{ console: {}, sections: [] }, { rpcOnly: true, sections: [] }]) {
         const config = await nitro(options)
         expect(config?.handlers?.map(handler => handler.route)).not.toContain("/_vitehub/page/tools")
-        expect(config?.plugins?.map(plugin => basename(plugin))).toEqual(["operation-loader.js"])
-        expect((config?.publicAssets ?? []).filter(asset => asset.baseURL?.startsWith("/_vitehub"))).toEqual([])
+        expect((config?.plugins ?? []).map(plugin => basename(plugin))).toEqual(["operation-loader.js"])
+        expect(config?.publicAssets ?? []).toEqual([])
       }
     }
     finally {
