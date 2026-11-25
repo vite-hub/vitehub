@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises"
-import { join } from "node:path"
+import { basename, dirname, join } from "node:path"
 
 import { glob } from "tinyglobby"
 
@@ -13,7 +13,6 @@ const configPatterns = ["**/{vite,nuxt}.config.{ts,mts,cts,js,mjs,cjs}"]
 const sourcePatterns = ["**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,vue}"]
 const ignored = ["**/node_modules/**", "**/.nuxt/**", "**/.output/**", "**/.data/**", "**/.vitehub/**", "**/dist/**", "**/coverage/**"]
 
-/** Option types that this release renamed or removed, with their replacement. */
 const renamedTypes: Record<string, string> = {
   AgentModuleOptions: "AgentOptions",
   AuthModuleOptions: "AuthOptions",
@@ -53,16 +52,20 @@ async function migrations(cwd: string) {
   const results = []
   for (const file of files) {
     const before = await readFile(join(cwd, file), "utf8")
-    results.push({ before, file, result: migrateViteHubOptions(file, before) })
+    const directory = dirname(file)
+    const hasLocalNuxtLayers = basename(file).startsWith("nuxt.config") && (
+      basename(dirname(directory)) === "layers"
+      || (await glob("layers/*", { cwd: join(cwd, directory), onlyDirectories: true })).length > 0
+    )
+    results.push({ before, file, result: migrateViteHubOptions(file, before, { hasLocalNuxtLayers }) })
   }
   for (const [file, positions] of [...imported.options.entries()].sort(([left], [right]) => left.localeCompare(right))) {
     const before = await readFile(join(cwd, file), "utf8")
-    results.push({ before, file, result: migrateViteHubOptions(file, before, program => optionsAt(program, positions)) })
+    results.push({ before, file, result: migrateViteHubOptions(file, before, { findOptions: program => optionsAt(program, positions) }) })
   }
   return { results, followUps: imported.followUps }
 }
 
-/** Source lines that name a renamed option type. The codemod reports them and edits nothing. */
 async function renamedTypeReferences(cwd: string): Promise<FollowUp[]> {
   const followUps: FollowUp[] = []
   for (const file of (await glob(sourcePatterns, { cwd, ignore: ignored })).sort()) {
@@ -87,7 +90,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     if (result.changed) edits.push({ path: file, before, after: result.code })
   }
   followUps.push(...await renamedTypeReferences(cwd))
-  if (!edits.length && !followUps.length) throw codemodError("No vite.config or nuxt.config, or a file that one imports, sets preset, sandbox, devtools, observability.logs, logs.evlog, contentImportBase, or a top-level env, so there is nothing to migrate.")
+  if (!edits.length && !followUps.length) throw codemodError("No vite.config or nuxt.config, or a file that one imports, sets preset, sandbox, devtools, console options that moved, observability.logs, logs.evlog, contentImportBase, or a top-level env, so there is nothing to migrate.")
   return {
     summary: edits.length
       ? `Moved vite-hub options in ${edits.length} config file${edits.length === 1 ? "" : "s"}.`
@@ -101,7 +104,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
 
 export const vitehubOptions: Codemod = {
   name: "vitehub-options",
-  description: "Renames preset to host, moves observability.logs to logs and Env declarations into vitehub({ env }), and removes devtools and contentImportBase",
+  description: "Renames preset to host, moves observability.logs to logs, Env declarations into vitehub({ env }) and the Console journal options into agent.invocations, and removes devtools, contentImportBase and the Console options that left the app",
   usage: "[dir]",
   async detect({ cwd }) {
     const { results, followUps } = await migrations(cwd)

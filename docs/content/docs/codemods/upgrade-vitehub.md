@@ -12,7 +12,7 @@ ViteHub is early, and its public API still changes. When an API changes, a codem
 vitehub migrate [dir] [--dry-run]
 ```
 
-It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, `channels`, `auth-accessors`, `workspace-repo`, `kv-list-prefix`, `cli-url-flag`, `cli-yes-flag`, `cms-roles`, `choices-package`, `cli-get-list`, `cli-agent-tree`, and `nuxt-server-imports`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
+It runs `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, `channels`, `auth-accessors`, `workspace-repo`, `kv-list-prefix`, `cli-url-flag`, `cli-yes-flag`, `cms-roles`, `console-out-of-app`, `choices-package`, `cli-get-list`, `cli-agent-tree`, and `nuxt-server-imports`, in that order, and each one sees the edits of the ones before it. Install `@vite-hub/codemods` as a development dependency first. Without the `vitehub` CLI, `npx @vite-hub/codemods [dir]` runs them too, with the codemods that move an app from other modules. To run one codemod, pass its name.
 
 After the upgrade, run Vite Doctor. Rule [`VHUB0003`](/docs/reference/doctor-rules#vhub0003) finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
@@ -93,10 +93,12 @@ npx @vite-hub/codemods vitehub-options [dir] [--dry-run]
 | `vite: { env }` in `nuxt.config.ts` | `env` in the `vite-hub/nuxt` options |
 | A top-level Vite key such as `kv` or `blob` | `vitehub({ kv })`, or the argument of `hubKV()` |
 | `devtools`, `contentImportBase` | removed |
+| `console: { pill }`, `console.mcpClient`, `console.embed`, `console.mcp`, `console.origins`, `console.signInPage`, `console.auth: 'token'` | removed. `console: true` when no option stays |
+| `console: { databaseUrl, observations, retention }` | `agent: { invocations: { databaseUrl, observations, retention } }` |
 
 The codemod also moves Logs options in literal Nuxt environment overrides. It keeps Evlog enabled when local capture was conditional or disabled. If it cannot preserve whether Evlog starts, such as when a read-only source is set next to Evlog options without a `service`, it reports a manual follow-up instead of changing the config.
 
-The report also lists `preset` next to `host`, `sandbox` options that are not a boolean, `cloudflare.secretsFile`, Env expressions or conflicting Env declarations, and source lines that name a renamed option type, such as `KVModuleOptions`, which is now `KVOptions`.
+The report also lists `preset` next to `host`, `sandbox` options that are not a boolean, `cloudflare.secretsFile`, `console.auth: 'app'` and `console.auth: { ... }`, Env expressions or conflicting Env declarations, and source lines that name a renamed option type, such as `KVModuleOptions`, which is now `KVOptions`. The codemod leaves a Console journal option in place and reports it when the move could change the effective journal, would overwrite an existing option, or would put `databaseUrl` on an explicit store where it has no effect.
 
 Sandbox Task option objects move like the other keys: into `vitehub({ sandboxTask })`, the `vite-hub/nuxt` options, or an existing `hubSandboxTask()` call without arguments.
 
@@ -583,6 +585,26 @@ npx @vite-hub/codemods cms-roles [dir] [--dry-run]
 ```
 
 The `access` option of `defineContent()` itself, such as `access: 'public'`, stays. The report lists a preset `access` value that is not the literal `'roles'`.
+
+## console-out-of-app
+
+The Console runs outside the app, so `console.authorize` no longer gets `via: 'page'`. `console-out-of-app` removes the code that handled it:
+
+```bash [Terminal]
+npx @vite-hub/codemods console-out-of-app [dir] [--dry-run]
+```
+
+```diff [server/console-authorize.ts]
+ import { defineConsoleAuthorize } from 'vite-hub/console/auth'
+-import type { ConsolePageAuthorizeContext } from 'vite-hub/console/auth'
+
+ export default defineConsoleAuthorize(({ via, user }) => {
+-  if (via === 'page') return user?.role === 'admin'
+   return true
+ })
+```
+
+It edits the function passed to `defineConsoleAuthorize()` from `vite-hub/console/auth`, and the function that `server/console-authorize.ts` default-exports. It removes an `if` on `via === 'page'` without an `else`, and the `ConsolePageAuthorizeContext` import when nothing else names it. The report lists other `'page'` checks, such as an `else` branch, a `switch` case or a `!==`, the `ConsolePageAuthorizeContext` type when the file still uses it, and each line of an env or Wrangler file that sets `VITEHUB_CONSOLE_MCP_KEY`. It never prints the value. See [Move the Console from earlier releases](/docs/console/migrate).
 
 ## choices-package
 
