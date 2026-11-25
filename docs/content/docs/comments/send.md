@@ -62,7 +62,7 @@ For Claude Code or Codex, the agent posts `{ "code": "...", "inbox": "Claude Cod
 
 ## Send
 
-After the pairing, **Send N** sends at once. The pill shows **Sending** while Webhooks is attempting delivery, **Sent** (or **In inbox** for an inbox) once it succeeds, then **Working** from when the agent reads the send until it answers. When the agent gave its thread URL, **Working** has **Open thread**, which opens that T3 thread. When delivery fails, the comments stay available to send again.
+After the pairing, **Send N** sends at once. The pill shows **Sending** while Webhooks is attempting delivery, **Sent** (or **In inbox** when the send went to an inbox, even after the member pairs another agent) once it succeeds, then **Working** from when the agent reads the send until it answers. When the agent gave its thread URL, **Working** has **Open thread**, which opens that T3 thread. When delivery fails, the comments stay available to send again.
 
 **N** counts the open threads on the page that you may read, whose last message is not an agent's, and whose last message was not in your own last send. Threads of other people count too. Each person has their own count: when another person sends a thread, it still counts for you. Send compares message ids, not times, so a server clock that is slow does not hide a new message.
 

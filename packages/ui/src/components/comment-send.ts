@@ -182,7 +182,7 @@ export const CommentSend = defineComponent({
         case "sent":
           return [
             status(undefined, [icon("i-lucide-check"), current.inbox ? "In inbox" : "Sent"]),
-            current.count > 0 ? sendButton(current.count, current.inbox) : null,
+            current.count > 0 ? sendButton(current.count, Boolean(current.agent && !current.agent.host)) : null,
           ].filter(part => part !== null);
         case "working":
           return [

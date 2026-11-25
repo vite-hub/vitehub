@@ -499,7 +499,7 @@ Give your pill a viewport-safe maximum width and let it scroll horizontally if i
 | `pairing` | Setup prompt copied, a spinner, and `×`. With `reason`: **Setup code expired** or **That URL isn't `host`**, and **Copy again**. |
 | `confirm` | The agent's logo, name, and host, and **Allow and send N**. |
 | `sending` | Sending, as wide as **Send N**, so the pill holds still. |
-| `sent` | Sent, or In inbox, until the agent reads the send, and for at least 2 seconds. **Send N** comes back beside it when a new comment waits. |
+| `sent` | Sent, or In inbox, until the agent reads the send, and for at least 2 seconds. `inbox` tells where that send went. **Send N** comes back beside it when a new comment waits, for the agent in `agent`. |
 | `working` | Working and **Open thread**. **Send N** comes back beside them when a new comment waits. |
 | `failed` | Not delivered and **Retry**. Retry repeats the step that failed: after a failed pairing it pairs again, after a failed Allow it loads the status again, and after a failed send it sends again. |
 | `limited` | Limit reached, and the time to try again. |

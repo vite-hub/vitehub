@@ -160,7 +160,7 @@ describe("createCommentSend", () => {
     expect(send.state).toEqual({ status: "sending", count: 2 })
     await allowed
     expect(server.calls).toContain("allow code-1")
-    expect(send.state).toEqual({ status: "sent", count: 0, inbox: false })
+    expect(send.state).toEqual({ status: "sent", count: 0, inbox: false, agent: t3 })
 
     server.setStatus({ count: 0, agent: t3, working: { id: "send-1", thread: "https://app.t3.codes/threads/42" } })
     await vi.advanceTimersByTimeAsync(1999)
@@ -296,7 +296,7 @@ describe("createCommentSend", () => {
     expect(copied).toEqual([])
     expect(server.calls).not.toContain("startPairing")
     await vi.advanceTimersByTimeAsync(2000)
-    expect(send.state).toEqual({ status: "sent", count: 0, inbox: false })
+    expect(send.state).toEqual({ status: "sent", count: 0, inbox: false, agent: t3 })
 
     server.push({ type: "working", id: "send-1", thread: "https://app.t3.codes/threads/42" })
     server.push({ type: "count", count: 1 })
@@ -328,7 +328,7 @@ describe("createCommentSend", () => {
     await send.allow()
     expect(server.calls.filter(call => call.startsWith("allow"))).toEqual(["allow code-1", "allow code-1"])
     expect(server.selections).toEqual(["two", "three"])
-    expect(send.state).toEqual({ status: "sent", count: 0, inbox: false })
+    expect(send.state).toEqual({ status: "sent", count: 0, inbox: false, agent: t3 })
   })
 
   it("loads the selection again when the count changes while the member pairs", async () => {
@@ -446,18 +446,18 @@ describe("createCommentSend", () => {
     const send = createCommentSend(server.transport)
     send.start()
     await flush()
-    server.results.push({ status: "sent", id: "send-1" })
-    server.setStatus({ count: 0, agent: claude, sent: { id: "send-1" } })
+    server.results.push({ status: "sent", id: "send-1", inbox: true })
+    server.setStatus({ count: 0, agent: claude, sent: { id: "send-1", inbox: true } })
     await send.send()
     await vi.advanceTimersByTimeAsync(2000)
-    expect(send.state).toEqual({ status: "sent", count: 0, inbox: true })
+    expect(send.state).toEqual({ status: "sent", count: 0, inbox: true, agent: claude })
     await vi.advanceTimersByTimeAsync(5000)
-    expect(send.state).toEqual({ status: "sent", count: 0, inbox: true })
+    expect(send.state).toEqual({ status: "sent", count: 0, inbox: true, agent: claude })
 
-    server.setStatus({ count: 1, agent: claude, sent: { id: "send-1" } })
+    server.setStatus({ count: 1, agent: claude, sent: { id: "send-1", inbox: true } })
     await send.refresh()
-    expect(send.state).toEqual({ status: "sent", count: 1, inbox: true })
-    server.results.push({ status: "sent", id: "send-2" })
+    expect(send.state).toEqual({ status: "sent", count: 1, inbox: true, agent: claude })
+    server.results.push({ status: "sent", id: "send-2", inbox: true })
     await send.send()
     expect(server.calls.filter(call => call === "send")).toHaveLength(2)
 
@@ -466,11 +466,28 @@ describe("createCommentSend", () => {
     expect(send.state).toEqual({ status: "working", count: 0, agent: claude })
   })
 
+  it("tells where the shown send went apart from where the next Send goes", async () => {
+    const codex: CommentSendAgent = { name: "Codex", logo: "codex" }
+    const server = fakeTransport({ count: 1, agent: t3, sent: { id: "send-1", inbox: true } })
+    const send = createCommentSend(server.transport)
+    send.start()
+    await flush()
+    expect(send.state).toEqual({ status: "sent", count: 1, inbox: true, agent: t3 })
+
+    server.setStatus({ count: 1, agent: codex, sent: { id: "send-1" } })
+    await send.refresh()
+    expect(send.state).toEqual({ status: "sent", count: 1, inbox: false, agent: codex })
+
+    server.results.push({ status: "sent", id: "send-2", inbox: true })
+    await send.send()
+    expect(send.state).toEqual({ status: "sent", count: 0, inbox: true, agent: codex })
+  })
+
   it("shows a send that the agent has not read on load", async () => {
     const send = createCommentSend(fakeTransport({ count: 0, agent: t3, sent: { id: "send-1" } }).transport)
     send.start()
     await flush()
-    expect(send.state).toEqual({ status: "sent", count: 0, inbox: false })
+    expect(send.state).toEqual({ status: "sent", count: 0, inbox: false, agent: t3 })
   })
 
   it.each(["pairing", "confirm", "sending"])("reconciles server status after stopping in %s", async (interrupted) => {

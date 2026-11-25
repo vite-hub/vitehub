@@ -18,8 +18,11 @@ export interface CommentSendStatus {
   agent?: CommentSendAgent
   /** The member's last send, after the agent read it and while it works on it. `thread` is the URL of the agent's thread. */
   working?: { id: string, thread?: string }
-  /** The member's last send, delivered and not read by the agent yet. An inbox send stays here until the agent reads it. */
-  sent?: { id: string, thread?: string }
+  /**
+   * The member's last send, delivered and not read by the agent yet. An inbox send stays here until the agent reads it.
+   * `inbox` tells that this send went to an inbox, whatever agent the member has now.
+   */
+  sent?: { id: string, thread?: string, inbox?: true }
   /** The last delivery is still being attempted. */
   pending?: boolean
   /** While the member may not send, the time in ms when the next send may go. */
@@ -54,7 +57,7 @@ export type CommentSendPairingCheck =
  * threads are not the ones that the member confirmed, and keeps the code for the new `count`.
  */
 export type CommentSendResult =
-  | { status: "sent" | "pending", id: string, thread?: string }
+  | { status: "sent" | "pending", id: string, thread?: string, inbox?: true }
   | { status: "failed", reason: string }
   | { status: "limited", retryAt: number }
   | { status: "changed", count: number, selection: string }
@@ -79,13 +82,16 @@ export interface CommentSendTransport {
   subscribe?: (listener: (event: CommentSendEvent) => void) => () => void
 }
 
-/** What the Send segment shows. Every state has the number of waiting threads, `count`. */
+/**
+ * What the Send segment shows. Every state has the number of waiting threads, `count`. In `sent`, `inbox` tells where
+ * the last send went, and `agent` is where the next Send goes.
+ */
 export type CommentSendState =
   | { status: "idle", count: number, inbox: boolean, canPairAnother?: true }
   | { status: "pairing", count: number, prompt: string, expiresAt: number, agent: CommentSendAgent, reason?: "expired" | "refused" }
   | { status: "confirm", count: number, agent: CommentSendAgent }
   | { status: "sending", count: number }
-  | { status: "sent", count: number, inbox: boolean }
+  | { status: "sent", count: number, inbox: boolean, agent?: CommentSendAgent }
   | { status: "working", count: number, agent?: CommentSendAgent, thread?: string }
   | { status: "failed", count: number, reason: string }
   | { status: "limited", count: number, retryAt: number }
@@ -146,6 +152,7 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
   let fetching = false
   let sendId: string | undefined
   let thread: string | undefined
+  let sentInbox = false
   let pushed: Map<string, { thread?: string, done?: boolean }> | undefined
   let step = 0
   let sentUntil = 0
@@ -172,6 +179,7 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
   const needsStatus = (): boolean => state.status === "failed" && lastStep === "allow"
   const idleState = (): CommentSendState => ({ status: "idle", count, inbox: inbox(), ...(agent && count > 0 ? { canPairAnother: true } : {}) })
   const idle = (): void => set(idleState())
+  const sentState = (): CommentSendState => ({ status: "sent", count, inbox: sentInbox, ...(agent ? { agent } : {}) })
   const finish = (): void => {
     sendId = undefined
     thread = undefined
@@ -182,7 +190,7 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
     if (!transport.subscribe) later(statusInterval, () => void refresh(working))
   }
   const sent = (): void => {
-    set({ status: "sent", count, inbox: inbox() })
+    set(sentState())
     if (!transport.subscribe) later(statusInterval, () => void refresh(sent))
   }
   const holdingSent = (): boolean => state.status === "sent" && Date.now() < sentUntil
@@ -200,11 +208,12 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
     if (status.pending) return pending()
     const last = status.working ?? status.sent
     if (last) {
+      if (status.sent) sentInbox = Boolean(status.sent.inbox)
       const hold = holdingSent() && sendId === last.id
       sendId = last.id
       thread = hold ? thread ?? last.thread : last.thread
       if (hold) {
-        state = { status: "sent", count, inbox: inbox() }
+        state = sentState()
         return notify()
       }
       return status.working ? working() : sent()
@@ -250,7 +259,8 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
     const update = updates?.get(result.id)
     thread = update?.thread ?? result.thread
     if (revision === countRevision) count = 0
-    set({ status: "sent", count, inbox: inbox() })
+    sentInbox = Boolean(result.inbox)
+    set(sentState())
     sentUntil = Date.now() + sentFor
     later(sentFor, update?.done ? finish : update ? working : () => void refresh(sent))
   }

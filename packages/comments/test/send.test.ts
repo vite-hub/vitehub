@@ -4,7 +4,7 @@ import { H3 } from "h3"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createDrizzleWebhookEndpointStore, createDrizzleWebhookStore, webhooksTables } from "../../webhooks/src/database.ts"
-import { createMemberEndpoint, getMemberEndpoint, listMemberDeliveries } from "../../webhooks/src/index.ts"
+import { createMemberEndpoint, getMemberEndpoint, listMemberDeliveries, removeMemberEndpoints } from "../../webhooks/src/index.ts"
 import { deliverWebhookWake, getWebhookDelivery, installWebhooks, listWebhookDeliveries, redeliverWebhookDelivery } from "../../webhooks/src/runtime.ts"
 import { defineComments } from "../src/index.ts"
 import { installComments } from "../src/install.ts"
@@ -773,6 +773,32 @@ describe("the server API of Send", () => {
     await comments.resolve(quote.id, { by: { id: "ana" } })
     await comments.reopen(quote.id)
     expect(await status()).not.toHaveProperty("sent")
+  })
+
+  it("tells where a stored send went, whatever agent the member has now", async () => {
+    const { call, comment, connect, page } = await setup()
+    const status = async () => (await call(`/send/status?page=${page}`, { as: "ana" })).body.data
+    const pairInbox = async () => {
+      const started = await call(`/send/start?page=${page}`, { method: "POST", as: "ana" })
+      const code: string = started.body.data.code
+      await call("/send/pair", { json: { code, inbox: "Codex" }, origin: null })
+      return (await call(`/send/allow?page=${page}`, { json: { code, selection: started.body.data.selection }, as: "ana" })).body.data
+    }
+    await comment("ana", "Fix the date")
+    const inbox = await pairInbox()
+    expect(inbox).toMatchObject({ status: "sent", inbox: true })
+    expect((await removeMemberEndpoints("ana"))[0]).toBeUndefined()
+    const disconnected = await status()
+    expect(disconnected.sent).toEqual({ id: inbox.id, inbox: true })
+    expect(disconnected).not.toHaveProperty("agent")
+
+    await comment("ana", "Add a map")
+    const { allowed } = await connect()
+    expect(allowed.body.data).toEqual({ status: "sent", id: allowed.body.data.id })
+    await pairInbox()
+    const repaired = await status()
+    expect(repaired.sent).toEqual({ id: allowed.body.data.id })
+    expect(repaired.agent).toEqual({ name: "Codex", logo: "codex" })
   })
 
   it("lets the member send a reopened ask to the webhook again without resending its quote", async () => {
