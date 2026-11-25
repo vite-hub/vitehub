@@ -14,11 +14,22 @@ export type EnvSource =
   | { kind: "fields", fields: readonly EnvField[] }
   | { kind: "env-schema", file: string, paths: Record<string, string> }
 
+/** The generated module that exports field schemas. */
+export interface SchemaModuleReference {
+  /** The `env.schemaFrom()` specifier, such as `./server/env.schema.ts`. */
+  runtimePath: string
+  /** The specifier that nuxt.config imports public field schemas from. */
+  importPath: string
+  /** Export name of each field schema. */
+  exports: ReadonlyMap<EnvField, string>
+}
+
 export interface ConfigEditInput {
   config: NuxtConfigFile
   env: EnvSource
   /** `runtimeConfig` labels to remove, such as `apiSecret` or `public.apiBase`. */
   migrated: ReadonlySet<string>
+  schemaModule?: SchemaModuleReference
 }
 
 export interface ConfigEditResult {
@@ -33,29 +44,43 @@ export interface ConfigEditResult {
   lineOf: LineResolver
 }
 
-export function declarationCode(field: EnvField, envName: string, style: CodeStyle): string {
+function defaultCode(value: NonNullable<EnvField["default"]>, style: CodeStyle): string {
+  if (Array.isArray(value)) return `[${value.map(item => item === null ? "null" : defaultCode(item, style)).join(", ")}]`
+  if (typeof value === "object") {
+    const entries = Object.entries(value).map(([key, item]) => `${propertyKey(key, style)}: ${item === null ? "null" : defaultCode(item, style)}`)
+    return entries.length ? `{ ${entries.join(", ")} }` : "{}"
+  }
+  return literal(value, style)
+}
+
+/** Renders one Env declaration. `schema` is the code of the field schema, such as `env.schemaFrom(...)`. */
+export function declarationCode(field: EnvField, envName: string, style: CodeStyle, schema?: string): string {
   const options: string[] = []
-  if (field.default !== undefined) options.push(`default: ${literal(field.default, style)}`)
+  if (field.default !== undefined) options.push(`default: ${defaultCode(field.default, style)}`)
   if (field.section === "public") options.push(`mode: ${quoteString("build", style)}`)
   if (!field.required && field.default === undefined) options.push("optional: true")
+  if (schema && field.kind !== "json") options.push(`schema: ${schema}`)
   if (field.secret) options.push("secret: true")
   const names = [...new Set([field.variable, ...(field.extraVariables ?? [])])]
   const source = names.length === 1 ? quoteString(field.variable, style) : `[${names.map(name => quoteString(name, style)).join(", ")}]`
   options.push(`source: ${envName}.source(${source})`)
   const callee = field.kind === "string" ? envName : `${envName}.${field.kind}`
   const values = field.kind === "enum" ? `[${(field.values ?? []).map(value => quoteString(value, style)).join(", ")}], ` : ""
-  return `${callee}(${values}{ ${options.join(", ")} })`
+  const jsonSchema = field.kind === "json" && schema ? `${schema}, ` : ""
+  return `${callee}(${values}${jsonSchema}{ ${options.join(", ")} })`
 }
 
 type Tree = Map<string, Tree | string>
 
-function sectionTree(fields: readonly EnvField[], envName: string, style: CodeStyle): Tree {
+type SchemaCode = ReadonlyMap<EnvField, string>
+
+function sectionTree(fields: readonly EnvField[], envName: string, style: CodeStyle, schemas: SchemaCode): Tree {
   const tree: Tree = new Map()
   for (const field of fields) {
     let node = tree
     field.envPath.forEach((segment, index) => {
       if (index === field.envPath.length - 1) {
-        node.set(segment, declarationCode(field, envName, style))
+        node.set(segment, declarationCode(field, envName, style, schemas.get(field)))
         return
       }
       const child = node.get(segment)
@@ -75,7 +100,7 @@ function renderTree(tree: Tree, indent: string, unit: string, style: CodeStyle):
 }
 
 /** Renders the value of `vitehub.env`. `indent` is the indentation of the `env` key line. */
-export function envExpression(env: EnvSource, envName: string, indent: string, style: CodeStyle): string {
+export function envExpression(env: EnvSource, envName: string, indent: string, style: CodeStyle, schemas: SchemaCode = new Map()): string {
   if (env.kind === "env-schema") {
     const file = /^\.\.?\//.test(env.file) ? env.file : `./${env.file}`
     const options = [`prefix: ${quoteString("NUXT_", style)}`]
@@ -86,8 +111,8 @@ export function envExpression(env: EnvSource, envName: string, indent: string, s
   const sections: Tree = new Map()
   const publicFields = env.fields.filter(field => field.section === "public")
   const serverFields = env.fields.filter(field => field.section === "server")
-  if (publicFields.length) sections.set("public", sectionTree(publicFields, envName, style))
-  if (serverFields.length) sections.set("server", sectionTree(serverFields, envName, style))
+  if (publicFields.length) sections.set("public", sectionTree(publicFields, envName, style, schemas))
+  if (serverFields.length) sections.set("server", sectionTree(serverFields, envName, style, schemas))
   return renderTree(sections, indent, style.indent, style)
 }
 
@@ -132,14 +157,33 @@ export function editNuxtConfig(input: ConfigEditInput): ConfigEditResult {
     imports.push(`import { envSchema } from ${quoteString("vite-hub/env/vite", style)}${semicolon}`)
   }
 
+  const schemas = new Map<EnvField, string>()
+  if (input.env.kind === "fields" && input.schemaModule) {
+    const { exports, importPath, runtimePath } = input.schemaModule
+    const specifiers: string[] = []
+    const taken = new Set([envName])
+    for (const [field, name] of exports) {
+      if (field.section === "server") {
+        schemas.set(field, `${envName}.schemaFrom(${quoteString(runtimePath, style)}, ${quoteString(name, style)})`)
+        continue
+      }
+      let local = name
+      for (let index = 2; taken.has(local) || !bindingFree(config, local); index++) local = `${name}${index}`
+      taken.add(local)
+      schemas.set(field, local)
+      specifiers.push(local === name ? name : `${name} as ${local}`)
+    }
+    if (specifiers.length) imports.push(`import { ${specifiers.join(", ")} } from ${quoteString(importPath, style)}${semicolon}`)
+  }
+
   const env = input.env
   const { host, hostNote } = addViteHubOptions(editor, config, {
-    options: [{ key: "env", value: indent => envExpression(env, envName, indent, style), label: "the Env declarations" }],
+    options: [{ key: "env", value: indent => envExpression(env, envName, indent, style, schemas), label: "the Env declarations" }],
     rootEntries,
     removedRootProperties,
   })
   editor.removeUnusedBindings()
-  for (const text of imports) editor.addImport(text)
+  editor.addImport(imports.join("\n"))
 
   const code = editor.output.toString()
   return {
