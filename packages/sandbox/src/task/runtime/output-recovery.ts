@@ -1,8 +1,9 @@
 import { readCloudflareFailure } from '../../internal/cloudflare-failure.ts'
 import { sleep } from '../internal/shared/utils'
 import { sandboxTaskError } from '../sandbox-task/errors'
+import { assertSandboxTaskTransferBytes, isSandboxTaskTransferLimitError } from './binary-sidecars'
 import { readSandboxTaskErrorMetadata } from './error-normalization'
-import { EXEC_STDIO_OUTPUT_MARKER } from './entry-script.injected'
+import { EXEC_DIAGNOSTIC_PREFIX, EXEC_STDIO_OUTPUT_MARKER, MAX_EXEC_DIAGNOSTIC_BYTES } from './entry-script.injected'
 
 import type { TaskSandbox } from './task-sandbox'
 
@@ -14,6 +15,16 @@ const EXEC_OUTPUT_PREVIEW_LENGTH = 500
 const HANDLER_DIAGNOSTIC_LENGTH = 16_384
 
 type ExecutionMeta = { stdout?: string, stderr?: string, code?: number | null, meta?: Record<string, unknown> }
+
+function assertOutputBytes(output: string, maxOutputBytes: number | undefined) {
+  if (output.startsWith(EXEC_DIAGNOSTIC_PREFIX) || EXEC_DIAGNOSTIC_PREFIX.startsWith(output)) {
+    assertSandboxTaskTransferBytes(output, 'diagnostic', 'maxDiagnosticBytes', MAX_EXEC_DIAGNOSTIC_BYTES)
+    if (tryParseSandboxTaskOutput(output)?.ok !== true)
+      return
+  }
+  if (maxOutputBytes !== undefined)
+    assertSandboxTaskTransferBytes(output, 'result', 'maxOutputBytes', maxOutputBytes)
+}
 
 function getErrorMessage(error: unknown) {
   if (error instanceof Error)
@@ -194,6 +205,7 @@ async function waitForExecOutput(
   error: unknown,
   timeout: number | undefined,
   execution: ExecutionMeta | undefined,
+  maxOutputBytes: number | undefined,
   signal?: AbortSignal,
 ) {
   const recoveryTimeout = resolveExecOutputRecoveryTimeout(timeout)
@@ -205,6 +217,7 @@ async function waitForExecOutput(
     signal?.throwIfAborted()
     try {
       const output = await sandbox.readFile(outputPath, { signal })
+      assertOutputBytes(output, maxOutputBytes)
       lastOutput = output
       if (isCompleteSandboxTaskOutput(output))
         return output
@@ -212,6 +225,8 @@ async function waitForExecOutput(
     catch (readError) {
       if (signal?.aborted)
         throw signal.reason
+      if (isSandboxTaskTransferLimitError(readError))
+        throw readError
       lastError = readError
     }
 
@@ -233,6 +248,7 @@ async function recoverExecOutput(
   error: unknown,
   timeout?: number,
   execution?: ExecutionMeta,
+  maxOutputBytes?: number,
   signal?: AbortSignal,
 ) {
   if (sandbox.provider !== 'cloudflare' || !mayHaveRunCloudflareExec(error))
@@ -244,6 +260,7 @@ async function recoverExecOutput(
     error,
     timeout,
     execution,
+    maxOutputBytes,
     signal,
   )
 }
@@ -254,6 +271,7 @@ async function waitForCloudflareOutput(
   error: unknown,
   timeout?: number,
   execution?: ExecutionMeta,
+  maxOutputBytes?: number,
   signal?: AbortSignal,
 ) {
   const recoveryTimeout = resolveExecOutputRecoveryTimeout(timeout)
@@ -268,6 +286,7 @@ async function waitForCloudflareOutput(
     error,
     timeout,
     execution,
+    maxOutputBytes,
     signal,
   )
 }
@@ -278,24 +297,30 @@ export async function readExecOutputWithRecovery(
   error: unknown,
   timeout?: number,
   execution?: ExecutionMeta,
+  maxOutputBytes?: number,
   signal?: AbortSignal,
 ) {
   const executionOutput = extractSandboxTaskOutputFromExecution(execution)
     || extractSandboxTaskOutputFromExecution(error as { stdout?: string, stderr?: string } | undefined)
-  if (executionOutput)
+  if (executionOutput) {
+    assertOutputBytes(executionOutput, maxOutputBytes)
     return executionOutput
+  }
 
   try {
     const output = await sandbox.readFile(outputPath, { signal })
+    assertOutputBytes(output, maxOutputBytes)
     if (isCompleteSandboxTaskOutput(output))
       return output
   }
-  catch {
+  catch (readError) {
+    if (isSandboxTaskTransferLimitError(readError))
+      throw readError
     signal?.throwIfAborted()
-    return await waitForCloudflareOutput(sandbox, outputPath, error, timeout, execution, signal)
+    return await waitForCloudflareOutput(sandbox, outputPath, error, timeout, execution, maxOutputBytes, signal)
   }
 
-  return await waitForCloudflareOutput(sandbox, outputPath, error, timeout, execution, signal)
+  return await waitForCloudflareOutput(sandbox, outputPath, error, timeout, execution, maxOutputBytes, signal)
 }
 
 export { recoverExecOutput }

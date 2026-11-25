@@ -39,6 +39,22 @@ describe("extractSandboxTaskDefinitionMetadata", () => {
     })
   })
 
+  it("reads static transfer limits from an object-form Definition", async () => {
+    const file = await writeDefinition([
+      `import { defineSandboxTask } from "@vite-hub/sandbox/task"`,
+      `export default defineSandboxTask({`,
+      `  transfer: { maxInputBytes: 2_097_152, maxDepth: 24, "maxSidecars": 8 },`,
+      `  handler: async () => null,`,
+      `})`,
+    ].join("\n"))
+
+    await expect(extractSandboxTaskDefinitionMetadata(file)).resolves.toEqual({
+      options: {
+        transfer: { maxInputBytes: 2_097_152, maxDepth: 24, maxSidecars: 8 },
+      },
+    })
+  })
+
   it("preserves a static __proto__ environment key", async () => {
     const file = await writeDefinition([
       `import { defineSandboxTask } from "@vite-hub/sandbox/task"`,
