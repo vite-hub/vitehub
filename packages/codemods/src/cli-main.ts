@@ -16,8 +16,8 @@ const defaultOutput: CliOutput = {
 function helpText(): string {
   const width = Math.max(...codemods.map(codemod => codemod.name.length))
   return [
-    "Usage: npx @vite-hub/codemods [dir] [--dry-run]",
-    "       npx @vite-hub/codemods <codemod> [dir] [--dry-run]",
+    "Usage: npx @vite-hub/codemods [dir] [--dry-run] [--nuxt-nightly]",
+    "       npx @vite-hub/codemods <codemod> [dir] [--dry-run] [--nuxt-nightly]",
     "",
     "Without a codemod name, it detects every supported module in the app and migrates them all.",
     "",
@@ -25,8 +25,10 @@ function helpText(): string {
     ...codemods.map(codemod => `  ${codemod.name.padEnd(width)}  ${codemod.description}`),
     "",
     "Options:",
-    "  --dry-run  Print the planned edits and write nothing.",
-    "  --help     Show this list.",
+    "  --dry-run       Print the planned edits and write nothing.",
+    "  --nuxt-nightly  Set nuxt to npm:nuxt-nightly@5x in package.json if a planned migration needs vite-hub/nuxt and the app is on a Nuxt version before 4.7.",
+    "                  Without it, the command stops without changing project files.",
+    "  --help          Show this list.",
     "",
   ].join("\n")
 }
@@ -35,7 +37,7 @@ function helpText(): string {
 export async function runCli(argv: readonly string[], output: CliOutput = defaultOutput): Promise<number> {
   const flags = argv.filter(arg => arg.startsWith("-"))
   const positionals = argv.filter(arg => !arg.startsWith("-"))
-  const unknownFlag = flags.find(flag => !["--dry-run", "--help", "-h"].includes(flag))
+  const unknownFlag = flags.find(flag => !["--dry-run", "--nuxt-nightly", "--help", "-h"].includes(flag))
   if (unknownFlag) {
     output.stderr(`Unknown option ${unknownFlag}.\n\n${helpText()}`)
     return 1
@@ -45,6 +47,7 @@ export async function runCli(argv: readonly string[], output: CliOutput = defaul
     return 0
   }
   const dryRun = flags.includes("--dry-run")
+  const nuxtNightly = flags.includes("--nuxt-nightly")
   const [first, ...rest] = positionals
   const single = first !== undefined && codemods.some(codemod => codemod.name === first)
   const extra = single ? rest.slice(1) : rest
@@ -54,12 +57,12 @@ export async function runCli(argv: readonly string[], output: CliOutput = defaul
   }
   try {
     if (single) {
-      const run = await runCodemod(first, { cwd: rest[0], dryRun })
+      const run = await runCodemod(first, { cwd: rest[0], dryRun, nuxtNightly })
       if (run.dryRun && run.result.edits.length) output.stdout(`${formatDiff(run.result)}\n`)
       output.stdout(formatReport(run))
       return 0
     }
-    const migration = await runMigration({ cwd: first, dryRun })
+    const migration = await runMigration({ cwd: first, dryRun, nuxtNightly })
     if (migration.dryRun && migration.edits.length) output.stdout(`${formatDiff({ edits: migration.edits })}\n`)
     output.stdout(formatMigrationReport(migration))
     return migration.steps.some(step => step.error) ? 1 : 0
