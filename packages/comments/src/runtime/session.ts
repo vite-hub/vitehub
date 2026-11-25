@@ -1,4 +1,5 @@
 import { viteHubSiteVisitorReader } from "@vite-hub/internal/runtime/page-tools"
+import { clientRequest } from "@vite-hub/internal/runtime/client-request"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 
@@ -61,7 +62,7 @@ export async function resolveCommentsPage(comments: Comments, event: CommentsReq
   if (!comments.options.page) return { subject: { kind: "page", id } }
   // `page` reads `event["~standard"]`. Set it when Nitro did not, as for `identify`.
   getStandardContext(event)
-  const mapped = await comments.options.page({ url: new URL(id, forwardedRequestOrigin(request)), event })
+  const mapped = await comments.options.page({ url: new URL(id, forwardedRequestOrigin(clientRequest(request))), event })
   if (!mapped) return { subject: { kind: "page", id } }
   return { subject: { kind: mapped.kind, id: mapped.id }, ...(mapped.revision === undefined ? {} : { revision: mapped.revision }) }
 }

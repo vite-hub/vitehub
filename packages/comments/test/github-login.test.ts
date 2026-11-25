@@ -1,3 +1,4 @@
+import clientRequestPlugin from "@vite-hub/internal/runtime/client-request-plugin"
 import { installRequestStandardContext } from "@vite-hub/runtime/internal/h3"
 import { H3 } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -203,6 +204,26 @@ describe("createCommentsGitHubLogin", () => {
     // The OAuth state is in a cookie, because there is no database to keep it.
     expect(response.headers.getSetCookie().join("\n")).toContain("vitehub_comments")
     await expect(loginForBase.user(request(`${base}/_vitehub/comments/session`))).resolves.toBeNull()
+  })
+
+  it("signs in at the page origin in a relative request that the server sends to itself", async () => {
+    vi.stubEnv("VITEHUB_GITHUB_CLIENT_ID", "client-id")
+    vi.stubEnv("VITEHUB_GITHUB_CLIENT_SECRET", "client-secret")
+    vi.stubEnv("VITEHUB_SECRET", "a-test-secret-that-is-at-least-32-characters")
+    const login = createCommentsGitHubLogin({ repository: "acme/app" })
+    let response: Response | undefined
+    const nitroApp = { fetch: async (_request: Request) => {
+      const inProcess = new Request("http://localhost/_vitehub/comments/auth/github", { headers: { host: "app.example.com" } })
+      installRequestStandardContext(inProcess)
+      // SAFETY: the installer above sets the Standard Context on the Request.
+      response = await login.handle(inProcess as Request & ViteHubContext, "/auth/github")
+      return new Response()
+    } }
+    clientRequestPlugin(nitroApp)
+    await nitroApp.fetch(new Request("https://app.example.com/pricing"))
+    const location = new URL(response!.headers.get("location")!)
+    expect(location.searchParams.get("redirect_uri")).toBe("https://app.example.com/_vitehub/comments/auth/callback/github")
+    expect(response!.headers.getSetCookie().join("\n")).toContain("__Secure-vitehub_comments")
   })
 
   it("rejects a short VITEHUB_SECRET before starting GitHub sign-in", async () => {

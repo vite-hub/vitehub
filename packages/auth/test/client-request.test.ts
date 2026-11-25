@@ -1,10 +1,10 @@
+import clientRequestPlugin from "@vite-hub/internal/runtime/client-request-plugin"
 import { memoryAdapter } from "better-auth/adapters/memory"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { authForRequest } from "../src/auth-instance.ts"
 import { defineAuth } from "../src/definition.ts"
 import { handleAuthRequest, requireAuth, requireAuthorization, resetAuth } from "../src/internal/server.ts"
-import authClientRequestPlugin from "../src/runtime/client-request-plugin.ts"
 import { resolveAuthOptions } from "../src/runtime-options.ts"
 import { defineFixedAuth } from "./fixed-auth.ts"
 
@@ -35,7 +35,7 @@ async function serve(client: Request, handle: () => Promise<void>): Promise<void
     await handle()
     return new Response()
   } }
-  authClientRequestPlugin(nitroApp)
+  clientRequestPlugin(nitroApp)
   await nitroApp.fetch(client)
 }
 

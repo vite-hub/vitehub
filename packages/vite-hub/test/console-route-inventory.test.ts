@@ -128,6 +128,7 @@ const appRoutes = [
 
 const plugins = [
   "@vite-hub/auth/dist/runtime/client-request-plugin.js",
+  "@vite-hub/comments/dist/runtime/client-request-plugin.js",
   "@vite-hub/kv/dist/runtime/nitro-plugin.js",
   "app/.vitehub/nitro/agent/invocations.mjs",
   "app/.vitehub/nitro/blob/plugin.ts",

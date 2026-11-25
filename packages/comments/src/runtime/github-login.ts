@@ -3,6 +3,7 @@ import { hkdfSync } from "node:crypto"
 import { defineAuth } from "@vite-hub/auth"
 import { stateless } from "@vite-hub/auth/presets"
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
+import { clientRequest } from "@vite-hub/internal/runtime/client-request"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { readViteHubSecret, viteHubSecretMinimumLength, viteHubSecretSalt } from "@vite-hub/internal/secret"
 import { getStandardContext } from "@vite-hub/runtime/internal/h3"
@@ -82,7 +83,7 @@ export function createCommentsGitHubLogin(options: { repository?: string, apiUrl
     const clientId = serverEnv(githubLoginEnv.clientId)!
     const clientSecret = serverEnv(githubLoginEnv.clientSecret)!
     const secret = sessionSecret()
-    const origin = forwardedRequestOrigin(request)
+    const origin = forwardedRequestOrigin(clientRequest(request))
     const key = [origin, clientId, clientSecret, secret].join("\0")
     let instance = instances.get(key)
     if (!instance) {

@@ -25,6 +25,7 @@ export default defineConfig({
         "src/index.ts",
         "src/realtime.ts",
         "src/runtime/auth.ts",
+        "src/runtime/client-request-plugin.ts",
         "src/runtime/connect.ts",
         "src/runtime/connect/node.ts",
         "src/runtime/console.ts",
@@ -33,7 +34,7 @@ export default defineConfig({
       ],
       exports: {
         // Generated code imports these modules by path. They are not public API.
-        exclude: ["operations", "runtime/console"],
+        exclude: ["operations", "runtime/client-request-plugin", "runtime/console"],
         customExports: normalizePackageExports,
         inlinedDependencies: false,
       },

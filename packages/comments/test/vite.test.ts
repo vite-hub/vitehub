@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite"
 import { createNitro } from "nitro/builder"
 import { H3, H3Event } from "h3"
@@ -107,7 +108,7 @@ describe("hubComments", () => {
       { route: "/_vitehub/comments/**", handler: join(root, ".vitehub/nitro/comments/handler.mjs"), lazy: true, meta: { vitehubOwnAccess: true } },
       { route: "/_vitehub/page/tools", handler: join(root, ".vitehub/nitro/comments/page-tools-route.mjs"), meta: { vitehubOwnAccess: true } },
     ])
-    expect(nitro?.plugins).toEqual([join(root, ".vitehub/nitro/comments/plugin.mjs")])
+    expect(nitro?.plugins).toEqual([ownModule(import.meta.url, "runtime/client-request-plugin"), join(root, ".vitehub/nitro/comments/plugin.mjs")])
     expect(nitro?.publicAssets).toEqual([
       expect.objectContaining({ baseURL: "/_vitehub/page/assets", dir: expect.stringMatching(/dist[/\\]page$/) }),
       expect.objectContaining({ baseURL: "/_vitehub/comments/assets" }),

@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest"
 
+import clientRequestPlugin from "@vite-hub/internal/runtime/client-request-plugin"
 import { installViteHubSiteVisitor } from "@vite-hub/internal/runtime/page-tools"
 import { installRequestStandardContext } from "@vite-hub/runtime/internal/h3"
 
 import { defineComments } from "../src/index.ts"
-import { resolveCommentsIdentity } from "../src/runtime/session.ts"
+import { resolveCommentsIdentity, resolveCommentsPage } from "../src/runtime/session.ts"
 
 import type { CommentsRequestEvent } from "../src/types.ts"
 
@@ -31,5 +32,26 @@ describe("the user of a Comments request", () => {
     installViteHubSiteVisitor(async () => ada)
     const comments = defineComments({})
     expect((await resolveCommentsIdentity(comments, request())).user).toEqual({ id: "console-ada", name: "Ada", role: "console,comments-write" })
+  })
+})
+
+describe("the page of a Comments request", () => {
+  it("gives `page` the page origin in a relative request that the server sends to itself", async () => {
+    const urls: string[] = []
+    const comments = defineComments({ page: ({ url }) => {
+      urls.push(url.href)
+      return undefined
+    } })
+    const nitroApp = { fetch: async (_request: Request) => {
+      const inProcess = new Request("http://localhost/_vitehub/comments/session")
+      installRequestStandardContext(inProcess)
+      // SAFETY: The installer adds the Standard Context required by CommentsRequestEvent.
+      const event = inProcess as Request & CommentsRequestEvent
+      await resolveCommentsPage(comments, event, event, "/pricing")
+      return new Response()
+    } }
+    clientRequestPlugin(nitroApp)
+    await nitroApp.fetch(new Request("https://docs.example.com/guide"))
+    expect(urls).toEqual(["https://docs.example.com/pricing"])
   })
 })
