@@ -143,7 +143,7 @@ function vercel() {
     writeFileSync(file, JSON.stringify({ claimUrl: "https://vercel.com/claim/xyz", expiresAt: Date.UTC(2026, 10, 7), projectId: "prj_temp", token: "anonymous-token" }))
   }
   process.stderr.write("Deploying\n")
-  process.stdout.write(JSON.stringify({ status: "ok", deployment: { id: `dpl_${state.deploys}`, url: "https://my-app-abc.vercel.app", productionUrl: "https://my-app.vercel.app" } }, null, 2))
+  process.stdout.write(JSON.stringify({ status: "ok", deployment: { id: `dpl_${state.deploys}`, url: "https://my-app-abc.vercel.app", productionUrl: process.env.FAKE_VERCEL_NO_ALIAS ? null : "https://my-app.vercel.app" } }, null, 2))
 }
 
 function netlify() {

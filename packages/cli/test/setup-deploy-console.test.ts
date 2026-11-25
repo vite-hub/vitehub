@@ -1,3 +1,6 @@
+import { writeFile } from "node:fs/promises"
+import { join } from "node:path"
+
 import { describe, expect, it } from "vitest"
 
 import { consoleEnv, consoleToken, consoleUrl, fakeConsole } from "./fake-console.ts"
@@ -7,15 +10,16 @@ import { runSetup } from "./setup-helpers.ts"
 import type { SetupDeployOutput, SetupError } from "../src/setup/index.ts"
 
 type DeployJson = SetupDeployOutput & { error?: SetupError }
-type Host = "cloudflare" | "vercel"
+type Host = "cloudflare" | "vercel" | "deno"
 
 const keyName = "VITEHUB_CONSOLE_KEY_CONSOLE_A1B2C3D4"
 const consoleKey = { names: [], prefix: "VITEHUB_CONSOLE_KEY_", required: true, secret: false, hasDefault: false, owners: ["console"] }
 const hostEnv: Record<Host, NodeJS.ProcessEnv> = {
   cloudflare: { CLOUDFLARE_ACCOUNT_ID: "acc-1", CLOUDFLARE_API_TOKEN: "cf-token-1" },
   vercel: { VERCEL_TEAM_ID: "team_1", VERCEL_TOKEN: "vercel-token-1" },
+  deno: { DENO_DEPLOY_ORG: "my-org", DENO_DEPLOY_TOKEN: "deno-token-1" },
 }
-const outputDirs: Record<Host, string> = { cloudflare: ".output", vercel: ".vercel/output" }
+const outputDirs: Record<Host, string> = { cloudflare: ".output", vercel: ".vercel/output", deno: ".output" }
 const vercelLink = { account: { id: "team_1" }, project: { id: "prj_1", name: "my-app" }, verified: true, linkedAt: "" }
 
 async function project(host: Host, options: { linked?: boolean } = {}): Promise<string> {
@@ -39,6 +43,7 @@ describe("vitehub deploy links the app in the Console", () => {
 
     const first = await deploy([], root, env, console.fetch)
     expect(first.exitCode, first.stderr).toBe(0)
+    expect(first.json).not.toHaveProperty("version")
     expect(first.json.console).toEqual({ app: "a1b2c3d4-0", console: consoleUrl, created: true, keySet: keyName, linked: true, url: `${consoleUrl}/open?project=${encodeURIComponent("https://my-app.example.workers.dev")}` })
     expect((await hosts.calls()).map(call => call.argv.slice(0, 3))).toEqual([["deploy", "--config", "./server/wrangler.json"], ["secret", "put", keyName]])
     expect((await hosts.state()).secrets).toEqual({ [keyName]: "pk" })
@@ -54,6 +59,21 @@ describe("vitehub deploy links the app in the Console", () => {
     expect((await hosts.calls()).at(-1)?.secretsFile?.values).toEqual({ [keyName]: "pk" })
     expect(console.apps).toHaveLength(1)
     expect(console.requests.filter(request => request.method === "POST" && request.path === "/api/projects")).toHaveLength(1)
+
+    await writeFile(join(root, ".output/server/wrangler.json"), JSON.stringify({ name: "my-app", routes: [{ pattern: "app.example.com", custom_domain: true }] }))
+    const requests = console.requests.length
+    const moved = await deploy([], root, env, console.fetch)
+    expect(moved.exitCode, moved.stderr).toBe(0)
+    expect(moved.json.console).toBeUndefined()
+    expect(moved.stderr).toContain("not https://app.example.com")
+    expect(console.requests.slice(requests).map(request => request.method)).toEqual(["GET"])
+
+    const down: typeof fetch = async () => Response.json({ code: "CONSOLE_DOWN", message: "Down." }, { status: 503 })
+    const blocked = await deploy([], root, env, down)
+    expect(blocked.json.error).toMatchObject({ code: "SETUP_DEPLOY_ENV_STAGE_UNSAFE", fix: expect.stringContaining("copy the public value of the existing link") })
+    const fallback = await deploy([], root, { ...env, [keyName]: "pk" }, down)
+    expect(fallback.exitCode, fallback.stderr).toBe(0)
+    expect((await hosts.calls()).at(-1)?.secretsFile?.values).toEqual({ [keyName]: "pk" })
   })
 
   it("on Vercel sets the key and deploys again so the app reads it", async () => {
@@ -62,12 +82,46 @@ describe("vitehub deploy links the app in the Console", () => {
     const console = fakeConsole({ appKnowsKey: true })
 
     const deployed = await deploy([], root, { ...hosts.env, ...consoleEnv(root) }, console.fetch)
-    expect(deployed.exitCode, deployed.stderr).toBe(0)
+    expect(deployed.exitCode, deployed.stdout + deployed.stderr).toBe(0)
+    expect(deployed.json.deploymentId).toBe("dpl_2")
     expect(deployed.json.console).toMatchObject({ created: true, keySet: keyName, linked: true, url: `${consoleUrl}/open?project=${encodeURIComponent("https://my-app.vercel.app")}` })
     expect(deployed.stderr).toContain(`Deploying again, so vercel reads ${keyName}.`)
     const state = await hosts.state() as { deploys: number, vercel?: Record<string, Record<string, string>> }
     expect(state.deploys).toBe(2)
     expect(state.vercel?.production).toEqual({ [keyName]: "pk" })
+  })
+
+  it("does not link an immutable Vercel URL without a production alias", async () => {
+    const root = await project("vercel", { linked: true })
+    const hosts = await fakeHosts({ ...hostEnv.vercel, FAKE_VERCEL_NO_ALIAS: "1" })
+    const console = fakeConsole()
+    const deployed = await deploy([], root, { ...hosts.env, ...consoleEnv(root) }, console.fetch)
+    expect(deployed.exitCode, deployed.stderr).toBe(0)
+    expect(deployed.json.console).toBeUndefined()
+    expect(console.requests.map(request => request.method)).toEqual(["GET"])
+  })
+
+  it("installs the public key on Deno and deploys again", async () => {
+    const root = await project("deno")
+    const hosts = await fakeHosts(hostEnv.deno)
+    const console = fakeConsole({ appKnowsKey: true })
+    const deployed = await deploy([], root, { ...hosts.env, ...consoleEnv(root) }, console.fetch)
+    expect(deployed.exitCode, deployed.stderr).toBe(0)
+    expect(deployed.json.console).toMatchObject({ created: true, keySet: keyName, linked: true })
+    expect((await hosts.state()).deploys).toBe(2)
+    expect((await hosts.calls()).find(call => call.argv.includes("--non-secrets"))?.argv).toContain(keyName)
+  })
+
+  it("also writes explicit public keys with --push-env", async () => {
+    const root = await project("vercel", { linked: true })
+    const hosts = await fakeHosts(hostEnv.vercel)
+    const console = fakeConsole({ appKnowsKey: true })
+    const env = { ...hosts.env, ...consoleEnv(root) }
+    const first = await deploy([], root, { ...env, VITEHUB_CONSOLE_KEY_CI: "first" }, console.fetch)
+    expect(first.json.env.pushed).toContain("VITEHUB_CONSOLE_KEY_CI")
+    const second = await deploy(["--push-env"], root, { ...env, VITEHUB_CONSOLE_KEY_CI: "updated" }, console.fetch)
+    expect(second.json.env.pushed).toEqual(["VITEHUB_CONSOLE_KEY_CI"])
+    expect((await hosts.calls()).filter(call => call.argv.includes("VITEHUB_CONSOLE_KEY_CI")).map(call => call.stdin)).toEqual(["first", "updated"])
   })
 
   it("without a login or with --no-console needs the key like any other name, and says how to get it", async () => {

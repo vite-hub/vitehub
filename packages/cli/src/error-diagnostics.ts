@@ -249,7 +249,7 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     SETUP_DEPLOY_ENV_STAGE_UNSAFE: {
       why: ({ names, stage }: { names?: unknown, stage?: unknown }) => `These existing Cloudflare secrets have no local value for stage ${String(stage)}: ${String(names)}. The latest uploaded version may belong to another stage, so inheriting its values is unsafe. Nothing was deployed.`,
-      fix: ({ stage }: { names?: unknown, stage?: unknown }) => `Set every listed name in the shell or an untracked .env.${String(stage)} file and deploy again. Cloudflare deploys re-supply all existing secrets with the version to preserve stage isolation.`,
+      fix: ({ console, stage }: { console?: unknown, names?: unknown, stage?: unknown }) => `Set every listed name in the shell or an untracked .env.${String(stage)} file and deploy again. Cloudflare deploys re-supply all existing secrets with the version to preserve stage isolation.${console ? " For a Console key, copy the public value of the existing link, or restore the Console connection with `vitehub login`." : ""}`,
     },
     SETUP_DEPLOY_FAILED: {
       fix: "Read the host output above, fix the cause, and run the command again.",
