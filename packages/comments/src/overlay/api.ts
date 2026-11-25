@@ -29,6 +29,8 @@ export interface CommentsSession {
   content: boolean
   /** Send is on, and this person may hand the waiting comments to their agent. */
   send?: true
+  /** The person is a member of the Console team: **Copy prompt** gives their agent the ViteHub MCP at `mcp`. */
+  agent?: { mcp: string }
   /** The subject of the page, which `page` of `defineComments()` decides on the server. */
   subject?: CommentSubject
   /** The version of the subject that new threads start on. */

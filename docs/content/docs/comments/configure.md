@@ -867,6 +867,16 @@ The Comments section of the [Console](/docs/console) lists the 500 threads with 
 
 Connect the Agent to the [ViteHub MCP](/docs/console/mcp) of the Console. It runs the Comments operations of your app, such as `comments.threads` and `comments.reply`: it lists open threads, reads their page context and source files, and changes the code. Then it resolves every thread that it handled with one `comments.resolve` call, each with a reply that says what changed, such as the commit or a link, so the threads leave the page. It acts as you, and `authorize` applies to each call. The `page` filter takes a path such as `/pricing` or a full URL of the page. When `authorize` hides threads, the list says how many and why, and `hidden` counts them.
 
+A member of your Console team who opens the app through Site access sees **Copy prompt** in the comment pill while the page has open threads. It copies three lines for the Agent: the page URL, the ViteHub MCP address with the tools to call, and the resolve step. It needs no setup, and guests of Site access do not see it, since the ViteHub MCP does not know them. Build the same text yourself with `commentsAgentPrompt({ url, count, mcp })` from `vite-hub/comments/client`.
+
+```txt [Prompt]
+Fix the 2 open ViteHub comments on https://app.example.com/pricing
+Read them with the ViteHub MCP (https://console.vitehub.dev/mcp/account): list_apps finds the app https://app.example.com, then read_operation comments.threads with page "/pricing".
+After each fix, resolve the thread with run_operation comments.resolve and a reply that says what changed.
+```
+
+To hand the comments over without a paste, turn on [Send](/docs/comments/send): it posts them to your Agent's thread through a signed webhook.
+
 Your own MCP server can register the same tools. `commentsMcpTools(comments)` from `vite-hub/comments/runtime` returns them, each with a JSON Schema and a `call(input, { user })` function. Pass the answer of a call to `mcpToolResult()` from the same import to get the MCP result. `comments_get_thread` sends the images attached to the thread as `image` blocks, so the Agent sees the screenshots, up to 4 MB in one answer.
 
 ::warning

@@ -9,6 +9,7 @@ import { computed, createApp, defineComponent, h, nextTick, onBeforeUnmount, onM
 import { createAnchor, fieldAttribute, fieldElementOf, selectorOf } from "../anchor.ts"
 import { anchorRange, createCommentsClient } from "../client.ts"
 import { base64 } from "../client-files.ts"
+import { commentsAgentPrompt } from "../agent-prompt.ts"
 import { createCommentSend } from "../client-send.ts"
 import { commentRoom, commentsApiRoute, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "../page.ts"
 import { api, createOverlaySendTransport, createOverlayTransport, readGuest, saveGuest } from "./api.ts"
@@ -225,6 +226,7 @@ function saveVisibility(value: CommentVisibility) {
   catch {}
 }
 
+const copyIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, [h("rect", { width: 14, height: 14, x: 8, y: 8, rx: 2, ry: 2 }), h("path", { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" })])
 const listIcon = () => h("svg", { width: 15, height: 15, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" }))
 
 /**
@@ -410,6 +412,11 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const path = page.value
     return session?.send ? createCommentSend(createOverlaySendTransport(() => path)) : undefined
   })
+  async function copyPrompt(mcp: string) {
+    const prompt = commentsAgentPrompt({ url: new URL(page.value, location.origin).href, count: state.counts.value.open, mcp })
+    const copied = await navigator.clipboard?.writeText(prompt).then(() => true, () => false)
+    showToast(copied ? { text: "Prompt copied. Paste it in your agent.", kind: "info" } : { text: "Could not copy the prompt. Allow clipboard access and try again.", kind: "error" })
+  }
   const upload = async (files: File[]) => await Promise.all(files.map(async file =>
     (await transport.upload({ name: file.name, type: file.type, data: await base64(file), subject: subject.value })).key))
 
@@ -942,6 +949,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const commenting = commentOn.value
     const badge = (shown: boolean) => shown && open > 0 ? h(OpenCount, { value: open }) : null
     const togglePanel = () => (panelOpen.value ? pageWindow?.hide() : showPanel())
+    const agent = session?.agent
     return h("div", { class: "toolbar", role: "group", "aria-label": "Comments" }, [
       canComment.value
         ? h("button", {
@@ -971,6 +979,15 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
           }, visibility.value === "hidden" ? eyeOffIcon() : eyeIcon())
         : null,
       send.value && canComment.value ? h(CommentSend, { client: send.value, key: `send:${page.value}` }) : null,
+      agent && open > 0 && !commenting
+        ? h("button", {
+            "aria-label": `Copy a prompt for your agent: ${open} open ${open === 1 ? "comment" : "comments"}`,
+            "data-action": "copy-prompt",
+            onClick: () => void copyPrompt(agent.mcp),
+            title: "Copy a prompt that sends your agent to these comments through the ViteHub MCP",
+            type: "button",
+          }, [copyIcon(), "Copy prompt"])
+        : null,
       commenting
         ? h("div", { class: "actions", role: "group", "aria-label": "Comment actions" }, [
             h("span", { class: "divider", "aria-hidden": "true" }),
