@@ -2637,6 +2637,9 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
+      magic-string:
+        specifier: ^1.4.5
+        version: 1.4.5
       nostics:
         specifier: catalog:runtime
         version: 1.4.0

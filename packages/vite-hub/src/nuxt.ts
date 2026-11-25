@@ -29,7 +29,7 @@ import { isPlainObject as isRecord } from "@vite-hub/internal/object"
 import { nuxtPageRoutes } from "@vite-hub/bundle/vite"
 import { createEnvImportAliases } from "@vite-hub/env/vite"
 import { mergeGeneratedSourceNitroConfig, type GeneratedSourceHandler } from "@vite-hub/source/vite"
-import { mergeConfig } from "vite"
+import { createLogger, mergeConfig } from "vite"
 
 import { isIncludedNitroPlugin } from "@vite-hub/internal/build/included-nitro-registry"
 import { applyCloudflareNodeCompatOptOut, resolveSandboxTaskDriver, viteHubPlugins, type ViteHubOptions } from "./plugins.ts"
@@ -350,6 +350,7 @@ const nitroRuntimeResolverNames = new Set([
 ])
 
 const nitroServerTransformNames = new Set([
+  "@vite-hub/env/vite",
   "@vite-hub/i18n/vite",
   "@vite-hub/schedule/vite",
   "@vite-hub/source/vite",
@@ -385,14 +386,15 @@ function asReplayResolvedConfig(config: UserConfig): ResolvedConfig {
     config.resolve.alias = Object.entries(config.resolve.alias).map(([find, replacement]) => ({ find, replacement }))
   }
   // SAFETY: Nitro replay has applied every Vite config hook and normalized the fields used by ViteHub runtime owners.
+  if (!("logger" in config)) Object.assign(config, { logger: createLogger("silent") })
   return config as unknown as ResolvedConfig
 }
 
-async function finalizeNitroReplayPlugins(plugins: Plugin[], config: UserConfig): Promise<void> {
+async function finalizeNitroReplayPlugins(plugins: Plugin[], config: UserConfig, nitroOnly: boolean): Promise<void> {
   // Nuxt can reuse its Vite build cache and only build Nitro. Resolve the Database owner first so consumers such as
   // KV can read its Definitions, layers, and contributions without waiting for Vite's configResolved or buildStart.
   const databaseOwners = plugins.filter(plugin => plugin.name === "@vite-hub/database/vite")
-  const consumers = plugins.filter(plugin => nitroConfigResolvedNames.has(plugin.name))
+  const consumers = plugins.filter(plugin => nitroConfigResolvedNames.has(plugin.name) || (nitroOnly && plugin.name === "@vite-hub/env/vite"))
   for (const plugin of [...databaseOwners, ...consumers]) {
     const configResolved = pluginConfigResolvedHandler(plugin)
     if (!configResolved) continue
@@ -934,7 +936,7 @@ async function applyNitroConfig(
     }
   }
 
-  await finalizeNitroReplayPlugins(plugins, config)
+  await finalizeNitroReplayPlugins(plugins, config, !nuxt.options.experimental?.nitroViteEnvironment)
 
   if (!nuxt.options.dev && !nuxt.options._prepare) {
     const rateLimit = plugins.find(plugin => plugin.name === "@vite-hub/rate-limit/vite")
