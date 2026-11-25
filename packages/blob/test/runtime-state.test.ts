@@ -27,6 +27,16 @@ describe("served Blob URLs", () => {
   })
 })
 
+describe("Blob runtime config", () => {
+  it("gives the installed config to a second copy of the package, as Node loads one in dev", async () => {
+    const config = { store: { driver: "fs" as const, base: ".vitehub/blob/default" } }
+    setBlobRuntimeConfig(config)
+    vi.resetModules()
+    const copy = await import("../src/runtime/state.ts")
+    await expect(copy.getBlobRuntimeConfig()).resolves.toEqual(config)
+  })
+})
+
 describe("Blob runtime storage lifetime", () => {
   it("keeps late initialization in its original configuration lifetime", async () => {
     setBlobRuntimeConfig(false)

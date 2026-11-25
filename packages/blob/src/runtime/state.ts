@@ -25,6 +25,13 @@ let runtimeConfigPromise: Promise<false | ResolvedBlobModuleOptions> | undefined
 let runtimeStorages = new Map<string, BlobStorage>()
 let pendingStorages = new Map<string, Promise<BlobStorage>>()
 
+const installedConfigKey = Symbol.for("vitehub.blob.installed-config")
+
+function configInstalledInAnyCopy(): false | ResolvedBlobModuleOptions | undefined {
+  const config: unknown = Reflect.get(globalThis, installedConfigKey)
+  return config === false || config instanceof Object ? config as false | ResolvedBlobModuleOptions : undefined
+}
+
 export {
   clearActiveCloudflareEnv,
   getActiveCloudflareBinding,
@@ -65,6 +72,8 @@ export async function getBlobRuntimeConfig(): Promise<false | ResolvedBlobModule
       return module.blob
     }
     catch {
+      const installed = configInstalledInAnyCopy()
+      if (installed !== undefined) return installed
       const env = typeof process !== "undefined" ? process.env : {}
       const hosting = getActiveCloudflareEnv()
         ? "cloudflare"
@@ -97,6 +106,7 @@ export function setBlobRuntimeConfig(config: false | ResolvedBlobModuleOptions |
   runtimeConfig = config
   runtimeConfigSnapshot = snapshot
   runtimeConfigPromise = undefined
+  Reflect.set(globalThis, installedConfigKey, config)
   setServedBlobRoute(config ? config.serve : undefined)
   runtimeStorages = new Map()
   pendingStorages = new Map()
