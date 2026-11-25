@@ -234,7 +234,7 @@ function rewriteBlock(context: FileContext): boolean {
     else if (node.type === "ImportExpression") source = node.source
     else if (node.type === "CallExpression" && node.callee.type === "Import") source = node.arguments[0]
     else if (node.type === "CallExpression" && node.callee.type === "MemberExpression" && node.callee.property.type === "Identifier" && moduleCalls.has(node.callee.property.name)) source = node.arguments[0]
-    else if (node.type === "TSImportType") source = node.argument
+    else if (node.type === "TSImportType") source = node.source
     if (source?.type !== "StringLiteral" || context.rewritten.has(source)) return
     const to = movedTo(source.value, context.file)
     if (!to) return

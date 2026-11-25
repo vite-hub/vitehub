@@ -382,7 +382,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     })
   }
 
-  const packageResult = await editPackageJson(cwd, packageJson.version, { remove: [moduleName], add: ["vite-hub", "@vite-hub/auth"], within: { "better-auth": betterAuthRange } })
+  const packageResult = await editPackageJson(cwd, packageJson.version, { remove: [moduleName], add: ["vite-hub"], features: ["auth"], within: { "better-auth": betterAuthRange } })
   if (packageResult.edit) edits.push(packageResult.edit)
   notes.push(
     "ViteHub Auth mounts Better Auth at /api/auth, as the module did, and uses the same session cookie, so signed-in users stay signed in when the secret stays the same.",
@@ -393,10 +393,11 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   return {
     summary: `moved ${servers} Auth config${servers === 1 ? "" : "s"} to server/auth.ts and ${pageRules.length} auth route rule${pageRules.length === 1 ? "" : "s"} to page meta${host ? `, host "${host}"` : ""}.`,
     edits,
+    requiresNitro3: true,
     followUps,
     notes,
     nextSteps: [
-      `Run \`${packageResult.installCommand}\` to install vite-hub and @vite-hub/auth and remove ${moduleName}.`,
+      `Run \`${packageResult.installCommand}\` to install ${packageResult.installs} and remove ${moduleName}.`,
       "Run `npx nuxi prepare`, then type-check the app.",
       "Sign up, sign in, and open a guarded page to check the migration.",
     ],

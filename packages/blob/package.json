@@ -159,7 +159,7 @@
     "@types/node": "catalog:tooling",
     "@vercel/blob": "catalog:storage",
     "@vite-hub/internal": "workspace:*",
-    "@vite-hub/netlify-blobs-runtime": "npm:@netlify/blobs@11.1.4",
+    "@vite-hub/netlify-blobs-runtime": "npm:@netlify/blobs@11.1.9",
     "esbuild": "catalog:tooling",
     "files-sdk": "catalog:storage",
     "nitro": "catalog:unjs",

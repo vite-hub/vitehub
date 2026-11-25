@@ -427,7 +427,7 @@ export const noNuxtHubLeftovers: DoctorRule = createRule({
         const entry = modules.find(module => module.name === dependent.name)
         ctx.report(diagnostics.VHUB0032({
           why: `\`${dependent.name}\` lists \`@nuxthub/core\` in its ${dependent.field}, so the package manager installs NuxtHub for it, and the module can start NuxtHub next to ViteHub. ViteHub does not emulate NuxtHub's module APIs.`,
-          fix: `Remove \`${dependent.name}\` from \`package.json\` and \`modules\`, or replace it. See https://vitehub.dev/docs/getting-started/migrate-from-nuxthub#modules-that-expect-nuxthub.`,
+          fix: `Remove \`${dependent.name}\` from \`package.json\` and \`modules\`, or replace it. See https://vitehub.dev/docs/compare/nuxthub#modules-that-expect-nuxthub.`,
         }), { range: ctx.range(entry?.node ?? objectProperty(config, "modules") ?? config) })
       }
     }

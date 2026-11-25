@@ -18,5 +18,5 @@ Notes:
   - In vite dev, email.send() stores messages in the development outbox instead of sending them. Set vitehub.email.remote to true to send real email in dev.
 
 Next steps:
-  - Run `pnpm install` to install vite-hub and remove nuxt-resend.
+  - Run `pnpm install` to install vite-hub and @vite-hub/email and remove nuxt-resend.
   - Run `npx nuxi prepare`, then type-check the app.

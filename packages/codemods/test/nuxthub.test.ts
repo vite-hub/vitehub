@@ -6,7 +6,7 @@ import { subset } from "semver"
 import { glob } from "tinyglobby"
 import { afterAll, describe, expect, it } from "vitest"
 
-import { formatReport, runCodemod, runMigration } from "../src/index.ts"
+import { formatMigrationReport, formatReport, runCodemod, runMigration } from "../src/index.ts"
 import { codemodsRange, withVersionPlaceholder } from "./fixture-version.ts"
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url))
@@ -81,7 +81,7 @@ describe("nuxthub", () => {
       const selected = manifest.dependencies[name]
       // Every version the app can install is one that Database accepts, snapshot builds such as 1.0.0-rc.5-ab785fc too.
       expect(subset(selected, databasePackage.peerDependencies[name], { includePrerelease: true })).toBe(true)
-      expect(selected).toBe(version === "1.0.0-rc.5" || version === "^1.0.0" ? version : "1.0.0-rc.5 || ^1.0.0")
+      expect(selected).toBe(version === "1.0.0-rc.5" || version === "^1.0.0" ? version : "1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0")
     }
   })
 
@@ -113,7 +113,7 @@ describe("nuxthub", () => {
       ["package.json", 5, "uses-hub needs @nuxthub/core (dependency"],
     ])
     expect(followUps.find(followUp => followUp.file === "modules/history.ts")?.message).toContain("vitehub.dev/docs/database/configure#contribute-tables-from-a-nuxt-module")
-    expect(followUps.at(-1)?.message).toContain("vitehub.dev/docs/getting-started/migrate-from-nuxthub#modules-that-expect-nuxthub")
+    expect(followUps.at(-1)?.message).toContain("vitehub.dev/docs/compare/nuxthub#modules-that-expect-nuxthub")
   })
 
   it("reports legacy Drizzle relations at the moved schema", async () => {
@@ -252,10 +252,23 @@ describe("nuxthub", () => {
     `)
   })
 
+  it("adds nitro on Nuxt 4.7 and does not say that Nuxt turns server auto-imports off", async () => {
+    const directory = await app("nuxt-4-7", {
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['@nuxthub/core'], hub: { kv: true } })\n",
+      "package.json": JSON.stringify({ dependencies: { "@nuxthub/core": "^0.10.0", "nuxt": "^4.7.0" } }, null, 2),
+    })
+    const migration = await runMigration({ cwd: directory, dryRun: true })
+    const manifest = JSON.parse(migration.edits.find(edit => edit.path === "package.json")?.after ?? "{}")
+    expect(manifest.dependencies).toMatchObject({ nitro: "^3.0.261103-rc", nuxt: "^4.7.0" })
+    const report = formatMigrationReport(migration)
+    expect(report).toContain("The codemod imports them from vite-hub/* in each server file, so the files keep working on Nuxt 5")
+    expect(report).not.toContain("Nuxt 5 turns server auto-imports off, so")
+  })
+
   it("reports overrides that give every package h3 1", async () => {
     const directory = await app("overrides", {
       "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['@nuxthub/core'], hub: { kv: true } })\n",
-      "package.json": JSON.stringify({ dependencies: { "@nuxthub/core": "^0.10.0", "nuxt": "^4.0.0" }, pnpm: { overrides: { h3: "^1.15.0" } }, resolutions: { "nuxt-csurf>h3": "1.15.11" } }, null, 2),
+      "package.json": JSON.stringify({ dependencies: { "@nuxthub/core": "^0.10.0", "nuxt": "npm:nuxt-nightly@5x" }, pnpm: { overrides: { h3: "^1.15.0" } }, resolutions: { "nuxt-csurf>h3": "1.15.11" } }, null, 2),
       "pnpm-workspace.yaml": "overrides:\n  'nuxt-csurf>h3': 1.15.11\n  h3: '1.15.11' # csurf\n",
     })
     const run = await runCodemod("nuxthub", { cwd: directory, dryRun: true })
@@ -345,7 +358,7 @@ describe("nuxthub", () => {
     expect(after("server/databases/default/schema/index.ts")).toBe("export * from './users'\n")
     expect(after("server/databases/default/index.ts")).toContain("dialect: 'postgresql'")
     expect(after("server/utils/db.ts")).toBe("import { users } from '~~/server/databases/default/schema'\nimport type { User } from '../databases/default/schema/users'\n\nexport { users }\n")
-    expect(JSON.parse(after("package.json") ?? "{}")).toEqual({ dependencies: { "@vite-hub/database": codemodsRange, "@vite-hub/kv": codemodsRange, "drizzle-kit": "1.0.0-rc.5 || ^1.0.0", "drizzle-orm": "1.0.0-rc.5 || ^1.0.0", "vite-hub": codemodsRange } })
+    expect(JSON.parse(after("package.json") ?? "{}")).toEqual({ dependencies: { "@vite-hub/database": codemodsRange, "@vite-hub/kv": codemodsRange, "drizzle-kit": "1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0", "drizzle-orm": "1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0", "vite-hub": codemodsRange } })
     expect(run.result.followUps.filter(followUp => followUp.file === "nuxt.config.ts").map(followUp => followUp.message)).toMatchInlineSnapshot(`
       [
         "hub.db also set driver: 'postgres-js'. ViteHub reads the connection, the Cloudflare binding, and the Drizzle options from server/databases/default/index.ts. Move them there by hand. See https://vitehub.dev/docs/database/configure.",

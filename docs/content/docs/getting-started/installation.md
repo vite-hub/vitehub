@@ -11,9 +11,11 @@ Set up an app with ViteHub and check that it answers a request. Every later tuto
 
 ## Prerequisites
 
-- Node.js 24.15 or newer. Nuxt 5 does not install on Node.js 25, so for Nuxt use 24.15 or newer on 24.x, or 26 or newer.
+- Node.js 24.15 or newer. Nuxt 4.7 and Nuxt 5 do not install on Node.js 25, so for Nuxt use 24.15 or newer on 24.x, or 26 or newer.
 - pnpm. The examples use pnpm. Use pnpm 11.5 or newer for the Nuxt 5 nightly alias. Older versions can hang when they resolve it.
-- For Nuxt: a Nuxt 5 app on Nitro 3. Nuxt 5 is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x vue`.
+- For Nuxt: a Nuxt app on Nitro 3. Use one of these:
+  - Nuxt 4.7 or a newer 4.x release, with the `nitro` package: `pnpm add nuxt@^4.7.0 nitro vue`. Nuxt 4.7 uses Nitro 3 only when the app lists `nitro`.
+  - Nuxt 5. It is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x vue`.
 - For Nitro: a Nitro 3 app with `nitro()` in `vite.config.ts`.
 
 ## Set up the app
@@ -22,7 +24,15 @@ Pick your framework. The docs remember it and show its code on every page. Nitro
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
-In your Nuxt 5 app, install ViteHub, H3, and Valibot for request validation. The tutorials import H3 helpers explicitly.
+In your Nuxt 4.7 or Nuxt 5 app, install ViteHub, H3, and Valibot for request validation. The tutorials import H3 helpers explicitly.
+
+For Nuxt 4.7, use ViteHub 0.5.1 or newer. ViteHub 0.5.0 stops on Nuxt 4.7.
+
+```bash pm [commands/install-nuxt-47]
+pnpm add vite-hub@^0.5.1 h3@^2.0.8 valibot
+```
+
+For Nuxt 5, install ViteHub from npm without a minimum version:
 
 ```bash pm [commands/install-nuxt]
 pnpm add vite-hub h3@^2.0.8 valibot
@@ -38,6 +48,8 @@ export default defineNuxtConfig({
 ```
 
 ViteHub detects the host when the build runs on Cloudflare Workers Builds, Vercel, Netlify, or Deno Deploy. Elsewhere, such as on your computer, it builds for Node. See [Choose a host](/docs/frameworks-hosts#choose-a-host).
+
+On Nuxt 4.7, keep `nitro` in `dependencies`. Without it, Nuxt 4.7 does not run Nitro 3, and the module stops with [`VITE_HUB_B0023`](/docs/development/diagnostics/vite_hub_b0023). An older Nuxt version stops with the same error.
 
 Keep Nuxt's `tsconfig.json` so the module can add ViteHub's types. See the [Nuxt guide](/docs/frameworks-hosts/nuxt) for more options.
 :::
@@ -193,7 +205,7 @@ If an installed `@vite-hub/*` package version does not match `vite-hub`, the bui
 If `drizzle-orm` is outside the range of `vite-hub`, such as Drizzle 0.x, the Database feature and builds that load the Drizzle query adapter for Agent Invocations stop with [`VITE_HUB_PEER_VERSION_UNSUPPORTED`](/docs/development/diagnostics/vite_hub_peer_version_unsupported). Agent builds that do not load the adapter can keep an unrelated Drizzle version. pnpm can keep a version that the lockfile or another dependency already has, such as the 0.44 that `@nuxt/ui` brings in, and only warn. If the build needs Drizzle, add a supported version to your app:
 
 ```text [output/unsupported-drizzle.txt]
-[VITE_HUB_PEER_VERSION_UNSUPPORTED] drizzle-orm 0.44.7 is installed, but vite-hub 0.3.1 supports drizzle-orm@1.0.0-rc.5 || ^1.0.0. ViteHub imports modules that other versions do not have, so the build fails with a resolve error, such as `drizzle-orm/libsql/codecs` not exported.
+[VITE_HUB_PEER_VERSION_UNSUPPORTED] drizzle-orm 0.44.7 is installed, but vite-hub 0.3.1 supports drizzle-orm@1.0.0-rc.6 || 1.0.0-rc.6 || ^1.0.0. ViteHub imports modules that other versions do not have, so the build fails with a resolve error, such as `drizzle-orm/libsql/codecs` not exported.
 ```
 
 If another third-party dependency version falls outside the range supported by your `vite-hub` release, the build continues and prints a warning with the supported range and install command:

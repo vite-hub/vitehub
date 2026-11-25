@@ -1,8 +1,12 @@
+import { DatabaseSync } from "node:sqlite"
+
 import { memoryAdapter } from "better-auth/adapters/memory"
 import { createRequestLogger, initLogger } from "evlog"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { handleAuthRequest, resetAuth, withAuth } from "../src/internal/server.ts"
+import { createAuthForRequest, handleAuthRequest, resetAuth, withAuth } from "../src/internal/server.ts"
+import { mcpOAuth } from "../src/mcp.ts"
+import { setAuthResponseOutcome } from "../src/request-log.ts"
 import { defineFixedAuth } from "./fixed-auth.ts"
 import { requestEvent } from "./request-event.ts"
 
@@ -196,6 +200,45 @@ describe("Auth outcomes on the request's wide event", () => {
 
     expect(response).toBeInstanceOf(Response)
     expect(authFields(log)).toEqual([{ outcome: "refused", status: 401, code: "SIGNED_OUT" }])
+  })
+
+  it("sets the OAuth error of a refused token request as its code", async () => {
+    const database = new DatabaseSync(":memory:")
+    const definition = defineFixedAuth({
+      baseURL: origin,
+      database,
+      emailAndPassword: { enabled: true },
+      plugins: mcpOAuth({ loginPage: "/oauth", resource: `${origin}/mcp` }),
+      secret: "abcdefghijklmnopqrstuvwxyz0123456789",
+    })
+    await (await createAuthForRequest(definition, new Request(origin)).$context).runMigrations()
+    const registration = await handleAuthRequest(definition, post("/api/auth/oauth2/register", { redirect_uris: ["http://127.0.0.1:53682/callback"], token_endpoint_auth_method: "none" }))
+    const { client_id } = await registration.json() as { client_id: string }
+
+    const log = evlogLogger()
+    const response = await handleAuthRequest(definition, event("/api/auth/oauth2/token", {
+      body: new URLSearchParams({ client_id, code: "forged-code", code_verifier: "v".repeat(43), grant_type: "authorization_code", redirect_uri: "http://127.0.0.1:53682/callback" }),
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      method: "POST",
+    }, log))
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ error: "invalid_grant" })
+    expect(authFields(log)).toEqual([{ path: "/oauth2/token", outcome: "failure", status: 400, code: "invalid_grant" }])
+    expect(JSON.stringify(log.set.mock.calls)).not.toContain("forged-code")
+    database.close()
+  })
+
+  it("reads the OAuth error of a response body, and Better Auth's code before it", async () => {
+    for (const [body, code] of [
+      [{ error: "invalid_grant", error_description: "The code expired." }, "invalid_grant"],
+      [{ code: "INVALID_TOKEN", error: "invalid_token" }, "INVALID_TOKEN"],
+    ] as const) {
+      const log = evlogLogger()
+      const request = Object.assign(new Request(`${origin}/api/auth/oauth2/token`), { context: { log } })
+      await setAuthResponseOutcome(request, Response.json(body, { status: 400 }))
+      expect(authFields(log)).toEqual([{ outcome: "failure", status: 400, code }])
+    }
   })
 
   it("keeps the app's own Better Auth logger", async () => {

@@ -160,35 +160,36 @@
     "scule": "^1.3.0",
     "unrouting": "^0.3.2",
     "valibot": "catalog:runtime",
-    "vue-router": "^5.4.0"
+    "vue-router": "^5.5.1"
   },
   "devDependencies": {
     "@better-auth/api-key": "catalog:auth",
     "@better-auth/oauth-provider": "catalog:auth",
     "@better-auth/passkey": "catalog:auth",
     "@better-auth/stripe": "catalog:auth",
-    "@cloudflare/workers-types": "^5.20261016.1",
+    "@cloudflare/workers-types": "^5.20261123.1",
     "@types/json-schema": "catalog:ai",
     "@types/mdast": "catalog:markdown",
     "@types/node": "catalog:tooling",
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/internal": "workspace:*",
-    "bun-types": "^1.4.3",
-    "evlog": "2.33.1",
-    "happy-dom": "20.14.5",
+    "bun-types": "^1.4.5",
+    "evlog": "2.37.1",
+    "happy-dom": "21.0.4",
     "miniflare": "4.20260730.0",
     "nitro": "catalog:unjs",
     "publint": "catalog:tooling",
-    "stripe": "23.1.0",
+    "stripe": "23.2.0",
     "typescript": "catalog:tooling",
-    "undici": "8.12.2",
+    "undici": "8.13.1",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui",
     "drizzle-kit": "catalog:database",
-    "drizzle-orm": "catalog:database"
+    "drizzle-orm": "catalog:database",
+    "postgres": "catalog:database"
   },
   "peerDependencies": {
     "@better-auth/oauth-provider": "catalog:auth",
@@ -199,7 +200,7 @@
     "nitro": "catalog:nitro-compat",
     "vite": "catalog:vite-compat",
     "vue": "catalog:vue-compat",
-    "drizzle-orm": "1.0.0-rc.5 || ^1.0.0"
+    "drizzle-orm": "1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"
   },
   "peerDependenciesMeta": {
     "@better-auth/oauth-provider": {

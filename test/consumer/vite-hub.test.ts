@@ -50,6 +50,16 @@ const fixtureViteHubPackages = [
   "vite-hub",
 ]
 
+const consumerNuxt = process.env.VITEHUB_CONSUMER_NUXT === "4.7"
+  ? {
+      dependencies: { nitro: "3.0.261103-rc", nuxt: "4.7.0" },
+      overrides: { nitro: "3.0.261103-rc", rolldown: "1.2.19", vite: "8.3.8" },
+    }
+  : {
+      dependencies: { nitro: "3.0.261102-rc", nuxt: "npm:nuxt-nightly@5.0.0-2611031025-9496b7e" },
+      overrides: { nitro: "3.0.261102-rc", rolldown: "1.2.4", vite: "npm:@voidzero-dev/vite-plus-core@0.1.24" },
+    }
+
 interface PackageManifest {
   bin?: Record<string, string>
   dependencies?: Record<string, string>
@@ -390,8 +400,6 @@ function workspaceConfig(specs: Record<string, string>, additionalOverrides: Rec
     "  \"@napi-rs/wasm-runtime\": \"1.2.4\"",
     "  \"@emnapi/core\": \"1.9.2\"",
     "  \"@emnapi/runtime\": \"1.9.2\"",
-    "  \"@nestjs/common\": \"11.2.3\"",
-    "  \"@nestjs/core\": \"11.2.3\"",
     ...overrides,
     "",
   ].join("\n")
@@ -666,11 +674,11 @@ export default {
 
       await writeFile(join(appDir, "vite.config.ts"), config(""), "utf8")
       await writeFile(join(appDir, "server/comments.ts"), "export const comments = {}\n", "utf8")
-      await expect(run("pnpm", ["exec", "vite", "build"], appDir)).rejects.toThrow('pnpm add @vite-hub/comments @vite-hub/database "drizzle-orm@1.0.0-rc.5 || ^1.0.0"')
+      await expect(run("pnpm", ["exec", "vite", "build"], appDir)).rejects.toThrow('pnpm add @vite-hub/comments @vite-hub/database "drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"')
       await rm(join(appDir, "server/comments.ts"))
       await writeFile(join(appDir, "server/content.cts"), 'export { default } from "./definition"\n', "utf8")
       await writeFile(join(appDir, "server/definition.ts"), 'import { cms } from "vite-hub/cms"\nexport default { extends: cms }\n', "utf8")
-      await expect(run("pnpm", ["exec", "vite", "build"], appDir)).rejects.toThrow('pnpm add @vite-hub/content @vite-hub/cms @vite-hub/database "drizzle-orm@1.0.0-rc.5 || ^1.0.0" @vite-hub/workspace')
+      await expect(run("pnpm", ["exec", "vite", "build"], appDir)).rejects.toThrow('pnpm add @vite-hub/content @vite-hub/cms @vite-hub/database "drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0" @vite-hub/workspace')
     }
     finally {
       await rm(root, { recursive: true, force: true })
@@ -758,8 +766,7 @@ export default {
           dependencies: {
             "@vite-hub/markdown-template": specs["@vite-hub/markdown-template"],
             h3: "2.0.8",
-            nitro: "3.0.261102-rc",
-            nuxt: "npm:nuxt-nightly@5.0.0-2611031025-9496b7e",
+            ...consumerNuxt.dependencies,
             rolldown: "1.1.5",
             unplugin: "3.3.0",
             vite: "8.0.8",
@@ -774,10 +781,8 @@ export default {
         writeFile(join(appDir, "tsconfig.json"), '{"extends":"./.nuxt/tsconfig.json"}\n'),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
           "oxc-parser": "0.140.0",
-          nitro: "3.0.261102-rc",
+          ...consumerNuxt.overrides,
           "nitro>h3": "2.0.8",
-          rolldown: "1.2.4",
-          vite: "npm:@voidzero-dev/vite-plus-core@0.1.24",
         })),
       ])
       await installApp(appDir, "--no-strict-peer-dependencies")
@@ -834,8 +839,7 @@ export default {
           dependencies: {
             "@vite-hub/kv": specs["@vite-hub/kv"],
             h3: "2.0.8",
-            nitro: "3.0.261102-rc",
-            nuxt: "npm:nuxt-nightly@5.0.0-2611031025-9496b7e",
+            ...consumerNuxt.dependencies,
             rolldown: "1.1.5",
             unplugin: "3.3.0",
             vite: "8.0.8",
@@ -850,10 +854,8 @@ export default {
         writeFile(join(appDir, "tsconfig.json"), '{"extends":"./.nuxt/tsconfig.json"}\n'),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
           "oxc-parser": "0.140.0",
-          nitro: "3.0.261102-rc",
+          ...consumerNuxt.overrides,
           "nitro>h3": "2.0.8",
-          rolldown: "1.2.4",
-          vite: "npm:@voidzero-dev/vite-plus-core@0.1.24",
         })),
       ])
       await installApp(appDir, "--no-strict-peer-dependencies")
@@ -877,7 +879,7 @@ export default {
     }
   }, 600_000)
 
-  it("prints the durability table and checks the instance count in a packed Nuxt 5 Node server", async () => {
+  it("prints the durability table and checks the instance count in a packed Nuxt Node server", async () => {
     const root = await mkdtemp(join(tmpdir(), "vite-hub-nuxt-durability-consumer-"))
     const appDir = join(root, "app")
     const packDir = join(root, "packs")
@@ -902,8 +904,7 @@ export default {
           dependencies: {
             "@vite-hub/kv": specs["@vite-hub/kv"],
             h3: "2.0.8",
-            nitro: "3.0.261102-rc",
-            nuxt: "npm:nuxt-nightly@5.0.0-2611031025-9496b7e",
+            ...consumerNuxt.dependencies,
             rolldown: "1.1.5",
             unplugin: "3.3.0",
             vite: "8.0.8",
@@ -917,10 +918,8 @@ export default {
         }, null, 2)),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
           "oxc-parser": "0.140.0",
-          nitro: "3.0.261102-rc",
+          ...consumerNuxt.overrides,
           "nitro>h3": "2.0.8",
-          rolldown: "1.2.4",
-          vite: "npm:@voidzero-dev/vite-plus-core@0.1.24",
         })),
       ])
       await installApp(appDir, "--no-strict-peer-dependencies")
@@ -942,7 +941,7 @@ export default {
     }
   }, 600_000)
 
-  it("auto-imports typed Queue, KV, and Env server helpers in a packed Nuxt 5 app", async () => {
+  it("auto-imports typed Queue, KV, and Env server helpers in a packed Nuxt app", async () => {
     const root = await mkdtemp(join(tmpdir(), "vite-hub-nuxt-server-imports-consumer-"))
     const appDir = join(root, "app")
     const packDir = join(root, "packs")
@@ -1004,8 +1003,7 @@ export default {
             "@vite-hub/kv": specs["@vite-hub/kv"],
             "@vite-hub/queue": specs["@vite-hub/queue"],
             h3: "2.0.8",
-            nitro: "3.0.261102-rc",
-            nuxt: "npm:nuxt-nightly@5.0.0-2611031025-9496b7e",
+            ...consumerNuxt.dependencies,
             rolldown: "1.1.5",
             unplugin: "3.3.0",
             vite: "8.0.8",
@@ -1020,10 +1018,8 @@ export default {
         writeFile(join(appDir, "tsconfig.json"), '{"extends":"./.nuxt/tsconfig.json"}\n'),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
           "oxc-parser": "0.140.0",
-          nitro: "3.0.261102-rc",
+          ...consumerNuxt.overrides,
           "nitro>h3": "2.0.8",
-          rolldown: "1.2.4",
-          vite: "npm:@voidzero-dev/vite-plus-core@0.1.24",
         })),
       ])
       await installApp(appDir, "--no-strict-peer-dependencies")
@@ -1128,10 +1124,9 @@ export default {
             "@vite-hub/channels": specs["@vite-hub/channels"],
             "@vite-hub/database": specs["@vite-hub/database"],
             "@vite-hub/workflow": specs["@vite-hub/workflow"],
-            "drizzle-orm": "1.0.0-rc.5",
+            "drizzle-orm": "1.0.0-rc.6",
             h3: "2.0.8",
-            nitro: "3.0.261102-rc",
-            nuxt: "npm:nuxt-nightly@5.0.0-2611031025-9496b7e",
+            ...consumerNuxt.dependencies,
             rolldown: "1.1.5",
             unplugin: "3.3.0",
             vite: "8.0.8",
@@ -1154,10 +1149,8 @@ export default {
         writeFile(join(appDir, "tsconfig.json"), '{"extends":"./.nuxt/tsconfig.json"}\n', "utf8"),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
           "oxc-parser": "0.140.0",
-          nitro: "3.0.261102-rc",
+          ...consumerNuxt.overrides,
           "nitro>h3": "2.0.8",
-          rolldown: "1.2.4",
-          vite: "npm:@voidzero-dev/vite-plus-core@0.1.24",
         }), "utf8"),
       ])
 
@@ -1246,8 +1239,7 @@ export default {
           dependencies: {
             "@vite-hub/kv": specs["@vite-hub/kv"],
             h3: "2.0.8",
-            nitro: "3.0.261102-rc",
-            nuxt: "npm:nuxt-nightly@5.0.0-2611031025-9496b7e",
+            ...consumerNuxt.dependencies,
             rolldown: "1.1.5",
             unplugin: "3.3.0",
             vite: "8.0.8",
@@ -1260,10 +1252,8 @@ export default {
         }, null, 2), "utf8"),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
           "oxc-parser": "0.140.0",
-          nitro: "3.0.261102-rc",
+          ...consumerNuxt.overrides,
           "nitro>h3": "2.0.8",
-          rolldown: "1.2.4",
-          vite: "npm:@voidzero-dev/vite-plus-core@0.1.24",
         }), "utf8"),
       ])
       await installApp(appDir, "--no-strict-peer-dependencies")
@@ -1326,16 +1316,15 @@ export default {
         writeFile(join(appDir, "package.json"), JSON.stringify({
           dependencies: {
             "@vite-hub/database": specs["@vite-hub/database"],
-            "drizzle-orm": "1.0.0-rc.5",
+            "drizzle-orm": "1.0.0-rc.6",
             h3: "2.0.8",
-            nitro: "3.0.261102-rc",
-            nuxt: "npm:nuxt-nightly@5.0.0-2611031025-9496b7e",
+            ...consumerNuxt.dependencies,
             rolldown: "1.1.5",
             unplugin: "3.3.0",
             vite: "8.0.8",
             "vite-hub": specs["vite-hub"],
           },
-          devDependencies: { "drizzle-kit": "1.0.0-rc.5", "vite-plus": "0.1.24" },
+          devDependencies: { "drizzle-kit": "1.0.0-rc.6", "vite-plus": "0.1.24" },
           packageManager: "pnpm@10.33.0",
           private: true,
           scripts: { build: "nuxt build" },
@@ -1343,10 +1332,8 @@ export default {
         }, null, 2), "utf8"),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
           "oxc-parser": "0.140.0",
-          nitro: "3.0.261102-rc",
+          ...consumerNuxt.overrides,
           "nitro>h3": "2.0.8",
-          rolldown: "1.2.4",
-          vite: "npm:@voidzero-dev/vite-plus-core@0.1.24",
         }), "utf8"),
       ])
       await installApp(appDir, "--no-strict-peer-dependencies")

@@ -2,6 +2,7 @@ import packageJson from "../../package.json" with { type: "json" }
 import { detectNuxtModule } from "../shared/detect.ts"
 import { readNuxtConfig } from "../shared/nuxt-config.ts"
 import { nuxtServerLayout } from "../shared/nuxt-server-layout.ts"
+import { allowsNuxt5 } from "../shared/nuxt-version.ts"
 import { editPackageJson } from "../shared/package-json.ts"
 import { editConfig, moduleName, readDatabaseOptions, readHub } from "./config.ts"
 import { casingFollowUp, findLayerSchemas, moveSchema } from "./database.ts"
@@ -19,7 +20,7 @@ import type { SchemaMove } from "./database.ts"
  * The Drizzle ORM and Kit versions that `@vite-hub/database` accepts. Not `^1.0.0-rc.5`: Drizzle publishes snapshot
  * builds such as `1.0.0-rc.5-ab785fc`, which that range allows and which sort above the release.
  */
-const drizzleRange = "1.0.0-rc.5 || ^1.0.0"
+const drizzleRange = "1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"
 
 /** The command that runs a package binary, from the install command. */
 function runner(installCommand: string): string {
@@ -79,11 +80,11 @@ async function migrate({ cwd, dependencyRoot = cwd }: CodemodContext): Promise<C
   const skip = new Set([config.fileName, ...(schema?.moved.values() ?? [])])
   const sources = await rewriteSources({ cwd, features, schema, skip, layout: await nuxtServerLayout(cwd, config) })
 
-  // `vite-hub` resolves each feature from its own package, and the build fails while one is missing.
-  const featurePackages = [features.database && "@vite-hub/database", features.kv && "@vite-hub/kv", features.blob && "@vite-hub/blob"].filter(name => typeof name === "string")
+  const enabled = (["database", "kv", "blob", "cache"] as const).filter(id => Boolean(features[id]))
   const packageResult = await editPackageJson(cwd, packageJson.version, {
     remove: [moduleName],
-    add: ["vite-hub", ...featurePackages],
+    add: ["vite-hub"],
+    features: enabled,
     within: features.database ? { "drizzle-orm": drizzleRange, "drizzle-kit": drizzleRange } : undefined,
   })
   const run = runner(packageResult.installCommand)
@@ -97,21 +98,22 @@ async function migrate({ cwd, dependencyRoot = cwd }: CodemodContext): Promise<C
   if (wrangler.edit) edits.push(wrangler.edit)
   edits.push(...(schema?.edits ?? []), ...sources.edits)
 
-  const enabled = [features.database && "database", features.kv && "kv", features.blob && "blob", features.cache && "cache"].filter(Boolean)
   const notes = [
-    "NuxtHub auto-imported kv, blob, db, and schema in server code. Nuxt 5 turns server auto-imports off, so the codemod imports them from vite-hub/* in each server file. Set experimental: { nitroAutoImports: true } in nuxt.config to auto-import them again.",
+    await allowsNuxt5(cwd)
+      ? "NuxtHub auto-imported kv, blob, db, and schema in server code. Nuxt 5 turns server auto-imports off, so the codemod imports them from vite-hub/* in each server file. Set experimental: { nitroAutoImports: true } in nuxt.config to auto-import them again."
+      : "NuxtHub auto-imported kv, blob, db, and schema in server code. The codemod imports them from vite-hub/* in each server file, so the files keep working on Nuxt 5, which turns server auto-imports off.",
     "Local data stays in .data/. ViteHub reads .vitehub/data/. The follow-ups list the commands that copy it.",
   ]
   if (features.database) notes.push("NuxtHub's server/db/migrations/ stays in place for reference. ViteHub writes new migrations to server/databases/default/migrations/ and does not apply them during dev or build. Delete the old folder after the baseline.")
   if (features.cache) notes.push("Cached handlers come from Nitro and use the cache store of cache: true. In Nitro 3, import defineCachedHandler() (formerly cachedEventHandler()) and defineCachedFunction() from nitro/cache.")
-  const installed = new Intl.ListFormat("en", { type: "conjunction" }).format(["vite-hub", ...featurePackages])
   return {
     summary: `moved ${enabled.length ? enabled.join(", ") : "no features"} from hub to vitehub${configResult.host ? ` with host "${configResult.host}"` : ""}, rewrote ${sources.imports} import${sources.imports === 1 ? "" : "s"} and ${sources.calls} KV and Blob call${sources.calls === 1 ? "" : "s"}${schema?.moved.size ? `, and moved the schema to server/databases/default/` : ""}.`,
     edits,
+    requiresNitro3: true,
     followUps: [...configResult.followUps, ...await findGlobalH3Overrides(cwd), ...await findNuxtHubModuleFollowUps(cwd, config, dependencyRoot), ...wrangler.followUps, ...(schema?.followUps ?? []), ...databaseCodeFollowUps, ...sources.followUps, ...dataFollowUps(run, { database, d1: wrangler.d1, kv: features.kv && !configResult.redisKV, blob: features.blob, cloudflare, kvBinding: configResult.written.kv?.binding ?? "KV" })],
     notes,
     nextSteps: [
-      `Run \`${packageResult.installCommand}\` to install ${installed} and remove ${moduleName}.`,
+      `Run \`${packageResult.installCommand}\` to install ${packageResult.installs} and remove ${moduleName}.`,
       "Run `npx nuxi prepare`, then type-check the app.",
       `Run \`${run} nuxt build\` and \`${run} vitehub inspect output --json\` to check the resources and bindings.`,
     ],

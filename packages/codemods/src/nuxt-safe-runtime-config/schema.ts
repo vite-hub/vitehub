@@ -434,25 +434,6 @@ function literalText(value: NonNullable<EnvField["default"]>): string {
   return typeof value === "string" || typeof value === "object" ? JSON.stringify(value) : String(value)
 }
 
-function coerceRuntimeInput(value: LiteralValue, leaf: Leaf): LiteralValue {
-  const kind = leaf.kind === "integer" ? "number" : leaf.kind
-  if (kind === "array" || kind === "object" || kind === "union" || kind === "unknown") return value
-  const normalized = typeof value === "string" && kind === "boolean" ? value.trim().toLowerCase() : value
-  if ((kind === "string" || kind === "enum") && typeof value === "number" && !Number.isSafeInteger(value)) return value
-  const coerced = coerceDefault(normalized, { kind, values: leaf.values })
-  if (coerced === undefined || (leaf.kind === "integer" && !Number.isInteger(coerced))) return value
-  return coerced
-}
-
-function leafAtPath(jsonSchema: JsonObject, path: readonly string[]): Leaf {
-  let node = resolveReference(jsonSchema, jsonSchema)
-  for (const key of path) {
-    const properties = describeLeaf(jsonSchema, node).node.properties
-    node = isRecord(properties) ? resolveReference(jsonSchema, properties[key]) : {}
-  }
-  return describeLeaf(jsonSchema, node)
-}
-
 const valibotJsonInputs = new Set([
   "array", "bigint", "boolean", "loose_object", "loose_tuple", "number", "object", "object_with_rest", "record", "strict_object",
   "strict_tuple", "tuple", "tuple_with_rest",
@@ -480,6 +461,25 @@ function schemaFieldKind(access: FieldAccess, leaf: Leaf): EnvFieldKind | undefi
 
 function schemaDefault(value: LiteralValue, kind: EnvFieldKind): LiteralValue {
   return kind === "json" ? value : String(value)
+}
+
+function coerceRuntimeInput(value: LiteralValue, leaf: Leaf): LiteralValue {
+  const kind = leaf.kind === "integer" ? "number" : leaf.kind
+  if (kind === "array" || kind === "object" || kind === "union" || kind === "unknown") return value
+  const normalized = typeof value === "string" && kind === "boolean" ? value.trim().toLowerCase() : value
+  if ((kind === "string" || kind === "enum") && typeof value === "number" && !Number.isSafeInteger(value)) return value
+  const coerced = coerceDefault(normalized, { kind, values: leaf.values })
+  if (coerced === undefined || (leaf.kind === "integer" && !Number.isInteger(coerced))) return value
+  return coerced
+}
+
+function leafAtPath(jsonSchema: JsonObject, path: readonly string[]): Leaf {
+  let node = resolveReference(jsonSchema, jsonSchema)
+  for (const key of path) {
+    const properties = describeLeaf(jsonSchema, node).node.properties
+    node = isRecord(properties) ? resolveReference(jsonSchema, properties[key]) : {}
+  }
+  return describeLeaf(jsonSchema, node)
 }
 
 /** Plans Env declarations from the JSON Schema of `runtimeConfig` and the values in nuxt.config. */
@@ -642,7 +642,7 @@ export async function planFromJsonSchema(input: PlanInput): Promise<SchemaPlan> 
     if (defaultValue !== undefined) field.default = defaultValue
 
     if (constraints.length && !access && publicFunction) {
-      follow(`${label}: Public Env does not run a schema that is a function, such as an ArkType type, so the codemod did not keep ${constraints.join(", ")}. Check the value in code.`, { env: field })
+      follow(`${label}: the codemod does not move a public schema that is a function, such as an ArkType type, and did not keep ${constraints.join(", ")}. Check the value in code.`, { env: field })
     }
     else if (constraints.length && !access) {
       const advice = section === "server" ? "Export the field schema from a server module and declare it with env.schemaFrom()" : "Pass the field schema object as the schema option"

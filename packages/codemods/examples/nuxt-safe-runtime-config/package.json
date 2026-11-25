@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "nuxt": "catalog:nuxt",
-    "nuxt-safe-runtime-config": "0.3.2",
+    "nuxt-safe-runtime-config": "0.4.0",
     "valibot": "catalog:runtime",
     "vite-hub": "workspace:*"
   },

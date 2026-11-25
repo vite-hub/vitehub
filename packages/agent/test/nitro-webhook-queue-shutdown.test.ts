@@ -83,12 +83,12 @@ it("stops a packed Agent webhook queue through Nitro 3 Node shutdown and resumes
         {
           dependencies: {
             ...Object.fromEntries(packedPackages.map(name => [`@vite-hub/${name}`, "workspace:*"])),
-            "drizzle-orm": "1.0.0-rc.5",
+            "drizzle-orm": "1.0.0-rc.6",
             h3: "2.0.1-rc.25",
             nitro: "3.0.260603-beta",
             vite: "8.1.5",
           },
-          packageManager: "pnpm@12.16.1",
+          packageManager: "pnpm@12.21.0",
           private: true,
           type: "module",
         },
