@@ -267,7 +267,12 @@ A migration counts as applied when a migrations table lists one of its names:
 
 Run `vitehub database migrate` once before a server migrates on start, because [Migrate when the server starts](#migrate-when-the-server-starts) reads only Drizzle's table. Postgres reads only Drizzle's table too.
 
-A native Cloudflare D1 binding is migrated with Wrangler, which tracks filenames in its own table instead of NuxtHub's normalized names in `_hub_migrations`. To baseline an existing D1 database, back it up, remove `migrations_table: "_hub_migrations"` from your Wrangler config, generate a baseline into an empty `server/databases/default/migrations/` folder with `pnpm vitehub database generate --name baseline`, add `IF NOT EXISTS` to each `CREATE` statement in `migration.sql` while keeping `snapshot.json`, build, run `pnpm wrangler d1 migrations list <database-name> --remote --config .output/server/wrangler.json` to verify only the baseline is pending, and then apply it with `pnpm wrangler d1 migrations apply <database-name> --remote --config .output/server/wrangler.json`. Commit the migration folder and generated `d1-migrations.json`.
+A native Cloudflare D1 binding is migrated with Wrangler, which tracks filenames in its own table instead of NuxtHub's normalized names in `_hub_migrations`. To baseline an existing D1 database:
+
+1. Back up the database and remove `migrations_table: "_hub_migrations"` from your Wrangler config.
+2. Generate a baseline into an empty `server/databases/default/migrations/` folder with `pnpm vitehub database generate --name baseline`. Check that the generated SQL matches the existing schema. Add `IF NOT EXISTS` to the `CREATE` statements in `migration.sql` so they skip existing objects. Keep `snapshot.json`.
+3. Build the app and check that the D1 entry in `.output/server/wrangler.json` has the intended `database_id` and that its `migrations_dir` points to the generated baseline SQL. Run `pnpm wrangler d1 migrations list <database-name> --remote --config .output/server/wrangler.json`.
+4. Run `pnpm wrangler d1 migrations apply <database-name> --remote --config .output/server/wrangler.json` only if the baseline is the sole pending file. Otherwise, stop and check the migration directory and Wrangler's migration history. Commit the migration folder and generated `d1-migrations.json` after the baseline is applied.
 
 ### Rename a column or table
 

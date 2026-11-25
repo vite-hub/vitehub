@@ -47,6 +47,8 @@ The codemod updates `nuxt.config.ts`, `package.json`, your Drizzle schema locati
 
 **Local PGlite:** Ignore the codemod's instruction to copy `.data/db/pglite`. PGlite 0.5 cannot open NuxtHub's 0.3 data directory. Use the [PGlite upgrade guide](https://pglite.dev/docs/upgrade) to dump with `pgDump` on 0.3 and restore into a fresh 0.5 database at `.vitehub/data/database/pglite`.
 
+**Postgres migrations:** Ignore the codemod's `IF NOT EXISTS` baseline advice for Postgres. Statements such as `CREATE TYPE ... AS ENUM` do not support it. For an existing schema, set `vitehub: { database: { migrateOnStart: false } }` and do not run `vitehub database migrate` until you reconcile the Drizzle migration history with that schema. For an empty database, apply the generated baseline without those edits.
+
 ```diff [nuxt.config.ts]
  export default defineNuxtConfig({
 -  modules: ["@nuxthub/core"],
