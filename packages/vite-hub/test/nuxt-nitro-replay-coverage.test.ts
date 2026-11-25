@@ -60,6 +60,11 @@ function collectPlugins(): Map<string, Plugin> {
 describe("Nuxt 4.7 Nitro replay coverage", () => {
   const plugins = collectPlugins()
 
+  it("replays the i18n output hook that fills the Workspace inventory", () => {
+    const i18n = plugins.get("@vite-hub/i18n/vite")!
+    expect(nitroRuntimeResolver(i18n, {}, { root: process.cwd() })?.plugin.renderChunk).toBe(i18n.renderChunk)
+  })
+
   it("replays or explains every server resolveId, load and transform hook", () => {
     const unexplained: string[] = []
     for (const plugin of plugins.values()) {
