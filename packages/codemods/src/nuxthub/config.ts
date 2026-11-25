@@ -150,7 +150,7 @@ function readDatabase(config: NuxtConfigFile, value: Node, notes: ConfigNote[]):
 }
 
 function featureNote(config: NuxtConfigFile, feature: (typeof featureKeys)[number], value: Node): ConfigNote {
-  return { path: [feature], message: `hub.${feature} was ${optionText(config, value)}. The codemod set ${feature}: true, which uses the default driver of the host. NuxtHub and ViteHub name drivers differently, so set the driver options under vitehub.${feature} by hand. See https://vitehub.dev/docs/${feature === "cache" ? "getting-started/migrate-from-nuxthub#keep-the-cache" : feature}.` }
+  return { path: [feature], message: `hub.${feature} was ${optionText(config, value)}. The codemod set ${feature}: true, which uses the default driver of the host. NuxtHub and ViteHub name drivers differently, so set the driver options under vitehub.${feature} by hand. See https://vitehub.dev/docs/${feature === "cache" ? "compare/nuxthub#keep-the-cache" : feature}.` }
 }
 
 /** Reads `hub` into features. Options that do not map 1:1 become notes. */
