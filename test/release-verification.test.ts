@@ -216,6 +216,109 @@ describe("release verification before tagging", () => {
     })
   })
 
+  describe("main still carries the release", () => {
+    const job = releasePr.jobs["tag-release"]!
+    const script = step(job.steps, "Check that main still carries this release")
+
+    interface Change { dependency?: string, file?: string, version?: string }
+
+    function history(changes: Change[]) {
+      const directory = temporaryDirectory()
+      const git = (...args: string[]) => execFileSync("git", ["-c", "user.name=Release Test", "-c", "user.email=release@example.test", "-c", "commit.gpgsign=false", ...args], {
+        cwd: directory,
+        encoding: "utf8",
+        env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", LC_ALL: "C" },
+      }).trim()
+      git("init", "-q", "-b", "main")
+      git("remote", "add", "origin", directory)
+      let manifest = { version: "0.4.0", name: "vitehub", dependencies: { vite: "8.0.0" } }
+      const shas: string[] = []
+      const commits: Change[] = [{ version: "0.4.0" }, ...changes]
+      for (const change of commits) {
+        if (change.file) writeFileSync(join(directory, change.file), `${shas.length}\n`)
+        manifest = {
+          ...manifest,
+          version: change.version ?? manifest.version,
+          dependencies: change.dependency ? { vite: change.dependency } : manifest.dependencies,
+        }
+        writeFileSync(join(directory, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`)
+        git("add", ".")
+        git("commit", "-qm", `change ${shas.length}`)
+        shas.push(git("rev-parse", "HEAD"))
+      }
+      return { directory, git, shas }
+    }
+
+    function check(directory: string, releaseSha: string) {
+      return runScript(script, {
+        cwd: directory,
+        env: { GIT_CONFIG_GLOBAL: "/dev/null", LC_ALL: "C", RELEASE_SHA: releaseSha, VERIFIED_VERSION: "0.5.0" },
+      })
+    }
+
+    it("runs before the tag step on a full checkout", () => {
+      const names = job.steps.map(candidate => candidate.name)
+      expect(names.indexOf("Check that main still carries this release")).toBeLessThan(names.indexOf("Create tag and dispatch verified release"))
+      expect(names.indexOf("Check that main still carries this release")).toBeGreaterThan(-1)
+      expect(job.steps.find(candidate => candidate.uses?.startsWith("actions/checkout@"))?.with?.["fetch-depth"]).toBe(0)
+      expect(job.steps.find(candidate => candidate.name === "Check that main still carries this release")?.env).toEqual({
+        RELEASE_SHA: "${{ github.event.pull_request.merge_commit_sha }}",
+        VERIFIED_VERSION: "${{ needs.verify-release.outputs.version }}",
+      })
+    })
+
+    it.each([
+      { scenario: "nothing after the release", after: [] },
+      { scenario: "an unrelated commit", after: [{ file: "fix.txt" }] },
+      { scenario: "a dependency change in package.json", after: [{ dependency: "8.1.0" }] },
+    ])("allows the tag with $scenario", ({ after }) => {
+      const { directory, shas } = history([{ version: "0.5.0" }, ...after])
+      const result = check(directory, shas[1]!)
+      expect(result.stderr).not.toContain("No tag is created")
+      expect(result.status).toBe(0)
+    })
+
+    it("allows a dependency PR branched before the release and merged after it", () => {
+      const { directory, git, shas } = history([{ version: "0.5.0" }])
+      git("checkout", "-qb", "dependency", shas[0]!)
+      const path = join(directory, "package.json")
+      writeFileSync(path, readFileSync(path, "utf8").replace("8.0.0", "8.1.0"))
+      git("commit", "-qam", "update dependency")
+      git("checkout", "-q", "main")
+      git("merge", "-q", "--no-ff", "dependency")
+
+      const result = check(directory, shas[1]!)
+      expect(result.status, result.stderr).toBe(0)
+    })
+
+    it("refuses the tag after a revert of the release", () => {
+      const { directory, shas } = history([{ version: "0.5.0" }, { file: "fix.txt" }, { version: "0.4.0" }])
+      const result = check(directory, shas[1]!)
+      expect(result.status).not.toBe(0)
+      expect(result.stderr).toContain(`main changed to 0.4.0 in ${shas[3]} after this release merged`)
+    })
+
+    it("refuses the reverted release and allows its new release at the same version", () => {
+      const { directory, shas } = history([{ version: "0.5.0" }, { version: "0.4.0" }, { file: "fix.txt" }, { version: "0.5.0" }])
+      const reverted = check(directory, shas[1]!)
+      expect(reverted.status).not.toBe(0)
+      expect(reverted.stderr).toContain(`main changed to 0.4.0 in ${shas[2]}`)
+      const released = check(directory, shas[4]!)
+      expect(released.stderr).not.toContain("No tag is created")
+      expect(released.status).toBe(0)
+    })
+
+    it("refuses a release merge that is not on main", () => {
+      const { directory, git, shas } = history([{ file: "fix.txt" }])
+      git("checkout", "-q", "-b", "side", shas[0]!)
+      writeFileSync(join(directory, "package.json"), `${JSON.stringify({ name: "vitehub", version: "0.5.0" })}\n`)
+      git("commit", "-qam", "side release")
+      const result = check(directory, git("rev-parse", "HEAD"))
+      expect(result.status).not.toBe(0)
+      expect(result.stderr).toContain("is not on main")
+    })
+  })
+
   describe("recovery tag", () => {
     const job = releasePr.jobs["recover-release"]!
     const script = step(job.steps, "Tag corrected main and dispatch release")

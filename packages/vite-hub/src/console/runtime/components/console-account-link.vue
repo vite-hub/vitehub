@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { ref, shallowRef, watch } from "vue";
 
 import { linkAccountProject } from "../client/project-session";
 import ConsoleAccountSnippet from "./console-account-snippet.vue";
@@ -13,6 +13,7 @@ const open = defineModel<boolean>("open", { required: true });
 const props = defineProps<{ url?: string }>();
 const url = ref("");
 const label = ref("");
+const commentsOnly = shallowRef(false);
 const busy = ref(false);
 const problem = ref<string>();
 
@@ -23,6 +24,7 @@ watch(open, (value) => {
   }
   url.value = "";
   label.value = "";
+  commentsOnly.value = false;
   problem.value = undefined;
   busy.value = false;
 });
@@ -32,7 +34,7 @@ async function link(): Promise<void> {
   busy.value = true;
   problem.value = undefined;
   try {
-    await linkAccountProject(url.value, label.value);
+    await linkAccountProject(url.value, label.value, commentsOnly.value ? "site" : undefined);
   }
   catch (error) {
     problem.value = error instanceof Error ? error.message : "Try again.";
@@ -42,10 +44,11 @@ async function link(): Promise<void> {
 </script>
 
 <template>
-  <UModal v-model:open="open" title="Link an app" description="Enable Console access, deploy your app, then enter its URL." :ui="{ content: 'sm:max-w-[440px]' }">
+  <UModal v-model:open="open" title="Link an app" description="Enter the URL of your deployed app or site." :ui="{ content: 'sm:max-w-[440px]' }">
     <template #body>
       <form id="vitehub-account-link" class="grid gap-4" @submit.prevent="link">
-        <ConsoleAccountSnippet />
+        <UCheckbox v-model="commentsOnly" label="Hosted Comments only" description="Use a browser script to add page review." />
+        <ConsoleAccountSnippet v-if="!commentsOnly" />
         <UFormField label="App URL" name="url" required :error="problem" :ui="{ error: problem ? undefined : 'mt-0' }">
           <!-- Nuxt UI renders the error without a live region, so the message announces itself here. -->
           <template #error="{ error }">
@@ -61,7 +64,7 @@ async function link(): Promise<void> {
     <template #footer>
       <div class="flex w-full justify-end gap-2">
         <UButton color="neutral" variant="ghost" label="Cancel" @click="open = false" />
-        <UButton type="submit" form="vitehub-account-link" label="Link app" :loading="busy" />
+        <UButton type="submit" form="vitehub-account-link" :label="commentsOnly ? 'Register site' : 'Link app'" :loading="busy" />
       </div>
     </template>
   </UModal>

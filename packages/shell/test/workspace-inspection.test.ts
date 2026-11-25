@@ -705,7 +705,7 @@ describe("@vite-hub/shell workspace inspection", () => {
       fs,
     })).resolves.toMatchObject({
       exitCode: 0,
-      stdout: "orders.sql:1:select * from orders\n",
+      stdout: "./orders.sql:1:select * from orders\n",
     })
 
     await expect(runWorkspaceInspectionCommand(workspace, "cd models; rg orders .", {
@@ -714,7 +714,7 @@ describe("@vite-hub/shell workspace inspection", () => {
       fs,
     })).resolves.toMatchObject({
       exitCode: 0,
-      stdout: "orders.sql:1:select * from orders\n",
+      stdout: "./orders.sql:1:select * from orders\n",
     })
 
     await expect(runWorkspaceInspectionCommand(workspace, "cd models\nrg orders .", {
@@ -723,7 +723,7 @@ describe("@vite-hub/shell workspace inspection", () => {
       fs,
     })).resolves.toMatchObject({
       exitCode: 0,
-      stdout: "orders.sql:1:select * from orders\n",
+      stdout: "./orders.sql:1:select * from orders\n",
     })
 
     await expect(runWorkspaceInspectionCommand(workspace, "cd models && find -name '*.sql'", {

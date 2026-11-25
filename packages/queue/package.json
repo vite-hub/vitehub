@@ -84,7 +84,7 @@
     "postgres": "catalog:database",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
-    "undici": "8.12.2",
+    "undici": "8.13.1",
     "valibot": "catalog:runtime",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",

@@ -15,12 +15,13 @@ import { docsThemeScope, docsUi, type DocsThemeUi } from "../src/theme.ts"
 const uiRequire = createRequire(import.meta.resolve("@nuxt/ui"))
 const uiDist = dirname(fileURLToPath(import.meta.resolve("@nuxt/ui")))
 // Use the installed Nuxt UI theme generator, components, prop resolution, and class merger.
-const sharedFile = readdirSync(resolve(uiDist, "shared")).find(file => file.endsWith(".mjs"))!
-const shared = uiRequire(resolve(uiDist, "shared", sharedFile)) as {
-  d: object
-  e: (options: object, config: object) => Array<{ filename: string, getContents: () => string | Promise<string> }>
-}
-const headerTheme = await shared.e(shared.d, {}).find(template => template.filename === "ui/page-header.ts")!.getContents()
+const sharedFile = resolve(uiDist, "shared", readdirSync(resolve(uiDist, "shared")).find(file => file.endsWith(".mjs"))!)
+const exportList = [...readFileSync(sharedFile, "utf8").matchAll(/^export \{ (.+) \};$/gm)].at(-1)![1]!
+const sharedExports = Object.fromEntries(exportList.split(", ").map(entry => entry.split(" as ")))
+const shared = uiRequire(sharedFile) as Record<string, unknown>
+const defaultOptions = shared[sharedExports.defaultOptions!] as object
+const getTemplates = shared[sharedExports.getTemplates!] as (options: object, config: object) => Array<{ filename: string, getContents: () => string | Promise<string> }>
+const headerTheme = await getTemplates(defaultOptions, {}).find(template => template.filename === "ui/page-header.ts")!.getContents()
 
 function harness(ui: DocsThemeUi, embedded = true) {
   const route = {

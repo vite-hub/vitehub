@@ -21,7 +21,7 @@ In this tutorial, you open the same document in two browser tabs, type in one, a
 Install Realtime, Workspace, the TipTap Vue editor, and Drizzle. Realtime checks sessions through Auth, which uses your app's `drizzle-orm`:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/realtime @vite-hub/workspace @tiptap/vue-3 drizzle-orm@1.0.0-rc.5
+pnpm add @vite-hub/realtime @vite-hub/workspace @tiptap/vue-3 drizzle-orm@1.0.0-rc.6
 ```
 
 Realtime uses your app's TipTap and Yjs packages, so the editor and your TipTap components share one copy. Both pnpm and npm install them with Realtime. If you pin TipTap, use the same version, 3.31.4 or later, for every `@tiptap/*` package.

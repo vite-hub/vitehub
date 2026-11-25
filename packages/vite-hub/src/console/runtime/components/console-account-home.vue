@@ -87,7 +87,7 @@ function reportedName(app: ConsoleAccountProject): string {
  * the page tools. Anyone of the team can share it: it holds no secret.
  */
 function siteEntry(app: ConsoleAccountProject): string {
-  return `${app.url.replace(/\/+$/, "")}/_vitehub`;
+  return app.publicKey === null ? app.url : `${app.url.replace(/\/+$/, "")}/_vitehub`;
 }
 
 const toast = useConsoleToast();
@@ -100,16 +100,17 @@ async function copySiteEntry(app: ConsoleAccountProject): Promise<void> {
 }
 
 function appActions(app: ConsoleAccountProject): DropdownMenuItem[][] {
-  const copy: DropdownMenuItem = { icon: "i-lucide-copy", label: "Copy the /_vitehub link", onSelect: () => void copySiteEntry(app) };
+  const copy: DropdownMenuItem = { icon: "i-lucide-copy", label: app.publicKey === null ? "Copy site URL" : "Copy the /_vitehub link", onSelect: () => void copySiteEntry(app) };
   return [[copy], ...(manage.value ? [[{ icon: "i-lucide-pencil", label: "Rename app", onSelect: () => askRename(app) }], [{ icon: "i-lucide-unlink", label: "Unlink app", color: "error" as const, onSelect: () => askUnlink(app) }]] : [])];
 }
 
 const url = ref("");
+const commentsOnly = shallowRef(false);
 const busy = ref(false);
 const problem = ref<string>();
 
 const linked = computed(() => apps.value.length > 0);
-const connected = computed(() => apps.value.some(app => props.status[app.id] === "connected"));
+const connected = computed(() => apps.value.some(app => app.publicKey === null || props.status[app.id] === "connected"));
 const checking = computed(() => apps.value.some(app => props.status[app.id] === "checking"));
 // The app that step 3 opens: one that is not connected and not still being checked.
 const setupApp = computed(() => apps.value.find(app => ["setup", "unconfigured", "unreachable"].includes(props.status[app.id] ?? "checking")));
@@ -171,7 +172,7 @@ async function link(): Promise<void> {
   busy.value = true;
   problem.value = undefined;
   try {
-    await linkAccountProject(url.value);
+    await linkAccountProject(url.value, undefined, commentsOnly.value ? "site" : undefined);
   }
   catch (error) {
     problem.value = error instanceof Error ? error.message : "Try again.";
@@ -304,16 +305,17 @@ async function link(): Promise<void> {
           <div class="vitehub-account-step__body">
             <h3 class="vitehub-account-step__title"><span class="sr-only">{{ stepLabel(1, steps[1].done) }} </span>Link an app</h3>
             <p v-if="!steps[1].done" class="vitehub-account-step__text">
-              <template v-if="manage">Enable Console access, deploy your app, then enter its URL.</template>
+              <template v-if="manage">{{ commentsOnly ? "Enter the URL of the site you want to review." : "Enable Console access, deploy your app, then enter its URL." }}</template>
               <template v-else>Only owners and admins of {{ teamName }} link apps. Ask one of them to link yours.</template>
             </p>
             <template v-if="active === 'link' && manage">
-              <ConsoleAccountSnippet class="vitehub-account-step__wide" />
+              <ConsoleAccountSnippet v-if="!commentsOnly" class="vitehub-account-step__wide" />
               <form class="vitehub-account-step__wide grid gap-1.5" @submit.prevent="link">
                 <div class="flex flex-wrap gap-2">
                   <UInput v-model="url" type="url" inputmode="url" autocomplete="url" placeholder="https://app.example.com" aria-label="App URL" required :aria-invalid="problem ? true : undefined" :aria-describedby="problem ? 'vitehub-home-link-problem' : undefined" class="min-w-0 flex-1 basis-56" />
-                  <UButton type="submit" icon="i-lucide-link" label="Link app" class="justify-center max-sm:w-full" :loading="busy" />
+                  <UButton type="submit" icon="i-lucide-link" :label="commentsOnly ? 'Register site' : 'Link app'" class="justify-center max-sm:w-full" :loading="busy" />
                 </div>
+                <UCheckbox v-model="commentsOnly" label="Hosted Comments only" />
                 <p v-if="problem" id="vitehub-home-link-problem" role="alert" class="text-[13px] text-error">{{ problem }}</p>
               </form>
             </template>

@@ -21,8 +21,8 @@ In this tutorial, you create a `notes` table, add a note from one API route, and
 Database is a separate package. Install it with [Drizzle](https://orm.drizzle.team) to write your tables, and Drizzle Kit to make migrations:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/database drizzle-orm@1.0.0-rc.5
-pnpm add -D drizzle-kit@1.0.0-rc.5
+pnpm add @vite-hub/database drizzle-orm@1.0.0-rc.6
+pnpm add -D drizzle-kit@1.0.0-rc.6
 ```
 
 Then add `database: true` to your ViteHub options. Keep the other options of your app.

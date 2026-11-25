@@ -11,23 +11,27 @@ import { readBuiltWorkspaceImports } from "../../internal/test-utils/built-works
 
 const dist = new URL("../dist/", import.meta.url)
 
-/** Bare specifiers that a built entry loads at startup, following its own static imports. */
-async function startupImports(entry: string): Promise<Set<string>> {
+/** The built files and bare specifiers that a built entry loads at startup, following its own static imports. */
+async function startupGraph(entry: string): Promise<{ bare: Set<string>, files: Map<string, string> }> {
   const bare = new Set<string>()
-  const seen = new Set<string>()
+  const files = new Map<string, string>()
   const pending = [entry]
   while (pending.length) {
     const file = pending.pop()!
-    if (seen.has(file)) continue
-    seen.add(file)
+    if (files.has(file)) continue
     const code = await readFile(new URL(file, dist), "utf8")
+    files.set(file, code)
     for (const match of code.matchAll(/^(?:import|export)\b[^"']*?from\s*["']([^"']+)["']|^import\s*["']([^"']+)["']/gm)) {
       const specifier = match[1] ?? match[2] ?? ""
       if (specifier.startsWith(".")) pending.push(new URL(specifier, new URL(file, dist)).href.slice(dist.href.length))
       else bare.add(specifier)
     }
   }
-  return bare
+  return { bare, files }
+}
+
+async function startupImports(entry: string): Promise<Set<string>> {
+  return (await startupGraph(entry)).bare
 }
 
 describe("@vite-hub/content package contract", () => {
@@ -63,6 +67,12 @@ describe("@vite-hub/content package contract", () => {
     expect(graph.code).not.toContain("@vite-hub/shell/workspace")
   })
 
+  it.each(["index.js", "collections.js", "realtime.js"])("loads built %s without a top-level await, which Nitro's rolldown dev build cannot bundle", async (entry) => {
+    const { files } = await startupGraph(entry)
+    const withTopLevelAwait = [...files].filter(([, code]) => /^(?:(?:const|let|var)\s[^=\n]+=\s*)?await\b/m.test(code)).map(([file]) => file)
+    expect(withTopLevelAwait).toEqual([])
+  })
+
   it("leaves the Tiptap editor packages optional, so only apps that edit install them", async () => {
     const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
     const tiptap = Object.keys(manifest.peerDependencies).filter(name => name.startsWith("@tiptap/"))
@@ -70,7 +80,10 @@ describe("@vite-hub/content package contract", () => {
     for (const name of tiptap) expect(manifest.peerDependenciesMeta[name], name).toEqual({ optional: true })
   })
 
-  it.each(["editor", "realtime"])("names the missing Tiptap packages when ./%s loads without them", async (entry) => {
+  it.each([
+    ["editor", `await import("@vite-hub/content/editor")`],
+    ["realtime", `const { contentRealtime } = await import("@vite-hub/content/realtime"); await contentRealtime({ collection: () => ({ name: "posts", format: "markdown", kind: "documents" }) }).editor({ documentId: "posts/intro" })`],
+  ])("names the missing Tiptap packages when ./%s needs the editor without them", async (_entry, load) => {
     // A Node app that has Content and Comark UI, but no Tiptap packages.
     const app = await mkdtemp(join(tmpdir(), "content-editor-peers-"))
     try {
@@ -98,7 +111,7 @@ describe("@vite-hub/content package contract", () => {
       await writeFile(join(comarkUi, "editor.js"), "import \"@tiptap/core\"\n")
       await writeFile(join(comarkUi, "html.js"), "export default () => ({ plugins: [] })\n")
 
-      const script = `try { await import("@vite-hub/content/${entry}"); console.log("loaded") } catch (error) { console.log(JSON.stringify({ code: error.code, message: error.message, fix: error.fix, cause: error.cause?.code })) }`
+      const script = `try { ${load}; console.log("loaded") } catch (error) { console.log(JSON.stringify({ code: error.code, message: error.message, fix: error.fix, cause: error.cause?.code })) }`
       const { stdout } = await promisify(execFile)(process.execPath, ["--input-type=module", "-e", script], { cwd: app })
       expect(JSON.parse(stdout)).toEqual({
         code: "CONTENT_EDITOR_PACKAGES_MISSING",
