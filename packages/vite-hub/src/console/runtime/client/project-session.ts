@@ -728,7 +728,7 @@ export async function openConsoleSite(): Promise<void> {
       url = siteTokenRedirect(Reflect.get(Object(await response.json()), "url"), current.url)
     }
     else {
-      const [{ requestConsoleOperation }, { siteAccessOperations }] = await Promise.all([import("./request"), import("../site-access")])
+      const [{ requestConsoleOperation }, { siteAccessOperations }] = await Promise.all([import("./request"), import("./site-access")])
       url = siteTicketUrl(Reflect.get(Object(await requestConsoleOperation(siteAccessOperations.link, { path: gate.page, state: gate.state })), "url"), current.url)
     }
   }

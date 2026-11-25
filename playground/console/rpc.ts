@@ -12,7 +12,6 @@ import { channelsFixture } from "./channels-fixture.ts"
 import { callCommentsFixture, openCommentsFixture } from "./comments.ts"
 import { mcpClientFixture } from "./mcp-client-fixture.ts"
 import { servedSkillsFixture } from "./served-skills-fixture.ts"
-import { siteFixture } from "./site-fixture.ts"
 import { webhooksFixture } from "./webhooks-fixture.ts"
 
 const authReads = new Map<string, string>(Object.entries(authConsoleReadOperations).map(([read, operation]) => [operation, read]))
@@ -55,7 +54,6 @@ const fixtureRoutes: Record<string, string> = {
   "sections.list": "sections",
   "skills.inspect": "skills",
   "status.get": "status",
-  "usage.get": "usage",
 }
 
 const projectFixture = {
@@ -66,7 +64,7 @@ const projectFixture = {
     time: new Date(Date.now() - 2 * 3_600_000).toISOString(),
   },
   name: "playground-console",
-  operations: [],
+  operations: ["site.access"],
   protocol: 1,
   sections: [],
   vitehub: "0.0.0-playground",
@@ -82,8 +80,6 @@ export async function callConsoleFixture(origin: string, payload: { input?: Reco
   if (comment) return comment
   const channel = channelsFixture(payload.operation, input)
   if (channel) return channel
-  const site = siteFixture(origin, payload.operation, input)
-  if (site) return site
   const cache = await cacheFixture(payload.operation, input)
   if (cache) return cache
   const servedSkills = servedSkillsFixture(payload.operation, input)
@@ -140,13 +136,15 @@ export function consoleMockRPC(): Plugin {
     name: "vitehub-console-playground-rpc",
     configureServer(server) {
       server.middlewares.use((request, response, next) => {
-        if (request.method !== "POST" || request.url?.split("?")[0] !== operationRpcPath) {
+        const path = request.url?.split("?")[0] ?? ""
+        const mcpPath = path === "/mcp-client" || path.endsWith("/mcp-client")
+        if (request.method !== "POST" || (path !== operationRpcPath && !mcpPath)) {
           next()
           return
         }
         void (async () => {
           const call = readOperationRpcCall(JSON.parse(await readBody(request)))
-          if (!call) {
+          if (!call || mcpPath !== call.m.startsWith("mcp-client.")) {
             response.statusCode = 400
             response.setHeader("content-type", "application/json")
             response.end(JSON.stringify(operationRpcRefusal({ code: "CONSOLE_REQUEST_INVALID", message: "Invalid Console request.", status: 400 })))

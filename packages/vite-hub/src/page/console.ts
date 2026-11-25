@@ -1,5 +1,5 @@
-// The Console segment of the page tools pill, at `<base>/_vitehub/console/assets/page-tool.js`. It is a link: it opens
-// this app in the hosted Console in a new tab, at the Content document that the page shows when there is one.
+// The Console segment of the page tools pill. The ViteHub Console serves it at `/page/<version>/page-tool.js`. It is a
+// link: it opens this app in that Console in a new tab, at the Content document that the page shows when there is one.
 import { viteHubPillButtonStyles } from "@vite-hub/internal/runtime/page-tools-shared"
 
 import { consolePageLink, consoleScriptSource } from "./console-link.ts"
@@ -10,7 +10,7 @@ import type { ViteHubPageToolModule } from "@vite-hub/internal/runtime/page-tool
 const newTabIcon = `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h10v10M7 17 17 7"/></svg>`
 
 const start: ViteHubPageToolModule["default"] = ({ bar, tool, onOpen }) => {
-  const { base, consoleOrigin } = consoleScriptSource(import.meta.url, location.origin)
+  const { base, consoleOrigin } = consoleScriptSource(import.meta.url)
   // A page origin that the Console cannot open, such as `http:` on a LAN address, gets no segment.
   if (!consolePageLink(location.origin, base, [], consoleOrigin)) return
   const shadow = bar.attachShadow({ mode: "open" })

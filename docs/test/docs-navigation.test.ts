@@ -222,7 +222,7 @@ describe("docs product navigation", () => {
   it("preserves the old Console bookmark for Site access without Auth", () => {
     expect(docsPageRedirects["/docs/development/console"]).toBe("/docs/console");
     expect(docsLegacyFragmentRedirects["/docs/console"]["site-access-without-auth"])
-      .toBe("/docs/console/site-access#site-access-without-auth");
+      .toBe("/docs/console/site-access#how-the-app-checks-a-visit");
   });
 
   it("preserves old Choices diagnostic and CLI bookmarks", () => {

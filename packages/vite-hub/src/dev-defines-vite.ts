@@ -8,6 +8,7 @@ export const viteHubRuntimeDefines = [
   "__VITEHUB_APP_BASE_URL__",
   "__VITEHUB_AUTH_APP_BASE_URL__",
   "__VITEHUB_AUTH_DEV__",
+  "__VITEHUB_CONSOLE_URL__",
   "__VITEHUB_PRESETS_BUILD_REVISION__",
   "__VITEHUB_PUBLIC_URL__",
 ] as const

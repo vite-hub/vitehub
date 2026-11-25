@@ -74,7 +74,7 @@ export async function collectConsoleBuild(options: { cwd: string, env?: Env, git
 
 const collected = new Map<string, Promise<ConsoleProjectBuild>>()
 
-/** The build facts of a project, collected once per process, so each write of the generated plugin names the same build. */
+/** The build facts of a project, collected once per process, so each write of the generated Console app module names the same build. */
 export function consoleBuildOf(projectRoot: string): Promise<ConsoleProjectBuild> {
   let build = collected.get(projectRoot)
   if (!build) collected.set(projectRoot, build = collectConsoleBuild({ cwd: projectRoot }))

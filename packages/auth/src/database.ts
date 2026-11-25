@@ -20,7 +20,7 @@ export type { AuthAppDatabase } from "./types.ts"
  * tables of the Database, before the adapter opens it.
  */
 function assertAuthDatabaseSchema(options: BetterAuthOptions, schema: Readonly<Record<string, unknown>>, database: string): void {
-  const fix = "Call the plugin in `server/auth.ts`, or in a file that it imports with a relative path, and write `additionalFields` inline in `server/auth.ts`, so that the Auth Vite plugin adds the columns. Then run `vitehub database generate` and apply the migration"
+  const fix = "Import the plugin by name from its package, such as `import { admin } from \"better-auth/plugins\"`, and call it in `server/auth.ts` or in a file that it imports with a relative path. Auth does not read a default import of the plugin, or a namespace that a local file re-exports. Write `additionalFields` inline in `server/auth.ts`, so that the Auth Vite plugin adds the columns. Then run `vitehub database generate` and apply the migration"
   for (const [model, table] of Object.entries(getAuthTables(options))) {
     const drizzleTable = Object.hasOwn(schema, model) ? schema[model] : undefined
     if (!isTable(drizzleTable)) throw authDatabaseSchemaError(`the ${JSON.stringify(database)} Database has no \`${model}\` table. ${fix}`)
@@ -33,7 +33,7 @@ function assertAuthDatabaseSchema(options: BetterAuthOptions, schema: Readonly<R
 
 /**
  * The Better Auth `database` adapter for the app Database `name` (default `"default"`). Pass it inline as the
- * `database` of `defineAuth()`. Auth then adds the Better Auth tables, with the fields of `admin()`, the
+ * `database` of `defineAuth()`. Auth then adds the Better Auth tables, the fields of `admin()` when the Definition calls it, the
  * Console MCP OAuth tables, the table of Better Auth's limiter, the `additionalFields` of the Definition, and the tables of
  * the plugins that it calls, such as `twoFactor()` and `apiKey()`, to that Database. The adapter uses the Database of each
  * request: SQLite, libSQL, Cloudflare D1, or Postgres.

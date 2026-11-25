@@ -69,7 +69,6 @@ the same behavior.
 | `vite-hub/agent/mcp` | MCP Server configuration helpers. |
 | `vite-hub/console` | Route metadata for the local read-only invocation console. |
 | `vite-hub/console/auth` | `defineConsoleAuthorize()` for `console.authorize`, and its context types. |
-| `vite-hub/console/mcp-client` | Console MCP client operations. The generated Console plugin installs them when `console.mcpClient` is on. |
 | `vite-hub/console/server` | Local Console invocation journal for servers. |
 | `vite-hub/console/ui` | Agent Invocation views from the Console: `AgentInvocation`, `AgentInvocationList`, and `AgentCapabilityInspector`. Install `@vite-hub/ui @json-render/core @json-render/vue @vueuse/core` first. |
 | `vite-hub/content`, `vite-hub/content/client`, `vite-hub/content/database`, `vite-hub/content/editor`, and `vite-hub/content/realtime` | Comark Content definition and every field helper (`image()`, `file()`, `seo()`, `optional()`), Source adaptation, generated runtime handler, typed client, editor codecs, realtime collaboration, and the sessions table schema. |
@@ -129,6 +128,7 @@ the same behavior.
 | `vite-hub/email/vue` | `<EmailSubject>`, which sets the subject of a Vue Email template. |
 | `vite-hub/email/test` | `createTestEmail()`: in-memory message capture for tests. |
 | `vite-hub/env/seal` | AES-GCM `sealWithKey`, `unsealWithKey`, `importSealKey`, and `sealKeyId` in the Env Bridge database store format. To seal an app value with `VITEHUB_SECRET`, use `seal` and `unseal` from `vite-hub/env`. |
+| `vite-hub/env/vite` | `envSchema()`, which reads Env Declarations from a committed `.env.example`, for `vite.config.ts` and `nuxt.config.ts`. Re-exports `@vite-hub/env/vite`. |
 | `vite-hub/forge` | [Forge](/docs/forge): `useForge()` for GitHub App installation tokens and GitHub, GitLab, and Forgejo clients. Needs `@vite-hub/forge`. |
 | `vite-hub/kv` | KV Runtime Helper. |
 | `vite-hub/markdown-template` | Portable Markdown rendering from template strings. See [Markdown templates](/docs/markdown-template). |

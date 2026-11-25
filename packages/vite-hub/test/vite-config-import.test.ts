@@ -92,7 +92,7 @@ describe("vite-hub config import", () => {
       expect(deferredPackages.filter(name => importedPackages.has(name))).toEqual([])
       const packages = new Set(resolved.map(packageName))
       expect(requestTimePackages.filter(name => packages.has(name))).toEqual([])
-      await access(join(root, ".vitehub/nitro/console/plugin-dev.mjs"))
+      await access(join(root, ".vitehub/nitro/console/app-dev.mjs"))
     }
     finally {
       await rm(root, { force: true, recursive: true })

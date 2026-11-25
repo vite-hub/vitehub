@@ -89,7 +89,7 @@ export async function readConsoleProject(context: OperationContext & { access: C
   const registry = consoleOperationRegistry()
   const callable = registry.list()
     // Contributions are installed by registration, including sections without a page. Built-ins need their feature.
-    .filter(operation => !consoleOperations.includes(operation) || typeof operation.section !== "string" || operationSections.includes(operation.section))
+    .filter(operation => !consoleOperations.includes(operation) || typeof operation.section !== "string" || operationSections.includes(operation.section) || installed.includes(operation.section))
     .filter(operation => consoleOperationGranted(access, operation))
     // The ViteHub MCP of the Console sees only the operations that MCP clients may call.
     .filter(operation => access.surface !== "mcp" || operation.mcp !== false)

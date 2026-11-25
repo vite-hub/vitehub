@@ -1,9 +1,7 @@
-import { detectHost as detectDeploymentHost } from "@vite-hub/internal/deployment"
 import { getActiveCloudflareEnv, getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env-lookup"
 
 import { defineErrors } from "./result.ts"
 
-import type { ViteHubHost } from "@vite-hub/internal/deployment"
 import type { ErrorCatalog, Result } from "./result.ts"
 import type { ViteHubContext } from "./standard-context.ts"
 
@@ -34,27 +32,6 @@ const hostBindingErrors: ErrorCatalog<typeof hostBindingCodes> = /*#__PURE__*/ d
   docs: "https://vitehub.dev/docs/runtime/diagnostics",
   codes: hostBindingCodes,
 })
-
-/**
- * Returns the host that this code builds or runs on, or `undefined` when nothing names one.
- * It reads `VITEHUB_HOST`, `NITRO_PRESET`, `SERVER_PRESET`, then the build variables of Cloudflare Workers Builds
- * (`WORKERS_CI`), Netlify, Vercel, and Deno Deploy. Inside a Cloudflare Worker, it returns `"cloudflare"`.
- * `vitehub()` uses the same detection when `host` is omitted.
- *
- * @example
- * ```ts
- * import { detectHost } from "vite-hub/runtime"
- *
- * const host = detectHost() ?? "node"
- * ```
- */
-export function detectHost(env: Record<string, string | undefined> = processEnv()): ViteHubHost | undefined {
-  return detectDeploymentHost(env) ?? (globalThis.navigator?.userAgent === "Cloudflare-Workers" ? "cloudflare" : undefined)
-}
-
-function processEnv(): Record<string, string | undefined> {
-  return globalThis.process?.env ?? {}
-}
 
 /**
  * Reads one raw binding of the host, such as an R2 bucket, a Durable Object namespace, or a variable of a Cloudflare
