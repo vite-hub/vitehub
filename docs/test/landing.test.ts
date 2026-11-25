@@ -5,7 +5,6 @@ import {
   landingPrimitives,
   portabilityExamples,
 } from "../app/components/landing/content";
-import { primitiveLandings } from "../app/data/primitive-landings";
 
 describe("landing page", () => {
   it("annotates each Agent field on its own line", () => {
@@ -126,12 +125,4 @@ describe("landing page", () => {
       expect(example.to).toMatch(/^\/docs\//);
     }
   });
-
-  it("keeps the package selector aligned with docs section paths", () => {
-    expect(Object.keys(primitiveLandings).sort()).toContain("channels");
-    for (const landing of Object.values(primitiveLandings)) {
-      expect(landing.docsTo, landing.slug).toMatch(/^\/docs\//);
-    }
-  });
-
 });

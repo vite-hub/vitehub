@@ -484,6 +484,36 @@ export const docsLegacyFragmentRedirects = {
   },
 } satisfies Record<string, Record<string, string>>;
 
+const removedPrimitiveLandings = [
+  "agents",
+  "auth",
+  "blob",
+  "browser",
+  "channels",
+  "choices",
+  "cms",
+  "comments",
+  "connections",
+  "content",
+  "database",
+  "email",
+  "env",
+  "forms",
+  "i18n",
+  "kv",
+  "logs",
+  "queue",
+  "rate-limit",
+  "realtime",
+  "sandbox",
+  "schedule",
+  "shell",
+  "source",
+  "webhooks",
+  "workflows",
+  "workspace",
+];
+
 function rawMarkdownPath(path: string) {
   return `/raw${path}.md`;
 }
@@ -500,9 +530,13 @@ export function createDocsRedirectRouteRules(redirects: Record<string, string> =
     routeRules[rawMarkdownPath(from)] = { redirect: { status: 301, to: rawMarkdownPath(to) } };
   }
 
+  for (const section of removedPrimitiveLandings) {
+    routeRules[`/${section}`] = { redirect: { status: 301, to: `/docs/${section}` } };
+  }
+
   for (const [from, to] of Object.entries({
-    "/databases": "/database",
-    "/rate-limits": "/rate-limit",
+    "/databases": "/docs/database",
+    "/rate-limits": "/docs/rate-limit",
     "/blog": "/learn",
     "/guides": "/learn",
     // Decisions was renamed to Choices.
