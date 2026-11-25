@@ -112,7 +112,8 @@ async function run(args: string[], options: { cwd?: string, env?: NodeJS.Process
   const fetch = options.fetch ?? server()
   const plugin = { name: "fixture", vitehub: { operations: [{ export: "ops", load: async () => options.operations ?? operationList, module: "fixture/operations" }] } }
   const root = options.root ?? "/app"
-  const code = await runViteHubCli({ args, cwd: options.cwd ?? root, env: options.env ?? { VITEHUB_DEV_SERVER_URL: "http://localhost:5173" }, fetch: fetch as unknown as typeof globalThis.fetch, loadConfig: async () => ({ plugins: [plugin], root }), loadNuxtViteConfig: async () => undefined, stderr, stdout })
+  const env = { XDG_CONFIG_HOME: join(tmpdir(), "vitehub-cli-ops-no-login"), ...options.env ?? { VITEHUB_DEV_SERVER_URL: "http://localhost:5173" } }
+  const code = await runViteHubCli({ args, cwd: options.cwd ?? root, env, fetch: fetch as unknown as typeof globalThis.fetch, loadConfig: async () => ({ plugins: [plugin], root }), loadNuxtViteConfig: async () => undefined, stderr, stdout })
   return { code, fetch, stderr: stderr.output(), stdout: stdout.output() }
 }
 
@@ -325,6 +326,58 @@ describe("generated operation commands", () => {
     const code = await runViteHubCli({ args: ["reports", "list", "acme", "--url", "https://app.example.com"], cwd: "/app", env: { VITEHUB_CONSOLE_PRIVATE_KEY_CI: cliPrivateKey }, fetch: fetch as unknown as typeof globalThis.fetch, loadConfig: async () => ({ plugins: [plugin], root: "/app" }), loadNuxtViteConfig: async () => undefined, stderr, stdout })
     expect(code).toBe(0)
     expect(JSON.parse(stdout.output())).toEqual({ deployed: true })
+  })
+
+  describe("after vitehub login", () => {
+    const console = "https://console.example.com"
+    const env = { VITEHUB_CONSOLE_TOKEN: "vhk_secret", VITEHUB_CONSOLE_URL: console }
+    const app = { createdAt: 0, createdBy: "u1", id: "a1b2c3d4-0", keyVariable: "VITEHUB_CONSOLE_KEY_CONSOLE_A1B2C3D4", label: null, publicKey: "pk", teamId: "t1", url: "https://app.example.com" }
+
+    function consoleServer(apps: object[] = [app]) {
+      const registry = createOperationRegistry([{ operations: operationList }])
+      return vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        expect(new Headers(init?.headers).get("authorization")).toBe("Bearer vhk_secret")
+        if (String(url) === `${console}/api/projects`) return Response.json({ projects: apps })
+        expect(String(url)).toBe(`${console}/p/a1b2c3d4-0/_vitehub/rpc`)
+        expect(new Headers(init?.headers).has("x-vitehub-signature")).toBe(false)
+        const { input, operation } = operationRpcRequest(init?.body)
+        const result = await runOperation(registry, operation, input, { access: { mode: "local", sections: "all" }, surface: "cli", user: null })
+        return operationRpcResponse(init?.body, result, { status: result.ok ? 200 : result.status })
+      })
+    }
+
+    it("sends a call on --url through the Console when the app is linked there", async () => {
+      const fetch = consoleServer()
+      const read = await run(["reports", "list", "acme", "--url", "https://app.example.com/"], { env, fetch })
+      expect(read.code, read.stderr).toBe(0)
+      expect(JSON.parse(read.stdout)).toEqual({ limit: null, team: "acme" })
+      expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([`${console}/api/projects`, `${console}/p/a1b2c3d4-0/_vitehub/rpc`])
+
+      const removed = await run(["reports", "delete", "r1", "--yes", "--url", "https://app.example.com"], { env, fetch: consoleServer() })
+      expect(removed.code, removed.stderr).toBe(0)
+      expect(removed.stdout + removed.stderr).not.toContain("vhk_secret")
+    })
+
+    it("calls the app itself when the Console does not have it, or with a private key", async () => {
+      const unknown = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        if (String(url) === `${console}/api/projects`) return Response.json({ projects: [{ ...app, url: "https://other.example.com" }] })
+        expect(String(url)).toBe("https://app.example.com/_vitehub/rpc")
+        expect(new Headers(init?.headers).has("authorization")).toBe(false)
+        return Response.json({ code: "CONSOLE_SIGNATURE_REQUIRED", message: "Sign the request.", ok: false, status: 401 }, { status: 401 })
+      })
+      const direct = await run(["reports", "list", "acme", "--url", "https://app.example.com"], { env, fetch: unknown })
+      expect(direct.code).toBe(1)
+      expect(direct.stderr).toContain("VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>")
+
+      const signed = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        expect(String(url)).toBe("https://app.example.com/_vitehub/rpc")
+        expect(new Headers(init?.headers).get("x-vitehub-signature")).toContain("key=CI")
+        return operationRpcResponse(init?.body, { ok: true, value: {} })
+      })
+      const keyed = await run(["reports", "list", "acme", "--url", "https://app.example.com"], { env: { ...env, VITEHUB_CONSOLE_PRIVATE_KEY_CI: cliPrivateKey }, fetch: signed })
+      expect(keyed.code, keyed.stderr).toBe(0)
+      expect(signed).toHaveBeenCalledTimes(1)
+    })
   })
 
   describe("deployed RPC targets", () => {

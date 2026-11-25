@@ -375,6 +375,11 @@ export interface OperationTarget {
    * deployment credentials; pass an explicit URL without roots to use them.
    */
   roots?: readonly string[]
+  /**
+   * The `authorization` header of a call through the Console, such as `Bearer <key>` to `<console>/p/<app id>`. The
+   * Console signs the call for the person of the key, so the call sends no signature of its own.
+   */
+  authorization?: string
 }
 
 export const operationCredentialHint = "Set VITEHUB_CONSOLE_PRIVATE_KEY_<NAME> to a private key that `vitehub secret console-key` printed, and its public key in VITEHUB_CONSOLE_KEY_<NAME> on the app."
@@ -446,15 +451,18 @@ export async function callOperation(target: OperationTarget, name: string, input
     origin = url.origin
     // A stale discovery file can point to another local service before its identity is checked.
     const env = target.roots?.length ? {} : target.env
-    try {
-      readConsoleSigningKey(env)
-    }
-    catch (error) {
-      return { ok: false, code: "INTERNAL_R0024", fix: "Run `vitehub secret console-key` for a new key pair. Set its private key here and its public key on the app.", message: error instanceof Error ? error.message : String(error), status: 401 }
+    if (!target.authorization) {
+      try {
+        readConsoleSigningKey(env)
+      }
+      catch (error) {
+        return { ok: false, code: "INTERNAL_R0024", fix: "Run `vitehub secret console-key` for a new key pair. Set its private key here and its public key on the app.", message: error instanceof Error ? error.message : String(error), status: 401 }
+      }
     }
     const outcome = await callOperationRpc(name, input ?? {}, async (body) => {
       // The signature covers the exact body, so the headers are made for each request.
-      const headers = await signedOperationHeaders(env, url, body)
+      const headers = target.authorization ? operationHeaders() : await signedOperationHeaders(env, url, body)
+      if (target.authorization) headers.set("authorization", target.authorization)
       if (target.confirmed !== undefined) headers.set(operationConfirmationHeader, target.confirmed ? "confirmed" : "required")
       if (target.roots?.length) headers.set(operationExpectedRootsHeader, target.roots.map(projectRootHash).join(","))
       const response = await (target.fetch ?? fetch)(url.href, {
@@ -487,7 +495,7 @@ export async function callOperation(target: OperationTarget, name: string, input
     if (failure) {
       // A found dev server gets no credentials, so the fix that it sends for a 401 works only with --url.
       if (target.roots?.length && failure.status === 401) failure.fix = `Pass --url ${base.href.slice(0, -1)} to send credentials. A command sends none to the dev server that it finds. ${failure.fix ?? operationCredentialHint}`
-      if ((failure.status === 401 || failure.status === 403) && !hasCredentials(env) && !failure.fix) failure.fix = target.roots?.length ? `Pass --url <origin> to send deployment credentials. ${operationCredentialHint}` : operationCredentialHint
+      if ((failure.status === 401 || failure.status === 403) && !target.authorization && !hasCredentials(env) && !failure.fix) failure.fix = target.roots?.length ? `Pass --url <origin> to send deployment credentials. ${operationCredentialHint}` : operationCredentialHint
       return { ok: false, ...failure }
     }
     if (response.status === 401 || (response.status >= 300 && response.status < 400)) {

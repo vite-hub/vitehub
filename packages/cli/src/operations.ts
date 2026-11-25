@@ -8,6 +8,8 @@ import { callOperation, collectOperationContributions, createOperationRegistry, 
 import { resolve } from "pathe"
 
 import { cliErrorDiagnostics } from "./error-diagnostics.ts"
+import { listConsoleApps, openConsole } from "./setup/console-apps.ts"
+import { readConsoleCredential } from "./setup/console-auth.ts"
 
 import type { ViteHubCliCommandNamespace, ViteHubCliContext, ViteHubCliFeature } from "@vite-hub/internal/cli"
 import type { AnyOperation, OperationFailure } from "@vite-hub/internal/operations"
@@ -127,6 +129,7 @@ function helpOf(operation: AnyOperation, flags: readonly Flag[]): string {
     "  --json         Print JSON.",
     ...(operation.kind === "destructive" ? ["  --yes          Run without asking. This operation changes or removes data."] : []),
     "  --url <origin> The app URL, such as https://app.example.com. Without it the command calls the running dev server.",
+    "                 After `vitehub login`, the call to an app of the Console goes through the Console.",
     "  --timeout <ms> Wait this long for the answer. Default 30000.",
     "  -h, --help     Show this help.",
     "",
@@ -312,11 +315,38 @@ function acceptedRoots(rootDir: string): string[] {
   return [...new Set([rootDir, resolveViteHubProjectRoot(rootDir)])]
 }
 
-function resolveTarget(parsed: ParsedCall, context: ViteHubCliContext): { target: string, roots?: string[] } | { failure: OperationFailure } {
+async function throughConsole(url: string, context: ViteHubCliContext): Promise<{ target: string, authorization: string } | undefined> {
+  if (Object.keys(context.env).some(name => name.startsWith("VITEHUB_CONSOLE_PRIVATE_KEY_") && context.env[name])) return
+  const credential = await readConsoleCredential(context.env)
+  if (!credential) return
+  try {
+    const client = await openConsole(context)
+    const app = (await listConsoleApps(client)).find(app => app.publicKey && sameApp(app.url, url))
+    if (app) return { authorization: `Bearer ${credential.token}`, target: `${client.origin}/p/${encodeURIComponent(app.id)}` }
+  }
+  catch (error) {
+    context.stderr.write(`Warning: the call does not go through the Console, because the Console failed: ${error instanceof Error ? error.message : String(error)}\n`)
+  }
+}
+
+function sameApp(linked: string, url: string): boolean {
+  const key = (value: string) => {
+    const parsed = new URL(value)
+    return `${parsed.origin}${parsed.pathname.replace(/\/+$/u, "")}`
+  }
+  try {
+    return key(linked) === key(url)
+  }
+  catch {
+    return false
+  }
+}
+
+async function resolveTarget(parsed: ParsedCall, context: ViteHubCliContext): Promise<{ target: string, roots?: string[], authorization?: string } | { failure: OperationFailure }> {
   if (parsed.url) {
     const message = appUrlError(parsed.url)
     if (message) return { failure: failureOf(cliErrorDiagnostics.CLI_R0003({ message })) }
-    return { target: parsed.url }
+    return await throughConsole(parsed.url, context) ?? { target: parsed.url }
   }
   try {
     const roots = acceptedRoots(context.rootDir)
@@ -358,7 +388,7 @@ function featureOf(operation: AnyOperation): ViteHubCliFeature {
       catch (error) {
         return writeFailure(failureOf(error), parsed, context)
       }
-      const resolved = resolveTarget(parsed, context)
+      const resolved = await resolveTarget(parsed, context)
       if ("failure" in resolved) return writeFailure(resolved.failure, parsed, context)
       const target = resolved.target
       let confirmed = parsed.yes
@@ -369,6 +399,7 @@ function featureOf(operation: AnyOperation): ViteHubCliFeature {
         confirmed = true
       }
       const rpcTarget = {
+        ...(resolved.authorization ? { authorization: resolved.authorization } : {}),
         confirmed,
         env: context.env,
         ...(context.fetch ? { fetch: context.fetch } : {}),

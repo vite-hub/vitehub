@@ -9,6 +9,17 @@ icon: i-lucide-key-round
 
 Every call to the Console endpoint carries an Ed25519 signature, so reading the host env or a pulled `.env` file is not enough to call it. Each caller has its own key pair, such as one per Console link and one for the CLI in CI, and the app keeps only the public keys in `VITEHUB_CONSOLE_KEY_<NAME>` variables. The build contains no keys.
 
+## Call through the Console
+
+On your own machine, you need no key of your own. After `vitehub login`, a command with `--url` finds the app in the Console and sends the call through it. The Console signs the call for you, with your role in the team:
+
+```bash [Terminal]
+pnpm vitehub login
+pnpm vitehub logs list --url https://app.example.com
+```
+
+The app must be linked in that Console, such as by [`vitehub deploy`](/docs/cli/project#link-the-app-in-the-console) or `vitehub apps link`. When the app is not linked there, or a `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>` is set, the CLI calls the app itself. In CI, use a key of the CLI.
+
 ## Make a key for the CLI
 
 The [Console](/docs/console/get-started#link-a-deployed-app) gives you the line for its own key. For the CLI, make a key pair:
