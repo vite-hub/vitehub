@@ -346,4 +346,14 @@ describe("Collections", () => {
     const negativeFacets = defineCollection(async () => ({ items: [], nextCursor: null, facets: { kind: [{ value: "a", count: -1 }] } }), { route: false, pagination: "provider" })
     await expect(negativeFacets.page({ query: {} })).rejects.toThrow("facets must map fields")
   })
+
+  it("rejects a provider page with more items than the requested limit", async () => {
+    const load = vi.fn(async () => ({ items: [{ id: 1 }, { id: 2 }, { id: 3 }], nextCursor: null }))
+    const collection = defineCollection(load, { defaultLimit: 2, maxLimit: 3, pagination: "provider", route: false })
+
+    await expect(collection.page({ query: {} })).rejects.toThrow("more items than the requested limit")
+    expect(load).toHaveBeenCalledWith(expect.objectContaining({ limit: 2 }))
+    await expect(collection.page({ limit: 3, query: {} })).resolves.toEqual({ items: [{ id: 1 }, { id: 2 }, { id: 3 }], nextCursor: null })
+    await expect(collection.page({ limit: 50, query: {} })).resolves.toMatchObject({ items: [{ id: 1 }, { id: 2 }, { id: 3 }] })
+  })
 })
