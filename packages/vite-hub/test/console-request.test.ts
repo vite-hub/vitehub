@@ -11,6 +11,7 @@ import {
   isRetryableConsoleRequestError,
   loadConsoleKVPages,
   requestConsole,
+  requestConsoleUsage,
 } from "../src/console/runtime/client/request.ts"
 import { consoleScheduleRunDescription, runConsoleScheduleDefinition } from "../src/console/runtime/client/schedule-run.ts"
 import { consoleNavigationError, createConsoleSectionLoader, loadConsoleNavigation } from "../src/console/runtime/client/sections.ts"
@@ -45,6 +46,32 @@ afterEach(() => {
   mocks.call.mockReset()
   fetchMock.mockClear()
   vi.unstubAllGlobals()
+})
+
+describe("requestConsoleUsage()", () => {
+  const query = { agent: "bot", window: "24h" }
+  const missing = { code: "CONSOLE_NOT_FOUND", message: "Unknown Console operation.", ok: false, status: 404 }
+
+  it("asks invocations.usage and does not call usage.get when the app answers", async () => {
+    mocks.call.mockResolvedValue({ ok: true, value: { totals: { invocations: 2 } } })
+    await expect(requestConsoleUsage("/_vitehub/api/usage", { query })).resolves.toEqual({ totals: { invocations: 2 } })
+    expect(mocks.call.mock.calls).toEqual([["invocations.usage", query]])
+  })
+
+  it("falls back to usage.get on each call while the app lacks invocations.usage, as after a rollback", async () => {
+    mocks.call.mockImplementation(async (operation: string) => operation === "usage.get" ? { ok: true, value: { from: "index" } } : missing)
+    await expect(requestConsoleUsage("/_vitehub/api/usage", { query })).resolves.toEqual({ from: "index" })
+    await expect(requestConsoleUsage("/_vitehub/api/usage", { query })).resolves.toEqual({ from: "index" })
+    expect(mocks.call.mock.calls).toEqual([["invocations.usage", query], ["usage.get", query], ["invocations.usage", query], ["usage.get", query]])
+  })
+
+  it("keeps other failures and does not hide them with usage.get", async () => {
+    mocks.call.mockResolvedValue({ code: "CONSOLE_ACCESS_DENIED", message: "No access.", ok: false, status: 403 })
+    await expect(requestConsoleUsage("/_vitehub/api/usage", { query })).rejects.toMatchObject({ status: 403 })
+    mocks.call.mockResolvedValue({ code: "AGENT_NOT_FOUND", message: "Unknown agent.", ok: false, status: 404 })
+    await expect(requestConsoleUsage("/_vitehub/api/usage", { query })).rejects.toMatchObject({ status: 404 })
+    expect(mocks.call.mock.calls.map(([operation]) => operation)).toEqual(["invocations.usage", "invocations.usage"])
+  })
 })
 
 describe("Console requests", () => {

@@ -42,6 +42,7 @@ const states: Array<[string, CommentSendState, string]> = [
   ["confirm", { status: "confirm", count: 2, agent: t3 }, "T3 Code · relay.t3.codes wants your comments from this siteAllow and send 2"],
   ["sending", { status: "sending", count: 2 }, "Sending"],
   ["sent", { status: "sent", count: 0, inbox: false }, "Sent"],
+  ["in inbox with a new comment", { status: "sent", count: 1, inbox: true }, "In inboxTo inbox1"],
   ["working", { status: "working", count: 0, agent: t3, thread: "https://app.t3.codes/threads/42" }, "WorkingOpen thread"],
   ["failed", { status: "failed", count: 2, reason: "The relay answered 502." }, "Not deliveredRetry"],
   ["limited", { status: "limited", count: 2, retryAt }, "Limit reached, try at 15:10"],
