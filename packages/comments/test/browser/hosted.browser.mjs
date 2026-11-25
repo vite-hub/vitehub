@@ -14,13 +14,21 @@ const siteOrigin = `http://localhost:${sitePort}`
 const hosted = new URL("../../dist/hosted/", import.meta.url)
 const harness = fileURLToPath(new URL("../harness.ts", import.meta.url))
 const handlerFile = fileURLToPath(new URL("../../src/runtime/handler.ts", import.meta.url))
-const projects = { "p-1": siteOrigin, "p-2": "http://localhost:1" }
+const projects = { "p-1": siteOrigin, "p-2": "http://localhost:1", "p-3": siteOrigin }
+const signInLanding = { "p-3": "/app/" }
 const token = "token-1"
 
 const sitePage = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Guide</title></head><body>
 <main><h1>Guide</h1><p id="first">Most of you will fly in on Friday and leave on Sunday.</p></main>
 <vitehub-pill>App tools</vitehub-pill>
 <script type="module" src="${consoleOrigin}/hosted-comments.js" data-vitehub-comments="p-1"></script>
+</body></html>`
+
+const vueRouterHashHistoryPage = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>App</title>
+<script>if (!location.hash.startsWith("#/")) history.replaceState(history.state, "", \`#/\${location.hash.slice(1)}\`)</script>
+</head><body>
+<main><h1>App</h1><p>Each route lives in the fragment.</p></main>
+<script type="module" src="${consoleOrigin}/hosted-comments.js" data-vitehub-comments="p-3"></script>
 </body></html>`
 
 const base64url = value => createHash("sha256").update(value).digest("base64url")
@@ -65,7 +73,7 @@ async function fakeConsole() {
       const challenge = url.searchParams.get("challenge")
       const code = `code-${seen.challenges.push(challenge)}`
       seen.codes.set(code, challenge)
-      return send(res, 302, { location: `${project}/guide/#vhc=${code}` }, "")
+      return send(res, 302, { location: `${project}${signInLanding[route[1]] ?? "/guide/"}#vhc=${code}` }, "")
     }
     if (route[2] === "redeem") {
       const input = JSON.parse((await body(req)).toString())
@@ -86,7 +94,7 @@ async function fakeConsole() {
 }
 
 async function fakeSite() {
-  const server = createServer((req, res) => send(res, 200, { "content-type": "text/html; charset=utf-8" }, sitePage))
+  const server = createServer((req, res) => send(res, 200, { "content-type": "text/html; charset=utf-8" }, req.url.startsWith("/app/") ? vueRouterHashHistoryPage : sitePage))
   await new Promise(resolve => server.listen(sitePort, "localhost", resolve))
   return server
 }
@@ -187,5 +195,29 @@ test("hosted Comments sign in through a new tab and comment through the Console 
     assert.equal(ready, false)
   })
 
+  assert.deepEqual(errors, [])
+})
+
+test("hosted Comments sign in on a site whose router rewrites the fragment first", { timeout: 120_000 }, async (t) => {
+  const api = await fakeConsole()
+  t.after(() => Promise.all([close(api.server), api.vite.close()]))
+  const site = await fakeSite()
+  t.after(() => close(site))
+  const browser = await chromium.launch()
+  t.after(() => browser.close())
+  const context = await browser.newContext({ viewport: { width: 1024, height: 720 } })
+  const page = await context.newPage()
+  const errors = []
+  page.on("pageerror", error => errors.push(error.message))
+
+  await page.goto(`${siteOrigin}/app/?vitehub`)
+  await page.getByRole("button", { name: "Comments", exact: true, disabled: false }).click({ timeout: 20_000 })
+  const signIn = page.locator("vitehub-comments a", { hasText: "Sign in to ViteHub" })
+  await signIn.waitFor({ timeout: 20_000 })
+  const [callback] = await Promise.all([context.waitForEvent("page"), signIn.click()])
+  await callback.waitForEvent("close", { timeout: 20_000 })
+  assert.equal(api.seen.codes.size, 0, "the code was redeemed once")
+  assert.equal(new URL(page.url()).hash, "#/", "the first tab keeps its route")
+  assert.equal(await page.locator("vitehub-hosted-comments-pill").count(), 1)
   assert.deepEqual(errors, [])
 })
