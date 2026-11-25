@@ -21,7 +21,7 @@ describe("Console RPC module", () => {
     ["logs.get", "../src/logs/console/logs.get.ts", () => import("../src/logs/console/logs.get.ts")],
     ["rpc", "../src/console/runtime/server/rpc.ts", () => import("../src/console/runtime/server/rpc.ts")],
     ["status.get", "../src/agent/console/status.get.ts", () => import("../src/agent/console/status.get.ts")],
-    ["usage.get", "../src/agent/console/usage.get.ts", () => import("../src/agent/console/usage.get.ts")],
+    ["invocations.usage", "../src/agent/console/invocations.usage.ts", () => import("../src/agent/console/invocations.usage.ts")],
   ] as const)("serves %s as a Fetchable route that imports nothing from h3", async (_name, file, load) => {
     const { default: route } = await load()
 

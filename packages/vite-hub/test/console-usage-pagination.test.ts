@@ -2,13 +2,13 @@ import { createClient } from "@libsql/client";
 import { createLibsqlAgentInvocationStore } from "@vite-hub/agent/invocations";
 import { defineAgentInvocations } from "@vite-hub/agent/server";
 import { expect, it } from "vitest";
-import { createConsoleUsageIndex } from "../src/agent/console/usage-index.ts";
-import { createUsageSummary } from "../src/agent/console/usage.ts";
+import { readAgentUsage } from "@vite-hub/agent/usage";
+import { createUsageSummary, usageQueryWindow } from "../src/agent/console/usage.ts";
 import type { UsageQuery } from "../src/agent/console/usage.ts";
 
 const timestamp = "2026-09-05T12:00:00.000Z";
 
-it.each(["index", "custom"] as const)(
+it.each(["journal", "custom"] as const)(
   "keeps %s history pages stable across insertions and deletions",
   async (mode) => {
     const client = createClient({ url: "file::memory:" });
@@ -19,9 +19,8 @@ it.each(["index", "custom"] as const)(
         maxRecords: false,
       });
       const invocations = defineAgentInvocations({ store });
-      const index = createConsoleUsageIndex(client);
-      const query = (options: UsageQuery) =>
-        mode === "index" ? index.query(options) : createUsageSummary(invocations, options);
+      const query = async (options: UsageQuery) =>
+        mode === "journal" ? readAgentUsage(client, options, usageQueryWindow(options)) : createUsageSummary(invocations, options);
       const insert = (id: string, at = timestamp) =>
         store.create({
           id,
@@ -43,7 +42,6 @@ it.each(["index", "custom"] as const)(
           ],
         });
       for (let i = 0; i < 55; i++) await insert(`session-${String(i).padStart(2, "0")}`);
-      if (mode === "index") await index.rebuild();
       const options = {
         now: timestamp,
         window: "24h" as const,

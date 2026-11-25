@@ -68,6 +68,27 @@ async function readThreadComments(request: ReadGraphql, id: string) {
   return comments
 }
 
+/** The check runs and commit statuses that GitHub reports for one commit now. */
+export async function readHeadChecks(read: ReadGitHubSnapshot, repository: string, head: string, signal?: AbortSignal): Promise<Required<Pick<SnapshotPatch, 'checks' | 'statuses'>>> {
+  const readAll = async (path: string, projection?: string) => {
+    const items: unknown[] = []
+    for (let page = 1; ; page++) {
+      const batch = await read(`${path}&page=${page}`, projection, signal)
+      signal?.throwIfAborted()
+      items.push(...batch)
+      if (batch.length < 100) return items
+    }
+  }
+  const [checks, statuses] = await Promise.all([
+    readAll(`repos/${repository}/commits/${head}/check-runs?per_page=100`, '.check_runs[]'),
+    readAll(`repos/${repository}/commits/${head}/statuses?per_page=100`),
+  ])
+  return {
+    checks: Object.fromEntries(checks.map(parseEvidence).filter(c => !isBabysitterCheckRun(c)).map(c => [`check_run:${c.id}`, c])),
+    statuses: Object.fromEntries(statuses.map(parseEvidence).reverse().map(s => [s.context, { ...s, sha: head }])),
+  }
+}
+
 /** REST snapshots fill webhook gaps without asking an LLM to poll GitHub. */
 export async function readSnapshot(read: ReadGitHubSnapshot, repository: string, number: number, readThreads?: ReadThreads, activityAuthors: readonly string[] = [], signal?: AbortSignal): Promise<import('./store.ts').SnapshotPatch & { pr: GitHubPullRequestRecord }> {
   const prefix = `repos/${repository}`
@@ -86,19 +107,17 @@ export async function readSnapshot(read: ReadGitHubSnapshot, repository: string,
       if (batch.length < 100) return items
     }
   }
-  const [comments, reviews, reviewComments, checks, statuses, threads] = await Promise.all([
+  const [comments, reviews, reviewComments, headChecks, threads] = await Promise.all([
     readAll(`${prefix}/issues/${number}/comments?per_page=100`),
     readAll(`${prefix}/pulls/${number}/reviews?per_page=100`),
     readAll(`${prefix}/pulls/${number}/comments?per_page=100`),
-    readAll(`${prefix}/commits/${pr.head.sha}/check-runs?per_page=100`, '.check_runs[]'),
-    readAll(`${prefix}/commits/${pr.head.sha}/statuses?per_page=100`),
+    readHeadChecks(read, repository, pr.head.sha, signal),
     readThreads?.(repository, number, signal),
   ])
   const normalizedActivityAuthors = new Set(activityAuthors.map(author => author.trim().toLowerCase()))
   const snapshot = { pr, comments: index(comments.map(parseEvidence).filter(comment => !((normalizedActivityAuthors.has(String(comment.user?.login ?? comment.author?.login ?? '').trim().toLowerCase())) && String(comment.body ?? '').startsWith('<!-- vitehub-agent-activity:')))), reviews: index(reviews.map(parseEvidence)),
     reviewComments: index(reviewComments.map(parseEvidence)),
-    checks: Object.fromEntries(checks.map(parseEvidence).filter(c => !isBabysitterCheckRun(c)).map(c => [`check_run:${c.id}`, c])),
-    statuses: Object.fromEntries(statuses.map(parseEvidence).reverse().map(s => [s.context, s])), hydrated: true,
+    ...headChecks, hydrated: true,
   }
   if (threads) Object.assign(snapshot, { threads, threadsHydrated: true, feedbackRefresh: false })
   return snapshot

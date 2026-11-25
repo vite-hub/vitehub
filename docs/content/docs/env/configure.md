@@ -348,7 +348,7 @@ Opt in with `envSchema()` to get typed accessors and runtime checks from a commi
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
-import { envSchema } from '@vite-hub/env/vite'
+import { envSchema } from 'vite-hub/env/vite'
 
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
@@ -364,7 +364,7 @@ export default defineNuxtConfig({
 import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
-import { envSchema } from '@vite-hub/env/vite'
+import { envSchema } from 'vite-hub/env/vite'
 
 export default defineConfig({
   plugins: [vitehub({
@@ -378,7 +378,7 @@ export default defineConfig({
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
-import { envSchema } from '@vite-hub/env/vite'
+import { envSchema } from 'vite-hub/env/vite'
 
 export default defineConfig({
   plugins: [vitehub({
@@ -418,7 +418,7 @@ Unlike a usual example file, a value after `=` becomes a real default. `KEY=` ha
 The default prefix is `VITEHUB_`. Only non-sensitive keys that start with `VITEHUB_PUBLIC_` go to Public Env. `@public` on another key clears sensitivity but keeps it on the server, so an annotation alone never moves a value to the browser.
 
 ```ts
-import { envSchema } from '@vite-hub/env/vite'
+import { envSchema } from 'vite-hub/env/vite'
 
 env: envSchema(new URL('./.env.example', import.meta.url), {
   prefix: 'APP_',

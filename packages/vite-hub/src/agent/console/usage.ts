@@ -13,35 +13,13 @@ import { viteHubErrorDiagnostics } from "../../error-diagnostics.ts";
 import { consoleHttpError } from "../../console/runtime/server/http-error.ts";
 
 export {
-  addUsageDecimal as addDecimal,
   agentUsageCursor as usageCursor,
-  compareUsageModels,
-  emptyUsageTotal as emptyTotals,
-  finishUsage,
   invocationUsage,
-  modelUsage,
   parseAgentUsageStatus as parseConsoleUsageStatus,
   parseAgentUsageWindow as parseConsoleUsageWindow,
-  publicUsageTotals as publicTotals,
-  usageDecimal as decimal,
-  usageDecimalString as decimalString,
-  usageNode,
-  usageSession,
-  usageString as stringValue,
-  withRecordedCost,
 } from "@vite-hub/agent/usage";
 
-export type {
-  AgentInvocationUsage as ConsoleInvocationUsage,
-  AgentUsageCost as ConsoleUsageCost,
-  AgentUsageDecimal as Decimal,
-  AgentUsageQuery as UsageQuery,
-  AgentUsageSession as ConsoleUsageSession,
-  AgentUsageStatus as ConsoleUsageStatus,
-  AgentUsageTotal as UsageTotal,
-  AgentUsageTotals as PublicUsageTotals,
-  AgentUsageWindowName as ConsoleUsageWindow,
-} from "@vite-hub/agent/usage";
+export type { AgentUsageQuery as UsageQuery } from "@vite-hub/agent/usage";
 
 /** Keep every page inside the first request's date window and filter scope. */
 export function usageQueryWindow(options: AgentUsageQuery): AgentUsagePeriod {

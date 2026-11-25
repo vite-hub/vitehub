@@ -8,7 +8,7 @@ import { expect, it } from "vitest"
 import "./support/console-access.ts"
 import { consoleHttpError } from "../src/console/runtime/server/http-error.ts"
 import { consoleRequestError } from "../src/console/runtime/server/request.ts"
-import usageRoute from "../src/agent/console/usage.get.ts"
+import usageRoute from "../src/agent/console/invocations.usage.ts"
 import { failure } from "../src/console/runtime/server/workspace-history.ts"
 import { viteHubErrorDiagnostics } from "../src/error-diagnostics.ts"
 

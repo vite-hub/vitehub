@@ -7,7 +7,7 @@ import type { AuthAccessAuthorize } from "./types.ts"
 
 export const authEventTypes = [
   "user.signed_up", "user.signed_in", "user.signed_out", "sign_in.failed",
-  "session.revoked", "user.banned", "user.unbanned", "user.role_changed",
+  "session.revoked", "session.expired", "user.banned", "user.unbanned", "user.role_changed",
   "user.updated", "user.removed", "impersonation.started", "impersonation.stopped",
   "oauth.consent_granted", "oauth.consent_revoked", "organization.member_added",
   "organization.member_removed", "organization.member_role_changed",

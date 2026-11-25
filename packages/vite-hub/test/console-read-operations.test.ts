@@ -149,7 +149,13 @@ describe("usage operation", () => {
         completedAt: timestamp,
         createdAt: timestamp,
         id: "usage-run",
-        observations: [{ name: "agent.invocation.finish", attributes: { "usage.record": { usage: { totalTokens: 5 } } } }],
+        observations: [{
+          attributes: { "usage.record": { usage: { totalTokens: 5 } } },
+          name: "agent.invocation.finish",
+          sequence: 1,
+          timestamp,
+          type: "run",
+        }],
         status: "completed",
         updatedAt: timestamp,
       })
@@ -160,7 +166,7 @@ describe("usage operation", () => {
   })
 
   it("reads the Usage section, and is `vitehub agent usage`", () => {
-    const usage = agentConsoleOperations.find(operation => operation.name === "usage.get")
+    const usage = agentConsoleOperations.find(operation => operation.name === "invocations.usage")
     expect(usage).toMatchObject({ kind: "read", section: "usage" })
     expect(usage && operationCliPath(usage)).toEqual({ command: "usage", namespace: "agent" })
     expect((usage?.cli || undefined)?.default).toBeUndefined()

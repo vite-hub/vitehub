@@ -2,7 +2,6 @@
   "rawErrors": {
     "packages/vite-hub/src/agent/console/attachment-cleanup.ts": 1,
     "packages/vite-hub/src/agent/console/invocations.get.ts": 3,
-    "packages/vite-hub/src/agent/console/usage-index.ts": 1,
     "packages/vite-hub/src/console/runtime/client/request.ts": 1,
     "packages/vite-hub/src/logs/source.ts": 1,
     "packages/vite-hub/src/plugins.ts": 1,
@@ -12,7 +11,6 @@
   "codesWithoutFix": [],
   "invariants": {
     "packages/vite-hub/src/agent/console/attachment-cleanup.ts": 1,
-    "packages/vite-hub/src/agent/console/usage-index.ts": 1,
     "packages/vite-hub/src/console/runtime/client/operation-view.ts": 1,
     "packages/vite-hub/src/console/runtime/client/shiki-wasm.ts": 1,
     "packages/vite-hub/src/console/runtime/server/access-policy.ts": 2,

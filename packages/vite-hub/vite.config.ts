@@ -167,7 +167,7 @@ const runtimeEntries = [
   "src/logs/console/logs.get.ts",
   "src/console/runtime/server/sections.get.ts",
   "src/console/runtime/server/setup.ts",
-  "src/agent/console/usage.get.ts",
+  "src/agent/console/invocations.usage.ts",
   "src/agent/console/status.get.ts",
   // The Console segment of the Comments pill. Comments installs it at startup, and it reads the visitor on the first
   // page tools session request.

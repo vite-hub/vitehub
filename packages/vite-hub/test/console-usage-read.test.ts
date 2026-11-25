@@ -3,7 +3,6 @@ import { createLibsqlAgentInvocationStore } from "@vite-hub/agent/invocations";
 import { defineAgentInvocations } from "@vite-hub/agent/server";
 import { agentUsagePeriod, readAgentUsage } from "@vite-hub/agent/usage";
 import { afterEach, describe, expect, it } from "vitest";
-import { createConsoleUsageIndex } from "../src/agent/console/usage-index.ts";
 import { createUsageSummary } from "../src/agent/console/usage.ts";
 import type { AgentInvocationRecord, AgentInvocations } from "@vite-hub/agent";
 import type { AgentUsagePeriod, AgentUsageQuery } from "@vite-hub/agent/usage";
@@ -78,38 +77,28 @@ const finish = (usage: unknown) => ({
   type: "lifecycle" as const,
 });
 
-async function compare(client: Client, invocations: AgentInvocations, index: ReturnType<typeof createConsoleUsageIndex>) {
+async function compare(client: Client, invocations: AgentInvocations) {
   for (const window of ["24h", "7d", "90d"] as const) {
     for (const filters of [{}, { agentName: "bot", status: "failed" as const, search: "selected" }, { status: "cancelled" as const }]) {
       const query: AgentUsageQuery = { now, window, ...filters };
       const period = agentUsagePeriod(query);
       if ("problem" in period) throw new Error(period.problem);
       const { generatedAt: _read, ...read } = await readAgentUsage(client, query, period);
-      const indexed = await index.query(query);
-      const label = JSON.stringify(query);
-      expect(read.totals, label).toEqual(indexed.totals);
-      expect(read.buckets, label).toEqual(indexed.buckets);
-      expect(read.models, label).toEqual(indexed.models);
-      expect(read.agents, label).toEqual(indexed.agents);
-      expect(read.sessionCount, label).toEqual(indexed.sessionCount);
-      expect(read.partial, label).toEqual(indexed.partial);
-      expect(read.sessions, label).toEqual(indexed.sessions);
       const { generatedAt: _fallback, ...fallback } = await createUsageSummary(invocations, query);
-      expect(read, label).toEqual(fallback);
+      expect(read, JSON.stringify(query)).toEqual(fallback);
     }
   }
 }
 
 describe("Console usage that the journal adds up at request time", { timeout: 90_000 }, () => {
-  it("gives the totals of usage.get, after same-timestamp updates, deletes, and backdated imports", async () => {
+  it("gives the totals of the record scan, after same-timestamp updates, deletes, and backdated imports", async () => {
     const { client, invocations, store } = await journal();
     const before = await tables(client);
     const period = agentUsagePeriod({ now });
     if ("problem" in period) throw new Error(period.problem);
     await readAgentUsage(client, { now }, period);
     expect(await tables(client)).toEqual(before);
-    const index = createConsoleUsageIndex(client);
-    await compare(client, invocations, index);
+    await compare(client, invocations);
 
     const updatedAt = async () => (await client.execute({ args: ["selected-precise"], sql: "SELECT updated_at FROM vitehub_agent_invocations WHERE id = ?" })).rows[0]?.updated_at;
     const updated = await updatedAt();
@@ -121,7 +110,7 @@ describe("Console usage that the journal adds up at request time", { timeout: 90
       createdAt: "2026-09-02T08:00:00.000Z", updatedAt: "2026-09-02T08:00:00.000Z", completedAt: "2026-09-02T08:00:00.000Z",
       observations: [{ ...finish({ model: "imported", ...priced("3") }), sequence: 1 }],
     });
-    await compare(client, invocations, index);
+    await compare(client, invocations);
     const { sessions, models } = await readAgentUsage(client, { now, window: "7d" }, agentUsagePeriod({ now, window: "7d" }) as AgentUsagePeriod);
     expect(sessions.map(session => session.id)).toContain("imported");
     expect(sessions.map(session => session.id)).not.toContain("selected-zero");

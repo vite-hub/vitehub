@@ -104,7 +104,7 @@ describe("CLI documentation contract", () => {
       // The task plugin contributes these only for an app that has tasks.
       { vitehub: { operations: [{ export: "taskOperations", load: async () => taskOperations, module: ownModule(import.meta.url, "task/operations") }] } },
       // The Console plugin contributes every Console operation; the reference documents the Database ones and `agent usage`.
-      { vitehub: { operations: [{ export: "consoleOperations", load: async () => (await loadConsoleOperations()).filter((operation) => operation.name.startsWith("databases.") || operation.name === "usage.get"), module: "vite-hub/console/server" }] } },
+      { vitehub: { operations: [{ export: "consoleOperations", load: async () => (await loadConsoleOperations()).filter((operation) => operation.name.startsWith("databases.") || operation.name === "invocations.usage"), module: "vite-hub/console/server" }] } },
       typesPlugin,
       hubBundle(),
     ];
