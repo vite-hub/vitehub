@@ -21,6 +21,8 @@ import type { JournalCompactResult, JournalFileMeasurement } from "./agent-invoc
 import { invocationActivityTrace } from "../invocations/activity.ts"
 import { formatInvocationPageChanges, invocationPageChanges } from "../invocations/page-changes.ts"
 import { maxAgentInvocationListLimit } from "../invocations/list-options.ts"
+import { agentUsagePeriod, agentUsageRow, agentUsageStatuses, matchesAgentUsageQuery, parseAgentUsageStatus, parseAgentUsageWindow, summarizeAgentUsage } from "../usage.ts"
+import type { AgentUsagePeriod, AgentUsageQuery, AgentUsageRow, AgentUsageSummary } from "../usage.ts"
 import { defaultAgentJournalPostgresPrefix } from "../invocations/postgres-table-names.ts"
 import { agentJournalBesideState, defaultAgentInvocationsAuthTokenEnv, defaultAgentInvocationsPath, defaultAgentInvocationsUrlEnv } from "../invocations/default-location.ts"
 import { formatRetentionPercentage, parseRetentionDuration, parseRetentionSize } from "./retention-policy.ts"
@@ -58,18 +60,18 @@ export interface AgentInvocationsCliOptions {
   timeout?: number
 }
 
-type Action = "capabilities" | "compact" | "delete" | "export" | "get" | "list" | "prune" | "tail" | "undo" | "wait-idle" | "workspace"
+type Action = "capabilities" | "compact" | "delete" | "export" | "get" | "list" | "prune" | "tail" | "undo" | "usage" | "wait-idle" | "workspace"
 
-const actions = new Set<string>(["capabilities", "compact", "delete", "export", "get", "list", "prune", "tail", "undo", "wait-idle", "workspace"] satisfies Action[])
+const actions = new Set<string>(["capabilities", "compact", "delete", "export", "get", "list", "prune", "tail", "undo", "usage", "wait-idle", "workspace"] satisfies Action[])
 /** Actions that read or rebuild the whole journal instead of one record. */
-const journalActions = new Set<string | undefined>(["capabilities", "compact", "export", "list", "prune", "wait-idle"])
+const journalActions = new Set<string | undefined>(["capabilities", "compact", "export", "list", "prune", "usage", "wait-idle"])
 const consoleActions = new Set<string | undefined>(["capabilities", "workspace"])
 function isAction(value: string): value is Action {
   return actions.has(value)
 }
 
 /** Actions that can read the journal file selected by --database. */
-const fileActions = new Set<string | undefined>(["export", "get", "list", "tail", "wait-idle"])
+const fileActions = new Set<string | undefined>(["export", "get", "list", "tail", "usage", "wait-idle"])
 
 function readsJournalFile(parsed: ParsedArgs): boolean {
   return fileActions.has(parsed.action) && parsed.database !== undefined
@@ -111,11 +113,13 @@ interface ParsedArgs {
   tablePrefix?: string
   timeout?: number
   url: string
+  search?: string
   /** wait-idle ignores pending or running records last updated before this age. */
   staleAfter: number
   urlSet: boolean
   /** How long wait-idle waits. `timeout` stays the request timeout. */
   waitTimeout: number
+  window?: string
   workspace: { cursor?: string, history?: boolean, path?: string, ref?: string, revision?: string }
 }
 
@@ -155,7 +159,7 @@ const durationUnits: Record<string, number> = { d: 86_400_000, h: 3_600_000, m: 
 
 function usage(context: AgentInvocationsCliContext): void {
   context.stdout.write([
-    "Usage: vitehub agent invocations <list|get|tail|export|wait-idle|cancel|undo|capabilities|workspace|delete|prune|compact> [id] [options]",
+    "Usage: vitehub agent invocations <list|get|tail|export|usage|wait-idle|cancel|undo|capabilities|workspace|delete|prune|compact> [id] [options]",
     "",
     "list, get, tail, and cancel inspect or control an application's Agent Invocation journal.",
     "wait-idle exits 0 once no Invocation is pending or running, and 1 when --timeout passes first.",
@@ -165,6 +169,7 @@ function usage(context: AgentInvocationsCliContext): void {
     "capabilities lists the capabilities an Invocation can get, and workspace <id> reads the Workspace files of one,",
     "through the app's Console.",
     "export prints one JSON line per Invocation, oldest first, for offline analysis and evals.",
+    "usage adds up the token use and cost of the Invocations that ended in a window, as the Console does.",
     "delete and prune remove completed, failed, and cancelled records from a SQLite or libSQL journal. delete <id> --url",
     "deletes through the Console of that app, after a question or with --yes.",
     "compact rebuilds a local SQLite journal file with VACUUM, so it gives free pages back to the file system,",
@@ -173,7 +178,8 @@ function usage(context: AgentInvocationsCliContext): void {
     "the dev server of this project: reads go through its Console, and cancel asks its Nitro runtime.",
     "When no dev server runs and a Node app keeps its journal in a Postgres default Database, list, get, tail,",
     "export, and wait-idle read that Database with its configured connection, read-only.",
-    "With --database, list, get, tail, export, and wait-idle read a local SQLite journal file read-only, without the app.",
+    "With --database, list, get, tail, export, usage, and wait-idle read a local SQLite journal file read-only, without",
+    "the app.",
     "This command does not load the project config.",
     "",
     "Options:",
@@ -209,6 +215,8 @@ function usage(context: AgentInvocationsCliContext): void {
     "  --agent <name>            export only this Agent's Invocations.",
     "  --since <duration|date>   export only Invocations created after this age or ISO date, such as 7d or 2026-10-01.",
     "  --observations            export every observation too.",
+    "  --window <window>         usage adds up this window: 24h, 7d, 14d, 30d, or 90d. Defaults to 30d.",
+    "  --search <text>           usage counts only Invocations whose id, title, or Agent name has this text.",
     "  --activity                export a compact activity trace too: tool calls, messages, reasoning summaries,",
     "                            token usage, approvals, and errors, in order. Long text is cut.",
     "  --change <id>             The page change that undo puts back, as get lists it.",
@@ -306,7 +314,7 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
   }
   const target: { timeout?: number, url: string } = { url: parsed.url }
   // --timeout is the request timeout, except for wait-idle, where it is how long to wait.
-  const actionOptionsWithValues = new Set(["--agent", "--url", "--server", "--database", "--table-prefix", "--older-than", "--max-size", "--max-records", "--status", "--timeout", "--interval", "--stale-after", "--origin", "--since", "--cursor", "--path", "--ref", "--revision"])
+  const actionOptionsWithValues = new Set(["--agent", "--url", "--server", "--database", "--table-prefix", "--older-than", "--max-size", "--max-records", "--status", "--timeout", "--interval", "--stale-after", "--origin", "--since", "--cursor", "--path", "--ref", "--revision", "--window", "--search"])
   let actionFromPositionals: Action | "cancel" | undefined
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index]!
@@ -357,6 +365,10 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     else if (argument.startsWith("--change=")) parsed.change = argument.slice("--change=".length)
     else if (argument === "--origin") { parsed.origin = optionValue(args, index, argument); index += 1 }
     else if (argument.startsWith("--origin=")) parsed.origin = argument.slice("--origin=".length)
+    else if (argument === "--window") { parsed.window = optionValue(args, index, argument); index += 1 }
+    else if (argument.startsWith("--window=")) parsed.window = argument.slice("--window=".length)
+    else if (argument === "--search") { parsed.search = optionValue(args, index, argument); index += 1 }
+    else if (argument.startsWith("--search=")) parsed.search = argument.slice("--search=".length)
     else if (argument === "--agent") { parsed.agent = optionValue(args, index, argument); index += 1 }
     else if (argument.startsWith("--agent=")) parsed.agent = argument.slice("--agent=".length)
     else if (argument === "--since") { parsed.since = sinceTime(optionValue(args, index, argument)); index += 1 }
@@ -398,11 +410,11 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     else throw agentDiagnostics.AGENT_R0505({ message: `Unexpected argument: ${redactCliArgument(argument)}.` })
   }
 
-  if (!parsed.help && !parsed.action) throw agentDiagnostics.AGENT_R0506({ message: "Choose list, get, tail, export, wait-idle, cancel, undo, capabilities, workspace, delete, prune, or compact." })
+  if (!parsed.help && !parsed.action) throw agentDiagnostics.AGENT_R0506({ message: "Choose list, get, tail, export, usage, wait-idle, cancel, undo, capabilities, workspace, delete, prune, or compact." })
   if (!parsed.help && !journalActions.has(parsed.action) && !parsed.id) throw agentDiagnostics.AGENT_R0507({ message: `${parsed.action} requires an invocation id.` })
   if (!parsed.help && parsed.dryRun && parsed.action !== "prune" && parsed.action !== "compact") throw agentDiagnostics.AGENT_R0505({ message: "--dry-run is only supported for prune and compact." })
   if (!parsed.help && !waiting && staleAfterSet) throw agentDiagnostics.AGENT_R0505({ message: "--stale-after is only supported for wait-idle." })
-  if (!parsed.help && !waiting && parsed.action !== "list" && parsed.action !== "export" && parsed.action !== "capabilities" && parsed.agent !== undefined) throw agentDiagnostics.AGENT_R0505({ message: "--agent is only supported for list, wait-idle, export, and capabilities." })
+  if (!parsed.help && !waiting && parsed.action !== "list" && parsed.action !== "export" && parsed.action !== "usage" && parsed.action !== "capabilities" && parsed.agent !== undefined) throw agentDiagnostics.AGENT_R0505({ message: "--agent is only supported for list, wait-idle, export, usage, and capabilities." })
   if (!parsed.help && parsed.yes && parsed.action !== "delete") throw agentDiagnostics.AGENT_R0505({ message: "--yes is only supported for delete." })
   if (!parsed.help && parsed.action !== "workspace" && Object.keys(parsed.workspace).length) throw agentDiagnostics.AGENT_R0505({ message: "Workspace options are only supported for workspace." })
   if (!parsed.help && consoleActions.has(parsed.action) && parsed.database !== undefined) throw agentDiagnostics.AGENT_R0505({ message: `${parsed.action} reads the Console of the app. Pass --url instead of --database.` })
@@ -412,6 +424,11 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
   const exportOnly = [["--origin", parsed.origin], ["--since", parsed.since], ["--observations", parsed.observations || undefined], ["--activity", parsed.activity || undefined]] as const
   const misplaced = exportOnly.find(([, value]) => value !== undefined)?.[0]
   if (!parsed.help && parsed.action !== "export" && misplaced) throw agentDiagnostics.AGENT_R0505({ message: `${misplaced} is only supported for export.` })
+  if (!parsed.help && parsed.action !== "usage" && (parsed.window !== undefined || parsed.search !== undefined)) throw agentDiagnostics.AGENT_R0505({ message: "--window and --search are only supported for usage." })
+  if (parsed.action === "usage" && parsed.window !== undefined && !parseAgentUsageWindow(parsed.window)) throw agentDiagnostics.AGENT_R0503({ message: "--window must be one of 24h, 7d, 14d, 30d, or 90d." })
+  if (parsed.action === "usage" && parsed.status !== undefined && !parseAgentUsageStatus(parsed.status)) {
+    throw agentDiagnostics.AGENT_R0503({ message: `--status must be one of ${agentUsageStatuses.join(", ")} for usage.` })
+  }
   if (parsed.action === "export" && parsed.status !== undefined && !invocationStatuses.has(parsed.status)) {
     throw agentDiagnostics.AGENT_R0503({ message: `--status must be one of ${[...invocationStatuses].join(", ")}.` })
   }
@@ -626,6 +643,7 @@ function appInvocationsTarget(consoleTarget: InvocationsTarget, local: () => Inv
     detail: async (id, observations) => await use(target => target.detail(id, observations)),
     list: async () => await use(target => target.list()),
     scan: async (statuses, timeout) => await use(target => target.scan(statuses, timeout)),
+    usage: async (query, period) => await use(target => readUsage(target, query, period)),
   }
 }
 
@@ -670,6 +688,7 @@ interface InvocationsTarget {
   list: () => Promise<AgentInvocationListResult>
   /** Every record with one of these statuses, following list cursors to the end. */
   scan: (statuses: readonly string[], timeout?: number) => Promise<InvocationSummary[]>
+  usage?: (query: AgentUsageQuery, period: AgentUsagePeriod) => Promise<AgentUsageSummary>
 }
 
 function consoleInvocationsTarget(target: ConsoleTarget, parsed: ParsedArgs): InvocationsTarget {
@@ -687,7 +706,21 @@ function consoleInvocationsTarget(target: ConsoleTarget, parsed: ParsedArgs): In
       const requestTarget = timeout === undefined ? target : { ...target, timeout }
       return await listConsoleInvocations(requestTarget, Number.POSITIVE_INFINITY, new Set(statuses))
     },
+    usage: async query => await consoleCall(target, "invocations.usage", {
+      ...(query.agentName === undefined ? {} : { agent: query.agentName }),
+      ...(query.search === undefined ? {} : { search: query.search }),
+      ...(query.status === undefined ? {} : { status: query.status }),
+      ...(query.window === undefined ? {} : { window: query.window }),
+    }, parseUsageSummary),
   }
+}
+
+function parseUsageSummary(value: unknown): AgentUsageSummary {
+  if (!isRuntimeRecord(value) || !isRuntimeRecord(value.totals) || !Array.isArray(value.agents) || typeof value.from !== "string" || typeof value.to !== "string") {
+    throw agentDiagnostics.AGENT_R0511({ message: "The Console answered invocations.usage without usage totals." })
+  }
+  // SAFETY: the app built this value with readAgentUsage() or summarizeAgentUsage(); the check above covers the fields that the CLI prints.
+  return value as unknown as AgentUsageSummary
 }
 
 /** Read a journal file through the same response parsers as an endpoint, so every target prints the same records. */
@@ -705,6 +738,7 @@ async function journalFileTarget(parsed: ParsedArgs, context: AgentInvocationsCl
       throw agentDiagnostics.AGENT_R0505({ message: "cancel needs the running app. Pass --url instead of --database." })
     },
     close: file.close,
+    ...(file.usage ? { usage: file.usage } : {}),
     detail: async (id) => {
       const detail = file.get(id)
       if (!detail) throw agentDiagnostics.AGENT_INVOCATION_NOT_FOUND({ id, location: database.label })
@@ -1218,6 +1252,41 @@ async function exportInvocations(parsed: ParsedArgs, context: AgentInvocationsCl
   return 0
 }
 
+async function readUsage(target: InvocationsTarget, query: AgentUsageQuery, period: AgentUsagePeriod): Promise<AgentUsageSummary> {
+  if (target.usage) return await target.usage(query, period)
+  const rows: AgentUsageRow[] = []
+  const summaries = (await target.scan(agentUsageStatuses))
+    .filter(summary => matchesAgentUsageQuery(agentUsageRow(summary), query, period))
+    .toSorted((left, right) => right.updatedAt.localeCompare(left.updatedAt) || right.id.localeCompare(left.id))
+  for (const summary of summaries) rows.push(agentUsageRow(detailRecord(await target.detail(summary.id))))
+  return summarizeAgentUsage(rows, query, period)
+}
+
+async function summarizeUsage(parsed: ParsedArgs, context: AgentInvocationsCliContext, target: InvocationsTarget): Promise<number> {
+  const window = parsed.window === undefined ? undefined : parseAgentUsageWindow(parsed.window)
+  const status = parsed.status === undefined ? undefined : parseAgentUsageStatus(parsed.status)
+  const search = parsed.search?.trim()
+  const query: AgentUsageQuery = { ...(window ? { window } : {}), ...(parsed.agent ? { agentName: parsed.agent } : {}), ...(status ? { status } : {}), ...(search ? { search } : {}) }
+  const period = agentUsagePeriod(query)
+  if ("problem" in period) throw agentDiagnostics.AGENT_R0503({ message: "--window must be one of 24h, 7d, 14d, 30d, or 90d." })
+  const result = await readUsage(target, query, period)
+  context.stdout.write(parsed.json ? `${JSON.stringify(result, null, 2)}\n` : usageText(result))
+  return 0
+}
+
+function usageText(result: AgentUsageSummary): string {
+  const line = (label: string, totals: AgentUsageSummary["totals"]) => {
+    const tokens = totals.totalTokensAvailable ? `${totals.totalTokens} tokens` : "tokens not recorded"
+    const cost = totals.costAvailable ? `, ${totals.costEstimated ? "about " : ""}$${totals.costUsd}` : ""
+    return `${label}: ${totals.invocations} Invocation${totals.invocations === 1 ? "" : "s"}, ${tokens}${cost}\n`
+  }
+  return [
+    line(`Agent usage from ${result.from} to ${result.to}`, result.totals),
+    ...result.agents.map(agent => line(`  ${agent.agent}`, agent)),
+    ...(result.partial ? ["Some Invocations did not record all of their usage.\n"] : []),
+  ].join("")
+}
+
 /** Applies --max-size and --max-records, and --older-than when it is given, with the store's own retention. */
 async function pruneByLimits(parsed: ParsedArgs, context: AgentInvocationsCliContext): Promise<number> {
   const retention: AgentRetentionPolicy = {
@@ -1433,6 +1502,7 @@ export async function runAgentInvocationsCli(
     if (parsed.action === "compact") return await compactInvocations(parsed, context, options)
     if (parsed.action === "wait-idle") return await waitIdle(parsed, context, target, sleep)
     if (parsed.action === "export") return await exportInvocations(parsed, context, target)
+    if (parsed.action === "usage") return await summarizeUsage(parsed, context, target)
     if (parsed.action === "list") {
       const result = await target.list()
       if (parsed.json) context.stdout.write(`${JSON.stringify(result, null, 2)}\n`)

@@ -129,7 +129,8 @@ describe.each(targets)("Rate Limit kv driver on $name", (target) => {
 
   it("counts a client key that KV would reject as a key segment", async () => {
     const [storage] = target.stores(1)
-    const limiter = createRateLimiter({ driver: kvRateLimitDriver({ storage: counterStorage(storage!) }), failure: "allow", limit: 1, name: `dots-${randomUUID()}`, window: "1m" })
+    const now = Date.UTC(2026, 10, 9, 12, 0, 0)
+    const limiter = createRateLimiter({ driver: kvRateLimitDriver({ now: () => now, storage: counterStorage(storage!) }), failure: "allow", limit: 1, name: `dots-${randomUUID()}`, window: "1m" })
     await expect(limiter.consume({ key: ".." })).resolves.toMatchObject({ allowed: true, used: 1 })
     await expect(limiter.consume({ key: ".." })).resolves.toMatchObject({ allowed: false, reason: "limited" })
   })
