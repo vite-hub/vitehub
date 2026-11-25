@@ -6,11 +6,12 @@ import { env } from "@vite-hub/env"
 import { defineAgent } from "../src/index.ts"
 import { agentProcessHostIntake, registerAgentProcessHostIntake, withAgentProcessHost, type AgentProcessHostInstance } from "../src/process-host.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
-import { usesProcessHostPreset } from "../src/discovery.ts"
+import { discoverProcessHostAgentNames, usesProcessHostPreset } from "../src/discovery.ts"
 import { createAgentProcessHosts } from "../src/runtime/process.ts"
 import { agentProcessHostLeaseIntervalMs, agentProcessHostLeaseKey, agentProcessHostLeaseTtlMs } from "../src/runtime/process-host-lease.ts"
 import { createMemoryLeaseStore, createSqlLeaseStore, type Lease, type LeaseStore } from "@vite-hub/runtime"
 import { DatabaseSync } from "node:sqlite"
+import { resolveConfig } from "vite"
 import { installStubPackages } from "./support/stub-packages.ts"
 
 const roots: string[] = []
@@ -45,6 +46,37 @@ describe("process host presets", () => {
     expect(usesProcessHostPreset(`const preset = await import("@acme/host/worker")`, file)).toBe(false)
     expect(usesProcessHostPreset(`import { other } from "@acme/host/other"`, file)).toBe(false)
     expect(usesProcessHostPreset(`import { worker } from "@acme/missing/worker"`, file)).toBe(false)
+  })
+
+  it("ignores an import that only brings types from a process host subpath", async () => {
+    const file = join(await hostPackageRoot("vitehub-process-host-types-"), "server", "agents", "worker.ts")
+    expect(usesProcessHostPreset(`import type { WorkerOptions } from "@acme/host/worker"`, file)).toBe(false)
+    expect(usesProcessHostPreset(`import { type WorkerOptions } from "@acme/host/worker"`, file)).toBe(false)
+    expect(usesProcessHostPreset(`export type { WorkerOptions } from "@acme/host/worker"`, file)).toBe(false)
+    expect(usesProcessHostPreset(`import { type WorkerOptions, worker } from "@acme/host/worker"`, file)).toBe(true)
+    expect(usesProcessHostPreset(`export { worker as default } from "@acme/host/worker"`, file)).toBe(true)
+    expect(usesProcessHostPreset(`import "@acme/host/worker"`, file)).toBe(true)
+  })
+
+  it("finds a process host preset that an Agent reaches through relative imports", async () => {
+    const root = await hostPackageRoot("vitehub-process-host-relative-")
+    const files: Record<string, string> = {
+      "server/agents/direct.ts": workerSource,
+      "server/agents/shared.ts": `import { defineAgent } from "vite-hub/agent"\nimport { preset } from "../lib/preset"\nexport default defineAgent({ extends: preset })\n`,
+      "server/agents/reexport.ts": `export { default } from "./direct.ts"\n`,
+      "server/agents/types.ts": `import { defineAgent } from "vite-hub/agent"\nimport type { Preset } from "../lib/preset"\nexport default defineAgent({ name: "types" })\nexport type Local = Preset\n`,
+      "server/agents/plain.ts": `import { defineAgent } from "vite-hub/agent"\nimport { label } from "../lib/cycle-a"\nimport notes from "../lib/notes.json"\nexport default defineAgent({ name: label + notes.length })\n`,
+      "server/lib/preset.ts": `import { worker } from "@acme/host/worker"\nexport const preset = worker\nexport type Preset = typeof worker\n`,
+      "server/lib/cycle-a.ts": `import { other } from "./cycle-b"\nexport const label = "plain" + other\n`,
+      "server/lib/cycle-b.ts": `import { label } from "./cycle-a"\nexport const other = String(label)\n`,
+      "server/lib/notes.json": `[]`,
+    }
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await mkdir(join(root, "server", "lib"), { recursive: true })
+    await Promise.all(Object.entries(files).map(([path, source]) => writeFile(join(root, path), source)))
+    const definitions = ["direct", "shared", "reexport", "types", "plain"].map(name => ({ name, handler: join(root, "server", "agents", `${name}.ts`) }))
+    const config = await resolveConfig({ root, configFile: false, envDir: false }, "build")
+    await expect(discoverProcessHostAgentNames(definitions, config.createResolver())).resolves.toEqual(["direct", "reexport", "shared"])
   })
 })
 
@@ -90,6 +122,33 @@ describe("createAgentProcessHosts", () => {
     expect(hosts.status()).toBe("accepting")
     expect((await hosts.health()).status).toBe("healthy")
     await hosts.close()
+  })
+
+  it.each([false, true])("reports a host as starting until its Agent has loaded (Lease: %s)", async (leased) => {
+    const host = fakeHost()
+    const loaded = deferred<void>()
+    const loading = deferred<void>()
+    const leases = createMemoryLeaseStore()
+    const agent = withAgentProcessHost(defineAgent({ name: "worker", driver: { run: () => "" } }), { create: async () => host })
+    const hosts = createAgentProcessHosts({ names: ["worker"], enabled: true, leases: leased ? () => leases : undefined, registry: {
+      worker: async () => {
+        loading.resolve()
+        await loaded.promise
+        return { default: agent }
+      },
+    }, state: () => ({ extension: vi.fn() }) })
+    hosts.start()
+    await loading.promise
+    try {
+      expect(await hosts.health()).toEqual({ status: "degraded", agents: { worker: { status: "degraded", reason: "Process host is starting." } } })
+    }
+    finally {
+      loaded.resolve()
+      await vi.waitFor(() => expect(host.started).toBe(1))
+      expect(await hosts.health()).toEqual({ status: "healthy", agents: { worker: { status: "healthy", ...(leased ? { role: "holder" } : {}) } } })
+      await hosts.close()
+    }
+    if (!leased) expect(await hosts.health()).toEqual({ status: "healthy", agents: {} })
   })
 
   it("does not start outside production unless enabled", async () => {
@@ -313,13 +372,20 @@ describe("generated process hosts", () => {
     return root
   }
 
-  it("writes the host entry, plugin, and routes for a process host Agent on Node", async () => {
+  it.each([undefined, "../../lib/preset.js", "../../lib/presets"])("writes the host entry, plugin, and routes on Node (%s)", async (specifier) => {
     const { hubAgent } = await import("../src/vite.ts")
-    const root = await project(workerSource)
+    const root = await project(specifier ? `export { default } from ${JSON.stringify(specifier)}` : workerSource)
+    const directory = join(root, "server", "lib")
+    await mkdir(join(directory, "presets"), { recursive: true })
+    await writeFile(join(directory, "preset.ts"), workerSource)
+    await writeFile(join(directory, "presets", "index.ts"), workerSource)
     const plugin = hubAgent({ providers: { state: { driver: "libsql", journalMode: "delete", url: "file:state.sqlite" } } })
-    if (typeof plugin.configResolved !== "function") throw new TypeError("Expected Agent configResolved hook.")
+    if (typeof plugin.config !== "function" || typeof plugin.configResolved !== "function") throw new TypeError("Expected Agent config hooks.")
+    const config = { command: "build", mode: "production", root, nitro: {} }
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-    await plugin.configResolved.call({} as never, { command: "build", root } as never)
+    await plugin.config.call({} as never, config, { command: "build", mode: "production" })
+    expect(config.nitro).toMatchObject({ handlers: expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/host/health" })]) })
+    await plugin.configResolved.call({} as never, config as never)
     const entry = await readFile(join(root, ".vitehub/agent/process-hosts.ts"), "utf8")
     expect(entry).toContain('import registry from "#vitehub/agent/registry"')
     expect(entry).toContain('createAgentProcessHosts({ names: ["worker"], registry, state: agentProcessHostState })')
@@ -371,17 +437,29 @@ describe("generated process hosts", () => {
   it("registers the plugin and host routes, and rejects hosts that cannot run a process", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await project(workerSource)
-    const config = (preset?: string) => {
+    const config = async (preset?: string) => {
       const plugin = hubAgent({ providers: { state: { driver: "libsql", url: "libsql://state.example.test" } } })
       if (typeof plugin.config !== "function") throw new TypeError("Expected Agent config hook.")
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       const options = { root, ...(preset ? { vitehub: { host: preset } } : {}), nitro: {} } as never
-      plugin.config.call({} as never, options, { command: "build", mode: "production" } as never)
+      await plugin.config.call({} as never, options, { command: "build", mode: "production" } as never)
       return options as { nitro: { plugins?: string[], handlers?: { route: string }[] } }
     }
-    const node = config()
+    const node = await config()
     expect(node.nitro.plugins).toEqual(expect.arrayContaining([expect.stringContaining("process-hosts-plugin.ts")]))
     expect(node.nitro.handlers?.map(handler => handler.route)).toEqual(expect.arrayContaining(["/_vitehub/host/drain", "/_vitehub/host/health"]))
-    expect(() => config("vercel")).toThrow(/AGENT_B0022|cannot run it/)
+    await expect(config("vercel")).rejects.toThrow(/AGENT_B0022|cannot run it/)
+
+    const directory = join(root, "server", "agents", "worker")
+    const agent = join(directory, "agent.ts")
+    await writeFile(join(directory, "barrel.ts"), `export { worker as preset, worker as default } from "@acme/host/worker"; export const name = "worker"`)
+    await writeFile(join(directory, "winner.ts"), `export { worker as preset } from "@acme/host/worker"`)
+    await writeFile(join(directory, "winner.js"), `export const preset = "worker"`)
+    for (const [imported, specifier] of [["name", "./barrel"], ["preset", "./winner.js"], ["default", "./barrel.ts?raw"]]) {
+      await writeFile(agent, `import { ${imported} as name } from "${specifier}"; export default defineAgent({ name })`)
+      await expect(config("vercel")).resolves.toBeDefined()
+    }
+    await writeFile(agent, `import { preset } from "./barrel"; export default defineAgent({ extends: preset })`)
+    await expect(config("vercel")).rejects.toThrow(/AGENT_B0022|cannot run it/)
   })
 })

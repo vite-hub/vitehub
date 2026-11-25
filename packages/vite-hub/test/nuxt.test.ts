@@ -45,6 +45,7 @@ import { forgetPackageChecks } from "../src/internal/optional-owners.ts"
 
 const h3RuntimeRoot = dirname(fileURLToPath(import.meta.resolve("h3/package.json")))
 const kvCacheDriver = kvStorageDriver
+const viteHubPackages = /(?:^|[\\/]node_modules[\\/])(?:vite-hub|@vite-hub[\\/][^\\/]+)(?:[\\/](?!(?:.*[\\/])?node_modules[\\/])|$)/
 
 // Each run gets its own fixture directories, so two runs at the same time do not overwrite each other.
 const tmp = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-test-"))
@@ -998,8 +999,30 @@ describe("ViteHub Nuxt integration", () => {
     await runNitroConfigHook(nitroConfig)
     await runNitroConfigHook(nitroConfig)
 
-    expect(nitroConfig.noExternals).toEqual(["existing-inline", "vite-hub", "@vite-hub/", `${tmp}/vitehub-nuxt/.vitehub`, h3RuntimeRoot])
+    expect(nitroConfig.noExternals).toEqual(["existing-inline", viteHubPackages, `${tmp}/vitehub-nuxt/.vitehub`, h3RuntimeRoot])
     expect(noExternals).toEqual(["existing-inline"])
+  })
+
+  it("bundles only ViteHub's packages when the project folder name contains vite-hub", async () => {
+    const { nuxt, runNitroConfigHook } = createNuxt(true)
+    // Nuxt adds the bare `vite-hub` name from `build.transpile` for the `vite-hub/nuxt` module.
+    const nitroConfig: { noExternals: unknown } = { noExternals: ["vite-hub", "@vite-hub/kv", "@nuxt/"] }
+
+    await viteHubNuxtModule({ host: "node", database: true }, nuxt)
+    await runNitroConfigHook(nitroConfig)
+
+    const entries = nitroConfig.noExternals as Array<string | RegExp>
+    expect(entries).not.toContain("vite-hub")
+    expect(entries).not.toContain("@vite-hub/kv")
+    expect(entries).toContain("@nuxt/")
+    const matches = (id: string) => entries.some(entry => typeof entry === "string" ? id.includes(entry) : entry.test(id))
+    expect(matches("/app/node_modules/.pnpm/@vite-hub+database@0.0.1/node_modules/@vite-hub/database/dist/runtime.mjs")).toBe(true)
+    expect(matches("/app/node_modules/vite-hub/dist/nuxt.mjs")).toBe(true)
+    expect(matches("vite-hub/database")).toBe(true)
+    expect(matches("@vite-hub/kv")).toBe(true)
+    expect(matches("/tmp/vite-hub-shop/node_modules/.pnpm/libsql@0.5.29/node_modules/libsql/index.js")).toBe(false)
+    expect(matches("/app/node_modules/vite-hub/node_modules/libsql/index.js")).toBe(false)
+    expect(matches("/app/node_modules/@vite-hub/database/node_modules/@libsql/client/lib-esm/node.js")).toBe(false)
   })
 
   it.each([false, true])("bundles linked workspace packages through Nitro runtime aliases (dev: %s)", async (dev) => {
@@ -1019,7 +1042,7 @@ describe("ViteHub Nuxt integration", () => {
       await viteHubNuxtModule({ console: false }, nuxt)
       await runNitroConfigHook(nitroConfig)
       await runNitroConfigHook(nitroConfig)
-      expect(nitroConfig.noExternals).toEqual(["vite-hub", "@vite-hub/", resolve(nuxt.options.rootDir, ".vitehub"), h3RuntimeRoot, frameworkRoot, authRoot])
+      expect(nitroConfig.noExternals).toEqual([viteHubPackages, resolve(nuxt.options.rootDir, ".vitehub"), h3RuntimeRoot, frameworkRoot, authRoot])
     }
     finally {
       await rm(nodeModules, { recursive: true, force: true })
@@ -3317,7 +3340,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       const registry = resolve(generatedDir, "registry.ts")
       const handler = resolve(generatedDir, "handler.ts")
       expect(config.alias).toMatchObject({ "#vitehub/connections/registry": registry })
-      expect(config.noExternals).toEqual(expect.arrayContaining(["vite-hub", "@vite-hub/"]))
+      expect(config.noExternals).toEqual(expect.arrayContaining([viteHubPackages]))
       expect(await readFile(registry, "utf8")).toContain(`registry["mail"] = () => import(${JSON.stringify(definition)})`)
       expect(config.handlers).toEqual(expect.arrayContaining([
         { handler, method: "post", meta: { vitehubOwnAccess: true }, route: "/_vitehub/connections" },
@@ -3895,7 +3918,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       ownerPlugin: true,
       handlers: [{ handler: "server/handler.ts", route: "/api/example" }],
       modules: ["agent-module"],
-      noExternals: ["vite-hub", "@vite-hub/", `${tmp}/vitehub-nuxt/.vitehub`, h3RuntimeRoot],
+      noExternals: [viteHubPackages, `${tmp}/vitehub-nuxt/.vitehub`, h3RuntimeRoot],
       preset: "cloudflare_module",
       queues: {
         handlers: [{ handler: "custom-server/queues/email.ts" }],
@@ -5561,7 +5584,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     const nitroConfig: Record<string, unknown> = incomingNoExternals === undefined ? {} : { noExternals: incomingNoExternals }
 
     await viteHubNuxtModule({ host: "node" }, nuxt)
-    const viteHubEntries = ["vite-hub", "@vite-hub/", `${tmp}/vitehub-nuxt/.vitehub`, h3RuntimeRoot]
+    const viteHubEntries = [viteHubPackages, `${tmp}/vitehub-nuxt/.vitehub`, h3RuntimeRoot]
     // `true` bundles every package and an explicit `false` keeps only ViteHub's packages. Otherwise Nitro must bundle
     // the replayed lists and ViteHub's packages.
     const expected = incomingNoExternals === true ? true : incomingNoExternals === false ? viteHubEntries : [...noExternals, ...viteHubEntries]
@@ -5587,7 +5610,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     await viteHubNuxtModule({ host: "node" }, nuxt)
     await runNitroConfigHook(nitroConfig)
 
-    const viteHubEntries = ["vite-hub", "@vite-hub/", `${tmp}/vitehub-nuxt/.vitehub`, h3RuntimeRoot]
+    const viteHubEntries = [viteHubPackages, `${tmp}/vitehub-nuxt/.vitehub`, h3RuntimeRoot]
     if (noExternals === true) expect(nitroConfig.noExternals).toBe(true)
     else expect(nitroConfig.noExternals).toEqual([...Array.isArray(noExternals) ? noExternals : [], ...viteHubEntries])
   })
@@ -5628,7 +5651,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       runModulesDoneHook()
       await runNitroConfigHook(nitroConfig)
 
-      const owned = ["vite-hub", "@vite-hub/", resolve(root, ".vitehub"), h3RuntimeRoot]
+      const owned = [viteHubPackages, resolve(root, ".vitehub"), h3RuntimeRoot]
       const inlined = incomingNoExternals === undefined ? ["@nuxt/", transpiled] : []
       const expectedNoExternals = incomingNoExternals === true
         ? true
