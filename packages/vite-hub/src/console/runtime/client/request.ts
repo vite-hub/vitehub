@@ -278,13 +278,13 @@ export async function requestConsole(
 export async function requestConsoleOperation(
   operation: string,
   input: Record<string, unknown>,
-  options: { keepalive?: boolean, signal?: AbortSignal } = {},
+  options: { keepalive?: boolean, path?: string, signal?: AbortSignal } = {},
 ): Promise<unknown> {
   // Each call is one complete request, so hosts can route consecutive calls to different instances.
   const outcome = await callOperationRpc(operation, input, async (body) => {
     let response: Response
     try {
-      response = await projectFetch(operationRpcPath, {
+      response = await projectFetch(options.path ?? operationRpcPath, {
         body,
         cache: "no-store",
         headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },

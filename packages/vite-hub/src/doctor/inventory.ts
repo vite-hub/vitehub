@@ -213,7 +213,7 @@ const serverImportsPath = "types/server-imports.mjs"
 
 function referencedServerImports(root: string): string | undefined {
   try {
-    const config: unknown = parseJSONC(readFileSync(resolve(root, "tsconfig.json"), "utf8"))
+    const config: unknown = parseJSONC(readFileSync(resolve(root, "tsconfig.json"), "utf8"), { allowTrailingComma: true })
     if (!v.is(tsconfigReferencesSchema, config)) return
     const references = config.references.filter(ref => basename(ref.path) === "tsconfig.server.json")
     const [reference] = references
@@ -275,8 +275,8 @@ function readNuxtServerImportOrigins(root: string, layers: ConfigValue[]): ViteH
       return statement.specifiers.flatMap((specifier) => {
         if (specifier.type !== "ExportSpecifier" && specifier.type !== "ExportNamespaceSpecifier") return []
         const binding = keyName(specifier.exported)
-        const name = specifier.type === "ExportNamespaceSpecifier" ? "*" : specifier.local.name
-        return binding ? [[binding, { name, source }] as const] : []
+        const name = specifier.type === "ExportNamespaceSpecifier" ? "*" : keyName(specifier.local)
+        return binding !== undefined && name !== undefined ? [[binding, { name, source }] as const] : []
       })
     }))
   }

@@ -50,8 +50,7 @@ function stubUpstash() {
       return "OK"
     }
     if (command === "get") {
-      const stored = data.get(key!)
-      return stored === undefined ? null : Buffer.from(stored).toString("base64")
+      return data.get(key!) ?? null
     }
     throw new Error(`Unexpected Redis command: ${command}`)
   }

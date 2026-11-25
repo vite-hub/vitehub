@@ -242,11 +242,10 @@ describe("contentRealtime", { timeout: 30_000 }, () => {
     const definition = contentRealtime(content)
     const editor = definition.editor
     if (!(editor instanceof Function)) throw new Error("Expected an editor per document.")
-    const codec = editor(context("posts/hello"))
-    expect(editor(context("posts/other"))).toBe(codec)
+    const codec = await editor(context("posts/hello"))
+    await expect(editor(context("posts/other"))).resolves.toBe(codec)
     await expect(codec.verify!("::alert\nNote\n::\n", {})).resolves.toMatchObject({ writable: true })
-    // Generic Comark nodes also keep components a collection has not declared.
-    await expect(editor(context("about")).verify!("::alert\nNote\n::\n", {})).resolves.toMatchObject({ writable: true })
+    await expect((await editor(context("about"))).verify!("::alert\nNote\n::\n", {})).resolves.toMatchObject({ writable: true })
     const document = definition.document as { load: (context: RealtimeDocumentContext) => Promise<unknown> }
     await expect(document.load(context("posts/hello"))).resolves.toMatchObject({ body: "::alert\nNote\n::\n", fields: { title: "Hello" } })
   })

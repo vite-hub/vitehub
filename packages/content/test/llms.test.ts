@@ -396,6 +396,23 @@ describe("llms files of Sources", { timeout: 30_000 }, () => {
     expect(await content.page("/guide")).toMatchObject({ url: "https://example.com/portal/guide" })
   })
 
+  it("keeps existing filename-derived Source paths and Markdown URLs", async () => {
+    const content = defineContent({
+      route: false,
+      logger: false,
+      sources: { docs: contentSource(files({ "guides/über café.md": "Über", "api & cli.md": "API" }), { url: "/:id" }) },
+      seo: { site: "https://example.com", markdown: { prefix: "/raw" }, llms: true },
+    })
+    cleanup.push(() => content.dispose())
+
+    expect(await content.get("/guides/uber-cafe")).toBeTruthy()
+    expect(await content.get("/api-and-cli")).toBeTruthy()
+    expect((await content.pages()).map(page => page.path).sort()).toEqual(["/api-and-cli", "/guides/uber-cafe"])
+    const sitemap = await content.llms({ file: "sitemap.md" })
+    expect(sitemap).toContain("https://example.com/raw/guides/uber-cafe.md")
+    expect(sitemap).toContain("https://example.com/raw/api-and-cli.md")
+  })
+
   it("looks up only published Markdown pages through Comark", async () => {
     const pages: Record<string, string> = { "guide.md": "Read the guide.", "hidden.md": "Hidden", "empty.md": "", "logo.svg": "<svg/>" }
     const source = {

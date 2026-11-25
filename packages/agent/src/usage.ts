@@ -4,7 +4,7 @@ import { invariantError } from "@vite-hub/internal/invariant"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 import { isRuntimeRecord } from "./internal/runtime-type.ts"
-import { agentUsageCostParts, agentUsageFractionDigits, agentUsageMetrics, agentUsageStatement } from "./invocations/usage-sql.ts"
+import { agentUsageCostParts, agentUsageFractionDigits, agentUsageMetrics, agentUsageStatement, usageIdBindings } from "./invocations/usage-sql.ts"
 
 export interface AgentUsageCost {
   display: string
@@ -268,7 +268,7 @@ export function agentUsagePeriod(options: AgentUsageQuery): AgentUsagePeriod | {
 
 export function agentUsageCursor(options: AgentUsageQuery, to: string, last: { at: string, id: string }): string {
   const bytes = new TextEncoder().encode(
-    JSON.stringify({ version: 1, to, at: last.at, id: last.id, scope: cursorScope(options) }),
+    JSON.stringify({ version: 1, to, at: new Date(last.at).toISOString(), id: last.id, scope: cursorScope(options) }),
   )
   return btoa(Array.from(bytes, byte => String.fromCharCode(byte)).join(""))
     .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
@@ -288,7 +288,7 @@ function compareText(left: string, right: string): number {
 }
 
 function compareSessions(left: { at: string, id: string }, right: { at: string, id: string }): number {
-  return compareText(right.at, left.at) || compareText(right.id, left.id)
+  return Date.parse(right.at) - Date.parse(left.at) || compareText(right.id, left.id)
 }
 
 const finiteNumberSchema = v.pipe(v.number(), v.check((value: number) => Number.isFinite(value)), v.minValue(0))
@@ -875,7 +875,7 @@ function sqlUsageRow(data: Record<string, unknown>): AgentUsageRow {
 }
 
 async function searchedUsageIds(client: AgentUsageSqlClient, table: string, options: AgentUsageQuery, period: AgentUsagePeriod): Promise<string[]> {
-  const { rows } = await client.execute(agentUsageStatement(table, options, period, "candidates"))
+  const { rows } = await client.execute(agentUsageStatement(table, options, period, undefined, "candidates"))
   return rows
     .map(row => ({ agentName: usageString(row.agent) ?? "", id: String(row.id), title: usageString(row.title) }))
     .filter(row => matchesUsageSearch(row, options.search))
@@ -886,7 +886,8 @@ async function searchedUsageIds(client: AgentUsageSqlClient, table: string, opti
  * Answers a usage query from a SQLite, libSQL, or D1 Agent journal with the same answer as `summarizeAgentUsage()`.
  * One SQL statement groups and adds up the Invocations of the window, nested calls included, and returns the totals and
  * at most 61 Invocations: one page of sessions and the most expensive runs. A search first reads the id, title, and
- * Agent name of the window, so the match uses the same Unicode lowercase as `summarizeAgentUsage()`. It creates no table.
+ * Agent name of the window, so the match uses the same Unicode lowercase as `summarizeAgentUsage()`. Unusually large
+ * or precise prices, or searches that exceed the SQL binding budget, read usage evidence instead. It creates no table.
  */
 export async function readAgentUsage(
   client: AgentUsageSqlClient,
@@ -896,8 +897,13 @@ export async function readAgentUsage(
 ): Promise<AgentUsageSummary> {
   const table = settings.table ?? "vitehub_agent_invocations"
   if (!/^[A-Za-z_]\w*$/.test(table)) throw agentDiagnostics.AGENT_INVOCATIONS_TABLE_PREFIX_INVALID()
-  const ids = options.search === undefined ? undefined : await searchedUsageIds(client, table, options, period)
-  const { rows } = await client.execute(agentUsageStatement(table, options, period, ids))
+  const idBindings = options.search === undefined ? undefined : usageIdBindings(await searchedUsageIds(client, table, options, period))
+  const readEvidence = async () => {
+    const exact = await client.execute(agentUsageStatement(table, options, period, idBindings, "exact"))
+    return summarizeAgentUsage(exact.rows.map(row => sqlUsageRow(usageData(row.data))), options, period)
+  }
+  if (options.search !== undefined && !idBindings) return readEvidence()
+  const { rows } = await client.execute(agentUsageStatement(table, options, period, idBindings))
   let totals = emptyUsageTotal()
   let partial = false
   const buckets = new Map<string, AgentUsageTotal>()
@@ -911,6 +917,7 @@ export async function readAgentUsage(
     const key = usageString(row.key) ?? ""
     const model = usageString(row.model) ?? ""
     if (row.kind === "total") {
+      if (Number(data.exact) === 1) return readEvidence()
       totals = sqlUsageTotal(data)
       partial = Number(data.partial ?? 0) === 1
     }

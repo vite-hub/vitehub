@@ -1,11 +1,14 @@
-import { lstat, mkdir, rm, writeFile } from "node:fs/promises"
+import { lstat, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 
 import { createTwoFilesPatch } from "diff"
 
 import { codemods } from "./registry.ts"
 import { codemodError, codemodsErrorDiagnostics } from "./error-diagnostics.ts"
+import { nodeVersionNote } from "./shared/node-version.ts"
+import { planNitro3 } from "./shared/nuxt-version.ts"
 
+import type { Nitro3Plan } from "./shared/nuxt-version.ts"
 import type { Codemod, CodemodResult, FileEdit } from "./types.ts"
 
 export interface RunCodemodOptions {
@@ -13,6 +16,8 @@ export interface RunCodemodOptions {
   cwd?: string
   /** Plan the edits and write nothing. */
   dryRun?: boolean
+  /** On a Nuxt version before 4.7, set `nuxt` to `npm:nuxt-nightly@5x` in package.json instead of stopping. */
+  nuxtNightly?: boolean
 }
 
 export interface CodemodRun {
@@ -63,7 +68,8 @@ export function findCodemod(name: string): Codemod | undefined {
 
 /**
  * Runs one codemod. Writes its edits unless `dryRun` is set. Throws `CODEMODS_BLOCKED` when it cannot migrate, also when an
- * edit is a symbolic link or is inside one.
+ * edit is a symbolic link or is inside one, and `CODEMODS_NUXT_UNSUPPORTED` when it adds `vite-hub/nuxt` to an app on a
+ * Nuxt version before 4.7 without `nuxtNightly`. On Nuxt 4.7 without `nitro`, it adds `nitro` to package.json.
  */
 export async function runCodemod(name: string, options: RunCodemodOptions = {}): Promise<CodemodRun> {
   const codemod = findCodemod(name)
@@ -72,13 +78,27 @@ export async function runCodemod(name: string, options: RunCodemodOptions = {}):
   }
   const cwd = resolve(options.cwd ?? process.cwd())
   const dryRun = options.dryRun ?? false
-  const result = await codemod.run({ cwd })
+  const planned = await codemod.run({ cwd })
+  const nitro3 = planned.requiresNitro3 ? await planNitro3(cwd, [codemod.name], options.nuxtNightly ?? false) : undefined
+  const upgraded = nitro3 ? await withNitro3(cwd, planned, nitro3) : planned
+  const nodeNote = nodeVersionNote()
+  const result = nodeNote ? { ...upgraded, notes: [...upgraded.notes, nodeNote] } : upgraded
   // Check on a dry run too, so it fails where the real run would.
   for (const edit of result.edits) await checkEditPath(cwd, edit.path)
   if (!dryRun) {
     for (const edit of result.edits) await applyEdit(cwd, edit)
   }
   return { codemod, cwd, dryRun, result }
+}
+
+async function withNitro3(cwd: string, result: CodemodResult, plan: Nitro3Plan): Promise<CodemodResult> {
+  const path = "package.json"
+  const edits = result.edits.map(edit => edit.path === path && edit.after !== null ? { ...edit, after: plan.update(edit.after) } : edit)
+  if (!result.edits.some(edit => edit.path === path)) {
+    const before = await readFile(join(cwd, path), "utf8")
+    edits.push({ path, before, after: plan.update(before) })
+  }
+  return { ...result, edits, notes: [plan.note, ...result.notes] }
 }
 
 /** Marks a new or deleted file in a file list. */

@@ -20,8 +20,8 @@ In this tutorial, you add a `posts` collection, draft a post with the `vitehub` 
 Install the CMS along with the Content, Database, and Workspace packages it uses:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/cms @vite-hub/content @vite-hub/database @vite-hub/workspace drizzle-orm@1.0.0-rc.5 zod
-pnpm add -D drizzle-kit@1.0.0-rc.5
+pnpm add @vite-hub/cms @vite-hub/content @vite-hub/database @vite-hub/workspace drizzle-orm@1.0.0-rc.6 zod
+pnpm add -D drizzle-kit@1.0.0-rc.6
 ```
 
 Add `console: { auth: false }` to your ViteHub options in `nuxt.config.ts` or `vite.config.ts`:

@@ -514,6 +514,7 @@ describe("pins and threads", () => {
 
     const replies = wrapper.findAll("[data-slot=comment-reply]");
     await replies[1]!.get("[aria-label=Edit]").trigger("click");
+    expect(replies[1]!.get("[data-variant=edit]").attributes("data-layout")).toBe("row");
     const editor = replies[1]!.get("textarea");
     await editor.setValue("Thanks a lot");
     await editor.trigger("keydown", { key: "Enter" });

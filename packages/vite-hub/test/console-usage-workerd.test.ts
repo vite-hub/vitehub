@@ -15,7 +15,6 @@ const sourceModule = async (path: string) => ({
   }).outputText,
 });
 
-// The Console HTTP error helper imports H3 through `nitro/h3`. Bundle its `createError()` with the Workers build of H3, as a host build does.
 const consoleHttpErrorModules = async () => [
   await sourceModule("src/console/runtime/server/http-error.ts"),
   {
@@ -46,7 +45,6 @@ const agentUsageModule = async () => ({
 });
 
 it("paginates Console usage in Cloudflare without Node compatibility", async () => {
-  // Load the real usage module and its dependencies without bundling or Node shims.
   const worker = new Miniflare({
     compatibilityDate: "2026-04-20",
     compatibilityFlags: [],
@@ -97,7 +95,7 @@ it("paginates Console usage in Cloudflare without Node compatibility", async () 
   }
 }, 30_000);
 
-it("adds up a D1 journal with one statement and no new table", async () => {
+it.each([false, true])("adds up a D1 journal without a new table (large search: %s)", async (search) => {
   const worker = new Miniflare({
     compatibilityDate: "2026-07-14",
     d1Databases: ["DB"],
@@ -110,12 +108,12 @@ it("adds up a D1 journal with one statement and no new table", async () => {
           import { agentUsagePeriod, readAgentUsage } from "./src/console/runtime/server/@vite-hub/agent/usage";
           export default {
             async fetch(request, env) {
-              try { return await answer(env) } catch (error) { return Response.json({ error: String(error?.stack ?? error) }, { status: 500 }) }
+              try { return await answer(env, await request.json()) } catch (error) { return Response.json({ error: String(error?.stack ?? error) }, { status: 500 }) }
             }
           };
-          async function answer(env) {
+          async function answer(env, input) {
               const statements = [];
-              const query = { now: Date.parse("2026-09-30T01:00:00.000Z"), window: "24h" };
+              const query = { now: Date.parse("2026-09-30T01:00:00.000Z"), window: "24h", ...input };
               const summary = await readAgentUsage({
                 async execute(s) {
                   statements.push(s.sql);
@@ -142,15 +140,52 @@ it("adds up a D1 journal with one statement and no new table", async () => {
       .run();
     await insert("run", "2026-09-30T00:00:00.000Z", "0.1", 5);
     await insert("old", "2026-09-20T00:00:00.000Z", "9", 1);
+    const at = "2026-09-28T23:30:00-02:00";
+    await db.prepare(`WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 96)
+      INSERT INTO vitehub_agent_invocations(id,agent_name,status,updated_at,record)
+      SELECT 'trace-' || n, 'bot', 'completed', ?, ? FROM seq`)
+      .bind(at, JSON.stringify({
+        agentName: "bot", completedAt: at, createdAt: at, updatedAt: at,
+        observations: [
+          ...Array.from({ length: 10 }, () => ({ name: "agent.message", attributes: { text: "x".repeat(32_000) } })),
+          { name: "agent.invocation.finish", attributes: { "usage.record": { cost: { usd: "00000000000000.25" }, model: "\tgpt\n", usage: { totalTokens: 2 } } } },
+        ],
+      }))
+      .run();
     const tables = async () => (await db.prepare("SELECT name FROM sqlite_master ORDER BY name").all()).results;
     const before = await tables();
-    const response = await worker.dispatchFetch("http://console.test");
+    const request = (input: object) => worker.dispatchFetch("http://console.test", { method: "POST", body: JSON.stringify(input) });
+    if (search) {
+      const time = "2026-09-30T00:30:00.000Z";
+      await db.prepare(`WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 50000)
+        INSERT INTO vitehub_agent_invocations(id,agent_name,status,updated_at,record)
+        SELECT printf('run_%037d', n), 'bot', 'completed', ?, ? FROM seq`)
+        .bind(time, JSON.stringify({
+          completedAt: time, createdAt: time, title: "Über 100%_", updatedAt: time,
+          observations: [{ name: "agent.invocation.finish", attributes: { "usage.record": { cost: { usd: "0.01" }, usage: { totalTokens: 2 } } } }],
+        }))
+        .run();
+    }
+    const input = search ? { search: "ÜBER 100%_" } : {};
+    const response = await request(input);
     const body = await response.json();
     expect(body).toMatchObject({
-      statements: 1,
-      summary: { partial: false, totals: { costUsd: "0.1", invocations: 1, totalTokens: 5 } },
+      statements: search ? 2 : 1,
+      summary: { partial: false, totals: search
+        ? { costUsd: "500", invocations: 50_000, totalTokens: 100_000 }
+        : { costUsd: "24.1", invocations: 97, totalTokens: 197 } },
     });
     expect(response.status).toBe(200);
+    if (search) {
+      const { summary } = v.parse(v.object({ summary: v.object({ cursor: v.string(), sessions: v.array(v.object({ id: v.string() })), totals: v.unknown() }) }), body);
+      const second = await request({ ...input, cursor: summary.cursor });
+      expect(second.status).toBe(200);
+      const next = v.parse(v.object({ summary: v.object({ sessions: v.array(v.object({ id: v.string() })), totals: v.unknown() }) }), await second.json());
+      expect(next.summary.totals).toEqual(summary.totals);
+      expect(summary.sessions).toHaveLength(50);
+      expect(next.summary.sessions).toHaveLength(50);
+      expect(next.summary.sessions[0]?.id).toBe(`run_${String(49_950).padStart(37, "0")}`);
+    }
     expect(await tables()).toEqual(before);
   } finally {
     await worker.dispose();

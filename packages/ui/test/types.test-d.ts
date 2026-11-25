@@ -1,4 +1,5 @@
 import type { UIMessage } from "ai";
+import { expectTypeOf, test } from "vitest";
 import {
   CodeView,
   FileView,
@@ -27,20 +28,8 @@ const codeViewItems: CodeViewItem<unknown>[] = [
   { fileDiff, id: "diff", type: "diff" },
 ];
 
-void CodeView;
-void FileView;
-void FileDiff;
-void MultiFileDiff;
-void PatchDiff;
-void UnresolvedFile;
-void codeViewItems;
-
 declare const message: ViteHubUIMessage<{ createdAt: string }, { weather: { city: string } }>;
-const compatible: UIMessage = message;
 const session: ViteHubUISession<typeof message> = { id: "session-1", messages: [message] };
-
-void compatible;
-void session;
 
 const traceStep: TraceStepView = {
   events: [],
@@ -57,8 +46,12 @@ const traceRun: TraceRunView = {
   status: "completed",
   steps: [traceStep],
 };
-const traceRunProp: InstanceType<typeof TraceRun>["$props"]["run"] = traceRun;
-const traceEvents: TraceEventLogEntry[] = traceRun.events;
 
-void traceRunProp;
-void traceEvents;
+test("types the diff views, chat messages and trace runs", () => {
+  expectTypeOf([CodeView, FileView, FileDiff, MultiFileDiff, PatchDiff, UnresolvedFile]).not.toBeAny();
+  expectTypeOf(codeViewItems).toEqualTypeOf<CodeViewItem<unknown>[]>();
+  expectTypeOf(message).toExtend<UIMessage>();
+  expectTypeOf(session).toExtend<ViteHubUISession<typeof message>>();
+  expectTypeOf(traceRun).toExtend<InstanceType<typeof TraceRun>["$props"]["run"]>();
+  expectTypeOf(traceRun.events).toExtend<TraceEventLogEntry[]>();
+});

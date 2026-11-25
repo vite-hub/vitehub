@@ -107,7 +107,7 @@ describe("account Console with stored reads", () => {
     void page.session.openConsoleProject()
     expect(projects.gate.value).toEqual({ kind: "ready" })
     expect(projects.info.value?.name).toBe("Shop")
-    expect((await page.sections.loadConsoleNavigation(page.sections.consoleSectionsPath))?.sections).toEqual(["kv", "logs"])
+    expect((await page.sections.loadConsoleNavigation(page.sections.consoleSectionsPath))?.sections).toEqual(["kv", "mcp-client", "logs"])
     await page.session.consoleProjectReady()
     // The account read went out. project.get waits for it to name the account, so it goes out once.
     expect(app.sent).toEqual(["account"])
@@ -129,11 +129,11 @@ describe("account Console with stored reads", () => {
     void page.session.openConsoleProject()
     const shown: string[][] = []
     page.sections.subscribeConsoleNavigation(page.sections.consoleSectionsPath, navigation => shown.push(navigation.sections))
-    expect(shown).toEqual([["kv", "logs"]])
+    expect(shown).toEqual([["kv", "mcp-client", "logs"]])
     app.release()
-    await vi.waitFor(() => expect(shown).toEqual([["kv", "logs"], ["logs"]]))
+    await vi.waitFor(() => expect(shown).toEqual([["kv", "mcp-client", "logs"], ["mcp-client", "logs"]]))
     const navigation = await page.sections.loadConsoleNavigation(page.sections.consoleSectionsPath)
-    expect(navigation?.sections).toEqual(["logs"])
+    expect(navigation?.sections).toEqual(["mcp-client", "logs"])
     // A page of the lost section goes to the Overview (`main.js`), and the next visit opens without it.
     expect(page.sections.isConsoleSectionRevoked("kv", navigation!)).toBe(true)
     expect(page.sections.isConsoleSectionRevoked("logs", navigation!)).toBe(false)
@@ -335,9 +335,9 @@ describe("account Console with stored reads", () => {
     const page = await openPage(app)
     await page.start()
     void page.session.openConsoleProject()
-    expect((await page.sections.loadConsoleNavigation(page.sections.consoleSectionsPath))?.sections).toEqual(["kv", "logs"])
+    expect((await page.sections.loadConsoleNavigation(page.sections.consoleSectionsPath))?.sections).toEqual(["kv", "mcp-client", "logs"])
     app.release()
-    await vi.waitFor(async () => expect((await page.sections.loadConsoleNavigation(page.sections.consoleSectionsPath))?.sections).toEqual(["logs"]))
+    await vi.waitFor(async () => expect((await page.sections.loadConsoleNavigation(page.sections.consoleSectionsPath))?.sections).toEqual(["mcp-client", "logs"]))
     expect(app.sent).toContain("sections.list /p/p-1/_vitehub/rpc")
   })
 
