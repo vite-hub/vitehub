@@ -269,6 +269,22 @@ describe("createCommentSend", () => {
     expect(server.cancelled).toEqual(["code-1"])
   })
 
+  it("keeps a working push during the Sent hold when status is unavailable", async () => {
+    const server = fakeTransport({ count: 1, agent: t3 }, { push: true })
+    const send = createCommentSend(server.transport)
+    const stop = send.start()
+    await flush()
+    server.results.push({ status: "sent", id: "send-1" })
+    await send.send()
+    server.transport.status = async () => { throw new Error("Status unavailable") }
+    const thread = "https://app.t3.codes/threads/42"
+    server.push({ type: "working", id: "send-1", thread })
+    expect(send.state.status).toBe("sent")
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(send.state).toMatchObject({ status: "working", thread })
+    stop()
+  })
+
   it("sends at once to a paired agent, and follows pushed events", async () => {
     const server = fakeTransport({ count: 2, agent: t3 }, { push: true })
     const send = createCommentSend(server.transport)

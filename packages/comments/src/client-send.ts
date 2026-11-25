@@ -198,9 +198,10 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
     if (status.pending) return pending()
     const last = status.working ?? status.sent
     if (last) {
+      const hold = holdingSent() && sendId === last.id
       sendId = last.id
-      thread = last.thread
-      if (holdingSent()) {
+      thread = hold ? thread ?? last.thread : last.thread
+      if (hold) {
         state = { status: "sent", count, inbox: inbox() }
         return notify()
       }
@@ -357,7 +358,8 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
         if (event.type === "working") {
           thread = event.thread ?? (event.id === sendId ? thread : undefined)
           sendId = event.id
-          if (!holdingSent()) working()
+          if (holdingSent()) later(sentUntil - Date.now(), working)
+          else working()
           return
         }
         if (event.id === sendId) finish()

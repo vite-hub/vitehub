@@ -60,6 +60,7 @@ interface Delivery {
 
 let deliveries: Delivery[] = []
 let receiverStatus = 202
+let receive: ((delivery: Delivery) => Promise<void>) | undefined
 let hidden = new Set<string>()
 
 async function setup(send: DefineCommentsOptions["send"] = true, wake?: WebhookWakeSender) {
@@ -111,14 +112,18 @@ async function setup(send: DefineCommentsOptions["send"] = true, wake?: WebhookW
 beforeEach(() => {
   deliveries = []
   receiverStatus = 202
+  receive = undefined
   hidden = new Set()
   vi.stubEnv("VITEHUB_WEBHOOKS_KEY", btoa(String.fromCharCode(...new Uint8Array(32).fill(7))))
   httpsRequest.mockReset()
   httpsRequest.mockImplementation((url: URL, options: { headers: Record<string, string> }, onResponse: (response: { statusCode: number, destroy: () => void }) => void) => ({
     on: vi.fn(),
     end: (body: string) => {
-      deliveries.push({ url: url.href, headers: new Headers(options.headers), body: JSON.parse(body) })
-      onResponse({ statusCode: receiverStatus, destroy: vi.fn() })
+      const delivery = { url: url.href, headers: new Headers(options.headers), body: JSON.parse(body) }
+      deliveries.push(delivery)
+      const acknowledge = () => onResponse({ statusCode: receiverStatus, destroy: vi.fn() })
+      if (receive) void receive(delivery).then(acknowledge)
+      else acknowledge()
     },
   }))
 })
@@ -450,6 +455,21 @@ describe("sends", () => {
     expect((await call(path)).status).toBe(401)
     vi.setSystemTime(Date.now() + 24 * 60 * 60_000 + 1)
     expect((await call(path, { headers: { authorization: `Bearer ${read!.token}` } })).status).toBe(401)
+  })
+
+  it("keeps a token read made before the webhook acknowledges delivery", async () => {
+    const { call, comment, connect, page } = await setup()
+    const thread = await comment("ana", "Shorten the introduction")
+    let opened: Awaited<ReturnType<typeof call>> | undefined
+    receive = async ({ body }) => {
+      opened = await call(`/send/${body.send}`, { headers: { authorization: `Bearer ${body.read!.token}` } })
+    }
+    const { allowed } = await connect()
+    expect(allowed.body.data.status).toBe("sent")
+    expect(opened).toMatchObject({ status: 200, body: { data: { send: { state: "working" }, threads: [{ id: thread.id }] } } })
+    const status = (await call(`/send/status?page=${page}`, { as: "ana" })).body.data
+    expect(status.working).toEqual({ id: allowed.body.data.id })
+    expect(status).not.toHaveProperty("sent")
   })
 
   it("limits a member to 30 sends an hour", async () => {
