@@ -4,9 +4,7 @@ import { createAccessControl } from "better-auth/plugins/access";
 import type { SecondaryStorage } from "better-auth";
 import { afterEach, describe, expect, it } from "vitest";
 import { createAuthConsole } from "../src/console-runtime.ts";
-import { createAuthForRequest } from "../src/internal/server.ts";
 import { consoleEventsFixture } from "./fixtures/console-events.ts";
-import { defineFixedAuth } from "./fixed-auth.ts"
 
 const origin = "http://localhost:5173";
 const closers: Array<() => void> = [];
@@ -147,27 +145,7 @@ describe("Auth changes for a signed Console person", () => {
   });
 });
 
-describe("one-time values and the app session", () => {
-  it("keeps a value until one caller takes it, and drops it after its expiry", async () => {
-    const fixture = await app();
-    const api = createAuthConsole(fixture.auth, {}, fixture.store);
-    expect(await api.saveVerification("ticket:a", "value-a", new Date(Date.now() + 60_000))).toEqual([undefined, undefined]);
-    const taken = await Promise.all([api.consumeVerification("ticket:a"), api.consumeVerification("ticket:a")]);
-    expect(taken.map(([, value]) => value)).toEqual(expect.arrayContaining(["value-a", null]));
-    expect(taken.filter(([, value]) => value === "value-a")).toHaveLength(1);
-    await api.saveVerification("ticket:b", "value-b", new Date(Date.now() - 1));
-    expect(await api.consumeVerification("ticket:b")).toEqual([undefined, null]);
-  });
-
-  it("refuses one-time values on the memory database that Auth adds, in every request instance", async () => {
-    const definition = defineFixedAuth({ emailAndPassword: { enabled: true }, secret: "console-actor-memory-secret-abcdefghijklmnopqrstuvwxyz", baseURL: origin });
-    const consoles = Array.from({ length: 8 }, () => createAuthConsole(createAuthForRequest(definition, new Request(origin))));
-    const [saveError] = await consoles[0]!.saveVerification("ticket:memory", "value", new Date(Date.now() + 60_000));
-    expect(saveError).toMatchObject({ code: "AUTH_CONSOLE_UNAVAILABLE" });
-    const taken = await Promise.all(consoles.map((api) => api.consumeVerification("ticket:memory")));
-    expect(taken.map(([error]) => error?.code)).toEqual(Array.from({ length: 8 }, () => "AUTH_CONSOLE_UNAVAILABLE"));
-  });
-
+describe("the app session", () => {
   it("reads the app session of the request and who impersonates in it", async () => {
     const fixture = await app();
     const api = createAuthConsole(fixture.auth, {}, fixture.store);

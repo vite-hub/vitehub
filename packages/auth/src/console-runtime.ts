@@ -9,7 +9,6 @@ import { accessPolicyPluginId } from "./access-policy.ts";
 import { membersVariable } from "./members.ts";
 import { authConsoleActionNames, authConsoleEventGroups } from "./console-types.ts";
 import { parseAuthEventList } from "./events.ts";
-import { isAuthProcessMemoryDatabase } from "./runtime-state.ts";
 import type { AuthEventCounts, AuthEventListInput, AuthEventStore } from "./events.ts";
 import type {
   AuthConsoleAction,
@@ -71,13 +70,6 @@ export interface AuthConsole {
   stopImpersonating(request: Request): Promise<Result<Response, AuthConsoleErrorCode>>;
   /** The app session of the request's cookies, read from the database, or `null` without one. */
   session(request: Request): Promise<Result<AuthConsoleSessionUser | null, AuthConsoleErrorCode>>;
-  /**
-   * Keep a one-time value in Better Auth's verification table until `expiresAt`. Hosts use it for values that must
-   * work once on every instance, such as Console tickets. Needs a database adapter.
-   */
-  saveVerification(identifier: string, value: string, expiresAt: Date): Promise<Result<void, AuthConsoleErrorCode>>;
-  /** Take a value that `saveVerification()` kept. Of two calls at the same time, one gets it. `null` when it is gone or expired. */
-  consumeVerification(identifier: string): Promise<Result<string | null, AuthConsoleErrorCode>>;
 }
 
 type ConsoleAdapter = Pick<DBAdapter, "findMany" | "findOne" | "count">;
@@ -1064,7 +1056,7 @@ export function createAuthConsole(
   async function authorize(input: AuthConsoleMutation, request: Request) {
     // The impersonation cookies belong to the browser. The acting session of a signed call is not the browser's.
     if (input.action === "impersonate" && host.actor)
-      throw authConsoleError(403, "Impersonation needs the browser's app session. Open it with a one-time link from the Console.");
+      throw authConsoleError(403, "Impersonation needs the browser's app session. Start it from the Console.");
     const description = await describe(request);
     if (!description.actions[input.action]?.enabled)
       throw authConsoleError(
@@ -1169,16 +1161,6 @@ export function createAuthConsole(
       impersonatedBy: by ? { id: by, email: string(admin?.email) } : null,
     };
   }
-  /**
-   * Better Auth's verification table, which needs a database adapter that every instance shares. The memory database
-   * that Auth adds to a Definition without one lives in one process, so it does not count.
-   */
-  async function verifications() {
-    const ctx = await context();
-    if (!ctx.options.database || isAuthProcessMemoryDatabase(ctx.options.database) || !ctx.internalAdapter)
-      throw authConsoleError(409, "One-time values need a Better Auth database adapter that every instance of the app shares.");
-    return ctx.internalAdapter;
-  }
   async function stopImpersonating(request: Request): Promise<Response> {
     if (host.bearer)
       throw authConsoleError(403, "Impersonation needs the browser's app session.");
@@ -1229,12 +1211,6 @@ export function createAuthConsole(
       }),
     stopImpersonating: (request) => result(() => stopImpersonating(request)),
     session: (request) => result(() => sessionUser(request)),
-    saveVerification: (identifier, value, expiresAt) =>
-      result(async () => {
-        await (await verifications()).createVerificationValue({ identifier, value, expiresAt });
-      }),
-    consumeVerification: (identifier) =>
-      result(async () => (await (await verifications()).consumeVerificationValue(identifier))?.value ?? null),
   };
 }
 

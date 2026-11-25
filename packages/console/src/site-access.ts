@@ -2,14 +2,14 @@ import { and, desc, eq, exists, gt, isNull, ne, notExists, sql } from "drizzle-o
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core"
 import { authSqliteSchema } from "vite-hub/auth/schema"
 
-import { encodeConsoleBase64url } from "@vite-hub/internal/console-signature"
+import { decodeConsoleBase64url, encodeConsoleBase64url } from "@vite-hub/internal/console-signature"
 import { userAgentDevice } from "@vite-hub/internal/runtime/user-agent"
-import { signSiteToken, siteTokenUrl } from "@vite-hub/internal/site-token"
+import { isSiteTokenKind, readSiteTokenTarget, signSiteToken, siteTokenUrl } from "@vite-hub/internal/site-token"
 
 import { consoleProjects } from "./projects.ts"
 
 import type { ConsoleSigningKey } from "@vite-hub/internal/console-signature"
-import type { SiteAccessPolicy } from "@vite-hub/internal/site-token"
+import type { SiteAccessPolicy, SiteTokenKind, SiteTokenTarget } from "@vite-hub/internal/site-token"
 import type { ConsoleDatabase, ConsoleProject } from "./projects.ts"
 
 const { member, user: authUser } = authSqliteSchema
@@ -169,15 +169,62 @@ export async function siteMember(db: ConsoleDatabase, project: Pick<ConsoleProje
 
 /**
  * The URL that ends a visit: `<app>/_vitehub/site?token=…`, with a token that the key of the link signs for the person,
- * the roles, the state hash that the app sent, and the app path to open.
+ * the roles, the state hash that the app sent, and the app path to open. `kind` is `site` by default. An `impersonate`
+ * or `preview` token also names its `target`.
  */
-export async function siteTokenLocation(input: { project: Pick<ConsoleProject, "url">, key: ConsoleSigningKey, person: ConsoleSitePerson, roles: string[], state: string, path: string }): Promise<string> {
+export async function siteTokenLocation(input: { project: Pick<ConsoleProject, "url">, key: ConsoleSigningKey, person: ConsoleSitePerson, roles: string[], state: string, path: string, kind?: SiteTokenKind, target?: SiteTokenTarget, intent?: string }): Promise<string> {
   const { person } = input
   const token = await signSiteToken({
     key: input.key,
-    claims: { aud: input.project.url, sub: person.id, name: person.name, ...(person.email ? { email: person.email } : {}), ...(person.image ? { image: person.image } : {}), roles: input.roles, kind: "site", path: input.path, state: input.state },
+    claims: { aud: input.project.url, sub: person.id, name: person.name, ...(person.email ? { email: person.email } : {}), ...(person.image ? { image: person.image } : {}), roles: input.roles, kind: input.kind ?? "site", path: input.path, state: input.state, ...(input.target ? { target: input.target } : {}) },
   })
-  return siteTokenUrl(input.project.url, token)
+  const location = siteTokenUrl(input.project.url, token)
+  return input.intent ? `${location}&${new URLSearchParams({ intent: input.intent })}` : location
+}
+
+/** Milliseconds that an intent waits for its visit. */
+export const siteIntentLifetime = 60_000
+
+/**
+ * What a member started in the Console: an impersonation or a preview of one project. It waits for 60 seconds in a
+ * cookie of the Console origin, named with its id, so `/visit` signs its token only in the browser of that member.
+ */
+export interface ConsoleSiteIntent {
+  user: string
+  project: string
+  kind: Exclude<SiteTokenKind, "site">
+  target: SiteTokenTarget
+  /** Milliseconds since the epoch. */
+  expiresAt: number
+}
+
+/** The cookie of the Console origin that holds one intent. `__Host-` needs HTTPS, so a local Console uses the plain name. */
+export function siteIntentCookie(id: string, secure: boolean): string {
+  return `${secure ? "__Host-" : ""}vitehub-site-intent-${id}`
+}
+
+/** The `set-cookie` value of an intent, or of its removal without `intent`. */
+export function siteIntentSetCookie(id: string, intent: ConsoleSiteIntent | undefined, secure: boolean): string {
+  const value = intent ? encodeConsoleBase64url(new TextEncoder().encode(JSON.stringify(intent))) : ""
+  const maxAge = intent ? Math.ceil(siteIntentLifetime / 1_000) : 0
+  return `${siteIntentCookie(id, secure)}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure ? "; Secure" : ""}`
+}
+
+/** Read the value of an intent cookie, or `undefined` when it is malformed or expired. */
+export function readSiteIntent(value: string | undefined, now = Date.now()): ConsoleSiteIntent | undefined {
+  const bytes = value ? decodeConsoleBase64url(value) : undefined
+  let parsed: unknown
+  try {
+    parsed = bytes ? JSON.parse(new TextDecoder().decode(bytes)) : undefined
+  }
+  catch {
+    return undefined
+  }
+  if (!(parsed instanceof Object)) return undefined
+  const [user, project, kind, target, expiresAt]: unknown[] = ["user", "project", "kind", "target", "expiresAt"].map(name => Reflect.get(parsed, name))
+  const checked = readSiteTokenTarget(target)
+  if (typeof user !== "string" || typeof project !== "string" || !isSiteTokenKind(kind) || kind === "site" || !checked || typeof expiresAt !== "number" || !(expiresAt > now)) return undefined
+  return { user, project, kind, target: checked, expiresAt }
 }
 
 /** The Site access state of one project: its passes, invites, and one-time codes. */

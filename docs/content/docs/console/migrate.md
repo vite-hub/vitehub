@@ -21,9 +21,9 @@ Apps no longer sign people in to the Console. `console: { auth: 'app' }`, Consol
 5. For the CLI, replace `VITEHUB_CONSOLE_AUTHORIZATION`, `VITEHUB_CONSOLE_COOKIE` and `CF_ACCESS_CLIENT_ID` with a [`VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`](/docs/console/signed-requests) from `vitehub secret console-key`.
 6. Connect agents to the [ViteHub MCP](/docs/console/mcp) instead of `/_vitehub/mcp`.
 
-App Auth access routes such as `/_vitehub/**` or `/**` no longer cover `POST /_vitehub/rpc` and `GET /_vitehub/rpc?ticket=`, because a signed call has no app session, a one-time link carries its ticket, and the route checks its own access. An app route file on the same path, such as `server/routes/_vitehub/rpc.post.ts`, fails the build.
+App Auth access routes such as `/_vitehub/**` or `/**` no longer cover `POST /_vitehub/rpc` and `GET /_vitehub/site`, because a signed call has no app session, a Console token carries its own proof, and the route checks its own access. An app route file on the same path, such as `server/routes/_vitehub/rpc.post.ts`, fails the build.
 
-Live Content editing, the Content page preview, Env management and the Connections connect flow needed the app session, so they are not in the Console.
+Live Content editing, the preview pane of a Content page, Env management and the Connections connect flow needed the app session, so they are not in the Console. **Preview** opens the page in a new tab of the app instead, see [Impersonation and Content preview](/docs/console/site-access#impersonation-and-content-preview).
 
 ## Move from the MCP of the app
 
@@ -39,6 +39,14 @@ The per-app Console MCP at `/_vitehub/mcp`, with OAuth from `consoleMcpOAuth()`,
 4. Connect again in the Console. When an MCP server needs a fixed OAuth callback, register `<console origin>/mcp-client/callback`, such as `https://console.vitehub.dev/mcp-client/callback`.
 
 Apps also stop serving the ViteHub skill at `/_vitehub/.well-known/skills`. Install it [from the Console](/docs/getting-started/ai-resources/agent-instructions-skills#install-from-the-console).
+
+## Move from one-time links
+
+Impersonation and Content preview no longer use one-time links. `GET /_vitehub/rpc?ticket=` is removed, and the app no longer keeps tickets in Better Auth's verification table or in its KV store. The Console now signs an `impersonate` or `preview` token for 60 seconds, and the app checks it at `/_vitehub/site`, as it checks [Site access](/docs/console/site-access#impersonation-and-content-preview). An app without Comments serves `/_vitehub/site` too.
+
+1. Update the Console and the app together. An older Console asks the app for a ticket link, and the app now answers `auth.impersonate`, `auth.stop-impersonating` and `documents.preview` with `{ path }`.
+2. Move an app route on `/_vitehub/site`, if you have one, to another path. The build now fails with `VITE_HUB_R0040` on it in every app with `console`.
+3. The codes `CONSOLE_TICKET_INVALID`, `CONSOLE_TICKET_MISMATCH`, `CONSOLE_TICKET_NO_PERSON` and `CONSOLE_TICKET_STORE_MISSING` are removed. A refused token gets `CONSOLE_SITE_TOKEN_REFUSED`. An impersonation in a browser signed in to the app as another person gets `CONSOLE_SITE_ACCOUNT_MISMATCH`.
 
 ## Use a self-hosted Console
 
