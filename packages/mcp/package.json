@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/mcp",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "The MCP server of a ViteHub app: one tool, prompt, or resource per file in server/mcp/, protected with MCP OAuth.",
   "keywords": [
     "mcp",

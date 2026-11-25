@@ -259,7 +259,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   if (!findModuleEntry(config, moduleName) && !kept) {
     configFollowUps.push({ file: config.fileName, message: `${config.fileName} adds ${moduleName} in a way the codemod cannot remove, such as a conditional spread. Remove it from modules by hand.` })
   }
-  const packageResult = await editPackageJson(cwd, packageJson.version, { remove: kept ? [] : [moduleName], add: ["vite-hub"] })
+  const packageResult = await editPackageJson(cwd, packageJson.version, { remove: kept ? [] : [moduleName], add: ["vite-hub"], features: processDriver ? ["schedule", "kv"] : ["schedule"] })
   edits.unshift({ path: config.fileName, before: config.code, after: configCode })
   if (packageResult.edit) edits.push(packageResult.edit)
   const notes = [
@@ -274,10 +274,11 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   return {
     summary: `moved ${migrated} cron job${migrated === 1 ? "" : "s"} from ${jobsDirectory} to server/schedules${added ? `, host "${added}"` : ""}.`,
     edits,
+    requiresNitro3: true,
     followUps: [...configFollowUps, ...followUps],
     notes,
     nextSteps: [
-      `Run \`${packageResult.installCommand}\` to install vite-hub${kept ? "" : ` and remove ${moduleName}`}.`,
+      `Run \`${packageResult.installCommand}\` to install ${packageResult.installs}${kept ? "" : ` and remove ${moduleName}`}.`,
       "Run `npx nuxi prepare`, then type-check the app.",
     ],
   }

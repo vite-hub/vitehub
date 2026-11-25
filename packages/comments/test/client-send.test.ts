@@ -269,17 +269,34 @@ describe("createCommentSend", () => {
     expect(server.cancelled).toEqual(["code-1"])
   })
 
+  it("keeps a working push during the Sent hold when status is unavailable", async () => {
+    const server = fakeTransport({ count: 1, agent: t3 }, { push: true })
+    const send = createCommentSend(server.transport)
+    const stop = send.start()
+    await flush()
+    server.results.push({ status: "sent", id: "send-1" })
+    await send.send()
+    server.transport.status = async () => { throw new Error("Status unavailable") }
+    const thread = "https://app.t3.codes/threads/42"
+    server.push({ type: "working", id: "send-1", thread })
+    expect(send.state.status).toBe("sent")
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(send.state).toMatchObject({ status: "working", thread })
+    stop()
+  })
+
   it("sends at once to a paired agent, and follows pushed events", async () => {
     const server = fakeTransport({ count: 2, agent: t3 }, { push: true })
     const send = createCommentSend(server.transport)
     send.start()
     await flush()
     server.results.push({ status: "sent", id: "send-1" })
+    server.setStatus({ count: 0, agent: t3, sent: { id: "send-1" } })
     await send.send(copy)
     expect(copied).toEqual([])
     expect(server.calls).not.toContain("startPairing")
     await vi.advanceTimersByTimeAsync(2000)
-    expect(send.state).toEqual({ status: "working", count: 0, agent: t3 })
+    expect(send.state).toEqual({ status: "sent", count: 0, inbox: false })
 
     server.push({ type: "working", id: "send-1", thread: "https://app.t3.codes/threads/42" })
     server.push({ type: "count", count: 1 })
@@ -421,6 +438,39 @@ describe("createCommentSend", () => {
     expect(working.state).toEqual({ status: "working", count: 0, agent: t3 })
     expect(limited.state).toEqual({ status: "limited", count: 4, retryAt: Date.now() + 60_000 })
     expect(inbox.state).toEqual({ status: "idle", count: 3, inbox: true, canPairAnother: true })
+  })
+
+  it("keeps In inbox until the agent reads the send, and sends a new comment from there", async () => {
+    const claude: CommentSendAgent = { name: "Claude Code", logo: "claude" }
+    const server = fakeTransport({ count: 2, agent: claude })
+    const send = createCommentSend(server.transport)
+    send.start()
+    await flush()
+    server.results.push({ status: "sent", id: "send-1" })
+    server.setStatus({ count: 0, agent: claude, sent: { id: "send-1" } })
+    await send.send()
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(send.state).toEqual({ status: "sent", count: 0, inbox: true })
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(send.state).toEqual({ status: "sent", count: 0, inbox: true })
+
+    server.setStatus({ count: 1, agent: claude, sent: { id: "send-1" } })
+    await send.refresh()
+    expect(send.state).toEqual({ status: "sent", count: 1, inbox: true })
+    server.results.push({ status: "sent", id: "send-2" })
+    await send.send()
+    expect(server.calls.filter(call => call === "send")).toHaveLength(2)
+
+    server.setStatus({ count: 0, agent: claude, working: { id: "send-2" } })
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(send.state).toEqual({ status: "working", count: 0, agent: claude })
+  })
+
+  it("shows a send that the agent has not read on load", async () => {
+    const send = createCommentSend(fakeTransport({ count: 0, agent: t3, sent: { id: "send-1" } }).transport)
+    send.start()
+    await flush()
+    expect(send.state).toEqual({ status: "sent", count: 0, inbox: false })
   })
 
   it.each(["pairing", "confirm", "sending"])("reconciles server status after stopping in %s", async (interrupted) => {

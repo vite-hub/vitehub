@@ -53,6 +53,6 @@ Notes:
   - NuxtHub's server/db/migrations/ stays in place for reference. ViteHub writes new migrations to server/databases/default/migrations/ and does not apply them during dev or build. Delete the old folder after the baseline.
 
 Next steps:
-  - Run `pnpm install` to install vite-hub, @vite-hub/database, and @vite-hub/blob and remove @nuxthub/core.
+  - Run `pnpm install` to install vite-hub, @vite-hub/database, @vite-hub/blob, drizzle-orm, and drizzle-kit and remove @nuxthub/core.
   - Run `npx nuxi prepare`, then type-check the app.
   - Run `pnpm nuxt build` and `pnpm vitehub inspect output --json` to check the resources and bindings.
