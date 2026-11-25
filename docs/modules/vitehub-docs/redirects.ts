@@ -191,8 +191,12 @@ export const docsPageRedirects = {
 
 export const docsLegacyFragmentRedirects = {
   "/docs/compare/nuxthub": {
-    "where-nuxthub-is-stronger": "/docs/compare/nuxthub#what-nuxthub-has-that-vitehub-does-not",
+    "where-nuxthub-is-stronger": "/docs/compare/nuxthub#compare-the-features",
+    "what-nuxthub-has-that-vitehub-does-not": "/docs/compare/nuxthub#compare-the-features",
     "move-a-nuxt-app-from-nuxthub": "/docs/compare/nuxthub#migrate-from-nuxthub",
+    "keep-a-turso-or-libsql-connection": "/docs/database/configure",
+    "keep-the-cache": "/docs/guides/cache-server-results",
+    "baseline-an-existing-cloudflare-d1-database": "/docs/database/configure#keep-an-existing-migrations-table",
     "related-guides": "/docs/compare/nuxthub#next-steps",
   },
   "/docs/blob": {
