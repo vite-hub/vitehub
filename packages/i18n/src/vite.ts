@@ -5,6 +5,7 @@ import { resolve } from "node:path"
 import { createNoExternalAddition, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT } from "@vite-hub/internal/build/vite"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
+import { isRecord } from "@vite-hub/internal/object"
 import { isLinguiTemplateTransform, linguiTemplateTransform } from "@lingui/vue/compiler"
 import MagicString from "magic-string"
 
@@ -63,6 +64,22 @@ type ViteHubConfig = (UserConfig | ResolvedConfig) & { i18n?: I18nOptions, nitro
 interface VueBuildInventory {
   clientIds: string[]
   sources: SourceMessages
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every(entry => typeof entry === "string")
+}
+
+function isVueBuildInventory(value: unknown): value is VueBuildInventory {
+  return isRecord(value)
+    && isStringArray(value.clientIds)
+    && isRecord(value.sources)
+    && Object.values(value.sources).every(source => isRecord(source)
+      && typeof source.message === "string"
+      && typeof source.hash === "string"
+      && isStringArray(source.origins)
+      && (source.context === undefined || typeof source.context === "string")
+      && (source.comments === undefined || isStringArray(source.comments)))
 }
 
 function renderNitroPlugin(importBase: string, messagesFile: string, workspace: string | undefined): string {
@@ -153,7 +170,9 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
   const readVueInventory = async (): Promise<VueBuildInventory> => {
     if (!vueInventoryFile) return buildInventory()
     try {
-      return JSON.parse(await readFile(vueInventoryFile, "utf8")) as VueBuildInventory
+      const inventory: unknown = JSON.parse(await readFile(vueInventoryFile, "utf8"))
+      if (!isVueBuildInventory(inventory)) throw new TypeError(`Invalid Vue i18n message inventory: ${vueInventoryFile}`)
+      return inventory
     }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error

@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
+import { VITEHUB_GENERATED_ROOT } from "@vite-hub/internal/build/vite"
 import { describe, expect, it } from "vitest"
 
 import { hubI18n } from "../src/vite.ts"
@@ -97,6 +98,26 @@ describe("hubI18n", () => {
 })
 
 describe("hubI18n i18n.workspace", () => {
+  it.each([
+    { clientIds: [1], sources: {} },
+    { clientIds: [], sources: { invalid: { message: "Checkout", hash: "abc", origins: "app.ts:1" } } },
+  ])("rejects a malformed cached Vue message inventory: %j", async (inventory) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-i18n-workspace-"))
+    try {
+      const plugin = hubI18n({ locales: ["en", "es"], projectRoot: root, workspace: "translations" })
+      const config = plugin.config as { handler: (config: object, env: { command: string }) => Promise<unknown> }
+      await config.handler({ root, nitro: {}, [VITEHUB_GENERATED_ROOT]: root }, { command: "build" })
+      await mkdir(join(root, "i18n"), { recursive: true })
+      await writeFile(join(root, "i18n/vue-messages.json"), JSON.stringify(inventory))
+      const renderChunk = plugin.renderChunk as (this: object, code: string) => Promise<unknown>
+      await expect(renderChunk.call({ getModuleIds: () => [] }, 'export const clientIds = "__VITEHUB_I18N_CLIENT_IDS__"'))
+        .rejects.toThrow("Invalid Vue i18n message inventory")
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   const workspacePlugin = (names: string[]) => ({ name: "@vite-hub/workspace/vite", api: { getWorkspaces: () => names.map(name => ({ name })) } })
   const resolve = async (workspace: string, plugins: object[]) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-i18n-workspace-"))
