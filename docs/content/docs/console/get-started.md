@@ -28,7 +28,7 @@ The Console calls each app from its own server, so it cannot reach a `vite dev` 
 
 ## Link a deployed app
 
-Set `console: true` and deploy your app:
+Set `console: true` in your app:
 
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
@@ -70,7 +70,16 @@ export default defineConfig({
 :::
 ::
 
-Sign in to the Console and enter your app URL in **Get started**, or later with **+** next to **Apps**. Set the variable that it shows on your server, deploy again, and select **Check connection**:
+Then sign in once and deploy:
+
+```bash [Terminal]
+pnpm vitehub login
+pnpm vitehub deploy
+```
+
+`vitehub deploy` links the deployed URL in your team, sets the key of the link on the host, checks the connection, and prints the Console page of the app. A second deploy keeps the same link. See [Link the app in the Console](/docs/cli/project#link-the-app-in-the-console).
+
+When you deploy another way, link the app with `vitehub apps link <url>`, the `link_app` tool of the [Console MCP](/docs/console/mcp), or the Console: enter your app URL in **Get started**, or later with **+** next to **Apps**. Set the variable that it shows on your server, deploy again, and select **Check connection**:
 
 ```txt
 VITEHUB_CONSOLE_KEY_CONSOLE_3F9A12BC=<public key>

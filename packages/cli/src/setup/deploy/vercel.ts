@@ -53,11 +53,12 @@ export function vercelAdapter(context: DeployContext): DeployAdapter {
       if (result.exitCode !== 0) throw hostCliFailed("vercel deploy", result, context.secrets)
       const json = lastJsonObject(result.stdout)
       const deployment = isRecord(json?.deployment) ? json.deployment : json
-      const url = context.preview ? optionalString(deployment?.url) : optionalString(deployment?.productionUrl) ?? optionalString(deployment?.url)
+      const productionUrl = context.preview ? undefined : optionalString(deployment?.productionUrl)
+      const url = productionUrl ?? optionalString(deployment?.url)
       if (!url) throw hostCliFailed("vercel deploy printed no URL", result, context.secrets)
       const id = optionalString(deployment?.id)
       const claim = context.temporary ? await readClaim(context.root) : undefined
-      return { url, ...(id ? { deploymentId: id } : {}), ...(claim ? { claim } : {}), ...(context.temporary ? {} : { project: { name: context.projectName, ...(team ? { accountId: team } : {}) } }) }
+      return { url, ...(productionUrl ? { productionUrl } : {}), ...(id ? { deploymentId: id } : {}), ...(claim ? { claim } : {}), ...(context.temporary ? {} : { project: { name: context.projectName, ...(team ? { accountId: team } : {}) } }) }
     },
   }
 }
