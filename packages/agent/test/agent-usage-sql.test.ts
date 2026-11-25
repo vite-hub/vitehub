@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createClient } from "@libsql/client"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createLibsqlAgentInvocationStore } from "../src/invocations/sqlite.ts"
 import { agentUsagePeriod, agentUsageRow, readAgentUsage, summarizeAgentUsage } from "../src/usage.ts"
@@ -61,7 +61,7 @@ async function journal() {
   const url = `file:${join(directory, "journal.sqlite")}`
   const store = createLibsqlAgentInvocationStore({ maxAge: false, maxRecords: false, url })
   for (const fixture of fixtures) {
-    const time = at(fixture.hours)
+    const time = fixture.id === "group-gap" ? "2026-11-19T21:30:00-02:00" : at(fixture.hours)
     const status = fixture.status ?? "completed"
     await store.create({
       agentName: fixture.agentName,
@@ -163,7 +163,7 @@ describe("readAgentUsage()", { timeout: 60_000 }, () => {
   it("pages sessions with the cursor of summarizeAgentUsage()", async () => {
     const { client, store } = await journal()
     for (let index = 0; index < 60; index++) {
-      const time = at(11 + index / 10)
+      const time = index % 2 === 0 ? "2026-11-20T00:22:00Z" : "2026-11-19T19:22:00-05:00"
       await store.create({ agentName: "bulk", completedAt: time, createdAt: time, id: `bulk-${String(index).padStart(2, "0")}`, observations: [{ ...finish({ cost: { usd: `0.0${index % 7}` }, usage: { totalTokens: index } }), sequence: 1, timestamp: time, type: "lifecycle" }], status: "completed", traceId: `bulk-${index}`, updatedAt: time })
     }
     const first = await expected(store, { now })
@@ -172,6 +172,42 @@ describe("readAgentUsage()", { timeout: 60_000 }, () => {
     expect(page.cursor).toBeDefined()
     const next = await expected(store, { cursor: page.cursor!, now })
     expect(withoutTime(await readAgentUsage(client, { cursor: page.cursor!, now }, next.period))).toEqual(withoutTime(next.summary))
+    client.close()
+  })
+
+  it("uses UTC instants for window boundaries and search", async () => {
+    const { client, store } = await journal()
+    for (const [id, time] of [
+      ["inside", "2026-11-19t11:30:00-0100"],
+      ["outside", "2026-11-19T13:29:59.9999+01:00"],
+      ["end", "2026-11-20T13:30:00.0009+01:00"],
+      ["previous-day", "2026-11-18T19:30:00-17:00"],
+    ] as const) {
+      await store.create({ agentName: "boundary", completedAt: time, createdAt: time, id, observations: [{ ...finish({ usage: { totalTokens: 1 } }), sequence: 1, timestamp: time, type: "lifecycle" }], status: "completed", traceId: id, updatedAt: time })
+    }
+    const query = { agentName: "boundary", now, search: "boundary", window: "24h" } as const
+    const { period, summary } = await expected(store, query)
+    expect(summary.sessions.map(session => session.id)).toEqual(["end", "previous-day", "inside"])
+    expect(withoutTime(await readAgentUsage(client, query, period))).toEqual(withoutTime(summary))
+    client.close()
+  })
+
+  it.each([false, true])("preserves padded prices and exact out-of-range prices (fallback: %s)", async (fallback) => {
+    const { client, store } = await journal()
+    for (const [id, observations] of [
+      ["finish", [finish({ cost: { usd: "00000000000001.25" }, model: "\tgpt\n", usage: { totalTokens: 1 } })]],
+      ["recorded", [finish({ usage: { totalTokens: 1 } }), recorded(`0.1${"0".repeat(40)}`)]],
+      ["nested", [finish({ calls: [{ calls: [{ cost: { usd: fallback ? `0.${"0".repeat(36)}1` : "0.5" }, usage: { totalTokens: 1 } }], model: "\tgpt\n" }] })]],
+      ["large", [finish({ cost: { usd: fallback ? "98765432109876543210.01" : "12.01" }, usage: { totalTokens: 1 } })]],
+    ] as const) {
+      const time = at(1)
+      await store.create({ agentName: "prices", annotations: { "agent.model.id": "\tgpt\n" }, completedAt: time, createdAt: time, id, observations: observations.map((observation, index) => ({ ...observation, sequence: index + 1, timestamp: time, type: "lifecycle" })), status: "completed", traceId: id, updatedAt: time })
+    }
+    const query = { agentName: "prices", now }
+    const { period, summary } = await expected(store, query)
+    const execute = vi.fn((statement: Parameters<AgentUsageSqlClient["execute"]>[0]) => client.execute(statement))
+    expect(withoutTime(await readAgentUsage({ execute }, query, period))).toEqual(withoutTime(summary))
+    expect(execute).toHaveBeenCalledTimes(fallback ? 2 : 1)
     client.close()
   })
 })

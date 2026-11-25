@@ -268,7 +268,7 @@ export function agentUsagePeriod(options: AgentUsageQuery): AgentUsagePeriod | {
 
 export function agentUsageCursor(options: AgentUsageQuery, to: string, last: { at: string, id: string }): string {
   const bytes = new TextEncoder().encode(
-    JSON.stringify({ version: 1, to, at: last.at, id: last.id, scope: cursorScope(options) }),
+    JSON.stringify({ version: 1, to, at: new Date(last.at).toISOString(), id: last.id, scope: cursorScope(options) }),
   )
   return btoa(Array.from(bytes, byte => String.fromCharCode(byte)).join(""))
     .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
@@ -288,7 +288,7 @@ function compareText(left: string, right: string): number {
 }
 
 function compareSessions(left: { at: string, id: string }, right: { at: string, id: string }): number {
-  return compareText(right.at, left.at) || compareText(right.id, left.id)
+  return Date.parse(right.at) - Date.parse(left.at) || compareText(right.id, left.id)
 }
 
 const finiteNumberSchema = v.pipe(v.number(), v.check((value: number) => Number.isFinite(value)), v.minValue(0))
@@ -875,7 +875,7 @@ function sqlUsageRow(data: Record<string, unknown>): AgentUsageRow {
 }
 
 async function searchedUsageIds(client: AgentUsageSqlClient, table: string, options: AgentUsageQuery, period: AgentUsagePeriod): Promise<string[]> {
-  const { rows } = await client.execute(agentUsageStatement(table, options, period, "candidates"))
+  const { rows } = await client.execute(agentUsageStatement(table, options, period, undefined, "candidates"))
   return rows
     .map(row => ({ agentName: usageString(row.agent) ?? "", id: String(row.id), title: usageString(row.title) }))
     .filter(row => matchesUsageSearch(row, options.search))
@@ -886,7 +886,8 @@ async function searchedUsageIds(client: AgentUsageSqlClient, table: string, opti
  * Answers a usage query from a SQLite, libSQL, or D1 Agent journal with the same answer as `summarizeAgentUsage()`.
  * One SQL statement groups and adds up the Invocations of the window, nested calls included, and returns the totals and
  * at most 61 Invocations: one page of sessions and the most expensive runs. A search first reads the id, title, and
- * Agent name of the window, so the match uses the same Unicode lowercase as `summarizeAgentUsage()`. It creates no table.
+ * Agent name of the window, so the match uses the same Unicode lowercase as `summarizeAgentUsage()`. Unusually large
+ * or precise prices use an additional read of usage evidence for exact arithmetic. It creates no table.
  */
 export async function readAgentUsage(
   client: AgentUsageSqlClient,
@@ -911,6 +912,10 @@ export async function readAgentUsage(
     const key = usageString(row.key) ?? ""
     const model = usageString(row.model) ?? ""
     if (row.kind === "total") {
+      if (Number(data.exact) === 1) {
+        const exact = await client.execute(agentUsageStatement(table, options, period, ids, "exact"))
+        return summarizeAgentUsage(exact.rows.map(row => sqlUsageRow(usageData(row.data))), options, period)
+      }
       totals = sqlUsageTotal(data)
       partial = Number(data.partial ?? 0) === 1
     }

@@ -1,4 +1,5 @@
 import type { AgentUsagePeriod, AgentUsageQuery } from "../usage.ts"
+import { sqlTrimWhitespace } from "./sql-whitespace.ts"
 
 export const agentUsageMetrics = ["inputTokens", "outputTokens", "totalTokens", "cachedInputTokens", "cacheWriteTokens", "reasoningTokens"] as const
 const metrics = agentUsageMetrics
@@ -13,7 +14,7 @@ function text(json: string, path: string): string {
 }
 
 function trimmedText(json: string, path: string): string {
-  return `NULLIF(trim(${text(json, path)}), '')`
+  return `NULLIF(trim(${text(json, path)}, '${sqlTrimWhitespace}'), '')`
 }
 
 function count(json: string, ...paths: string[]): string {
@@ -47,10 +48,15 @@ function ownValue(json: string, metric: typeof metrics[number]): string {
   return metric === "totalTokens" ? `COALESCE(${value}, ${count(json, ...metricPaths.inputTokens)} + ${count(json, ...metricPaths.outputTokens)})` : value
 }
 
+function validDecimal(value: string): string {
+  return `${value} GLOB '[0-9]*' AND ${value} NOT GLOB '*[^0-9.]*' AND ${value} NOT GLOB '*.*.*' AND ${value} NOT GLOB '*.'`
+}
+
 function decimal(value: string): string {
   const dot = `instr(${value} || '.', '.')`
-  return `CASE WHEN ${value} GLOB '[0-9]*' AND ${value} NOT GLOB '*[^0-9.]*' AND ${value} NOT GLOB '*.*.*' AND ${value} NOT GLOB '*.'
-    AND ${dot} <= 13 AND length(${value}) - ${dot} <= ${fractionDigits} THEN ${value} END`
+  return `CASE WHEN ${validDecimal(value)}
+    AND length(ltrim(substr(${value}, 1, ${dot} - 1), '0')) <= 12
+    AND length(rtrim(substr(${value}, ${dot} + 1), '0')) <= ${fractionDigits} THEN ${value} END`
 }
 
 function decimalParts(value: string, prefix: string): string {
@@ -60,7 +66,7 @@ function decimalParts(value: string, prefix: string): string {
   return [
     `CAST(substr(${value}, 1, ${dot} - 1) AS INTEGER) AS ${prefix}w`,
     ...[1, 2, 3, 4].map(index => `CAST(substr(${padded}, ${index * 9 - 8}, 9) AS INTEGER) AS ${prefix}f${index}`),
-    `length(${fraction}) AS ${prefix}scale`,
+    `min(length(${fraction}), ${fractionDigits}) AS ${prefix}scale`,
   ].join(", ")
 }
 
@@ -100,66 +106,104 @@ function totalsObject(): string {
 function detailObject(): string {
   return `json_object('id', id, 'agentName', agent, 'title', title, 'status', status, 'createdAt', COALESCE(createdText, updatedColumn),
     'completedAt', completedText, 'updatedAt', COALESCE(updatedText, updatedColumn), 'model', configuredText, 'missing', missing,
-    'finish', json(finish),
-    'recorded', CASE WHEN missing THEN NULL ELSE (SELECT json_group_array(json(j.value)) FROM json_each(record, '$.observations') j
-      WHERE j.type = 'object' AND json_extract(j.value, '$.name') = 'agent.usage.recorded') END)`
+    'finish', json(finish), 'recorded', json(recorded))`
 }
 
-export function agentUsageStatement(table: string, options: AgentUsageQuery, period: AgentUsagePeriod, ids?: readonly string[] | "candidates"): { sql: string, args: Array<string | number> } {
+function utcTimestamp(value: string): string {
+  const date = `upper(substr(${value}, 1, 23))`
+  const offset = (size: number) => `(CASE substr(${value}, -${size}, 1) WHEN '-' THEN 1 ELSE -1 END) * (CAST(substr(${value}, -${size - 1}, 2) AS INTEGER) * 60 + CAST(substr(${value}, -2) AS INTEGER))`
+  const format = (time: string, modifier: string) => `strftime('%Y-%m-%dT%H:%M:%fZ', ${time}, ${modifier})`
+  return `CASE
+    WHEN substr(${value}, 11, 1) GLOB '[Tt ]' AND substr(${value}, -6) GLOB '[+-][0-9][0-9]:[0-9][0-9]'
+      THEN ${format(`upper(substr(${value}, 1, min(23, length(${value}) - 6)))`, `(${offset(6)}) || ' minutes'`)}
+    WHEN substr(${value}, 11, 1) GLOB '[Tt ]' AND substr(${value}, -5) GLOB '[+-][0-9][0-9][0-9][0-9]'
+      THEN ${format(`upper(substr(${value}, 1, min(23, length(${value}) - 5)))`, `(${offset(5)}) || ' minutes'`)}
+    WHEN ${value} GLOB '????-??-??[Tt ]??:??:??.[0-9][0-9][0-9][0-9]*' THEN ${format(date, "'+0 seconds'")}
+    ELSE ${format(`upper(${value})`, "'+0 seconds'")} END`
+}
+
+export function agentUsageStatement(table: string, options: AgentUsageQuery, period: AgentUsagePeriod, ids?: readonly string[], mode?: "candidates" | "exact"): { sql: string, args: Array<string | number> } {
   const args: Array<string | number> = []
   const arg = (value: string | number) => {
     args.push(value)
     return `?${args.length}`
   }
   const bucketFormat = period.window.bucket === "hour" ? "%Y-%m-%dT%H:00:00.000Z" : "%Y-%m-%dT00:00:00.000Z"
+  const from = arg(period.from)
   const filters = [
-    `at >= ${arg(period.from)}`,
+    `at >= ${from}`,
     `at <= ${arg(period.to)}`,
-    `strftime('${bucketFormat}', at) IS NOT NULL`,
     ...(options.agentName ? [`agent = ${arg(options.agentName)}`] : []),
-    ...(Array.isArray(ids) ? [`id IN (SELECT value FROM json_each(${arg(JSON.stringify(ids))}))`] : []),
   ]
   const status = options.status ? ` AND s.status = ${arg(options.status)}` : ""
+  const earliestLocalDay = new Date(Date.parse(period.from) - 86_400_000).toISOString().slice(0, 10)
+  const matchingIds = ids ? ` AND s.id IN (SELECT value FROM json_each(${arg(JSON.stringify(ids))}))` : ""
   const costPart = (part: string) => `CASE costSource WHEN 'own' THEN own${part} WHEN 'calls' THEN calls${part} WHEN 'recorded' THEN recorded${part} END AS cost${part}`
   const head = `source AS MATERIALIZED (
-  ${[`>= ${arg(period.from)}`, "= ''"].map(range => `SELECT s.id, s.status, s.updated_at AS updatedColumn, s.agent_name AS agentColumn,
-    CASE WHEN json_valid(s.record) THEN CASE WHEN json_type(s.record, '$.observations') = 'array' THEN s.record END END AS record
+  ${[`>= ${arg(earliestLocalDay)} AND (s.updated_at >= ${from} OR ${utcTimestamp("s.updated_at")} >= ${from})`, "= ''"].map(range => `SELECT s.id
   FROM ${table} s INDEXED BY ${table}_status_updated_at
-  WHERE s.status IN ('completed', 'failed', 'cancelled')${status} AND s.updated_at ${range}`).join("\n  UNION ALL\n  ")}
+  WHERE s.status IN ('completed', 'failed', 'cancelled')${status}${matchingIds} AND s.updated_at ${range}`).join("\n  UNION ALL\n  ")}
+),
+journal AS NOT MATERIALIZED (
+  SELECT s.id, s.status, s.updated_at AS updatedColumn, s.agent_name AS agentColumn,
+    CASE WHEN json_valid(s.record) THEN CASE WHEN json_type(s.record, '$.observations') = 'array' THEN s.record END END AS record
+  FROM source JOIN ${table} s USING (id)
 ),
 fields AS MATERIALIZED (
-  SELECT id, status, updatedColumn, record, record IS NULL AS missing,
+  SELECT id, status, updatedColumn, record IS NULL AS missing,
     COALESCE(${text("record", "$.agentName")}, agentColumn, '') AS agent,
     ${text("record", "$.title")} AS title,
     ${text("record", "$.createdAt")} AS createdText,
     ${text("record", "$.completedAt")} AS completedText,
-    ${text("record", "$.updatedAt")} AS updatedText,
-    ${text("record", `$.annotations."agent.model.id"`)} AS configuredText${ids === "candidates" ? "" : `,
-    (SELECT j.value FROM json_each(record, '$.observations') j
-      WHERE j.type = 'object' AND json_extract(j.value, '$.name') = 'agent.invocation.finish'
-      ORDER BY j.key DESC LIMIT 1) AS finish`}
-  FROM source
+    ${text("record", "$.updatedAt")} AS updatedText${mode === "candidates" ? "" : `,
+    ${text("record", `$.annotations."agent.model.id"`)} AS configuredText`}
+  FROM journal
+),
+dated AS MATERIALIZED (
+  SELECT *, CASE WHEN missing THEN updatedColumn ELSE COALESCE(NULLIF(completedText, ''), NULLIF(updatedText, ''), createdText, '') END AS rawAt
+  FROM fields
 ),
 timed AS MATERIALIZED (
-  SELECT *, CASE WHEN missing THEN updatedColumn ELSE COALESCE(NULLIF(completedText, ''), NULLIF(updatedText, ''), createdText, '') END AS at
-  FROM fields
+  SELECT *, ${utcTimestamp("rawAt")} AS at FROM dated
 )`
-  if (ids === "candidates") return { sql: `WITH ${head}\nSELECT id, agent, title FROM timed WHERE ${filters.join(" AND ")}`, args }
+  if (mode === "candidates") return { sql: `WITH ${head}\nSELECT id, agent, title FROM timed WHERE ${filters.join(" AND ")}`, args }
+  const attributes = (keys: string[]) => `json_object(${keys.map(key => `'${key}', value -> '$.attributes."${key}"'`).join(", ")})`
+  const evidence = `selected AS MATERIALIZED (
+  SELECT *, strftime('${bucketFormat}', at) AS bucket FROM timed WHERE ${filters.join(" AND ")}
+),
+usageEvents AS MATERIALIZED (
+  SELECT selected.id, (SELECT json_group_object(name, json(items)) FROM (
+    SELECT name, json_group_array(json_object('name', name, 'attributes', json(CASE name
+      WHEN 'agent.invocation.finish' THEN ${attributes(["usage.record", "vitehub.observation.truncated"])}
+      ELSE ${attributes(["usage.costUsd", "usage.hasCost", "usage.costEstimated", "usage.costSource"])} END)) ORDER BY eventKey) AS items FROM (
+      SELECT j.key AS eventKey, CASE WHEN j.type = 'object' THEN json_extract(j.value, '$.name') END AS name,
+        j.value
+      FROM json_each(s.record, '$.observations') j
+    ) WHERE name IN ('agent.invocation.finish', 'agent.usage.recorded') GROUP BY name
+  )) AS events
+  FROM selected JOIN ${table} s USING (id) WHERE NOT missing
+),
+evidence AS MATERIALIZED (
+  SELECT selected.*, json_extract(events, '$."agent.invocation.finish"[#-1]') AS finish,
+    json_extract(events, '$."agent.usage.recorded"') AS recorded
+  FROM selected LEFT JOIN usageEvents USING (id)
+)`
+  if (mode === "exact") return { sql: `WITH ${head}, ${evidence}\nSELECT ${detailObject()} AS data FROM evidence`, args }
   const after = period.after
     ? `WHERE at < ${arg(period.after.at)} OR (at = ${arg(period.after.at)} AND id < ${arg(period.after.id)})`
     : ""
-  const sql = `WITH RECURSIVE ${head},
-selected AS MATERIALIZED (
-  SELECT *, strftime('${bucketFormat}', at) AS bucket,
+  const sql = `WITH RECURSIVE ${head}, ${evidence},
+projected AS MATERIALIZED (
+  SELECT id, agent, status, at, bucket, missing, configuredText,
     ${flag("finish", `$.attributes."vitehub.observation.truncated"`)} AS truncated,
     CASE WHEN json_type(finish, '$.attributes."usage.record"') = 'object' THEN json_extract(finish, '$.attributes."usage.record"') END AS rec
-  FROM timed WHERE ${filters.join(" AND ")}
+  FROM evidence
 ),
 own AS MATERIALIZED (
-  SELECT selected.*, COALESCE(${trimmedText("rec", "$.model")}, NULLIF(trim(configuredText), '')) AS model,
+  SELECT projected.*, COALESCE(${trimmedText("rec", "$.model")}, NULLIF(trim(configuredText, '${sqlTrimWhitespace}'), '')) AS model,
     CASE WHEN truncated = 0 AND json_type(rec, '$.calls') = 'array' THEN json_array_length(rec, '$.calls') ELSE 0 END AS callCount,
     ${usageFields("rec")}
-  FROM selected
+  FROM projected
 ),
 ownCost AS MATERIALIZED (
   SELECT own.*, ${decimal("usdText")} AS usd FROM own
@@ -190,7 +234,7 @@ nodes AS MATERIALIZED (
   SELECT id, bucket, modelKey, hasCalls, ${[...metrics, "cost"].map(metric => `covered${metric}`).join(", ")},
     inputTokens0 AS inputTokens, outputTokens0 AS outputTokens, COALESCE(totalTokens0, inputTokens0 + outputTokens0) AS totalTokens,
     cachedInputTokens0 AS cachedInputTokens, cacheWriteTokens0 AS cacheWriteTokens, reasoningTokens0 AS reasoningTokens,
-    usd, estimated, ${decimalParts("usd", "cost")}
+    usd, usd IS NULL AND (${validDecimal("usdText")}) AS wide, estimated, ${decimalParts("usd", "cost")}
   FROM callCost
 ),
 calls AS MATERIALIZED (
@@ -210,8 +254,8 @@ recordedItems AS MATERIALIZED (
   SELECT o.id,
     CASE WHEN json_type(j.value, '$.attributes."usage.hasCost"') = 'false' THEN NULL ELSE ${text("j.value", `$.attributes."usage.costUsd"`)} END AS usdText,
     ${flag("j.value", `$.attributes."usage.costEstimated"`)} AS estimated
-  FROM ownParts o, json_each(o.record, '$.observations') j
-  WHERE o.usd IS NULL AND o.rec IS NOT NULL AND j.type = 'object' AND json_extract(j.value, '$.name') = 'agent.usage.recorded'
+  FROM ownParts o JOIN evidence e USING (id), json_each(e.recorded) j
+  WHERE o.usd IS NULL AND o.rec IS NOT NULL
 ),
 recordedCost AS MATERIALIZED (
   SELECT recordedItems.*, ${decimal("usdText")} AS usd FROM recordedItems
@@ -241,8 +285,7 @@ usageSource AS MATERIALIZED (
   FROM usageFill
 ),
 usage AS MATERIALIZED (
-  SELECT id, status, agent, title, at, bucket, missing, truncated, defined, callCount, model, record, finish,
-    createdText, completedText, updatedText, updatedColumn, configuredText,
+  SELECT id, at, status, agent, bucket, missing, truncated, defined, callCount, model,
     ${metrics.map(metric => metric === "totalTokens"
       ? `COALESCE(totalTokens0, inputTokens0 + outputTokens0, calltotalTokens) AS totalTokens`
       : `COALESCE(${metric}0, call${metric}) AS ${metric}`).join(", ")},
@@ -274,10 +317,20 @@ pairs AS MATERIALIZED (
   UNION ALL
   SELECT bucket, COALESCE(model, 'Unknown model'), ${metrics.join(", ")}, hasCost, costEstimated, ${parts.map(part => `cost${part}`).join(", ")}, pairScale
   FROM costed WHERE defined AND callCount = 0
+),
+page AS MATERIALIZED (
+  SELECT id, at FROM costed ${after} ORDER BY at DESC, id DESC LIMIT 51
+),
+expensive AS MATERIALIZED (
+  SELECT id, at, costw, printf('%09d%09d%09d%09d', costf1, costf2, costf3, costf4) AS fraction
+  FROM costed WHERE hasCost AND NOT missing ORDER BY costw DESC, fraction DESC, at DESC, id DESC LIMIT 10
 )
 SELECT * FROM (
   SELECT 'total' AS kind, NULL AS key, NULL AS model,
-    json_insert(${totalsObject()}, '$.partial', MAX(missing OR truncated OR totalTokens IS NULL)) AS data
+    json_insert(${totalsObject()}, '$.partial', MAX(missing OR truncated OR totalTokens IS NULL), '$.exact',
+      EXISTS (SELECT 1 FROM nodes WHERE wide) OR
+      EXISTS (SELECT 1 FROM ownCost WHERE usd IS NULL AND (${validDecimal("usdText")})) OR
+      EXISTS (SELECT 1 FROM recordedCost WHERE usd IS NULL AND (${validDecimal("usdText")}))) AS data
   FROM costed
   UNION ALL SELECT 'bucket', bucket, NULL, ${totalsObject()} FROM costed GROUP BY bucket
   UNION ALL SELECT 'agent', agent, NULL, ${totalsObject()} FROM costed GROUP BY agent
@@ -285,9 +338,9 @@ SELECT * FROM (
 )
 UNION ALL SELECT * FROM (
   SELECT 'bucketModel', bucket, model, ${totalsObject()} FROM pairs GROUP BY bucket, model
-  UNION ALL SELECT * FROM (SELECT 'page', NULL, NULL, ${detailObject()} FROM costed ${after} ORDER BY at DESC, id DESC LIMIT 51)
-  UNION ALL SELECT * FROM (SELECT 'expensive', NULL, NULL, ${detailObject()} FROM costed WHERE hasCost AND NOT missing
-    ORDER BY costw DESC, printf('%09d%09d%09d%09d', costf1, costf2, costf3, costf4) DESC, at DESC, id DESC LIMIT 10)
+  UNION ALL SELECT * FROM (SELECT 'page', NULL, NULL, ${detailObject()} FROM page JOIN evidence USING (id) ORDER BY page.at DESC, id DESC)
+  UNION ALL SELECT * FROM (SELECT 'expensive', NULL, NULL, ${detailObject()} FROM expensive JOIN evidence USING (id)
+    ORDER BY costw DESC, fraction DESC, expensive.at DESC, id DESC)
 )`
   return { sql, args }
 }

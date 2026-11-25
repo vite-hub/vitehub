@@ -15,7 +15,6 @@ const sourceModule = async (path: string) => ({
   }).outputText,
 });
 
-// The Console HTTP error helper imports H3 through `nitro/h3`. Bundle its `createError()` with the Workers build of H3, as a host build does.
 const consoleHttpErrorModules = async () => [
   await sourceModule("src/console/runtime/server/http-error.ts"),
   {
@@ -46,7 +45,6 @@ const agentUsageModule = async () => ({
 });
 
 it("paginates Console usage in Cloudflare without Node compatibility", async () => {
-  // Load the real usage module and its dependencies without bundling or Node shims.
   const worker = new Miniflare({
     compatibilityDate: "2026-04-20",
     compatibilityFlags: [],
@@ -234,13 +232,25 @@ it("adds up a D1 journal with one statement and no new table", async () => {
       .run();
     await insert("run", "2026-09-30T00:00:00.000Z", "0.1", 5);
     await insert("old", "2026-09-20T00:00:00.000Z", "9", 1);
+    const at = "2026-09-28T23:30:00-02:00";
+    await db.prepare(`WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < 96)
+      INSERT INTO vitehub_agent_invocations(id,agent_name,status,updated_at,record)
+      SELECT 'trace-' || n, 'bot', 'completed', ?, ? FROM seq`)
+      .bind(at, JSON.stringify({
+        agentName: "bot", completedAt: at, createdAt: at, updatedAt: at,
+        observations: [
+          ...Array.from({ length: 10 }, () => ({ name: "agent.message", attributes: { text: "x".repeat(32_000) } })),
+          { name: "agent.invocation.finish", attributes: { "usage.record": { cost: { usd: "00000000000000.25" }, model: "\tgpt\n", usage: { totalTokens: 2 } } } },
+        ],
+      }))
+      .run();
     const tables = async () => (await db.prepare("SELECT name FROM sqlite_master ORDER BY name").all()).results;
     const before = await tables();
     const response = await worker.dispatchFetch("http://console.test");
     const body = await response.json();
     expect(body).toMatchObject({
       statements: 1,
-      summary: { partial: false, totals: { costUsd: "0.1", invocations: 1, totalTokens: 5 } },
+      summary: { partial: false, totals: { costUsd: "24.1", invocations: 97, totalTokens: 197 } },
     });
     expect(response.status).toBe(200);
     expect(await tables()).toEqual(before);
