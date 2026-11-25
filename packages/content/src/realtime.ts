@@ -1,7 +1,7 @@
 import { RealtimeDocumentConflict } from "@vite-hub/realtime"
 import { isWorkspaceConflict } from "@vite-hub/workspace/files"
 
-import { contentRealtimeEditor } from "./editor.ts"
+import { contentEditorRealtime, loadComarkEditor } from "./editor-codec.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { contentLiveSession } from "./live.ts"
 
@@ -21,7 +21,6 @@ import type { ContentFieldIssue } from "./documents.ts"
 import type { ContentCanContext, ContentUser } from "./index.ts"
 import type { ContentSessions } from "./sessions.ts"
 
-export { contentRealtimeEditor } from "./editor.ts"
 export { contentLive, contentLiveRoom, contentLiveSession, installContentLive } from "./live.ts"
 export type { ContentLiveInstall } from "./live.ts"
 
@@ -176,7 +175,7 @@ export function contentLiveTarget(content: Pick<ContentLiveRuntime, "collection"
  * room authority.
  */
 export function contentRealtime(content: ContentLiveRuntime, options: ContentRealtimeOptions = {}): RealtimeDefinition {
-  const editors = new Map<string, RealtimeEditor>()
+  const editors = new Map<string, Promise<RealtimeEditor>>()
   const adapters = new Map<string, RealtimeDocumentAdapter>()
   function target(context: RealtimeDocumentContext) {
     const found = contentLiveTarget(content, context.documentId)
@@ -214,14 +213,14 @@ export function contentRealtime(content: ContentLiveRuntime, options: ContentRea
   return {
     identify: options.identify,
     document,
-    editor: (context) => {
+    editor: async (context) => {
       const { collection } = target(context)
       let editor = editors.get(collection.name)
       if (!editor) {
-        editor = contentRealtimeEditor()
+        editor = loadComarkEditor().then(comarkEditor => contentEditorRealtime(comarkEditor))
         editors.set(collection.name, editor)
       }
-      return editor
+      return await editor
     },
     async authorize(context) {
       // Only an identified person edits Content live: the Console person from `identify`, or the Auth session user.

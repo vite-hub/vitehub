@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events"
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
-import { registerHooks } from "node:module"
+import { createRequire, registerHooks } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -38,7 +38,7 @@ import { hubRateLimit } from "../../rate-limit/src/vite.ts"
 import { hubRealtime } from "@vite-hub/realtime/vite"
 import { hubSchedule } from "@vite-hub/schedule/vite"
 import { viteHubUIIcons } from "@vite-hub/ui/nuxt"
-import type { ConfigEnv, Plugin, PluginOption, UserConfig } from "vite"
+import type { ConfigEnv, Plugin, PluginOption, Rolldown, UserConfig } from "vite"
 import type { BlobOptions } from "@vite-hub/blob"
 import { getConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { forgetPackageChecks } from "../src/internal/optional-owners.ts"
@@ -334,14 +334,51 @@ function nitroHandlerRoutes(config: Record<string, unknown>): Array<string | und
 }
 
 describe("ViteHub Nuxt integration", () => {
-  it.each(["4.6.4", "3.17.0"])("stops on Nuxt %s with a diagnostic that names Nuxt 5", async (version) => {
+  it.each([
+    ["4.6.4", 2],
+    ["3.17.0", undefined],
+  ] as const)("stops on Nuxt %s with a diagnostic that names Nuxt 4.7 and Nuxt 5", async (version, nitroMajor) => {
     const application = createNuxt(false)
     Object.assign(application.nuxt, { _version: version })
+    Object.assign(application.nuxt.options, { _nitroMajor: nitroMajor })
     await expect(viteHubNuxtModule({ host: "node" }, application.nuxt)).rejects.toMatchObject({
       code: "VITE_HUB_B0023",
-      message: expect.stringContaining(`needs Nuxt 5, which runs Nitro 3 and H3 2. This app runs Nuxt ${version}.`),
+      message: expect.stringContaining(`needs Nitro 3, which runs on Nuxt 4.7 with the nitro package, or on Nuxt 5. This app runs Nuxt ${version}.`),
     })
     expect(mocks.vitehub).not.toHaveBeenCalled()
+  })
+
+  it("explains both ways to switch Nuxt 4.7 from Nitro 2 to Nitro 3", async () => {
+    const application = createNuxt(false)
+    Object.assign(application.nuxt, { _version: "4.7.0" })
+    Object.assign(application.nuxt.options, { _nitroMajor: 2 })
+    await expect(viteHubNuxtModule({ host: "node" }, application.nuxt)).rejects.toMatchObject({
+      code: "VITE_HUB_B0023",
+      message: expect.stringContaining("This app runs Nuxt 4.7.0 with Nitro 2. If the nitro package is missing, run pnpm add nitro. If it is already listed, remove any configuration that forces Nitro 2."),
+    })
+    expect(mocks.vitehub).not.toHaveBeenCalled()
+  })
+
+  it.each(["vite", "@nuxt/vite-server"])("rejects the %s server builder even when Nuxt selects Nitro 3", async (builder) => {
+    const application = createNuxt(false)
+    Object.assign(application.nuxt, { _version: "4.7.0" })
+    Object.assign(application.nuxt.options, { _nitroMajor: 3, server: { builder } })
+    await expect(viteHubNuxtModule({ host: "node" }, application.nuxt)).rejects.toMatchObject({
+      code: "VITE_HUB_B0023",
+      message: expect.stringContaining("Remove server.builder to use Nuxt's default Nitro builder."),
+    })
+    expect(mocks.vitehub).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["4.7.0", 3],
+    ["5.0.0-2611222336-0ed8910", 3],
+  ] as const)("sets up on Nuxt %s when Nuxt builds the server with Nitro %s", async (version, nitroMajor) => {
+    const application = createNuxt(false)
+    Object.assign(application.nuxt, { _version: version })
+    Object.assign(application.nuxt.options, { _nitroMajor: nitroMajor })
+    await viteHubNuxtModule({ host: "node" }, application.nuxt)
+    expect(mocks.vitehub).toHaveBeenCalled()
   })
 
   it.each([
@@ -1170,6 +1207,8 @@ describe("ViteHub Nuxt integration", () => {
       "existing-nitro-plugin",
       "vite-hub/nuxt-runtime-resolver:@vite-hub/kv/vite",
       "vite-hub/nuxt-runtime-resolver:@vite-hub/blob/vite",
+      "builtin:vite-import-glob",
+      "vite-hub/nitro-raw-imports",
     ])
     const kvResolver = plugins.find(plugin => plugin.name === "vite-hub/nuxt-runtime-resolver:@vite-hub/kv/vite")!
     const blobResolver = plugins.find(plugin => plugin.name === "vite-hub/nuxt-runtime-resolver:@vite-hub/blob/vite")!
@@ -1246,6 +1285,157 @@ describe("ViteHub Nuxt integration", () => {
     expect(transform).toHaveBeenCalledWith('"use workflow"', "/server/workflows/native.ts", { moduleType: "ts", ssr: true })
     await Reflect.apply(hook.handler, {}, ['"use workflow"', "/server/workflows/native.ts"])
     expect(transform).toHaveBeenLastCalledWith('"use workflow"', "/server/workflows/native.ts", { moduleType: "js", ssr: true })
+  })
+
+  it("forwards the i18n server transform in Nitro-only replay", async () => {
+    const transform = vi.fn(() => ({ code: "compiled-message" }))
+    const filter = { id: { include: [/\.ts$/] } }
+    mocks.vitehub.mockReturnValue([{ name: "@vite-hub/i18n/vite", transform: { filter, handler: transform } }])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    Object.assign(nuxt.options, { experimental: { nitroViteEnvironment: false } })
+    await viteHubNuxtModule({ i18n: { locales: ["en", "es"] } }, nuxt)
+    const config: { rollupConfig?: { plugins?: Plugin[] } } = {}
+    await runNitroConfigHook(config)
+    const hook = config.rollupConfig?.plugins?.find(plugin => plugin.name === "vite-hub/nuxt-runtime-resolver:@vite-hub/i18n/vite")?.transform
+    if (!hook || typeof hook === "function") throw new TypeError("Expected a filtered i18n transform.")
+    expect(hook.filter).toEqual(filter)
+    expect(await Reflect.apply(hook.handler, {}, ["t`Payment received`", "/server/api/pay.ts"])).toEqual({ code: "compiled-message" })
+    expect(transform).toHaveBeenCalledWith("t`Payment received`", "/server/api/pay.ts", { moduleType: "js", ssr: true })
+  })
+
+  it("bundles the Schedule registry for runSchedule() in Nitro-only replay", async () => {
+    const configResolved = vi.fn()
+    mocks.vitehub.mockReturnValue([{
+      name: "@vite-hub/schedule/vite",
+      configResolved,
+      resolveId: { filter: { id: /^#vitehub\/schedule\/registry$/ }, handler: () => "\0#vitehub/schedule/registry" },
+      load: { filter: { id: /^\0#vitehub\/schedule\/registry$/ }, handler: () => "export default { 'daily-report': {} }" },
+      transform: { filter: { code: /@vitehub-schedule-registry/ }, handler: (code: string) => code.replace(/registryModule/, "\"#vitehub/schedule/registry\"") },
+    }])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    Object.assign(nuxt.options, { experimental: { nitroViteEnvironment: false } })
+    await viteHubNuxtModule({ schedule: true }, nuxt)
+    const config: { rollupConfig?: { plugins?: Plugin[] } } = {}
+    await runNitroConfigHook(config)
+    expect(configResolved).toHaveBeenCalled()
+    const resolver = config.rollupConfig?.plugins?.find(plugin => plugin.name === "vite-hub/nuxt-runtime-resolver:@vite-hub/schedule/vite")
+    const handler = (hook: unknown) => Reflect.get(Object(hook), "handler") as Function
+    const code = "import(/* @vite-ignore */ /* @vitehub-schedule-registry */ registryModule)"
+    expect(await Reflect.apply(handler(resolver?.transform), {}, [code, "/node_modules/@vite-hub/schedule/dist/run.js"])).toBe("import(/* @vite-ignore */ /* @vitehub-schedule-registry */ \"#vitehub/schedule/registry\")")
+    expect(Reflect.apply(handler(resolver?.resolveId), {}, ["#vitehub/schedule/registry"])).toBe("\0#vitehub/schedule/registry")
+    expect(Reflect.apply(handler(resolver?.load), {}, ["\0#vitehub/schedule/registry"])).toBe("export default { 'daily-report': {} }")
+  })
+
+  it("rewrites the Server Env import of Agent Channels in Nitro-only replay", async () => {
+    mocks.vitehub.mockReturnValue([hubEnv()])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    Object.assign(nuxt.options, { experimental: { nitroViteEnvironment: false } })
+    await viteHubNuxtModule({ env: {} }, nuxt)
+    const config: { rollupConfig?: { plugins?: Plugin[] } } = {}
+    await runNitroConfigHook(config)
+    const transform = config.rollupConfig?.plugins?.find(plugin => plugin.name === "vite-hub/nuxt-runtime-resolver:@vite-hub/env/vite")?.transform
+    if (!transform || typeof transform === "function") throw new TypeError("Expected a filtered Env transform.")
+    expect(transform.filter).toEqual({ code: "/* @vitehub-env */" })
+    const code = "const serverEnvModuleId = \"#vitehub/env/server\"\nawait import(/* @vite-ignore */ /* @vitehub-env */ serverEnvModuleId)"
+    expect(await Reflect.apply(transform.handler, {}, [code, "/node_modules/@vite-hub/agent/dist/channels.js"])).toMatchObject({
+      code: "const serverEnvModuleId = \"#vitehub/env/server\"\nawait import(\"#vitehub/env/server\")",
+      map: { version: 3, mappings: expect.stringMatching(/\w/) },
+    })
+  })
+
+  it("bundles Server Env in Nitro without a Vite build or generated runtime", async () => {
+    const root = await mkdtemp(resolve(import.meta.dirname, ".nuxt-env-replay-"))
+    onTestFinished(() => rm(root, { recursive: true, force: true }))
+    const serverDir = resolve(root, "server")
+    await mkdir(resolve(serverDir, "routes"), { recursive: true })
+    await writeFile(resolve(serverDir, "routes/env.ts"), `
+      const serverEnvModuleId = "#vitehub/env/server"
+      export default async () => (await import(/* @vite-ignore */ /* @vitehub-env */ serverEnvModuleId)).useServerEnv().gmail.clientId
+    `)
+    mocks.vitehub.mockReturnValue([hubEnv({ server: { gmail: { clientId: env({ source: env.source("SHOP_GMAIL_CLIENT_ID"), default: "shop-client" }) } } })])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    Object.assign(nuxt.options, { rootDir: root, srcDir: root, serverDir, buildDir: resolve(root, ".nuxt"), experimental: { nitroViteEnvironment: false } })
+    await viteHubNuxtModule({ env: {} }, nuxt)
+    await expect(readFile(resolve(root, ".vitehub/env/server.mjs"))).rejects.toMatchObject({ code: "ENOENT" })
+    const config: { alias?: Record<string, string>, rollupConfig?: { plugins?: Plugin[] } } = {}
+    await runNitroConfigHook(config)
+    const replay = config.rollupConfig?.plugins?.find(plugin => plugin.name === "vite-hub/nuxt-runtime-resolver:@vite-hub/env/vite")
+    const { build, createNitro, prepare } = await import("nitro/builder")
+    const host = await createNitro({
+      rootDir: root,
+      serverDir,
+      preset: "standard",
+      builder: "rolldown",
+      logLevel: 0,
+      alias: { "#vitehub/env/server": config.alias!["#vitehub/env/server"]! },
+      rollupConfig: { plugins: [replay] },
+    })
+    try {
+      await prepare(host)
+      await build(host)
+      const entry = pathToFileURL(resolve(root, ".output/server/index.mjs")).href
+      const { default: server } = await import(/* @vite-ignore */ entry) as { default: { fetch: (request: Request) => Promise<Response> } }
+      const response = await server.fetch(new Request("http://localhost/env"))
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe("shop-client")
+    }
+    finally {
+      await host.close()
+    }
+  }, 60_000)
+
+  it("bundles Skills imports with Nitro's Rolldown instead of the app's copy", async () => {
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    Object.assign(nuxt.options, { experimental: { nitroViteEnvironment: false } })
+    const root = nuxt.options.rootDir
+    const appRolldown = resolve(root, "node_modules/rolldown")
+    onTestFinished(() => rm(appRolldown, { recursive: true, force: true }))
+    await mkdir(appRolldown, { recursive: true })
+    await writeFile(resolve(appRolldown, "package.json"), JSON.stringify({ name: "rolldown", exports: { "./experimental": "./experimental.mjs" } }))
+    await writeFile(resolve(appRolldown, "experimental.mjs"), "export const viteImportGlobPlugin = () => ({ name: 'different-rolldown-copy' })")
+    const nitroRolldown = createRequire(import.meta.resolve("nitro")).resolve("rolldown")
+    await viteHubNuxtModule({}, nuxt)
+    const config: { deps: { paths: { rolldown: string } }, rollupConfig?: { plugins?: Rolldown.RolldownPluginOption[] } } = {
+      deps: { paths: { rolldown: nitroRolldown } },
+    }
+    await runNitroConfigHook(config)
+    await runNitroConfigHook(config)
+    await mkdir(resolve(root, "skills/release"), { recursive: true })
+    await mkdir(resolve(root, "server"), { recursive: true })
+    await writeFile(resolve(root, "skills/release/SKILL.md"), "---\nname: release\n---\n")
+    await writeFile(resolve(root, "server/skills.ts"), [
+      "import skillMd from '../skills/release/SKILL.md?raw'",
+      "export const files = import.meta.glob('../skills/**', { query: '?raw', import: 'default', eager: true })",
+      "export const raw = skillMd",
+    ].join("\n"))
+    const { rolldown } = await import(pathToFileURL(nitroRolldown).href) as typeof Rolldown
+    const bundle = await rolldown({ input: resolve(root, "server/skills.ts"), plugins: config.rollupConfig?.plugins })
+    onTestFinished(() => bundle.close())
+    const { output: [chunk] } = await bundle.generate({ format: "esm" })
+    const module = await import(`data:text/javascript;base64,${Buffer.from(chunk.code).toString("base64")}`)
+    expect(module.files).toEqual({ "../skills/release/SKILL.md": "---\nname: release\n---\n" })
+    expect(module.raw).toBe("---\nname: release\n---\n")
+  })
+
+  it("bundles glob() Sources in Nitro-only replay", async () => {
+    const id = /^\0vitehub-source-glob:/
+    mocks.vitehub.mockReturnValue([{
+      name: "@vite-hub/source/vite",
+      resolveId: { filter: { id }, handler: (source: string) => source },
+      load: { filter: { id }, handler: () => "export default {}" },
+      transform: { filter: { code: /\bvite-hub\/source["'`]/ }, handler: () => ({ code: "import __vitehubGlob0 from \"\\0vitehub-source-glob:docs\"", map: null }) },
+    }])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    Object.assign(nuxt.options, { experimental: { nitroViteEnvironment: false } })
+    await viteHubNuxtModule({}, nuxt)
+    const config: { rollupConfig?: { plugins?: Plugin[] } } = {}
+    await runNitroConfigHook(config)
+    const resolver = config.rollupConfig?.plugins?.find(plugin => plugin.name === "vite-hub/nuxt-runtime-resolver:@vite-hub/source/vite")
+    const handler = (hook: unknown) => Reflect.get(Object(hook), "handler") as Function
+    const code = "import { glob } from \"vite-hub/source\"\nexport const docs = glob(\"docs/**/*.md\")"
+    expect(await Reflect.apply(handler(resolver?.transform), {}, [code, "/server/content.ts"])).toEqual({ code: "import __vitehubGlob0 from \"\\0vitehub-source-glob:docs\"", map: null })
+    expect(Reflect.apply(handler(resolver?.resolveId), {}, ["\0vitehub-source-glob:docs"])).toBe("\0vitehub-source-glob:docs")
+    expect(Reflect.apply(handler(resolver?.load), {}, ["\0vitehub-source-glob:docs"])).toBe("export default {}")
   })
 
   it("checks direct folder Agent imports before the catalog loads in Nuxt 5's separate Nitro 3 build", async () => {
@@ -3664,6 +3854,8 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
           expect.objectContaining({ name: "vite-hub/nitro-optional-peers" }),
           expect.objectContaining({ name: "vite-hub/nitro-h3" }),
           expect.objectContaining({ name: "vite-hub/nitro-cache-bypass" }),
+          expect.objectContaining({ name: "builtin:vite-import-glob" }),
+          expect.objectContaining({ name: "vite-hub/nitro-raw-imports" }),
         ],
       },
       sandbox: true,

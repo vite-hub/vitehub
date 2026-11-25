@@ -15,6 +15,15 @@ function parserPlugins(id: string): ("typescript" | "jsx")[] {
   return ["jsx"]
 }
 
+async function importsMacros(code: string, packages: readonly string[], plugins: ReturnType<typeof parserPlugins>): Promise<boolean> {
+  const lang = plugins.includes("typescript") ? plugins.includes("jsx") ? "tsx" : "ts" : "jsx"
+  const { parseAst } = await import("vite")
+  return parseAst(code, { lang }).body.some(statement =>
+    statement.type === "ImportDeclaration" && statement.importKind !== "type" && packages.includes(statement.source.value)
+    && statement.specifiers.some(specifier => specifier.type === "ImportSpecifier" && specifier.importKind !== "type"
+      && macroNames.has(specifier.imported.type === "Identifier" ? specifier.imported.name : specifier.imported.value)))
+}
+
 function splitRuntimeImports(packages: readonly string[], importBase: string, tNames: Set<string>) {
   return ({ types: t }: { types: typeof BabelTypes }): PluginObject => ({
     name: "vite-hub-i18n-split-imports",
@@ -110,10 +119,13 @@ export async function transformMacros(
   config: LinguiConfigNormalized,
   importBase: string,
   descriptorFields: DescriptorFields,
+  options?: { macroImportsOnly: boolean },
 ): Promise<{ code: string, map: SourceMap | null } | undefined> {
   const packages = config.macro.corePackage
   if (!packages.some(name => code.includes(`"${name}"`) || code.includes(`'${name}'`))) return undefined
   const filename = id.split("?")[0]!
+  const syntax = parserPlugins(filename)
+  if (options?.macroImportsOnly && !await importsMacros(code, packages, syntax)) return undefined
   const tNames = new Set<string>()
   const result = await transformAsync(code, {
     filename,
@@ -121,7 +133,7 @@ export async function transformMacros(
     configFile: false,
     sourceMaps: true,
     ast: true,
-    parserOpts: { sourceType: "module", plugins: parserPlugins(id) },
+    parserOpts: { sourceType: "module", plugins: syntax },
     plugins: [
       splitRuntimeImports(packages, importBase, tNames),
       [linguiMacroPlugin, { linguiConfig: config, descriptorFields }],

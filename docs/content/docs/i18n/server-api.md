@@ -174,7 +174,7 @@ An empty translation marks the record as rejected and keeps its last text, or th
 
 ## Vue
 
-Import the Vue API from `vite-hub/i18n/vue`. Nuxt 5 apps get the plugin from `vite-hub/nuxt` and `useLocale()` as an auto-import.
+Import the Vue API from `vite-hub/i18n/vue`. Nuxt apps get the plugin from `vite-hub/nuxt` and `useLocale()` as an auto-import.
 
 | Export | Meaning |
 | --- | --- |
