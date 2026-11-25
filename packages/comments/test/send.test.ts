@@ -147,7 +147,7 @@ describe("pairing", () => {
     await comment("ana", "The rental desk paragraph is too long")
     const { allowed } = await connect("ana", relay, threadLink)
     expect(allowed.body.data).toMatchObject({ status: "sent", thread: threadLink })
-    expect((await call(`/send/status?page=${page}`, { as: "ana" })).body.data.working).toMatchObject({ thread: threadLink })
+    expect((await call(`/send/status?page=${page}`, { as: "ana" })).body.data.sent).toMatchObject({ thread: threadLink })
     await comment("ana", "And the photo credits")
     expect((await call(`/send?page=${page}`, { json: {}, as: "ana" })).body.data).toMatchObject({ status: "sent", thread: threadLink })
   })
@@ -166,8 +166,8 @@ describe("pairing", () => {
     expect(allowed.body.data.status).toBe("sent")
     expect(allowed.body.data).not.toHaveProperty("thread")
     const status = (await call(`/send/status?page=${page}`, { as: "ana" })).body.data
-    expect(status.working).toBeDefined()
-    expect(status.working).not.toHaveProperty("thread")
+    expect(status.sent).toBeDefined()
+    expect(status.sent).not.toHaveProperty("thread")
   })
 
   it("gives the endpoint the member's name, and their email only when it is verified", async () => {
@@ -319,7 +319,7 @@ describe("sends", () => {
     await connect()
     expect(deliveries[0]!.body.threads.sort()).toEqual([own.id, other.id].sort())
     const after = (await call(`/send/status?page=${page}`, { as: "ana" })).body.data
-    expect(after).toMatchObject({ count: 0, agent: { name: "T3 Code", host: "relay.t3.codes" }, working: { id: deliveries[0]!.body.send } })
+    expect(after).toMatchObject({ count: 0, agent: { name: "T3 Code", host: "relay.t3.codes" }, sent: { id: deliveries[0]!.body.send } })
     expect((await call(`/send?page=${page}`, { method: "POST", as: "ana" })).body.data).toMatchObject({ status: "sent", id: deliveries[0]!.body.send })
     expect(deliveries).toHaveLength(1)
     await reply(other.id, "bob", "Also the bus times")
@@ -440,6 +440,8 @@ describe("sends", () => {
     const opened = await call(path, { headers: { authorization: `Bearer ${read!.token}` } })
     expect(opened.status).toBe(200)
     expect(opened.body.data.send).toMatchObject({ id: send, page, state: "working" })
+    expect((await call(`/send/status?page=${page}`, { as: "ana" })).body.data).toMatchObject({ working: { id: send } })
+    expect((await call(`/send/status?page=${page}`, { as: "ana" })).body.data).not.toHaveProperty("sent")
     expect(opened.body.data.threads.map((thread: { id: string, role: string }) => [thread.id, thread.role]).sort()).toEqual([[first.id, "ask"], [second.id, "quote"]].sort())
     expect(opened.body.data.threads.map((thread: { id: string }) => thread.id)).not.toContain(later.id)
     hidden.add(second.id)
@@ -474,9 +476,9 @@ describe("sends", () => {
     const own = await comment("ana", "Fix the date")
     await comment("bob", "Nice")
     await connect()
-    expect((await call(`/send/status?page=${page}`, { as: "ana" })).body.data.working).toBeDefined()
+    expect((await call(`/send/status?page=${page}`, { as: "ana" })).body.data.sent).toBeDefined()
     await comments.resolve(own.id, { by: { id: "ana" } })
-    expect((await call(`/send/status?page=${page}`, { as: "ana" })).body.data.working).toBeUndefined()
+    expect((await call(`/send/status?page=${page}`, { as: "ana" })).body.data).not.toHaveProperty("sent")
   })
 
   it("sends no token with `grant: false`, and adds the data of `payload`", async () => {
@@ -718,19 +720,19 @@ describe("the server API of Send", () => {
     const id = allowed.body.data.id
     const status = async () => (await call(`/send/status?page=${page}`, { as: "ana" })).body.data
     await comments.resolve(own.id, { by: { id: "ana" } })
-    expect((await status()).working).toBeUndefined()
+    expect(await status()).not.toHaveProperty("sent")
     await comments.reopen(own.id)
-    expect(await status()).toMatchObject({ count: 0, working: { id } })
+    expect(await status()).toMatchObject({ count: 0, sent: { id } })
 
     await comments.resolve(own.id, { by: { id: "ana" } })
-    expect((await status()).working).toBeUndefined()
+    expect(await status()).not.toHaveProperty("sent")
     expect((await call(`/threads/${own.id}/reopen`, { method: "POST", as: "ana" })).status).toBe(200)
-    expect(await status()).toMatchObject({ count: 0, working: { id } })
+    expect(await status()).toMatchObject({ count: 0, sent: { id } })
 
     await comments.resolve(own.id, { by: { id: "ana" } })
     await comments.resolve(quote.id, { by: { id: "ana" } })
     await comments.reopen(quote.id)
-    expect((await status()).working).toBeUndefined()
+    expect(await status()).not.toHaveProperty("sent")
   })
 
   it("lets the member send a reopened ask to the webhook again without resending its quote", async () => {

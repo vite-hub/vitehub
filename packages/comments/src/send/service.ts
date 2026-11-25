@@ -454,13 +454,16 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       ])
       const latest = candidate && await reconcile(candidate)
       const agent = agentOf(endpoint)
-      let working: CommentSendStatus["working"]
+      let last: Pick<CommentSendStatus, "sent" | "working"> = {}
       if (latest?.state === "sent" || latest?.state === "working") {
         const byId = new Map(open.map(thread => [thread.id, thread]))
-        if (!finished(latest, id => byId.get(id))) working = { id: latest.id, ...(latest.thread ? { thread: latest.thread } : {}) }
+        if (!finished(latest, id => byId.get(id))) {
+          const send = { id: latest.id, ...(latest.thread ? { thread: latest.thread } : {}) }
+          last = latest.state === "sent" ? { sent: send } : { working: send }
+        }
         else await store.setSendState(latest.id, ["sent", "working"], "done", now)
       }
-      return { count: ready.length, selection: await selectionOf(caller.subject, ready), ...(agent ? { agent } : {}), ...(working ? { working } : {}), ...(latest?.state === "pending" ? { pending: true } : {}), ...(limitedUntil === undefined ? {} : { retryAt: limitedUntil }) }
+      return { count: ready.length, selection: await selectionOf(caller.subject, ready), ...(agent ? { agent } : {}), ...last, ...(latest?.state === "pending" ? { pending: true } : {}), ...(limitedUntil === undefined ? {} : { retryAt: limitedUntil }) }
     },
 
     async start(caller) {
