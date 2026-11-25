@@ -8,8 +8,6 @@ const placeholderD1Id = "00000000-0000-0000-0000-000000000000"
 
 const cmsPresetTables = await readFile(join(import.meta.dirname, "cms-migration.sql"), "utf8")
 
-const introPage = "# Hello from Content\n\nThis page came from a local Source.\n"
-
 async function readText(response: Response) {
   const body = await response.text()
   if (!response.ok) throw new Error(`${response.url} answered ${response.status}: ${body.slice(0, 2000)}`)
@@ -49,17 +47,6 @@ export const content: PrimitiveEntry[] = [
     id: "content",
     packages: ["@vite-hub/content", "@vite-hub/source"],
     files: {
-      "primitive-pages/intro.md": introPage,
-      "server/content.ts": `
-        import { defineContent } from "vite-hub/content"
-        import { glob } from "vite-hub/source"
-
-        export default defineContent({
-          sources: {
-            pages: glob({ cwd: "primitive-pages", include: "**/*.md" }),
-          },
-        })
-      `,
       "server/api/primitives/content.get.ts": `
         import { defineEventHandler } from "nitro/h3"
         import content from "../../content"
@@ -85,7 +72,7 @@ export const content: PrimitiveEntry[] = [
       ? { blob: { bucketName: "nuxt-primitives" }, database: { databaseId: placeholderD1Id, databaseName: "nuxt-primitives", driver: "cloudflare" } }
       : { database: { migrateOnStart: true } },
     files: {
-      "primitive-pages/intro.md": introPage,
+      "primitive-pages/intro.md": "# Hello from Content\n\nThis page came from a local Source.\n",
       "server/content.ts": `
         import { cms } from "vite-hub/cms"
         import { defineContent } from "vite-hub/content"
@@ -101,7 +88,6 @@ export const content: PrimitiveEntry[] = [
           collections: {
             posts: documents({ path: "posts/**/*.md", fields: { title: z.string() } }),
           },
-          // The check has no signed-in user.
           authorize: () => true,
         })
       `,

@@ -11,7 +11,7 @@ import { access } from "./nuxt-primitives/access.ts"
 import { content } from "./nuxt-primitives/content.ts"
 import { jobs } from "./nuxt-primitives/jobs.ts"
 import { ops } from "./nuxt-primitives/ops.ts"
-import { isRow, modes, type Mode, type PrimitiveRow, type Target } from "./nuxt-primitives/row.ts"
+import { ConfigSource, isRow, modes, type Mode, type PrimitiveRow, type Target } from "./nuxt-primitives/row.ts"
 import { storage } from "./nuxt-primitives/storage.ts"
 import {
   availablePort,
@@ -52,7 +52,14 @@ function nuxtConfig(target: Target, active: PrimitiveRow[]) {
   const nitro = target === "cloudflare"
     ? { cloudflare: { deployConfig: true }, preset: "cloudflare_module" }
     : { preset: "node-server" }
-  return `export default defineNuxtConfig(${JSON.stringify({ compatibilityDate: "2026-10-01", modules: ["vite-hub/nuxt"], nitro, vitehub }, null, 2)})\n`
+  const imports = new Set<string>()
+  const sources: string[] = []
+  const config = JSON.stringify({ compatibilityDate: "2026-10-01", modules: ["vite-hub/nuxt"], nitro, vitehub }, (_key, value: unknown) => {
+    if (!(value instanceof ConfigSource)) return value
+    for (const line of value.imports) imports.add(line)
+    return `\0${sources.push(value.source) - 1}`
+  }, 2).replace(/"\\u0000(\d+)"/g, (_match, index: string) => sources[Number(index)]!)
+  return `${[...imports].map(line => `${line}\n`).join("")}export default defineNuxtConfig(${config})\n`
 }
 
 async function writeAppFiles(appDir: string, files: Record<string, string>) {
