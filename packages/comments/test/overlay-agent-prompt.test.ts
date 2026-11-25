@@ -86,9 +86,10 @@ describe("Copy prompt in the comment pill", () => {
     const { bar, server } = await site(member, 1)
     await vi.waitFor(() => expect(copyButton(bar)).not.toBeNull())
     const fetch = server.fetch.getMockImplementation()!
-    const pending = Promise.withResolvers<void>()
+    let releaseSession!: () => void
+    const pendingSession = new Promise<void>((resolve) => { releaseSession = resolve })
     server.fetch.mockImplementation(async (input, init) => {
-      if (String(input).includes("/session")) await pending.promise
+      if (String(input).includes("/session")) await pendingSession
       return fetch(input, init)
     })
     try {
@@ -97,7 +98,7 @@ describe("Copy prompt in the comment pill", () => {
       expect(commentsButton(bar)?.getAttribute("aria-label")).toBe("Comments, 1 open")
     }
     finally {
-      pending.resolve()
+      releaseSession()
     }
     await vi.waitFor(() => expect(commentsButton(bar)?.getAttribute("aria-label")).toBe("Comments"))
   })
