@@ -9,8 +9,8 @@ import { appAuth, baseScopes, pathOf, stateOf } from "./mcp-token.ts"
 import type { BetterAuthPlugin } from "better-auth"
 import type { McpOAuthAuth } from "./mcp-token.ts"
 
-export { deleteUnusedMcpClients, verifyMcpRequest } from "./mcp-token.ts"
-export type { DeleteUnusedMcpClientsOptions, McpCaller, McpOAuthAuth, McpOAuthErrorCode, VerifyMcpRequestOptions } from "./mcp-token.ts"
+export { deleteUnusedMcpClients, mcpTokenInvalidReasons, verifyMcpRequest } from "./mcp-token.ts"
+export type { DeleteUnusedMcpClientsOptions, McpCaller, McpOAuthAuth, McpOAuthErrorCode, McpTokenInvalidData, McpTokenInvalidReason, VerifyMcpRequestOptions } from "./mcp-token.ts"
 
 /**
  * OAuth 2.1 sign-in for an MCP server of the app, with Better Auth as the authorization server. `mcpOAuth()` adds the

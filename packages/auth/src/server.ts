@@ -23,3 +23,4 @@ export {
 export type { AbilityErrorData, AuthEventReadErrorCode } from "./internal/server.ts"
 export type { AuthCaller, AuthCallerErrorCode, AuthCallerUser } from "./caller.ts"
 export type { AuthMemberErrorCode } from "./members.ts"
+export type { McpTokenInvalidData, McpTokenInvalidReason } from "./mcp-token.ts"
