@@ -2,8 +2,7 @@
   "name": "env-schema-app",
   "private": true,
   "dependencies": {
-    "@vite-hub/env": "^<version>",
     "nuxt": "npm:nuxt-nightly@5x",
-    "vite-hub": "^<version>"
+    "vite-hub": ">=0.5.1 <1"
   }
 }

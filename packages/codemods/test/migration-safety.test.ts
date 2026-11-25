@@ -224,6 +224,7 @@ describe("nested app boundaries", () => {
     const cwd = await app({
       "nuxt.config.ts": `${preamble}export default defineNuxtConfig({ ${extendsOption} modules: ['nuxt-safe-runtime-config'], safeRuntimeConfig: { envSchema: '.env.example' } })`,
       ".env.example": "NUXT_PUBLIC_TITLE=site\n",
+      "package.json": '{"dependencies":{"nuxt-safe-runtime-config":"0.3.2"}}\n',
       [`${directory}/nuxt.config.ts`]: "export default defineNuxtConfig({ extends: ['../shared'] })",
       [`${directory}/server/api/title.get.ts`]: code,
       [`${directory}/apps/child/nuxt.config.ts`]: "export default defineNuxtConfig({})",
@@ -287,6 +288,7 @@ describe("host safety", () => {
     const cwd = await app({
       "nuxt.config.ts": `export default defineNuxtConfig({ ${options}, safeRuntimeConfig: { envSchema: '.env.example' }, nitro: { preset: process.env.NITRO_PRESET } })`,
       ".env.example": "NUXT_PUBLIC_TITLE=site\n",
+      "package.json": '{"dependencies":{"nuxt-safe-runtime-config":"0.3.2"}}\n',
     })
     const run = await runCodemod("nuxt-safe-runtime-config", { cwd, dryRun: true })
     const edited = run.result.edits.find(edit => edit.path === "nuxt.config.ts")?.after
@@ -297,6 +299,18 @@ describe("host safety", () => {
 })
 
 describe("schema migration safety", () => {
+  it("leaves an envSchema app without a manifest unchanged", async () => {
+    const files = {
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['nuxt-safe-runtime-config'], safeRuntimeConfig: { envSchema: '.env.example' } })",
+      ".env.example": "NUXT_PUBLIC_TITLE=site\n",
+      "composables/title.ts": "export const title = useSafeRuntimeConfig().public.title\n",
+    }
+    const cwd = await app(files)
+    await expect(runCodemod("nuxt-safe-runtime-config", { cwd })).rejects.toThrow("Create a package.json for this app before migrating to vite-hub/env/vite.")
+    for (const [file, code] of Object.entries(files)) expect(await readFile(join(cwd, file), "utf8")).toBe(code)
+    await expect(readFile(join(cwd, "package.json"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
   it.each([
     ["title", true, "''"],
     ["title", false, "''"],
@@ -382,7 +396,6 @@ describe("schema migration safety", () => {
     const migrated: { vitehub: { env: { server: EnvRuntimeConfigOptions } } } = runInNewContext(edited.code.slice(start(exported.declaration), end(exported.declaration)), { defineNuxtConfig: (options: unknown) => options, env })
     const parse = (value: unknown) => type === "number" ? Number(value) : type === "boolean" ? value === true || value === "true" : value
     vi.stubEnv("NUXT_VALUE", undefined)
-    // Unset, empty, and configured sources resolve as the original expression did, parsed to the field type.
     for (const source of [undefined, "", type === "string" ? "configured" : type === "number" ? "2" : "false"]) {
       vi.stubEnv("SOURCE", source)
       const original: unknown = runInNewContext(`process.env.SOURCE || ${fallback}`, { process: { env: { SOURCE: source } } })

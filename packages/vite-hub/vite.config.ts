@@ -159,7 +159,7 @@ const runtimeEntries = [
   "src/console/runtime/server/search.get.ts",
   "src/console/runtime/server/sections.get.ts",
   "src/console/runtime/server/setup.ts",
-  "src/console/runtime/server/usage.get.ts",
+  "src/console/runtime/server/invocations.usage.ts",
   "src/console/runtime/server/status.get.ts",
   // The Console segment of the Comments pill. Comments installs it at startup, and it reads the visitor on the first
   // page tools session request.
@@ -661,7 +661,7 @@ export default defineConfig({
           delete exports["./console/runtime/server/setup"];
           delete exports["./console/runtime/server/site"];
           delete exports["./console/runtime/server/site-visitor"];
-          delete exports["./console/runtime/server/usage.get"];
+          delete exports["./console/runtime/server/invocations.usage"];
           delete exports["./console/runtime/server/status.get"];
           // Generated code imports `src/internal/*` entries by path. They are not public API.
           for (const key of Object.keys(exports)) if (/^\.\/_?internal\//.test(key)) delete exports[key];

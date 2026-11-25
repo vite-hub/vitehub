@@ -30,7 +30,7 @@ import { PullRequestInbox, normalizePullRequest, type Claim, type Snapshot } fro
 import { matchesBabysitterPullRequestFilter } from "./pull-request-filter.ts";
 import { snapshotPrompt, assertPromptFits } from "./inbox/snapshot-prompt.ts";
 import { snapshotPullRequest, createClaimStopCheck, claimStopReason } from "./inbox/claim-state.ts";
-import { hydrateSnapshot, reconcileOneSnapshot, readForgePullRequestThreads, detectChangedPullRequests, probeChangedSnapshots, type ReadGraphql } from "./inbox/snapshot-sync.ts";
+import { hydrateSnapshot, readHeadChecks, reconcileOneSnapshot, readForgePullRequestThreads, detectChangedPullRequests, probeChangedSnapshots, type ReadGraphql } from "./inbox/snapshot-sync.ts";
 import type { PullRequestInboxStorage } from "./inbox/storage.ts";
 import { actionLocation, hydrateFailedCiEvidence, newestCheckRun } from "./inbox/ci-evidence.ts";
 import type { PullRequestWake } from "./inbox/wait-state.ts";
@@ -47,7 +47,7 @@ import { createBabysitterPassResultSchema } from "./result.ts";
 import { repairCapability, repairEnvironment } from "./repair.ts";
 import { createGitHubRequiredCheckPolicyReader, evaluateGitHubRequiredChecks, type GitHubRequiredCheckPolicy } from "../github/index.ts";
 import { approvalReviewers } from "./approval.ts";
-import { directMergeReadiness, feedbackFingerprints, hasHumanComment, liveMergeReadiness, matchesMergeReviewEvidence, resolveBabysitterMerge, snapshotCheckEvidence, mergeReviewEvidenceKey } from "./merge.ts";
+import { directMergeReadiness, feedbackFingerprints, hasHumanComment, headChecksUnreported, liveMergeReadiness, matchesMergeReviewEvidence, resolveBabysitterMerge, snapshotCheckEvidence, mergeReviewEvidenceKey } from "./merge.ts";
 import { checksDependencyEvidence, checksStillRunning, conflictOnlyBlockers, createCheckWait, dailyPassExemption, failedConclusions, failureKeys, hasPendingChecks, humanFeedbackExemption, latestCheckSignals, missingRequiredChecks, pushCause, severeReviewSettled, reviewCheckRunning, reviewPushBudgetSpent, reviewPushBudgetWork, wakeReasons, type BabysitterWaitPolicy } from "./wait.ts";
 import { dailyPassResumeAt, nextReviewPushBudget, repairPushAllowance, type ProgressOutcome } from "./inbox/budgets.ts";
 import { createForgeQuota, createProviderQuota } from "./provider-quota.ts";
@@ -120,6 +120,11 @@ export interface BabysitterRuntimeOptions {
   providerRetryDelayMs?: number;
   /** Delay between live reads while GitHub computes mergeability before a direct merge. Defaults to 3 seconds. */
   mergeabilityRetryDelayMs?: number;
+  /**
+   * How long a head without required checks waits for GitHub to report its first check before a
+   * direct merge. GitHub creates the checks of a push some seconds after the push. Defaults to 60 seconds.
+   */
+  firstCheckWaitMs?: number;
   admission?: (signal?: AbortSignal) => Promise<Pick<BabysitterAdmissionResult, "accepting" | "hostOnly" | "reason" | "retryAt" | "detail">>;
   /**
    * Samples memory and pressure for work that runs like a worker before the model starts, such as the
@@ -1089,6 +1094,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       return "blocked" as const;
     };
     const stoppedKey = `direct-merge-stopped:${repository}#${number}`;
+    const firstCheckKey = `first-check-wait:${repository}#${number}`;
     if (pending) {
       try {
         const live = await readPull(repository, number, signal);
@@ -1161,7 +1167,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       }
     }
     if (signal.aborted) return "blocked";
-    const evaluation = await checkEvaluation(snapshot, await requiredCheckPolicy(snapshot, foldInto !== undefined), signal);
+    const policy = await requiredCheckPolicy(snapshot, foldInto !== undefined);
+    const evaluation = await checkEvaluation(snapshot, policy, signal);
     const savedAssessment = await pullRequestInbox.meta(`review-assessment:${repository}#${number}`);
     // Version 1 also acknowledged feedback after a push without an explicit review.
     const assessment = isRuntimeRecord(savedAssessment) && savedAssessment.version === 2 ? savedAssessment : undefined;
@@ -1189,6 +1196,17 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     if (!decision.ready) {
       schedulerEvent("babysitter.direct_merge.skipped", { ...owner, reason: decision.reason });
       return pending?.asynchronous ? await parkMerge(`Unconfirmed merge is waiting for ${decision.reason}.`) : "not-ready";
+    }
+    const everyCheckGates = policy.status === "known" && !policy.required.length;
+    if (!pending && everyCheckGates && firstCheckWaitMs > 0 && headChecksUnreported(snapshot)) {
+      const saved = await pullRequestInbox.meta(firstCheckKey);
+      const since = isRuntimeRecord(saved) && saved.head === decision.head && hasRuntimeType(saved.since, "number") ? saved.since : pullRequestInbox.now();
+      if (!isRuntimeRecord(saved) || saved.head !== decision.head) await pullRequestInbox.setMeta(firstCheckKey, { head: decision.head, since });
+      const until = since + firstCheckWaitMs;
+      if (until > pullRequestInbox.now()) {
+        schedulerEvent("babysitter.direct_merge.skipped", { ...owner, reason: "no check reported for the head yet" });
+        return await parkMerge(`GitHub has reported no check for ${decision.head} yet; waiting until ${new Date(until).toISOString()} for its first check.`, until);
+      }
     }
     const stopped = pending ? undefined : await pullRequestInbox.meta(stoppedKey);
     if (isRuntimeRecord(stopped) && stopped.head === decision.head && hasRuntimeType(stopped.until, "number") && stopped.until > pullRequestInbox.now()) {
@@ -1293,6 +1311,20 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           return pending?.asynchronous ? await parkMerge(`Unconfirmed fold is waiting: ${reason}.`) : "not-ready";
         }
       }
+      if (everyCheckGates) {
+        const reported = await readHeadChecks((path, projection) => readRest(path, projection, signal), repository, decision.head, signal);
+        const fresh: Snapshot = { ...snapshot, ...reported };
+        const freshEvaluation = await checkEvaluation(fresh, policy, signal);
+        const freshDecision = readiness(fresh, freshEvaluation.state, freshEvaluation.inheritedCheckIds);
+        if (!freshDecision.ready) {
+          schedulerEvent("babysitter.direct_merge.skipped", { ...owner, reason: `GitHub reports checks the inbox lacks: ${freshDecision.reason}` });
+          if (await pullRequestInbox.hydrate(claim, reported)) {
+            return pending ? await parkMerge(`Unconfirmed merge is waiting for ${freshDecision.reason}.`) : "not-ready";
+          }
+          await pullRequestInbox.release(claim);
+          return "blocked";
+        }
+      }
       // Revalidate the durable lease and revision after the live provider read and
       // immediately before the irreversible merge request. A webhook or another
       // worker that changed the inbox invalidates this claim.
@@ -1345,6 +1377,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       return await parkMerge(`GitHub merge request failed: ${(error instanceof Error ? error.message : String(error)).slice(0, 200)}`);
     }
     await pullRequestInbox.clearDirectMerge(repository, number, mergeToken);
+    await pullRequestInbox.deleteMeta(firstCheckKey);
     if (foldInto !== undefined) {
       await pullRequestInbox.finish(claim, { text: `Merged ${decision.head} into ${base}, the branch of parent #${foldInto}: it lands with its parent.`, terminal: true });
       schedulerEvent("babysitter.stack.folded", { ...owner, child: number, parent: foldInto, branch: base, head_sha: decision.head });
@@ -1484,6 +1517,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
   const providerRetryDelayMs = options.providerRetryDelayMs ?? 10_000;
   const providerRetries = presetOptions.providerRetries ?? 3;
   const mergeabilityRetryDelayMs = options.mergeabilityRetryDelayMs ?? 3000;
+  const firstCheckWaitMs = options.firstCheckWaitMs ?? 60_000;
 
   /** A GitHub rate limit stops every forge request until it resets. Returns whether the error was one. */
   async function noteForgeQuota(error: unknown, operation: string): Promise<boolean> {

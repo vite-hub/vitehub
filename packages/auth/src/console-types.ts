@@ -125,7 +125,7 @@ export type AuthConsoleEventGroup = "sign-in" | "admin" | "agents" | "organizati
 export const authConsoleEventGroups: Readonly<
   Record<AuthConsoleEventGroup, readonly AuthEventType[]>
 > = {
-  "sign-in": ["user.signed_up", "user.signed_in", "user.signed_out", "sign_in.failed"],
+  "sign-in": ["user.signed_up", "user.signed_in", "user.signed_out", "sign_in.failed", "session.expired"],
   admin: [
     "session.revoked",
     "user.banned",

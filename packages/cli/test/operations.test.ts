@@ -123,6 +123,36 @@ async function project() {
 }
 
 describe("generated operation commands", () => {
+  it.each([
+    { code: "CONSOLE_NOT_FOUND", retry: true, status: 404 },
+    { code: "CONSOLE_ACCESS_DENIED", retry: false, status: 403 },
+    { code: "CONSOLE_JOURNAL_FAILED", retry: false, status: 500 },
+  ])("handles $code from agent usage on a remote app", async ({ code, retry, status }) => {
+    const url = "https://app.example.test"
+    const usage = defineOperation({
+      cli: { command: "usage", namespace: "agent" },
+      description: "Read Agent usage.",
+      input: v.strictObject({ search: v.string() }),
+      kind: "read",
+      name: "invocations.usage",
+      run: input => input,
+      section: "usage",
+    })
+    const fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const { input, operation } = operationRpcRequest(init?.body)
+      return operation === "invocations.usage"
+        ? operationRpcResponse(init?.body, { code, message: code, ok: false, status }, { status })
+        : operationRpcResponse(init?.body, { ok: true, value: input })
+    })
+    const result = await run(["agent", "usage", "--url", url, "--search", "Über 100%_"], { fetch, operations: [usage] })
+    expect(result.code).toBe(retry ? 0 : 1)
+    expect(fetch.mock.calls.map(([, init]) => operationRpcRequest(init?.body))).toEqual(
+      (retry ? ["invocations.usage", "usage.get"] : ["invocations.usage"]).map(operation => ({ input: { search: "Über 100%_" }, operation })),
+    )
+    if (retry) expect(JSON.parse(result.stdout)).toEqual({ search: "Über 100%_" })
+    else expect(result.stderr).toContain(code)
+  })
+
   it.each(["", "hello", "hello\n", "héllo 🌍\r\nworld"])("writes formatted file content verbatim: %j", async (content) => {
     const show = defineOperation({
       cli: { format: (output: { content: string }) => output.content, namespace: "workspace" },

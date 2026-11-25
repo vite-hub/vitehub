@@ -1207,6 +1207,83 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); }
   });
 
+  function withoutRequiredChecks(f: Awaited<ReturnType<typeof fixture>>, runs: () => Record<string, unknown>[]) {
+    const command = f.command.getMockImplementation()!;
+    f.command.mockImplementation(async (args, request) => {
+      const path = args.find(arg => arg.startsWith("repos/")) ?? "";
+      if (path.includes("/rules/branches/")) return { stdout: "", stderr: "" };
+      if (path.includes("/check-runs")) return { stdout: runs().map(run => JSON.stringify(run)).join("\n"), stderr: "" };
+      return command(args, request);
+    });
+  }
+  const merged = (f: Awaited<ReturnType<typeof fixture>>) => f.command.mock.calls.some(([args]) => args.includes("repos/acme/app/pulls/12/merge-async"));
+
+  it("waits for the first check of a head before it merges a PR without required checks", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const f = await fixture(false, false, { merge: "direct" });
+    withoutRequiredChecks(f, () => []);
+    try {
+      const started = Date.now();
+      await f.reconcile();
+      expect(merged(f)).toBe(false);
+      expect(createProviderRuntime).not.toHaveBeenCalled();
+      const waiting = await f.runtime.inbox.get("acme/app", 12);
+      expect(waiting?.wait).toMatchObject({ kind: "external", reason: expect.stringContaining("GitHub has reported no check for") });
+      expect(waiting!.wait!.retryAt! - started).toBeGreaterThan(55_000);
+      expect(waiting!.wait!.retryAt! - started).toBeLessThanOrEqual(61_000);
+      vi.setSystemTime(waiting!.wait!.retryAt! + 1);
+      await f.reconcile();
+      expect(merged(f)).toBe(true);
+    } finally { await f.runtime.inbox.close(); vi.useRealTimers(); }
+  });
+
+  it("does not merge when a check starts during branch safety reads without a webhook", async () => {
+    const f = await fixture(false, false, { merge: "direct" });
+    const head = f.pr().head.sha;
+    const lint = { id: 1, name: "lint", head_sha: head, status: "completed", conclusion: "success" };
+    let testStarted = false;
+    withoutRequiredChecks(f, () => testStarted ? [lint, { id: 2, name: "test", head_sha: head, status: "in_progress", conclusion: null }] : [lint]);
+    const command = f.command.getMockImplementation()!;
+    f.command.mockImplementation(async (args, request) => {
+      if (args.includes("repos/acme/app/pulls?state=open&base=fix&per_page=100&page=1")) testStarted = true;
+      return command(args, request);
+    });
+    try {
+      await f.reconcile();
+      expect(merged(f)).toBe(false);
+      expect(f.events).toHaveBeenCalledWith("babysitter.direct_merge.skipped", expect.objectContaining({ reason: expect.stringContaining("GitHub reports checks the inbox lacks") }));
+      expect((await f.runtime.inbox.get("acme/app", 12))?.checks["check_run:2"]).toMatchObject({ name: "test", status: "in_progress" });
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("rechecks GitHub before resubmitting an unconfirmed merge without required checks", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const f = await fixture(false, false, { merge: "direct" });
+    const head = f.pr().head.sha;
+    const lint = { id: 1, name: "lint", head_sha: head, status: "completed", conclusion: "success" };
+    let testStarted = false;
+    withoutRequiredChecks(f, () => testStarted ? [lint, { id: 2, name: "test", head_sha: head, status: "in_progress", conclusion: null }] : [lint]);
+    const command = f.command.getMockImplementation()!;
+    const mergeCalls = () => f.command.mock.calls.filter(([args]) => args.includes("repos/acme/app/pulls/12/merge-async"));
+    f.command.mockImplementation(async (args, request) => {
+      if (args.includes("repos/acme/app/pulls/12/merge-async") && mergeCalls().length === 1) throw new Error("Connection reset before merge request delivery");
+      return command(args, request);
+    });
+    try {
+      await f.reconcile();
+      const pending = await f.runtime.inbox.directMergeAttempt("acme/app", 12);
+      expect(pending).toBeDefined();
+      expect(mergeCalls()).toHaveLength(1);
+      testStarted = true;
+      vi.setSystemTime(Date.now() + 31_000);
+      await f.reconcile();
+      expect(mergeCalls()).toHaveLength(1);
+      expect(await f.runtime.inbox.directMergeAttempt("acme/app", 12)).toEqual(pending);
+      expect((await f.runtime.inbox.get("acme/app", 12))?.checks["check_run:2"]).toMatchObject({ name: "test", status: "in_progress" });
+      expect(createProviderRuntime).not.toHaveBeenCalled();
+    } finally { await f.runtime.inbox.close(); vi.useRealTimers(); }
+  });
+
   it("retargets open stacked children onto its base before a merge deletes their base branch", async () => {
     const f = await fixture(false, false, { merge: "direct" });
     const command = f.command.getMockImplementation()!;

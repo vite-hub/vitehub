@@ -4,7 +4,7 @@ import { invariantError } from "@vite-hub/internal/invariant"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 
 import { isRuntimeRecord } from "./internal/runtime-type.ts"
-import { agentUsageCostParts, agentUsageFractionDigits, agentUsageMetrics, agentUsageStatement } from "./invocations/usage-sql.ts"
+import { agentUsageCostParts, agentUsageFractionDigits, agentUsageMetrics, agentUsageStatement, usageIdBindings } from "./invocations/usage-sql.ts"
 
 export interface AgentUsageCost {
   display: string
@@ -745,7 +745,7 @@ function usageSummary(parts: UsageParts, options: AgentUsageQuery, period: Agent
 }
 
 /**
- * Adds up usage rows into the answer of the `usage.get` Console operation. It reads no storage: pass every row of
+ * Adds up usage rows into the answer of the `invocations.usage` Console operation. It reads no storage: pass every row of
  * the window and the period from `agentUsagePeriod()`.
  */
 export function summarizeAgentUsage(rows: Iterable<AgentUsageRow>, options: AgentUsageQuery, period: AgentUsagePeriod): AgentUsageSummary {
@@ -888,7 +888,7 @@ async function searchedUsageIds(client: AgentUsageSqlClient, table: string, opti
  * One SQL statement groups and adds up the Invocations of the window, nested calls included, and returns the totals and
  * at most 61 Invocations: one page of sessions and the most expensive runs. A search first reads the id, title, and
  * Agent name of the window, so the match uses the same Unicode lowercase as `summarizeAgentUsage()`. Unusually large
- * or precise prices use an additional read of usage evidence for exact arithmetic. It creates no table.
+ * or precise prices, or searches that exceed the SQL binding budget, read usage evidence instead. It creates no table.
  */
 export async function readAgentUsage(
   client: AgentUsageSqlClient,
@@ -898,8 +898,13 @@ export async function readAgentUsage(
 ): Promise<AgentUsageSummary> {
   const table = settings.table ?? "vitehub_agent_invocations"
   if (!/^[A-Za-z_]\w*$/.test(table)) throw agentDiagnostics.AGENT_INVOCATIONS_TABLE_PREFIX_INVALID()
-  const ids = options.search === undefined ? undefined : await searchedUsageIds(client, table, options, period)
-  const { rows } = await client.execute(agentUsageStatement(table, options, period, ids))
+  const idBindings = options.search === undefined ? undefined : usageIdBindings(await searchedUsageIds(client, table, options, period))
+  const readEvidence = async () => {
+    const exact = await client.execute(agentUsageStatement(table, options, period, idBindings, "exact"))
+    return summarizeAgentUsage(exact.rows.map(row => sqlUsageRow(usageData(row.data))), options, period)
+  }
+  if (options.search !== undefined && !idBindings) return readEvidence()
+  const { rows } = await client.execute(agentUsageStatement(table, options, period, idBindings))
   let totals = emptyUsageTotal()
   let partial = false
   const buckets = new Map<string, AgentUsageTotal>()
@@ -913,10 +918,7 @@ export async function readAgentUsage(
     const key = usageString(row.key) ?? ""
     const model = usageString(row.model) ?? ""
     if (row.kind === "total") {
-      if (Number(data.exact) === 1) {
-        const exact = await client.execute(agentUsageStatement(table, options, period, ids, "exact"))
-        return summarizeAgentUsage(exact.rows.map(row => sqlUsageRow(usageData(row.data))), options, period)
-      }
+      if (Number(data.exact) === 1) return readEvidence()
       totals = sqlUsageTotal(data)
       partial = Number(data.partial ?? 0) === 1
     }
