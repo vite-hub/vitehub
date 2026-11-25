@@ -192,8 +192,9 @@ Use it in the definition with `editor: pagesEditor` and in the browser with
 `useRealtimeTiptap('pages', id, { editor: pagesEditor })`. Both sides must
 use the same extensions. When documents of one definition use different
 schemas, `editor` can be a function of the document context, such as
-`({ documentId }) => editorFor(documentId)`. Content uses this for one codec
-per collection ([Edit Content together](/docs/content/editing-together#live-editing)).
+`({ documentId }) => editorFor(documentId)`. The function can be async, so it
+can load the editor packages when the first room opens. Content uses this for
+one codec per collection ([Edit Content together](/docs/content/editing-together#live-editing)).
 Without `editor`, Realtime uses `realtimeMarkdownEditor`: StarterKit, images,
 tables, and raw YAML frontmatter as an atom node, parsed by `@tiptap/markdown`.
 

@@ -51,6 +51,11 @@ it("draws the sm reply box as a soft field with no divider, and its accented edg
   expect(stylesheet).toContain("--vh-border-accented: var(--vh-ui-border-accented, var(--ui-border-accented, ");
 });
 
+it("hides a thread's reply box while one of its messages is edited, so the thread shows one field", () => {
+  const hidden = /\[data-slot="comment-thread"\]:has\(\[data-slot="comment-reply"\]\[data-editing="true"\]\) > \[data-slot="comment-composer"\] \{([^}]*)\}/.exec(stylesheet);
+  expect(hidden?.[1]).toContain("display: none;");
+});
+
 it("keeps the shape of a comment's only image, up to 10rem tall, and crops the tiles of more", () => {
   const only = /\[data-count="1"\] > \[data-slot="comment-reply-image"\] \{([\s\S]*?)\n  \}\n/.exec(stylesheet)?.[1];
   expect(only).toMatch(/& img \{[^}]*height: auto;[^}]*max-height: 10rem;[^}]*width: auto;/);

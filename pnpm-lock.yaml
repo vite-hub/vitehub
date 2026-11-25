@@ -2464,6 +2464,9 @@ importers:
       vue:
         specifier: 3.5.46
         version: 3.5.46(typescript@6.0.3)
+      workerd:
+        specifier: 1.20260730.1
+        version: 1.20260730.1
 
   packages/docs/playground:
     dependencies:
@@ -2634,6 +2637,9 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
+      magic-string:
+        specifier: ^1.4.5
+        version: 1.4.5
       nostics:
         specifier: catalog:runtime
         version: 1.4.0

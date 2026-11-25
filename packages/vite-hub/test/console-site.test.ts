@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { defineComments } from "@vite-hub/comments"
-import { createCommentsHandler, defineCommentsPlugin } from "@vite-hub/comments/runtime"
 import { installViteHubPageTools, registerViteHubPageTool, respondViteHubPageSession } from "@vite-hub/internal/runtime/page-tools"
 import { readViteHubPageSession } from "@vite-hub/internal/runtime/page-tools-shared"
 import { siteStateHash, signSiteToken } from "@vite-hub/internal/site-token"
 
+import { defineComments } from "../../comments/dist/index.js"
+import { createCommentsHandler, defineCommentsPlugin } from "../../comments/dist/runtime/index.js"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
 import { installConsolePageTool } from "../src/console/runtime/server/page-tool.ts"
@@ -206,7 +206,7 @@ describe("the site cookie", () => {
     expect(await signOut({ "sec-fetch-site": "same-site", origin })).toBe(403)
   })
 
-  it("gives the pill the account of a member, and the Console link to members only", async () => {
+  it("marks guest accounts and gives the Console link to members only", async () => {
     const nitroApp = {}
     installConsolePageTool(nitroApp, { script: "/console.js", site: readConsoleSiteVisitor })
     registerViteHubPageTool(nitroApp, { id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "/comments.js", allowed: async () => true })
@@ -216,7 +216,7 @@ describe("the site cookie", () => {
     expect(member.account).toEqual({ name: "Ada", email: "ada@example.com", via: "console", signOut: "/_vitehub/site" })
     const guest = await session(await signIn({ name: "Ana", roles: ["comments-write"] }))
     expect(guest.tools.map(tool => tool.id)).toEqual(["comments"])
-    expect(guest.account).toEqual({ name: "Ana", via: "console", signOut: "/_vitehub/site" })
+    expect(guest.account).toEqual({ name: "Ana", via: "console", guest: true, signOut: "/_vitehub/site" })
     expect(await session()).toEqual({ tools: [expect.objectContaining({ id: "comments" })] })
   })
 })

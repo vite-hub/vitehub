@@ -47,13 +47,13 @@ export async function consolePageToolAllowed(request: Request, options: { site?:
   return !isRuntimeResponse(result) && (consoleAuthorizedSections(result)?.length ?? 0) > 0
 }
 
-/** What the account menu of the pill shows for a Site access person. `signOut` is the app's `/_vitehub/site`. */
 export function consolePageAccount(visitor: ViteHubSiteVisitor, signOut: string): ViteHubPageAccount {
   return {
     name: visitor.name,
     ...(visitor.kind === "member" && visitor.email ? { email: visitor.email } : {}),
     ...(visitor.image ? { image: visitor.image } : {}),
     via: "console",
+    ...(visitor.kind === "guest" ? { guest: true } : {}),
     signOut,
   }
 }
@@ -81,7 +81,6 @@ export function installConsolePageTool(nitroApp: unknown, options: ConsolePageTo
     icon: "i-lucide-square-terminal",
     script: options.script,
     async allowed({ request }) {
-      // In a ViteHub app, the Request of the session route carries the Standard Context that the cookie check reads.
       installRequestStandardContext(request)
       return await consolePageToolAllowed(request, { site })
     },
