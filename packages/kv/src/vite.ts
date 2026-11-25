@@ -492,7 +492,7 @@ export function hubKV(options?: KVOptions, input: KVViteInput = {}): KVVitePlugi
         if (hasNitroConfigContext(config) || isPlainObject(getResolvedNitroConfig(config))) {
           nitroOwned = configureNitroCloudflareKV(config, options, resolutionInput(), ownedNitroNamespaces, provisionState)
         }
-        if (!config.command && command === "build" && Reflect.get(config, VITEHUB_NUXT_HINTS)) reportRedisEnvHint({ ...config, command })
+        if (command === "build" && Reflect.get(config, VITEHUB_NUXT_HINTS)) reportRedisEnvHint({ ...config, command })
       },
     },
     configureServer(server) {

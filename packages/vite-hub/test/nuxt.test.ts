@@ -1262,6 +1262,19 @@ describe("ViteHub Nuxt integration", () => {
     expect(config.rollupConfig?.plugins?.map(plugin => plugin.name)).not.toContain("vite-hub/nuxt-runtime-resolver:@vite-hub/agent/vite")
   })
 
+  it.each([false, true])("passes the resolved Vite command and mode to Nitro-only runtime plugins (dev: %s)", async (dev) => {
+    const configResolved = vi.fn()
+    mocks.vitehub.mockReturnValue([{ name: "@vite-hub/workflow/vite", configResolved }])
+    const { nuxt, runNitroConfigHook } = createNuxt(dev)
+    Object.assign(nuxt.options, { experimental: { nitroViteEnvironment: false } })
+    Object.assign(nuxt.options.vite, { mode: "custom" })
+
+    await viteHubNuxtModule({ workflow: true }, nuxt)
+    await runNitroConfigHook({})
+
+    expect(configResolved).toHaveBeenCalledWith(expect.objectContaining({ command: dev ? "serve" : "build", mode: "custom" }))
+  })
+
   it("initializes Workflow and forwards its server transform in Nitro-only replay", async () => {
     const configResolved = vi.fn()
     const transform = vi.fn(() => ({ code: "native-with-workflow-id" }))

@@ -834,13 +834,14 @@ async function applyNitroConfig(
     }
   }
 
+  Object.assign(config, { command: environment.command, mode: environment.mode })
   await finalizeNitroReplayPlugins(plugins, config, !nuxt.options.experimental?.nitroViteEnvironment)
 
   if (!nuxt.options.dev && !nuxt.options._prepare) {
     const rateLimit = plugins.find(plugin => plugin.name === "@vite-hub/rate-limit/vite")
     // SAFETY: The canonical Rate Limit owner exposes validation for Nitro-only builds.
     const api = rateLimit?.api as { validateNitroBuild?: (config: ResolvedConfig) => Promise<void> } | undefined
-    await api?.validateNitroBuild?.(asReplayResolvedConfig(Object.assign({}, config, { command: environment.command })))
+    await api?.validateNitroBuild?.(asReplayResolvedConfig(config))
   }
 
   if (config.nitro) {
