@@ -171,10 +171,11 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
     if (!vueInventoryFile) return buildInventory()
     try {
       const inventory: unknown = JSON.parse(await readFile(vueInventoryFile, "utf8"))
-      if (!isVueBuildInventory(inventory)) throw new TypeError(`Invalid Vue i18n message inventory: ${vueInventoryFile}`)
+      if (!isVueBuildInventory(inventory)) throw i18nErrorDiagnostics.I18N_INVALID_BUILD_INVENTORY({ file: vueInventoryFile })
       return inventory
     }
     catch (error) {
+      if (error instanceof SyntaxError) throw i18nErrorDiagnostics.I18N_INVALID_BUILD_INVENTORY({ file: vueInventoryFile, cause: error })
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
       return buildInventory()
     }

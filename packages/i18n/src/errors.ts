@@ -4,6 +4,10 @@ export const i18nErrorDiagnostics = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/i18n/diagnostics",
   codes: {
     // Config errors.
+    I18N_INVALID_BUILD_INVENTORY: {
+      why: ({ file }: { file: string }) => `Invalid Vue i18n message inventory at ${file}.`,
+      fix: "Clear the Nuxt build cache and generated build outputs, then rebuild the app so Vue regenerates the i18n message inventory before Nitro runs.",
+    },
     I18N_INVALID_LOCALES: {
       why: ({ problem }: { problem: string }) => problem,
       fix: "Set `i18n.locales` to a list of BCP 47 tags with the source language first, for example `{ i18n: { locales: [\"en\", \"es\"] } }`.",
