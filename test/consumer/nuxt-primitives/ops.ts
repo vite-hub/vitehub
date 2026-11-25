@@ -161,6 +161,7 @@ interface PlaywrightPage {
   route(url: string, handler: (route: { abort(): Promise<void> }) => Promise<void>): Promise<void>
   waitForFunction(source: string, argument?: unknown, options?: { timeout: number }): Promise<unknown>
   evaluate<T>(source: string): Promise<T>
+  on(event: "console" | "pageerror", handler: (message: { text?(): string, message?: string }) => void): void
 }
 
 interface PlaywrightBrowser {
@@ -327,13 +328,22 @@ export const ops: PrimitiveRow[] = [
       try {
         await retry(3, async () => {
           const page = await (await browser.newContext()).newPage()
+          const messages: string[] = []
+          page.on("console", message => messages.push(message.text?.() ?? ""))
+          page.on("pageerror", error => messages.push(error.message ?? ""))
+          const step = async (label: string, source: string) => {
+            await page.waitForFunction(source, undefined, { timeout: 30_000 }).catch(async (error: unknown) => {
+              const text = await page.evaluate<string>(`document.body?.innerText ?? ""`).catch(() => "")
+              throw new Error(`${label}: ${error instanceof Error ? error.message : String(error)}\npage: ${JSON.stringify(text.slice(0, 500))}\nconsole: ${JSON.stringify(messages.slice(-10))}`)
+            })
+          }
           await page.goto(`${origin}/device`)
-          await page.waitForFunction(deviceText({ status: "success", stored: "live", value: "kept by the device" }), undefined, { timeout: 30_000 })
-          await page.waitForFunction(`window.primitiveDevice?.().entries.some(entry => entry.key === "/api/primitives/device")`, undefined, { timeout: 30_000 })
+          await step("live read", deviceText({ status: "success", stored: "live", value: "kept by the device" }))
+          await step("stored entry", `window.primitiveDevice?.().entries.some(entry => entry.key === "/api/primitives/device")`)
           expectEqual("The device storage", await page.evaluate<string>(`window.primitiveDevice().storage`), "indexeddb")
           await page.route("**/api/primitives/device", route => route.abort())
           await page.goto(`${origin}/device`)
-          await page.waitForFunction(deviceText({ status: "error", stored: "stored", value: "kept by the device" }), undefined, { timeout: 30_000 })
+          await step("stored read", deviceText({ status: "error", stored: "stored", value: "kept by the device" }))
         })
       }
       finally {
