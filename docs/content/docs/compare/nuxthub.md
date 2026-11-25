@@ -51,6 +51,8 @@ npx @vite-hub/codemods nuxthub
 
 The codemod updates `nuxt.config.ts`, `package.json`, your Drizzle schema location, `hub:*` and `@nuxthub/*` imports, and KV and Blob calls. On Nuxt 4.7, it adds `nitro` when missing; make sure `vite-hub` is at least `0.5.1`. If your app allows a Nuxt version before 4.7, run `pnpm add nuxt@^4.7.0 nitro` first, or pass `--nuxt-nightly` to move to Nuxt 5. See [Codemods](/docs/codemods/get-started).
 
+**Local PGlite:** Ignore the codemod's instruction to copy `.data/db/pglite`. PGlite 0.5 cannot open NuxtHub's 0.3 data directory. Use the [PGlite upgrade guide](https://pglite.dev/docs/upgrade) to dump with `pgDump` on 0.3 and restore into a fresh 0.5 database at `.vitehub/data/database/pglite`.
+
 ```diff [nuxt.config.ts]
  export default defineNuxtConfig({
 -  modules: ["@nuxthub/core"],
@@ -73,10 +75,10 @@ The codemod updates `nuxt.config.ts`, `package.json`, your Drizzle schema locati
 
 | Area | NuxtHub | ViteHub |
 | --- | --- | --- |
-| KV | `@nuxthub/kv` or `hub:kv`; methods throw | `vite-hub/kv`; methods return `[error, value]`. Replace `getItem`, `del`, `getKeys`, and `getItemRaw` with `get`, `delete`, `list({ prefix })`, and `get(key, { type: "bytes" })`. Set `kv: { driver: "redis" }` instead of relying on `REDIS_URL`. |
+| KV | `@nuxthub/kv` or `hub:kv`; methods throw | `vite-hub/kv`; methods return `[error, value]`. Replace `getItem`, `del`, and `getItemRaw` with `get`, `delete`, and `get(key, { type: "bytes" })`. For `getKeys("users")`, call `kv.list({ prefix: "users:" })` and read `keys` from the successful result page. Follow its cursor if more keys remain. Set `kv: { driver: "redis" }` instead of relying on `REDIS_URL`. |
 | Blob | `@nuxthub/blob` or `hub:blob`; `head()` throws `404` | `vite-hub/blob`; methods return `[error, value]` and `head()` returns `[undefined, null]`. `blob.serve(event.req, pathname)` sends `private, no-cache`, `nosniff`, and `Content-Security-Policy: sandbox` on HTML, SVG, and XML. `useUpload()` returns an array by default, so pass `{ multiple: false }` for one object, and multipart uses `concurrency` instead of `concurrent`. |
 | Database | `@nuxthub/db` with Drizzle 0.x in `server/db/` | `vite-hub/database` with Drizzle 1.0 in `server/databases/default/`. Replace `relations()` with `defineRelations()`, change `db.query` `where` callbacks to objects from the [Drizzle v1 to v2 guide](https://orm.drizzle.team/docs/relations-v1-v2), and replace `hub.db.casing` with `snakeCase.table()`. |
-| Postgres | Reads `POSTGRES_URL` or `DATABASE_URL`; `connection.hyperdriveId` uses binding `POSTGRES` | Set `dialect: "postgresql"` and `connection: { url }` in the Definition. Put `ssl` or pool options in the URL or `PG*` env vars. Move Hyperdrive to `cloudflare.hyperdriveId` with binding `HYPERDRIVE`. Dump local PGlite 0.3 data with `pgDump` before restoring to PGlite 0.5. |
+| Postgres | Reads `POSTGRES_URL` or `DATABASE_URL`; `connection.hyperdriveId` uses binding `POSTGRES` | Set `dialect: "postgresql"` and `connection: { url }` in the Definition. Put `ssl` or pool options in the URL or `PG*` env vars. Move Hyperdrive to `cloudflare.hyperdriveId` with binding `HYPERDRIVE`. |
 | Cloudflare D1 HTTP | `driver: "d1-http"` and `NUXT_HUB_CLOUDFLARE_*` | `cloudflare: { http: true, databaseId }` and `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_D1_DATABASE_ID`. |
 | Cloudflare bindings | `DB`, `KV`, `BLOB` | Same binding names. Pass `databaseId`, `namespaceId`, and `bucketName` so deploys reuse existing resources instead of creating empty ones. |
 | Auto-imports | Auto-imported in Nuxt server code | On by default in Nuxt 4.7; off in Nuxt 5 unless `experimental: { nitroAutoImports: true }`. The codemod adds explicit `vite-hub/*` imports so files work on both. |
@@ -132,24 +134,31 @@ For a **Cloudflare D1 binding**, Wrangler tracks migrations in its own table usi
 1. Back up the database, finish pending NuxtHub migrations, and remove `migrations_table: "_hub_migrations"` from your Wrangler config.
 2. Start with an empty `server/databases/default/migrations/` folder and run `pnpm vitehub database generate --name baseline`.
 3. Confirm the SQL matches production, then add `IF NOT EXISTS` to every `CREATE` statement in `migration.sql`. Keep the folder name and `snapshot.json`.
-4. Run `pnpm nuxt build`, check that `.output/server/wrangler.json` targets the existing D1 database, and apply the baseline with Wrangler:
+4. Run `pnpm nuxt build`. Check that the D1 entry in `.output/server/wrangler.json` targets the existing database and that `migrations_dir` points to the generated baseline SQL. List the pending migrations:
 
-```bash [Terminal]
-pnpm wrangler d1 migrations list <database-name> --remote --config .output/server/wrangler.json
-pnpm wrangler d1 migrations apply <database-name> --remote --config .output/server/wrangler.json
-```
+   ```bash [Terminal]
+   pnpm wrangler d1 migrations list <database-name> --remote --config .output/server/wrangler.json
+   ```
 
-5. Commit the migration folder and generated `d1-migrations.json`.
+5. Apply only if the baseline is the sole pending file. Otherwise, stop and reconcile the directory and Wrangler's migration history.
 
-To baseline an existing SQLite or Postgres database without keeping NuxtHub's SQL files, follow steps 2 and 3, then run `pnpm vitehub database migrate`. On Postgres, set `database: { migrateOnStart: false }` until the baseline is recorded.
+   ```bash [Terminal]
+   pnpm wrangler d1 migrations apply <database-name> --remote --config .output/server/wrangler.json
+   ```
+
+6. Commit the migration folder and generated `d1-migrations.json`.
+
+To baseline an existing SQLite database without keeping NuxtHub's SQL files, follow steps 2 and 3, then run `pnpm vitehub database migrate`.
+
+For Postgres, do not use the codemod's `IF NOT EXISTS` recipe: statements such as `CREATE TYPE ... AS ENUM` do not support it. On the existing database, set `database: { migrateOnStart: false }` and do not run `database migrate` until you reconcile its migration history. If you can move to a new Postgres database, generate a baseline as in step 2 and apply it unmodified to the empty database. Confirm the schemas match before importing a data-only dump.
 
 ::details{summary="Move local data, Redis keys, and verify the migration"}
 Stop the old app before copying `.data/`:
 
 - **SQLite.** Run `mkdir -p .vitehub/data/database && cp .data/db/sqlite.db* .vitehub/data/database/` so `-wal` and `-shm` files come along.
-- **KV.** Run `mkdir -p .vitehub/data && cp -R .data/kv .vitehub/data/kv`.
+- **KV.** For the default `fs-lite` store, copy the contents of `.data/kv` into `.vitehub/data/kv`. For a Cloudflare KV store on the Node dev runner without a binding, use `.vitehub/data/kv-cloudflare/KV` instead (replace `KV` with your configured binding name). A runner with a binding reads that namespace instead of either directory; import the keys into the development namespace.
 - **Blob.** Metadata formats differ. Start `pnpm nuxt dev` and re-upload each file with `pnpm vitehub blob put <pathname> .data/blob/<pathname> --content-type <type>`. Use `blob.put()` in a server route to keep `customMetadata`.
-- **Redis and Upstash KV.** NuxtHub writes keys at the root, while ViteHub prefixes them with `vitehub:kv:default:`. Rename existing keys once with `RENAMENX` before cutting over.
+- **Redis and Upstash KV.** If NuxtHub used a nonempty `base`, set the same `base` in ViteHub to keep the prefix. If NuxtHub wrote at the root, use `RENAMENX` to add the default `vitehub:kv:default:` prefix only to keys you have confirmed belong to NuxtHub KV. Check for destination collisions before cutting over.
 
 Before deploying:
 
