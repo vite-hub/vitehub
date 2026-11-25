@@ -17,14 +17,13 @@ const modeNames: Record<Mode, string> = {
 }
 
 function renderNuxtSupportMatrix(): string {
-  const { rows, pending, notPrimitives } = nuxtSupport
+  const { rows, notPrimitives } = nuxtSupport
   const tableRow = (id: string, cells: string[]) => `| \`${id}\` | ${cells.join(" | ")} |`
   const exempt = rows.flatMap(row => modes.flatMap(mode => row.exempt?.[mode] ? [`- \`${row.id}\`, ${modeNames[mode]}: ${row.exempt[mode]}`] : []))
   return [
     `| Package | ${modes.map(mode => modeNames[mode]).join(" | ")} |`,
     `| --- |${modes.map(() => " --- |").join("")}`,
     ...rows.map(row => tableRow(row.id, modes.map(mode => row.exempt?.[mode] ? "Not tested" : "Tested"))),
-    ...pending.map(id => tableRow(id, modes.map(() => "Not checked yet"))),
     "",
     "Not tested:",
     "",

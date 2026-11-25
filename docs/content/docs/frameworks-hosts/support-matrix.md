@@ -165,19 +165,22 @@ The Nuxt module has its own check. CI packs the ViteHub packages, installs them 
 | `webhooks` | Tested | Tested | Tested | Tested |
 | `auth` | Tested | Tested | Tested | Tested |
 | `comments` | Tested | Tested | Tested | Tested |
-| `console` | Not checked yet | Not checked yet | Not checked yet | Not checked yet |
-| `logs` | Not checked yet | Not checked yet | Not checked yet | Not checked yet |
-| `device` | Not checked yet | Not checked yet | Not checked yet | Not checked yet |
-| `forge` | Not checked yet | Not checked yet | Not checked yet | Not checked yet |
-| `shell` | Not checked yet | Not checked yet | Not checked yet | Not checked yet |
-| `browser` | Not checked yet | Not checked yet | Not checked yet | Not checked yet |
-| `bundle` | Not checked yet | Not checked yet | Not checked yet | Not checked yet |
-| `observability` | Not checked yet | Not checked yet | Not checked yet | Not checked yet |
+| `console` | Tested | Tested | Tested | Tested |
+| `logs` | Tested | Tested | Tested | Tested |
+| `observability` | Tested | Tested | Tested | Tested |
+| `bundle` | Tested | Tested | Tested | Tested |
+| `device` | Tested | Tested | Tested | Tested |
+| `forge` | Tested | Tested | Tested | Tested |
+| `shell` | Tested | Tested | Tested | Tested |
+| `browser` | Not tested | Not tested | Tested | Not tested |
 
 Not tested:
 
 - `sandbox`, Node build: The Vercel Sandbox driver needs credentials in a Node production build, which this local check does not have.
 - `sandbox`, Cloudflare build: `wrangler dev` does not start the Sandbox Container on a local machine: workerd logs `kj/timer.c++:30: overloaded: operation timed out` and then `exec() cannot be called on a container that is not running`, with rootless Docker and with rootful Docker 29. The repository's local e2e also treats Sandbox as live-only, and the `Sandbox Task Live E2E` job in live-smoke.yml runs it on Cloudflare.
+- `browser`, Node build: Browser Run is a Cloudflare binding. The Node host has no Browser provider, and vite-hub reports Browser as unsupported there.
+- `browser`, Node dev: Browser Run is a Cloudflare binding. The Node host has no Browser provider, and vite-hub reports Browser as unsupported there.
+- `browser`, Cloudflare dev: vite-hub reports Browser as unsupported in dev, and in `nuxt dev` with the Cloudflare preset the content action answers 500. `wrangler dev` on the build output runs the Browser Run binding.
 
 Packages without a row:
 

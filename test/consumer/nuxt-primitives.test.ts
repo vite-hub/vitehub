@@ -40,7 +40,6 @@ const notPrimitives: Record<string, string> = {
 
 export const nuxtSupport = {
   rows,
-  pending: ops.filter(entry => "pending" in entry).map(({ id }) => id),
   notPrimitives,
 }
 
