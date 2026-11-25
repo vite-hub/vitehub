@@ -74,8 +74,29 @@ describe("project store", () => {
     expect(project).toMatchObject({ url: site.url, keyVariable: null, publicKey: null })
     await expect(projects.target(project!.id)).resolves.toBeUndefined()
     expect((await client.execute("SELECT key_sealed, public_key FROM console_projects")).rows).toEqual([{ key_sealed: "", public_key: "" }])
-    expect((await linkProject(caller, site)).status).toBe(409)
+    const again = await linkProject(caller, site)
+    expect(again.status).toBe(200)
+    await expect(again.json()).resolves.toEqual({ project })
+    const asApp = await linkProject(caller, { url: site.url })
+    expect(asApp.status).toBe(409)
+    await expect(asApp.json()).resolves.toMatchObject({ code: "CONSOLE_PROJECT_EXISTS", message: expect.stringContaining(`Unlink project ${project!.id} first`) })
     expect((await linkProject({ ...caller, roles: ["member"] }, site)).status).toBe(403)
+  })
+
+  it("links the same URL again with the same project and key", async () => {
+    const { db } = await database()
+    const projects = createConsoleProjectStore(db, secret, "team-1")
+    const caller: ConsoleTeamCaller = { projects, roles: ["admin"], teamId: "team-1", user: { id: "u", name: "Ada" } }
+    const first = await linkProject(caller, { url: "https://app.example.com" })
+    expect(first.status).toBe(201)
+    const { project } = await first.json() as { project: { id: string, publicKey: string } }
+    const again = await linkProject(caller, { label: "Other", url: "https://app.example.com/" })
+    expect(again.status).toBe(200)
+    await expect(again.json()).resolves.toEqual({ project })
+    await expect(projects.list()).resolves.toHaveLength(1)
+    const asSite = await linkProject(caller, { kind: "site", url: "https://app.example.com" })
+    expect(asSite.status).toBe(409)
+    await expect(asSite.json()).resolves.toMatchObject({ code: "CONSOLE_PROJECT_EXISTS", message: expect.stringContaining(`Unlink project ${project.id} first`) })
   })
 
   it("gives no key when the secret changed", async () => {

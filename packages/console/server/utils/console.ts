@@ -174,8 +174,13 @@ export async function linkProject(caller: ConsoleTeamCaller, body: unknown): Pro
   if ("error" in parsed) return consoleProblem(400, "CONSOLE_PROJECT_URL", parsed.error)
   const input = { url: parsed.url, label, createdBy: caller.user.id }
   const project = kind === "site" ? await caller.projects.registerSite(input) : await caller.projects.create(input)
-  if (!project) return consoleProblem(409, "CONSOLE_PROJECT_EXISTS", `This team already linked ${parsed.url}.`)
-  return consoleJson({ project }, 201)
+  if (project) return consoleJson({ project }, 201)
+  const linked = (await caller.projects.list()).find(found => found.url === parsed.url)
+  if (linked && (linked.keyVariable === null) === (kind === "site")) return consoleJson({ project: linked }, 200)
+  if (!linked) return consoleProblem(409, "CONSOLE_PROJECT_EXISTS", `This team already linked ${parsed.url}.`)
+  return consoleProblem(409, "CONSOLE_PROJECT_EXISTS", linked.keyVariable === null
+    ? `This team registered ${parsed.url} as a site for Hosted Comments. Unlink project ${linked.id} first to link it as a ViteHub app.`
+    : `This team linked ${parsed.url} as a ViteHub app. Unlink project ${linked.id} first to register it as a site.`)
 }
 
 export async function renameProject(caller: ConsoleTeamCaller, id: string, body: unknown): Promise<Response> {
