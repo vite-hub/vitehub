@@ -213,7 +213,7 @@ describe("Nuxt primitives", () => {
       await serve(mode, async (origin) => {
         for (const row of active) {
           try {
-            await row.probe({ fetch: (path, init) => fetch(`${origin}${path}`, { ...init, signal: AbortSignal.timeout(60_000) }), mode, target })
+            await row.probe({ appDir, fetch: (path, init) => fetch(`${origin}${path}`, { ...init, signal: AbortSignal.timeout(60_000) }), mode, target })
           }
           catch (error) {
             failures.push(`${row.id}: ${error instanceof Error ? error.message : String(error)}`)

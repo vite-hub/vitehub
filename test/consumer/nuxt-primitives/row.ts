@@ -3,6 +3,7 @@ export type Mode = (typeof modes)[number]
 export type Target = "node" | "cloudflare"
 
 export interface ProbeContext {
+  appDir: string
   mode: Mode
   target: Target
   fetch: (path: string, init?: RequestInit) => Promise<Response>
