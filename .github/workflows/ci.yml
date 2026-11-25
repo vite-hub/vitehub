@@ -577,6 +577,8 @@ jobs:
   # The packed Nuxt apps of the consumer contracts again, on Nuxt 4.7 with the
   # nitro package, which builds the server with Nitro 3 through Nuxt's
   # nitroLegacy layer. The consumer contracts run them on the Nuxt 5 nightly.
+  # "-t Nuxt" includes the "Nuxt primitives" test, which runs one route per
+  # primitive in Node and Cloudflare, dev and build.
   consumer-nuxt-4-7:
     name: consumer contracts (Nuxt 4.7)
     if: *full-suite
