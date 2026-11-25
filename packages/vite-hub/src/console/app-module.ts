@@ -61,11 +61,22 @@ const consoleRuntimeCapabilityImports: readonly ConsoleRuntimeCapabilityImport[]
   { exportName: "kv", name: "kv" },
 ]
 
+export function resolveConsoleRuntimeCapabilityImports(
+  imports: Record<string, false | string> | undefined,
+  plugins: readonly { name: string }[] | undefined,
+): Record<string, false | string> | undefined {
+  if (!plugins) return imports
+  return {
+    ...imports,
+    ...(!imports?.email && plugins.some(plugin => plugin.name === "@vite-hub/email/vite") ? { email: "vite-hub/email" } : {}),
+    ...(!imports?.realtime && plugins.some(plugin => plugin.name === "@vite-hub/realtime/vite") ? { realtime: "vite-hub/realtime/agent" } : {}),
+  }
+}
+
 function renderPickedImport(module: string, bindings: string): string {
   return `import(${JSON.stringify(module)}).then(({ ${bindings} }) => ({ ${bindings} }))`
 }
 
-/** The Agent capabilities of a Console invocation. They load with the first invocation, not when the server starts. */
 function renderConsoleRuntimeCapabilities(imports: Record<string, false | string> | undefined): string | undefined {
   if (!imports) return undefined
   const capabilities = consoleRuntimeCapabilityImports.flatMap(({ exportName, name }) => {
@@ -175,7 +186,6 @@ function renderConsoleAppModule(
     .map(schedule => ` [${JSON.stringify(schedule.name)}]: () => import(${JSON.stringify(pathToFileURL(schedule.handler).href)}),`)
     .join("")
     .replace(/,$/, " ")
-  // An override also adds a section that no owner registers, such as Forms.
   const registered = new Map(describeConsoleContributedSections(sections).map(section => [section.id, section]))
   const contributedSections = sections.flatMap((id) => {
     const section = catalog.sectionOverrides?.[id] ?? registered.get(id)
@@ -196,8 +206,6 @@ function renderConsoleAppModule(
     ...(definitionsEnabled ? runtimeReaders.map((reader, index) => ({ bindings: `${reader.export}: vitehubConsoleRuntimeReader${index}`, module: reader.module })) : []),
     ...(databaseEnabled ? [{ bindings: "installConsoleDatabase", module: generatedModules.consoleDatabase }, { bindings: "databases: vitehubConsoleDatabases", module: "@vite-hub/database/runtime/registry" }] : []),
     ...(sections.includes("env") ? [{ bindings: "describeServerEnv", module: "#vitehub/env/description" }, { bindings: "installConsoleEnv", module: generatedModules.consoleEnv }] : []),
-    // Agent Definitions import the Agent runtime, so they load with the Console runtime and not when the server starts.
-    // `defineAgent()` of vite-hub/agent resolves the app-wide journal by itself, and the Agent registry names discovered Agents.
     ...(agentsEnabled ? [{ bindings: "installConsoleAgentDefinitions", module: "vite-hub/console/server" }] : []),
     ...(agentsEnabled && agentSkills.some(Boolean) ? [{ bindings: "agentWithColocatedSkills", module: requireOptionalOwner(ownerModules.agentVite, "agent").agentRuntimeModule("runtime/workflow") }] : []),
   ]
@@ -222,7 +230,6 @@ function renderConsoleAppModule(
     `installConsoleDevelopment(${JSON.stringify(projectRoot)}, ${JSON.stringify(development)}${development && sections.includes("setup") ? `, ${JSON.stringify(setupDevRoute)}` : ""})`,
     ...accessCode.install,
     `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)}${navigationSections ? `, ${JSON.stringify(navigationSections)}` : ""})`,
-    // The first Console request or agent tool that needs the operations loads them, with every primitive they import.
     `installConsoleRuntime(async () => {`,
     `  const [${[...runtimeImports.map(entry => `{ ${entry.bindings} }`), ...agentModules.map(entry => entry.binding)].join(", ")}] = await Promise.all([${[...runtimeImports.map(entry => renderPickedImport(entry.module, entry.bindings)), ...agentModules.map(entry => `import(${JSON.stringify(entry.module)})`)].join(", ")}])`,
     "  return () => {",
@@ -230,11 +237,8 @@ function renderConsoleAppModule(
     "  }",
     "})",
     `installConsoleProjectName(${JSON.stringify(projectRoot)}, ${JSON.stringify(resolveConsoleProjectName(projectRoot, name))})`,
-    // `project.get` names the installed `vite-hub`, also a pkg.pr.new preview, whose version the app's server output lacks.
     `installConsoleVersion(${JSON.stringify(readViteHubVersion())})`,
-    // A production build records its time and commit for `project.get`. A development server has no build to name.
     ...(build ? [`installConsoleBuild(${JSON.stringify(build)})`] : []),
-    // The application module loads on the first document request, so the Console does not start Content at boot.
     ...(documentEditors.length
       ? [`installConsoleDocuments(${JSON.stringify(projectRoot)}, { ${documentEditors.map((editor, index) => `${JSON.stringify(editor.section)}: { actions: vitehubConsoleDocumentActions${index}, load: () => import(${JSON.stringify(pathToFileURL(editor.entry).href)}) }`).join(", ")} })`]
       : []),

@@ -31,7 +31,6 @@
   "packages/vite-hub/src/cloudflare-sh-syntax.ts": 1,
   "packages/vite-hub/src/cloudflare-vars.ts": 1,
   "packages/vite-hub/src/cloudflare-workers-dev-shim.injected.ts": 2,
-  "packages/vite-hub/src/console/app-module.ts": 8,
   "packages/vite-hub/src/console/app.config.ts": 6,
   "packages/vite-hub/src/console/auth.ts": 1,
   "packages/vite-hub/src/console/build-info.ts": 2,

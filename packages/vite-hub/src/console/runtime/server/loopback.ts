@@ -16,12 +16,15 @@ function isLoopbackHost(host: string | null): boolean {
  * forwarded Host would give the whole app to a stranger. Production builds and other access modes always pass.
  */
 export async function isConsoleLoopbackRequest(request: Request, context: { access: ConsoleAccessMode, remoteAddress?: string }): Promise<boolean> {
-  if (import.meta.viteHubConsoleDevelopment === false || (context.access !== "local" && context.access !== "open") || !isConsoleDevelopmentBuild()) return true
+  if (!isConsoleDevelopmentBuild()) return true
+  const devPeer = await loadDevPeer()
+  if (!devPeer) return true
+  devPeer.readViteHubDevPeerKey()
+  if (context.access !== "local" && context.access !== "open") return true
   const hostHeader = request.headers.get("host") ?? new URL(request.url).host
   const forwarded = request.headers.get("x-forwarded-host")
   if (!isLoopbackHost(hostHeader) || (forwarded && !isLoopbackHost(forwarded))) return false
-  const devPeer = await loadDevPeer()
-  return devPeer !== undefined && await devPeer.isViteHubLoopbackPeer(request, context.remoteAddress)
+  return devPeer.isViteHubLoopbackPeer(request, context.remoteAddress)
 }
 
 function loadDevPeer(): Promise<typeof import("@vite-hub/internal/dev-peer") | undefined> {

@@ -42,7 +42,7 @@ import { importOptionalOwner, isPackageInstalled, requireOptionalOwner, startPac
 import { nuxtImageProviderDependency } from "./internal/nuxt-image.ts"
 import { hasSyncDirectory, ownerModules } from "./internal/owner-modules.ts"
 import { discoverConsoleBuildCatalog, type ConsoleBuildCatalog } from "./console/build.ts"
-import { consoleAppModuleHasDocumentEditors, writeConsoleAppModule, type ConsoleAccessBuild, type ConsoleAppModuleOptions } from "./console/app-module.ts"
+import { consoleAppModuleHasDocumentEditors, resolveConsoleRuntimeCapabilityImports, writeConsoleAppModule, type ConsoleAccessBuild, type ConsoleAppModuleOptions } from "./console/app-module.ts"
 import { installConsoleProjectName, installConsoleSections } from "./console/runtime/server/sections.ts"
 import { consoleOperationFeatures } from "./console/operation-features.ts"
 import { resolveConsoleProjectName } from "./console/project.ts"
@@ -1213,7 +1213,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       invoke: consoleInvokeEnabled,
       active: () => !consoleInvocationRootState.closed,
       access: consoleAccess,
-      runtimeCapabilityImports,
+      runtimeCapabilityImports: resolveConsoleRuntimeCapabilityImports(runtimeCapabilityImports, replayPlugins),
       development: nuxt.options.dev === true,
       target: { host: { name: plan.host, preset: nitroPreset }, framework: { name: "nuxt", version: nuxt._version } },
       site: consoleSiteAccess,

@@ -33,6 +33,7 @@ import { hubAgent } from "@vite-hub/agent/vite"
 import { hubContent } from "@vite-hub/content/vite"
 import { hubComments } from "@vite-hub/comments/vite"
 import { env, hubEnv } from "@vite-hub/env/vite"
+import { hubEmail } from "@vite-hub/email/vite"
 import { hubKV, kvStorageDriver } from "@vite-hub/kv/vite"
 import { hubRateLimit } from "../../rate-limit/src/vite.ts"
 import { hubRealtime } from "@vite-hub/realtime/vite"
@@ -2960,6 +2961,16 @@ describe("ViteHub Nuxt integration", () => {
       console: { auth: false, authorize: hostManagedAuthorize },
       host: "cloudflare",
     }, production.nuxt)).rejects.toMatchObject({ code: "VITE_HUB_B0022" })
+  })
+
+  it("uses standalone owner plugins in the Nuxt Console app", async () => {
+    const { nuxt, runNitroConfigHook } = createNuxt(false, [hubEmail({ driver: "log" }), hubRealtime()])
+    await viteHubNuxtModule({ agent: true, console: productionConsole, host: "node" }, nuxt)
+    await runNitroConfigHook(nitroOptions(nuxt))
+
+    const app = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/app.mjs`, "utf8")
+    expect(app).toContain('import("vite-hub/email")')
+    expect(app).toContain('installConsoleAgentRealtime(() => import("vite-hub/realtime/agent"))')
   })
 
   it("passes host-managed invocation into the Nuxt Console plugin", async () => {
