@@ -26,6 +26,12 @@ export interface ViteHubDevEndpointServer {
       allowedHosts?: readonly string[] | true
       /** Host that the dev server listens on. A string host is also an allowed host. */
       host?: string | boolean
+      /** A `server.ws.host` is also an allowed host, as in Vite. */
+      ws?: boolean | { host?: string }
+      /** Older name of `server.ws`. Vite reads its `host` the same way. */
+      hmr?: boolean | { host?: string }
+      /** The host name of `server.origin` is also an allowed host, as in Vite. */
+      origin?: string
       /** When set, Vite does not check the `Host` header, because TLS binds the host name. */
       https?: unknown
       port?: number
@@ -146,8 +152,9 @@ function hostHeaderAllowed(host: string, allowedHosts: readonly string[]): boole
  * Checks the `Host` header with the same rules as Vite's host validation.
  *
  * Accepts a missing header, IP literals, `localhost`, `*.localhost`, the configured
- * `server.host`, and `server.allowedHosts`. An entry that starts with `.` also accepts
- * its subdomains. `allowedHosts: true` or `server.https` accepts all hosts, as in Vite.
+ * `server.host`, `server.ws.host` (or `server.hmr.host`), the host name of `server.origin`, and
+ * `server.allowedHosts`. An entry that starts with `.` also accepts its subdomains.
+ * `allowedHosts: true` or `server.https` accepts all hosts, as in Vite.
  *
  * Dev endpoints run this check themselves, so they do not depend on the host
  * framework to run Vite's host validation before them. This blocks DNS rebinding:
@@ -156,9 +163,15 @@ function hostHeaderAllowed(host: string, allowedHosts: readonly string[]): boole
 export function isViteHubDevHostAllowed(server: Pick<ViteHubDevEndpointServer, "config">, req: IncomingMessage): boolean {
   const host = firstHeader(req.headers.host)
   if (host === undefined) return true
-  const { allowedHosts = [], host: listenHost, https } = server.config.server
+  const { allowedHosts = [], host: listenHost, ws, hmr, origin, https } = server.config.server
   if (allowedHosts === true || https) return true
-  return hostHeaderAllowed(host, typeof listenHost === "string" ? [...allowedHosts, listenHost] : allowedHosts)
+  const hosts = [...allowedHosts]
+  if (typeof listenHost === "string") hosts.push(listenHost)
+  for (const socket of [ws, hmr]) {
+    if (typeof socket === "object" && socket.host) hosts.push(socket.host)
+  }
+  if (origin && URL.canParse(origin)) hosts.push(new URL(origin).hostname)
+  return hostHeaderAllowed(host, hosts)
 }
 
 /**
