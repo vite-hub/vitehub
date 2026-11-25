@@ -8,6 +8,7 @@ import process from "node:process"
 import { locateViteHubConfig } from "@vite-hub/internal/config-edit"
 import { dirname, join, resolve } from "pathe"
 import { parse as parseRc } from "rc9"
+import { minVersion, Range, subset, validRange } from "semver"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -30,10 +31,33 @@ export interface SetupProject {
   configSource?: string
   /** True when the target manifest declares `name` for production, or for development when `dev` is true. */
   declared: (name: string, dev: boolean) => boolean
+  /** The `nuxt` range that the manifest declares, such as `^4.7.0` or `npm:nuxt-nightly@5x`. */
+  nuxt?: string
   /** Static discovery directories; undefined when Nuxt directories or layers need evaluation. */
   serverDirs?: readonly string[]
   /** True when `name` is resolvable from the project or present in an ancestor's node_modules. */
   installed: (name: string) => boolean
+}
+
+/**
+ * The Nuxt releases that a `nuxt` range allows, as a semver range. A Nuxt 5 nightly counts as its release, so
+ * `npm:nuxt-nightly@5.0.0-2611071848-2d8337c` is `5.0.0`. The `5x` channel tag of `nuxt-nightly` is `5.x`.
+ * `undefined` for another tag or a range without a version.
+ */
+export function nuxtReleases(nuxt: unknown): string | undefined {
+  if (typeof nuxt !== "string") return undefined
+  const range = validRange(nuxt.replace(/^npm:nuxt-nightly@(\d+)x$/u, "$1.x").replace(/^npm:nuxt(?:-nightly)?@/u, ""))
+  if (!range || !minVersion(range)) return undefined
+  return new Range(range).set.map(comparators => comparators.map(({ operator, semver, value }) =>
+    typeof semver !== "symbol" && semver.major === 5 && semver.prerelease.length > 0
+      ? `${operator}5.${semver.minor}.${semver.patch}`
+      : value).join(" ")).join(" || ")
+}
+
+/** True when a `nuxt` range allows only Nuxt 5, so `vitehub init --nuxt-nightly` creates the same app. */
+export function declaresNuxt5(nuxt: unknown): boolean {
+  const releases = nuxtReleases(nuxt)
+  return !!releases && subset(releases, ">=5.0.0 <6.0.0")
 }
 
 const nuxtConfigFiles = ["nuxt.config.ts", "nuxt.config.mts", "nuxt.config.js", "nuxt.config.mjs", "nuxt.config.cts", "nuxt.config.cjs"]
@@ -181,6 +205,7 @@ export async function readSetupProject(root: string, env: NodeJS.ProcessEnv): Pr
       return false
     },
     ...detectPackageManager(root, manifest, env),
+    ...(typeof dependencies.nuxt === "string" ? { nuxt: dependencies.nuxt } : {}),
     root,
     serverDirs: framework === "nuxt" ? await nuxtServerDirs(root, config, env) : [join(root, "server")],
   }

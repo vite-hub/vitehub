@@ -5,6 +5,7 @@ import { basename } from "pathe"
 
 import { isRecord, readAddArgs, shellQuote } from "./add.ts"
 import { isSetupFailure } from "./envelope.ts"
+import { declaresNuxt5 } from "./project.ts"
 
 import type { JsonValue } from "@vite-hub/internal/config-edit"
 import type { FeatureId } from "@vite-hub/internal/features"
@@ -118,6 +119,7 @@ export async function deriveSetupStack(project: SetupProject, status: SetupStatu
     "--features", selected.join(","),
     ...options.flatMap(option => ["--option", option]),
     "--framework", status.framework === "nuxt" ? "nuxt" : "vite",
+    ...(status.framework === "nuxt" && declaresNuxt5(project.nuxt) ? ["--nuxt-nightly"] : []),
     "--pm", status.packageManager,
     "--yes",
   ]

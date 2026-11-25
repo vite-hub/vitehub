@@ -6,13 +6,13 @@ import { createInterface } from "node:readline/promises"
 import { editViteHubConfig, insertViteHubConfig, locateViteHubConfig } from "@vite-hub/internal/config-edit"
 import { featureIds } from "@vite-hub/internal/features"
 import { basename, dirname, join, resolve } from "pathe"
-import { minVersion, Range, satisfies, subset, validRange } from "semver"
+import { minVersion, satisfies, subset, validRange } from "semver"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { confirmSetupChange, flattenOptions, mergeValue, planSetupAdd, readAddArgs, setupDiff, shellQuote } from "./add.ts"
 import { setupExitCodes, type SetupFailure, setupFailure, writeSetupError, writeSetupJson } from "./envelope.ts"
 import { gitignoreWithViteHub } from "./link.ts"
-import { detectPackageManager, readSetupProject } from "./project.ts"
+import { declaresNuxt5, detectPackageManager, nuxtReleases, readSetupProject } from "./project.ts"
 import { deriveSetupStack, setupStackLabels } from "./stack.ts"
 import { formatInstallCommand, installArgs, installCommand, setupStatus } from "./status.ts"
 
@@ -26,7 +26,7 @@ import type { SetupPackageManager, SetupProject } from "./project.ts"
 import type { SetupStack } from "./stack.ts"
 import type { SetupStatus } from "./status.ts"
 
-const usage = "vitehub init <dir> --host <host> --features <id,id,...> [--option <feature.key=value>]... [--framework vite|nuxt] [--pm pnpm|npm|yarn|bun] [--no-install] [--dry-run] --yes [--json]"
+const usage = "vitehub init <dir> --host <host> --features <id,id,...> [--option <feature.key=value>]... [--framework vite|nuxt] [--nuxt-nightly] [--pm pnpm|npm|yarn|bun] [--no-install] [--dry-run] --yes [--json]"
 
 const initCommandPrefix = "pnpm dlx vite-hub init"
 
@@ -38,7 +38,7 @@ const packageManagers: readonly SetupPackageManager[] = ["pnpm", "npm", "yarn", 
 
 /**
  * The packages of a new app, as `getting-started/installation.md` installs them. The Nitro and H3 versions match the
- * server integration of ViteHub. Nuxt 5 supplies Nitro 3, and a Nuxt 4.7 app also gets `nuxtNitroPackage`. The
+ * server integration of ViteHub. A new Nuxt app is Nuxt 4.7, so it also gets `nuxtNitroPackage`. Nuxt 5 supplies Nitro 3. The
  * tutorials import H3 2. Valibot validates request bodies in the docs' route examples.
  */
 export const initPackages: Readonly<Record<InitFramework, { prod: readonly string[], dev: readonly string[] }>> = {
@@ -52,7 +52,7 @@ export const nuxtNitroPackage = `nitro@${nuxtNitroRange}`
 /** The pinned Nuxt CLI that creates a new Nuxt app. */
 export const nuxiPackage = "nuxi@3.37.0"
 
-const nuxtTemplate = "gh:nuxt/starter#db01806fcb37f2e369fb09443c72cac696b31548"
+const nuxtTemplate = "gh:nuxt/starter#d4367031fe43d93d4e2a339f73b519ec35e78b38"
 
 export interface SetupInitArgs {
   dir?: string
@@ -62,6 +62,8 @@ export interface SetupInitArgs {
   /** Raw `--option` values, such as `email.driver=resend`. */
   options: string[]
   framework?: InitFramework
+  /** A new Nuxt app gets the Nuxt 5 nightly instead of Nuxt 4.7. An existing app keeps its Nuxt version. */
+  nuxtNightly: boolean
   pm?: SetupPackageManager
   install: boolean
   dryRun: boolean
@@ -105,7 +107,7 @@ function oneOf<T extends string>(flag: string, value: string, choices: readonly 
 
 /** Reads the arguments. Throws `CLI_R0003` for an unknown flag or value. */
 export function readInitArgs(args: readonly string[]): SetupInitArgs {
-  const parsed: SetupInitArgs = { dryRun: false, help: false, install: true, json: false, options: [], yes: false }
+  const parsed: SetupInitArgs = { dryRun: false, help: false, install: true, json: false, nuxtNightly: false, options: [], yes: false }
   let features: string | undefined
   for (let index = 0; index < args.length; index++) {
     const arg = args[index]!
@@ -119,6 +121,7 @@ export function readInitArgs(args: readonly string[]): SetupInitArgs {
     else if (flag === "--dry-run") parsed.dryRun = true
     else if (flag === "--yes" || flag === "-y") parsed.yes = true
     else if (flag === "--no-install") parsed.install = false
+    else if (flag === "--nuxt-nightly") parsed.nuxtNightly = true
     else if (flag === "-h" || flag === "--help") parsed.help = true
     else if (flag === "--host") parsed.host = oneOf("--host", value(), initHosts)
     else if (flag === "--features") features = value()
@@ -130,6 +133,8 @@ export function readInitArgs(args: readonly string[]): SetupInitArgs {
     else throw invalid(`Pass one folder, not ${JSON.stringify(parsed.dir)} and ${JSON.stringify(arg)}.`)
   }
   if (features !== undefined) parsed.features = readAddArgs(features.split(",").map(item => item.trim()).filter(Boolean)).features
+  if (parsed.nuxtNightly && parsed.framework === "vite") throw invalid("--nuxt-nightly needs --framework nuxt.")
+  if (parsed.nuxtNightly) parsed.framework = "nuxt"
   return parsed
 }
 
@@ -143,6 +148,7 @@ interface InitCommandParts {
   features?: readonly FeatureId[]
   options?: readonly string[]
   framework?: InitFramework
+  nuxtNightly?: boolean
   pm?: SetupPackageManager
 }
 
@@ -157,6 +163,7 @@ function initCommand(parts: InitCommandParts, extra: readonly string[]): string 
     shellQuote(parts.features?.join(",") ?? "<id,id,...>"),
     ...options.flatMap(option => ["--option", shellQuote(option)]),
     ...(parts.framework === "nuxt" ? ["--framework", "nuxt"] : []),
+    ...(parts.nuxtNightly ? ["--nuxt-nightly"] : []),
     ...(parts.pm && parts.pm !== "pnpm" ? ["--pm", parts.pm] : []),
     ...extra,
   ].join(" ")
@@ -294,7 +301,7 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
   const found = state.kind === "adopt" ? state.project.framework : undefined
   const framework: InitFramework = args.framework ?? (found === "nuxt" ? "nuxt" : "vite")
   if (found && found !== framework) throw setupFailure(cliErrorDiagnostics.SETUP_INIT_FRAMEWORK_MISMATCH({ dir: root, found, framework }), setupExitCodes.conflict)
-  const nuxtNeedsNitro = state.kind === "adopt" && framework === "nuxt" && (await checkNuxtVersion(root)).needsNitro
+  const nuxtNeedsNitro = framework === "nuxt" && (state.kind === "adopt" ? (await checkNuxtVersion(root)).needsNitro : !args.nuxtNightly)
   const detected = state.kind === "adopt" ? state.project : detectPackageManager(root, undefined, context.env)
   const packageManager = args.pm ?? (detected.packageManagerSource === "default" ? "pnpm" : detected.packageManager)
 
@@ -330,6 +337,7 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
   const willInstall = new Set([...install.prod, ...install.dev].map(packageName))
 
   const configSource = base.get(configFile)!.after
+  const nuxt = framework !== "nuxt" ? undefined : state.kind === "adopt" ? state.project.nuxt : args.nuxtNightly ? "npm:nuxt-nightly@5x" : "^4.7.0"
   const planned: SetupProject = {
     config: locateViteHubConfig(configFile, configSource),
     configFile,
@@ -337,6 +345,7 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
     declared: (name, dev) => declared(name, dev) || willInstall.has(name),
     framework,
     installed: state.kind === "adopt" ? state.project.installed : () => false,
+    ...(nuxt === undefined ? {} : { nuxt }),
     packageManager,
     packageManagerSource: args.pm ? "manifest" : detected.packageManagerSource,
     root,
@@ -355,6 +364,7 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
       features: [...args.features, ...extraFeatures.filter(id => !args.features.includes(id))],
       framework,
       host: args.host,
+      nuxtNightly: args.nuxtNightly,
       options: Object.entries(options).flatMap(([id, value]) => value ? flattenOptions(id, value) : []),
       pm: packageManager,
     }
@@ -378,7 +388,7 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
   const writes = ordered.filter(([, file]) => file.before !== file.after).map(([path, file]) => ({ path, ...file }))
   const command = installCommand(packageManager, install.prod, install.dev)
   const scaffold = scaffolded
-    ? dlx(packageManager, nuxiPackage, ["init", basename(root), "--template", nuxtTemplate, "--nightly", "5x", "--packageManager", packageManager, "--no-install", "--no-gitInit", "--no-modules", ...(state.exists ? ["--force"] : [])])
+    ? dlx(packageManager, nuxiPackage, ["init", basename(root), "--template", nuxtTemplate, ...(args.nuxtNightly ? ["--nightly", "5x"] : []), "--packageManager", packageManager, "--no-install", "--no-gitInit", "--no-modules", ...(state.exists ? ["--force"] : [])])
     : undefined
 
   const nextSteps = [
@@ -461,16 +471,6 @@ async function scaffoldNuxt(planned: InitPlanned, context: ViteHubCliContext): P
   await checkNuxtVersion(planned.plan.root, true)
 }
 
-function nuxtReleases(nuxt: JsonValue | undefined): string | undefined {
-  if (typeof nuxt !== "string") return undefined
-  const range = validRange(nuxt.replace(/^npm:nuxt(?:-nightly)?@/u, ""))
-  if (!range || !minVersion(range)) return undefined
-  return new Range(range).set.map(comparators => comparators.map(({ operator, semver, value }) =>
-    typeof semver !== "symbol" && semver.major === 5 && semver.prerelease.length > 0
-      ? `${operator}5.${semver.minor}.${semver.patch}`
-      : value).join(" ")).join(" || ")
-}
-
 async function checkNuxtVersion(root: string, scaffolded = false): Promise<{ needsNitro: boolean }> {
   const manifest: JsonValue = JSON.parse(await readFile(join(root, "package.json"), "utf8"))
   const dependencies = isRecord(manifest) && isRecord(manifest.dependencies) ? manifest.dependencies : {}
@@ -479,7 +479,7 @@ async function checkNuxtVersion(root: string, scaffolded = false): Promise<{ nee
   if (!releases || !subset(releases, ">=4.7.0 <6.0.0")) {
     throw setupFailure(cliErrorDiagnostics.SETUP_INIT_NUXT_VERSION({ dir: root, scaffolded }), setupExitCodes.conflict)
   }
-  if (subset(releases, ">=5.0.0 <6.0.0")) return { needsNitro: false }
+  if (declaresNuxt5(dependencies.nuxt ?? devDependencies.nuxt)) return { needsNitro: false }
 
   const nitroDeclarations = [dependencies.nitro, devDependencies.nitro].filter(spec => spec !== undefined)
   for (const spec of nitroDeclarations) {

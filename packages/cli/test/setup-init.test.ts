@@ -408,7 +408,11 @@ describe("vitehub init", () => {
     expect(result.json.stack.command).toBe("pnpm dlx vite-hub init app --host cloudflare --features kv --framework vite --pm npm --yes")
   })
 
-  it.each(["pnpm", "yarn"] as const)("creates a Nuxt app with the pinned nuxi using %s, then adopts it", async (pm) => {
+  it.each([
+    ["pnpm", false],
+    ["yarn", false],
+    ["pnpm", true],
+  ] as const)("creates a Nuxt app with the pinned nuxi using %s (Nuxt 5 nightly: %s), then adopts it", async (pm, nightly) => {
     const parent = await createProject()
     const calls: string[][] = []
     const spawn: ViteHubCliSpawn = async (command, args) => {
@@ -417,22 +421,44 @@ describe("vitehub init", () => {
         await mkdir(join(parent, "site/server"), { recursive: true })
         await writeFile(join(parent, "site", pm === "yarn" ? "yarn.lock" : "pnpm-lock.yaml"), "")
         await writeFile(join(parent, "site/README.md"), "# Nuxt starter\n")
-        await writeFile(join(parent, "site/package.json"), JSON.stringify({ dependencies: { nuxt: "npm:nuxt-nightly@5.0.0-2611071848-2d8337c", vue: "^3.5.44", "vue-router": "^5.4.0" }, name: "site", private: true, type: "module" }))
+        const nuxt = args.includes("--nightly") ? "npm:nuxt-nightly@5.0.0-2611071848-2d8337c" : "^4.7.0"
+        await writeFile(join(parent, "site/package.json"), JSON.stringify({ dependencies: { nuxt, vue: "^3.5.45", "vue-router": "^5.4.0" }, name: "site", private: true, type: "module" }))
         await writeFile(join(parent, "site/nuxt.config.ts"), "// https://nuxt.com/docs/api/configuration/nuxt-config\nexport default defineNuxtConfig({\n  compatibilityDate: '2025-07-15',\n  devtools: { enabled: true }\n})\n")
       }
       return { exitCode: 0, signal: null }
     }
-    const result = await init(["site", "--host", "vercel", "--features", "kv", "--framework", "nuxt", "--pm", pm, "--yes"], parent, spawn)
+    const flags = nightly ? ["--nuxt-nightly"] : []
+    const result = await init(["site", "--host", "vercel", "--features", "kv", "--framework", "nuxt", ...flags, "--pm", pm, "--yes"], parent, spawn)
     expect(result.exitCode, result.stdout).toBe(0)
-    expect(calls[0]).toEqual([...(pm === "yarn" ? ["npx", "--yes"] : ["pnpm", "dlx"]), nuxiPackage, "init", "site", "--template", "gh:nuxt/starter#db01806fcb37f2e369fb09443c72cac696b31548", "--nightly", "5x", "--packageManager", pm, "--no-install", "--no-gitInit", "--no-modules"])
+    expect(calls[0]).toEqual([...(pm === "yarn" ? ["npx", "--yes"] : ["pnpm", "dlx"]), nuxiPackage, "init", "site", "--template", "gh:nuxt/starter#d4367031fe43d93d4e2a339f73b519ec35e78b38", ...(nightly ? ["--nightly", "5x"] : []), "--packageManager", pm, "--no-install", "--no-gitInit", "--no-modules"])
     expect(calls.slice(1)).toEqual([[pm, "add", ...result.json.install.packages]])
-    expect(result.json.install.packages.slice(0, initPackages.nuxt.prod.length)).toEqual([...initPackages.nuxt.prod])
+    expect(result.json.install.packages).toEqual([...initPackages.nuxt.prod, ...(nightly ? [] : [nuxtNitroPackage]), "@vite-hub/kv"])
     expect(result.json).toMatchObject({ framework: "nuxt", mode: "create", scaffold: { command: expect.stringContaining(nuxiPackage) }, status: "applied" })
     const config = await readFile(join(parent, "site/nuxt.config.ts"), "utf8")
     expect(locateViteHubConfig("nuxt.config.ts", config)).toMatchObject({ ok: true, site: { form: "nuxt-module-tuple", keys: { kv: { value: true }, host: { value: "vercel" } } } })
-    expect(result.json.stack.command).toBe(`pnpm dlx vite-hub init site --host vercel --features kv --framework nuxt --pm ${pm} --yes`)
+    expect(result.json.stack.command).toBe(`pnpm dlx vite-hub init site --host vercel --features kv --framework nuxt${nightly ? " --nuxt-nightly" : ""} --pm ${pm} --yes`)
     expect(await readFile(join(parent, "site/README.md"), "utf8")).toBe("# Nuxt starter\n")
     expect((await runSetup<StatusResult>(["status", "--json"], join(parent, "site"))).json.stack).toEqual(result.json.stack)
+  })
+
+  it.each([
+    [[], ["--framework", "nuxt"], [nuxtNitroPackage]],
+    [["--nuxt-nightly"], ["--framework", "nuxt", "--nuxt-nightly"], []],
+  ] as const)("plans a new Nuxt app with %j as Nuxt 4.7 or the Nuxt 5 nightly", async (flags, replay, nitro) => {
+    const parent = await createProject()
+    const result = await init(["site", "--host", "node", "--features", "kv", ...(flags.length ? [] : ["--framework", "nuxt"]), ...flags, "--dry-run"], parent)
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(result.json).toMatchObject({ framework: "nuxt", mode: "create", status: "planned" })
+    expect(result.json.scaffold?.command.includes("--nightly 5x")).toBe(flags.length > 0)
+    expect(result.json.install.packages).toEqual([...initPackages.nuxt.prod, ...nitro, "@vite-hub/kv"])
+    expect(result.json.stack.command).toBe(`pnpm dlx vite-hub init site --host node --features kv ${replay.join(" ")} --pm pnpm --yes`)
+  })
+
+  it("rejects --nuxt-nightly for a Vite app", async () => {
+    const parent = await createProject()
+    const result = await init(["site", "--host", "node", "--features", "kv", "--framework", "vite", "--nuxt-nightly", "--dry-run"], parent)
+    expect(result.exitCode, result.stdout).not.toBe(0)
+    expect(result.json.error?.message).toContain("--nuxt-nightly needs --framework nuxt.")
   })
 
   it.each([undefined, "latest", "6.0.0", "npm:nuxt-nightly@latest"])("rejects a scaffold without a supported Nuxt version (%s)", async (nuxt) => {
