@@ -104,7 +104,7 @@ const runtimeEntries = [
   "src/console/runtime/client/invocation.ts",
   "src/console/runtime/client/invocation-deletion.ts",
   "src/console/runtime/client/request.ts",
-  "src/console/runtime/client/ticket.ts",
+  "src/console/runtime/client/site-link.ts",
   "src/console/runtime/client/blob-media.ts",
   "src/console/runtime/client/content-heads.ts",
   "src/console/runtime/client/documents.ts",
@@ -159,7 +159,7 @@ const runtimeEntries = [
   "src/agent/console/invocations.get.ts",
   "src/env/console/env.get.ts",
   "src/auth/console/auth.ts",
-  "src/console/runtime/server/tickets.ts",
+  "src/console/runtime/server/site-actions.ts",
   "src/console/runtime/server/entry.ts",
   "src/console/runtime/server/entry-site-access.ts",
   "src/console/runtime/server/site-entry.ts",
@@ -596,7 +596,7 @@ export default defineConfig({
           delete exports["./console/runtime/client/invocation"];
           delete exports["./console/runtime/client/invocation-deletion"];
           delete exports["./console/runtime/client/request"];
-          delete exports["./console/runtime/client/ticket"];
+          delete exports["./console/runtime/client/site-link"];
           delete exports["./console/runtime/client/blob-media"];
           delete exports["./console/runtime/client/content-heads"];
           delete exports["./console/runtime/client/documents"];
@@ -639,7 +639,7 @@ export default defineConfig({
           delete exports["./console/runtime/server/definitions.get"];
           delete exports["./console/runtime/server/documents"];
           delete exports["./console/runtime/server/rpc"];
-          delete exports["./console/runtime/server/tickets"];
+          delete exports["./console/runtime/server/site-actions"];
           delete exports["./console/runtime/server/site-entry"];
           delete exports["./console/runtime/server/entry"];
           delete exports["./console/runtime/server/entry-site-access"];

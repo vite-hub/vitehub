@@ -33,11 +33,11 @@ const documentsAction = defineConsoleOperation({
 
 const documentsPreview = defineConsoleOperation({
   mcp: false,
-  description: "Return a one-time link that opens the page of a document with its draft, on the app origin.",
+  description: "Check that the caller may read a document, and return the app path of its page. The Console then signs a preview Site access token that opens the page with its draft.",
   input: v.strictObject({ collection: v.pipe(text, v.minLength(1)), id: v.pipe(text, v.minLength(1)), section: text }),
   kind: "read",
   name: "documents.preview",
-  run: async ({ collection, id, section }, context) => (await import("../../console/runtime/server/documents.ts")).issueConsoleDocumentPreview(context, { collection, id, section }),
+  run: async ({ collection, id, section }, context) => (await import("../../console/runtime/server/documents.ts")).checkConsoleDocumentPreview(context, { collection, id, section }),
   section: input => input.section,
 })
 

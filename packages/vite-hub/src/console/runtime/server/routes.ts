@@ -4,11 +4,12 @@ const entrySegment = /\/_vitehub(?=\/|$)/
 
 /**
  * The one lazy `<base>/_vitehub/**` route of the Console. It sends `/_vitehub/rpc` to the Console RPC, `/_vitehub/site`
- * to Site access when `siteAccess` is on, and every other path to the `/_vitehub` entry. A route of the app or of
- * another package below `/_vitehub` is more specific, so Nitro sends its requests there.
+ * to the tokens of the Console, and every other path to the `/_vitehub` entry. A route of the app or of another package
+ * below `/_vitehub` is more specific, so Nitro sends its requests there.
  *
  * `siteAccess` is on in an app with Comments: Comments reads the person of the site cookie, and its pill opens through
- * Site access. Without it, `/_vitehub` and its pages go to the ViteHub Console.
+ * Site access. Without it, `/_vitehub` and its pages go to the ViteHub Console, and `/_vitehub/site` takes only the
+ * impersonation and preview tokens.
  */
 export function consoleRoutes(options: { siteAccess: boolean }): ConsoleRoute {
   return {
@@ -17,7 +18,10 @@ export function consoleRoutes(options: { siteAccess: boolean }): ConsoleRoute {
       const at = entrySegment.exec(pathname)
       const rest = at ? pathname.slice(at.index + at[0].length) : ""
       if (rest === "/rpc") return (await import("./rpc.ts")).default.fetch(request)
-      if (options.siteAccess && rest === "/site") return (await import("./site.ts")).default.fetch(request)
+      if (rest === "/site") {
+        const site = await import("./site.ts")
+        return (options.siteAccess ? site.siteAccessRoute : site.siteActionRoute).fetch(request)
+      }
       const entry = await import("./site-entry.ts")
       return (options.siteAccess ? entry.siteEntryRoute : entry.consoleEntryRoute).fetch(request)
     },

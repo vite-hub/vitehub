@@ -5,7 +5,6 @@ import { getAuthConsoleForRequest } from "@vite-hub/auth/server";
 import { consoleImpersonation, consolePerson, type ConsoleAccess } from "../../console/runtime/server/access.ts";
 import { consoleRequestError, type ConsoleRequestEvent } from "../../console/runtime/server/request.ts";
 import { getConsoleSections } from "../../console/runtime/server/sections.ts";
-import type { ConsoleTicket } from "../../console/runtime/server/tickets.ts";
 
 const statuses: Record<AuthConsoleErrorCode, number> = {
   AUTH_CONSOLE_INVALID_REQUEST: 400,
@@ -73,14 +72,13 @@ export async function runAuthConsoleAction(context: AuthOperationContext, mutati
 }
 
 /**
- * `auth.impersonate` and `auth.stop-impersonating`: check the call, then return a one-time link that the browser opens
- * on the app origin. Its redemption starts or stops the impersonation with the browser's app session, which must belong
- * to the person who asked. See `tickets.ts`.
+ * `auth.impersonate` and `auth.stop-impersonating`: check the call and answer the app path to open, `/`. The Console
+ * calls them as the member before it signs an `impersonate` Site access token, and the app's `/_vitehub/site` starts or
+ * stops the impersonation with the browser's app session, which must belong to the email of the token.
  */
-export async function issueImpersonationTicket(context: AuthOperationContext, userId?: string): Promise<ConsoleTicket> {
+export async function checkImpersonation(context: AuthOperationContext, userId?: string): Promise<{ path: string }> {
   if (!consoleImpersonation()) throw consoleRequestError(404, "Impersonation is off. Set console.impersonation to true to enable it.");
-  const { issueConsoleTicket } = await import("../../console/runtime/server/tickets.ts");
-  if (userId === undefined) return await issueConsoleTicket(context, "auth.stop-impersonating", {});
+  if (userId === undefined) return { path: "/" };
   const { api, request } = await operationAuthConsole(context);
   const [describeError, description] = await api.describe(request);
   if (describeError) throw authConsoleFailure(describeError);
@@ -90,5 +88,5 @@ export async function issueImpersonationTicket(context: AuthOperationContext, us
   if (userError) throw authConsoleFailure(userError);
   if (detail.impersonation && !detail.impersonation.enabled)
     throw consoleRequestError(403, detail.impersonation.reason ?? "Better Auth does not impersonate this user.", "CONSOLE_ACCESS_DENIED");
-  return await issueConsoleTicket(context, "auth.impersonate", { userId });
+  return { path: "/" };
 }
