@@ -6338,6 +6338,154 @@ cli_auth_credentials_store = "keyring"
     await createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
   })
 
+  it("runs in driver.cwd without a temporary root or Workspace session and keeps the directory", async () => {
+    const threadId = "thread-provider-cwd"
+    const cwd = await mkdtemp(join(tmpdir(), "vitehub-cwd-test-"))
+    await writeFile(join(cwd, "checkout.txt"), "local checkout")
+    let launchCwd = ""
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        expect(await readFile(join(cwd, "checkout.txt"), "utf8")).toBe("local checkout")
+      },
+    })
+    const session = {
+      close: vi.fn(async () => undefined),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [] })),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const materializeSources = vi.fn(async () => ({ bytes: 0, directories: 0, durationMs: 0, files: 0, path: "", sources: [] }))
+    const workspace = { fs: {}, materializeSources, startSession: vi.fn(async () => session), tools: {} }
+    const resolveCwd = vi.fn(() => cwd)
+    const launch = vi.fn((launchContext: { cwd: string }) => {
+      launchCwd = launchContext.cwd
+      return { command: process.execPath }
+    })
+    try {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ cwd: resolveCwd, launch, provider: "codex" }).generate(context(threadId, {
+        workspace,
+        workspaceAutoCommit: true,
+        workspaceDefinition: { commit: "chore: save provider work", name: "docs" },
+        workspaceMode: "write",
+      }) as never)
+
+      expect(resolveCwd).toHaveBeenCalledOnce()
+      // SAFETY: The mocked provider runtime receives the provider root as cwd.
+      expect((createProviderRuntime.mock.lastCall![0] as { cwd: string }).cwd).toBe(cwd)
+      expect(launchCwd).toBe(cwd)
+      expect(materializeSources).toHaveBeenCalledOnce()
+      expect(workspace.startSession).not.toHaveBeenCalled()
+      expect(session.exec).not.toHaveBeenCalled()
+      expect(session.commit).not.toHaveBeenCalled()
+      expect(await readFile(join(cwd, "checkout.txt"), "utf8")).toBe("local checkout")
+    }
+    finally {
+      await rm(cwd, { force: true, recursive: true })
+    }
+  })
+
+  it("keeps generated instructions out of commits in a driver.cwd Git checkout", async () => {
+    const threadId = "thread-provider-cwd-git"
+    const cwd = await mkdtemp(join(tmpdir(), "vitehub-cwd-git-test-"))
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf8" })
+      if (result.status !== 0) throw new Error(result.stderr)
+      return result.stdout
+    }
+    git("init", "-q")
+    git("config", "user.name", "Test")
+    git("config", "user.email", "test@localhost")
+    await writeFile(join(cwd, "AGENTS.md"), "native instructions")
+    git("add", "-A")
+    git("commit", "-qm", "initial repository")
+    const originalFlags = git("ls-files", "-v", "--", "AGENTS.md")
+    const originalExclude = await readFile(join(cwd, ".git/info/exclude"), "utf8")
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onSendTurn() {
+        await writeFile(join(cwd, "result.txt"), "Agent repair")
+        git("add", "-A")
+        git("commit", "-qm", "Agent repair")
+        expect(git("show", "HEAD:AGENTS.md")).toBe("native instructions")
+        expect(git("ls-tree", "-r", "--name-only", "HEAD")).not.toContain("vitehub-system-prompt")
+        expect(git("show", "HEAD:result.txt")).toBe("Agent repair")
+      },
+    })
+    try {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ cwd, instructions: "generated invocation instructions", provider: "codex" }).generate(context(threadId) as never)
+      expect(await readFile(join(cwd, "AGENTS.md"), "utf8")).toBe("native instructions")
+      expect(git("ls-files", "-v", "--", "AGENTS.md")).toBe(originalFlags)
+      expect(await readFile(join(cwd, ".git/info/exclude"), "utf8")).toBe(originalExclude)
+      expect(git("rev-list", "--count", "HEAD")).toBe("2\n")
+    }
+    finally {
+      await rm(cwd, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects a driver.cwd that is not an existing directory before the provider starts", async () => {
+    const missing = join(tmpdir(), `vitehub-cwd-missing-${crypto.randomUUID()}`)
+    const calls = createProviderRuntime.mock.calls.length
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await expect(createProviderAgentAdapter({ cwd: missing, provider: "codex" }).generate(context("thread-provider-cwd-missing") as never))
+      .rejects.toMatchObject({ code: "AGENT_R0938" })
+    expect(createProviderRuntime.mock.calls.length).toBe(calls)
+    await expect(access(missing)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("keeps a disposable root for auxiliary runs when driver.cwd is set", async () => {
+    const threadId = "thread-provider-cwd-auxiliary"
+    const cwd = await mkdtemp(join(tmpdir(), "vitehub-cwd-test-"))
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    try {
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await createProviderAgentAdapter({ cwd, provider: "codex" }).generate(markAuxiliaryMessageChannelInstructionContext(context(threadId)) as never)
+      // SAFETY: The mocked provider runtime receives the provider root as cwd.
+      const root = (createProviderRuntime.mock.lastCall![0] as { cwd: string }).cwd
+      expect(root).not.toBe(cwd)
+      expect(root).toContain("vitehub-provider-")
+      await expect(access(root)).rejects.toMatchObject({ code: "ENOENT" })
+      await access(cwd)
+    }
+    finally {
+      await rm(cwd, { force: true, recursive: true })
+    }
+  })
+
+  it.each([
+    { commit: false, name: "docs" },
+    {
+      name: "docs",
+      plugins: [{ id: "notes", rules: { "notes/**": { commit: true } } }],
+      rules: { "notes/**": { commit: false } },
+    },
+  ])("skips provider workspace diffs when auto-commit is disabled: %j", async (workspaceDefinition) => {
+    const threadId = "thread-workspace-no-auto-commit"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const session = {
+      close: vi.fn(async () => undefined),
+      commit: vi.fn(async () => undefined),
+      diff: vi.fn(async () => ({ entries: [{ path: "result.md", type: "modified" }] })),
+      exec: vi.fn(async () => ({ code: 0, stderr: "", stdout: "" })),
+      readFile: vi.fn(async () => new Uint8Array()),
+    }
+    const workspace = { fs: {}, startSession: vi.fn(async () => session), tools: {} }
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await createProviderAgentAdapter({ provider: "codex" }).generate(context(threadId, {
+      workspace,
+      workspaceAutoCommit: false,
+      workspaceDefinition,
+      workspaceMode: "write",
+    }) as never)
+
+    expect(session.diff).not.toHaveBeenCalled()
+    expect(session.commit).not.toHaveBeenCalled()
+    expect(session.close).toHaveBeenCalledOnce()
+  })
+
   it("writes successful workspace sessions back before cleanup", async () => {
     const threadId = "thread-workspace"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
