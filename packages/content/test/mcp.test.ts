@@ -154,6 +154,46 @@ describe("seo.mcp for collections", () => {
     expect(await content.pages({ offset: 1, limit: 1 })).toEqual([{ title: "B", path: "/blog/b", url: "http://localhost/blog/b" }])
   })
 
+  it("finds pages for a query, best match first, and keeps the full list without one", async () => {
+    const content = await site()
+    const posts = content.collection("posts")
+    await posts.save("rate-limit", { data: { title: "Rate Limit", description: "Limit requests per minute" }, body: "Rate\n" })
+    await posts.save("webhook-configure", { data: { title: "Webhook configuration", description: "Set the debounce window" }, body: "Webhooks\n" })
+    await posts.save("queue", { data: { title: "Queue", description: "Run jobs after the response, with a rate per minute" }, body: "Queue\n" })
+    for (let index = 0; index < 25; index++) await posts.save(`note-${index}`, { data: { title: `Note ${index}` }, body: "Note\n" })
+    await content.publish({ collection: "posts" })
+    const handler = defineContentMcpHandler(content)
+    const paths = async (args: Record<string, unknown>) => JSON.parse((await tool(handler, "list-pages", args)).content![0]!.text).map((page: { path: string }) => page.path)
+
+    expect(await paths({ query: "rate limit" })).toEqual(["/blog/rate-limit", "/blog/queue"])
+    expect(await paths({ query: "webhooks debounce" })).toEqual(["/blog/webhook-configure"])
+    expect(await paths({ query: "WEBHOOK-CONFIGURE" })).toEqual(["/blog/webhook-configure"])
+    expect(await paths({ query: "nothing matches this" })).toEqual([])
+    expect(await paths({ query: "note" })).toHaveLength(20)
+    expect(await paths({ query: "note", offset: 20 })).toHaveLength(5)
+    expect(await paths({ query: "a b" })).toHaveLength(28)
+    expect(await paths({})).toHaveLength(28)
+    expect((await tool(handler, "list-pages", { query: "x".repeat(201) })).isError).toBe(true)
+    expect((await tool(handler, "list-pages", { query: 1 })).isError).toBe(true)
+  })
+
+  it("lists 100 pages per call without a query and ranks every page for a query", async () => {
+    const pages = Array.from({ length: 1_150 }, (_, index) => ({ title: `Page ${index}`, path: `/docs/page-${index}`, url: `https://example.com/docs/page-${index}` }))
+    pages.push({ title: "Rate Limit", path: "/docs/rate-limit", url: "https://example.com/docs/rate-limit" })
+    const runtime = {
+      access: "public" as const,
+      seo: { mcp: true, site: "https://example.com" },
+      pages: async ({ offset = 0, limit = 1_000 }: { offset?: number, limit?: number } = {}) => pages.slice(offset, offset + limit),
+      page: async () => null,
+    }
+    const handler = defineContentMcpHandler(runtime)
+    const paths = async (args: Record<string, unknown>) => JSON.parse((await tool(handler, "list-pages", args)).content![0]!.text).map((page: { path: string }) => page.path)
+
+    expect(await paths({})).toEqual(pages.slice(0, 100).map(page => page.path))
+    expect(await paths({ offset: 1_100 })).toHaveLength(51)
+    expect(await paths({ query: "rate limit" })).toEqual(["/docs/rate-limit"])
+  })
+
   it("cuts a long page and answers 404 when mcp is off", async () => {
     const content = await site()
     await content.collection("posts").save("long", { data: { title: "Long" }, body: `${"word ".repeat(contentPageCharacters / 5)}\n` })

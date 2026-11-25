@@ -37,7 +37,16 @@ const tools = Object.fromEntries(Object.entries(import.meta.glob<McpToolDefiniti
 
 const upstreamTools = [
   { name: "get-page", inputSchema: { type: "object", properties: { path: { type: "string", description: "Page path from list-pages, such as /docs/getting-started" } }, required: ["path"] } },
-  { name: "list-pages", inputSchema: { type: "object", properties: {} } },
+  {
+    name: "list-pages",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", maxLength: 200, description: "Words to look for, such as \"rate limit\" or an error code. The best matches come first." },
+        offset: { type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER, description: "Pages to skip, for the pages after the first call. Defaults to 0." },
+      },
+    },
+  },
 ]
 
 let auth: McpOAuthAuth & { handler: (request: Request) => Promise<Response> }
@@ -189,6 +198,8 @@ describe("ViteHub MCP at /mcp", () => {
   it("forwards a docs tool call to vitehub.dev/mcp", async () => {
     const { body } = await rpc(publicServer, "/mcp", "tools/call", { arguments: { path: "/docs/kv" }, name: "get-page" })
     expect(body!.result).toEqual({ content: [{ text: "# get-page {\"path\":\"/docs/kv\"}", type: "text" }], isError: false })
+    const listed = await rpc(publicServer, "/mcp", "tools/call", { arguments: { query: "rate limit" }, name: "list-pages" })
+    expect(listed.body!.result).toEqual({ content: [{ text: "# list-pages {\"query\":\"rate limit\"}", type: "text" }], isError: false })
   })
 
   it("advertises OAuth metadata for /mcp/account only", async () => {
