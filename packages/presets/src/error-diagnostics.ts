@@ -269,6 +269,10 @@ export const presetsErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: "Repair paths must name files inside the assigned checkout.",
       fix: "Pass paths relative to the checkout root, such as src/index.ts, without .., .git, or a leading slash.",
     },
+    PRESETS_REPAIR_PR_REVERTED: {
+      why: ({ files }: { files: string }) => `The merge result undoes changes of this PR:\n${files}`,
+      fix: "Read what this PR changed in each listed file (git diff MERGE_HEAD...HEAD -- <file>) and put that change back on top of the base version. When the base already does what the change wanted, or deliberately replaces it, pass the file in commitRepair prOverrides with a one-sentence reason.",
+    },
     PRESETS_REPAIR_STAGED_CHANGES: {
       why: "Repair checkout contains unrelated staged changes.",
       fix: "Do not stage files with git add. Pass the files to commit in commitRepair paths; commitRepair stages them.",
