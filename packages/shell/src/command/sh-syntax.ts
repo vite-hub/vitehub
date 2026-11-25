@@ -4,7 +4,7 @@ import type { File, ShOptions } from "sh-syntax"
 
 import { shellErrorDiagnostics } from "../error-diagnostics.ts"
 
-type ShellParser = (text: string, options?: ShOptions) => Promise<File>
+export type ShellParser = (text: string, options?: ShOptions) => Promise<File>
 
 declare const WebAssembly: {
   Module: abstract new (...args: never[]) => object
@@ -15,11 +15,16 @@ declare const WebAssembly: {
 let parser: Promise<ShellParser> | undefined
 
 export async function parseShell(text: string, options?: ShOptions): Promise<File> {
+  return (await shellParser())(text, options)
+}
+
+/** Loads sh-syntax and its WebAssembly once. A failed load is tried again on the next call. */
+export function shellParser(): Promise<ShellParser> {
   parser ??= loadParser().catch((error: unknown) => {
     parser = undefined
     throw error
   })
-  return (await parser)(text, options)
+  return parser
 }
 
 async function loadParser(): Promise<ShellParser> {
