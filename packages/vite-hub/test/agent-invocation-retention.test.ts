@@ -10,12 +10,11 @@ import { createDefaultAgentInvocations } from "@vite-hub/agent/internal/default-
 import { installAgentInvocations, resolveDefaultAgentInvocations } from "@vite-hub/agent/invocations/app"
 import { agentInvocationsVitePlugin } from "../src/agent-invocations-vite.ts"
 import { readConsoleJournalUsage } from "../src/console/runtime/server/invocations.ts"
-import { usageQueryWindow } from "../src/console/runtime/server/usage.ts"
+import { usageQueryWindow } from "../src/agent/console/usage.ts"
 
 import type { AgentInvocations } from "@vite-hub/agent"
 import type { AgentInvocationStoreCreateInput, AgentRetentionPolicy } from "@vite-hub/agent/server"
 
-// The libSQL driver that the generated plugin passes outside a Cloudflare production build.
 const libsql = async () => await import("../src/internal/agent-invocations-libsql.ts")
 
 const day = 24 * 60 * 60 * 1000
@@ -41,7 +40,6 @@ let directory: string
 let url: string
 
 beforeAll(async () => {
-  // Keep cold module loading outside the journal's one-second store operation timeout.
   await Promise.all([import("@libsql/client"), import("@vite-hub/agent/invocations")])
 })
 
@@ -170,7 +168,6 @@ describe("Default Agent journal retention", () => {
     const result = await invocations.prune()
     expect([...result.ids].sort()).toEqual(["old", "recent"])
     expect(result.size).toMatchObject({ budgetBytes: 1 })
-    // Small records share pages, so deleting them can leave the live page count unchanged.
     expect(result.size!.afterBytes).toBeLessThanOrEqual(result.size!.beforeBytes)
     expect((await invocations.list()).invocations.map(record => record.id)).toEqual(["running"])
   })

@@ -157,6 +157,7 @@ describe("usage operation", () => {
           type: "run",
         }],
         status: "completed",
+        traceId: "trace:usage-run",
         updatedAt: timestamp,
       })
       await expect(operationRpcResponseResult(await call("invocations.usage"))).resolves.toMatchObject({ ok: true, value: { totals: { invocations: 1, totalTokens: 5 } } })
