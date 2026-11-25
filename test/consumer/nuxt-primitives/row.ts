@@ -1,3 +1,6 @@
+import { readFile, writeFile } from "node:fs/promises"
+import { join } from "node:path"
+
 export const modes = ["node-build", "node-dev", "cloudflare-build", "cloudflare-dev"] as const
 export type Mode = (typeof modes)[number]
 export type Target = "node" | "cloudflare"
@@ -14,6 +17,14 @@ export interface PrepareContext {
   appDir: string
   vitehub: (args: string[]) => Promise<void>
   wrangler: (args: string[]) => Promise<void>
+}
+
+export class ConfigSource {
+  constructor(readonly source: string, readonly imports: readonly string[]) {}
+}
+
+export function envDeclaration(source: string) {
+  return new ConfigSource(source, [`import { env } from "vite-hub/env"`])
 }
 
 export interface PrimitiveRow {
@@ -36,6 +47,14 @@ export type PrimitiveEntry = PrimitiveRow | PendingPrimitive
 
 export function pending(owner: string, ids: readonly string[]): PendingPrimitive[] {
   return ids.map(id => ({ id, pending: `pending, owned by ${owner}` }))
+}
+
+export async function setServerEnv({ appDir, mode }: Pick<PrepareContext, "appDir" | "mode">, values: Record<string, string>) {
+  Object.assign(process.env, values)
+  if (mode !== "cloudflare-build") return
+  const file = join(appDir, ".output/server/.dev.vars")
+  const current = await readFile(file, "utf8").catch(() => "")
+  await writeFile(file, `${current}${Object.entries(values).map(([name, value]) => `${name}=${JSON.stringify(value)}\n`).join("")}`)
 }
 
 export function isRow(entry: PrimitiveEntry): entry is PrimitiveRow {
