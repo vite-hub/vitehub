@@ -1312,6 +1312,74 @@ describe("the account item", () => {
     expect(document.querySelector("vitehub-account")).toBeNull()
   })
 
+  it("gives a signed-in member an exit menu that turns the tools off or signs out", async () => {
+    page("/?vitehub")
+    session({ tools: [comments], account: ada })
+    const { load, stopped } = modules()
+    await loadViteHubPageTools({ load })
+    const shadow = pill().element.shadowRoot!
+    const exit = shadow.querySelector<HTMLButtonElement>("button.exit")!
+    expect([exit.getAttribute("aria-label"), exit.getAttribute("aria-haspopup")]).toEqual(["Turn off tools or sign out", "menu"])
+    const menu = shadow.getElementById(exit.getAttribute("popovertarget")!)!
+    exit.click()
+    await settled()
+    expect(stopped).toEqual([])
+    expect(shown.has(menu)).toBe(true)
+    expect(shadow.activeElement?.textContent).toBe("Turn off ViteHub tools")
+    const items = [...menu.querySelectorAll<HTMLButtonElement>("[role=menuitem]")]
+    expect(items.map(item => item.textContent)).toEqual(["Turn off ViteHub tools", `Sign out of ${location.host}`])
+    pill().element.setAttribute("edge", "top")
+    await settled()
+    expect(shown.has(menu)).toBe(false)
+    exit.click()
+    items[0]!.click()
+    await exited()
+    expect(stopped).toEqual(["comments"])
+    expect(document.querySelector("vitehub-pill")).toBeNull()
+  })
+
+  it("checks for unsent work before signing out from the exit menu without turning off the tools", async () => {
+    page("/guide?vitehub&tab=2")
+    const fetch = session({ tools: [comments], account: ada })
+    let allowExit = false
+    await loadViteHubPageTools({ load: async () => ({ default(context: ViteHubPageToolContext) {
+      context.beforeExit(() => allowExit)
+    } }) })
+    const { element } = pill()
+    const shadow = element.shadowRoot!
+    const exit = shadow.querySelector<HTMLButtonElement>("button.exit")!
+    const signOut = shadow.querySelectorAll<HTMLButtonElement>("#exit-menu [role=menuitem]")[1]!
+    const replace = vi.fn()
+    vi.spyOn(window, "location", "get").mockReturnValue({ ...window.location, href: location.href, host: location.host, replace, reload: vi.fn() })
+    fetch.mockResolvedValue(Response.json({}))
+
+    exit.click()
+    signOut.click()
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(replace).not.toHaveBeenCalled()
+    expect(element.isConnected).toBe(true)
+
+    allowExit = true
+    signOut.click()
+    await vi.waitFor(() => expect(replace).toHaveBeenCalledOnce())
+    expect(fetch).toHaveBeenLastCalledWith(ada.signOut, { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: "{}" })
+    expect(String(replace.mock.calls[0]![0])).toBe("http://localhost:3000/guide?tab=2")
+    expect(localStorage.getItem("vitehub-tools-off")).toBeNull()
+    expect(element.isConnected).toBe(true)
+  })
+
+  it("keeps the exit button a one-click close for a guest, whose invite cannot sign them in again", async () => {
+    page("/?vitehub")
+    session({ tools: [comments], account: { name: "Ana", signOut: "/api/auth/sign-out", guest: true } })
+    const { load, stopped } = modules()
+    await loadViteHubPageTools({ load })
+    const { exit } = pill()
+    expect(exit.hasAttribute("popovertarget")).toBe(false)
+    exit.click()
+    await exited()
+    expect(stopped).toEqual(["comments"])
+  })
+
   it("shows the initials after the tools, as a menu button with the person's name, email, and how they signed in", async () => {
     page("/?vitehub")
     session({ tools: [comments, consoleTool], account: ada })

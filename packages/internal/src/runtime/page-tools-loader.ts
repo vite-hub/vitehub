@@ -1,6 +1,6 @@
 import { appearEffect, createSpring, installMotion, pressEffect, springs, writeMotionStyle } from "@vite-hub/ui/motion/core"
 
-import { mountViteHubPageAccount } from "./page-account.ts"
+import { mountViteHubPageAccount, viteHubPageExitMenu } from "./page-account.ts"
 import { invariant } from "../invariant.ts"
 import { closeViteHubPagePill, dragViteHubPageDock, mountViteHubPagePill, storedViteHubPageDock, viteHubPageHexagonSize, viteHubPagePillStyles, viteHubPageSvgIcon, viteHubPillMotion } from "./page-pill.ts"
 import { createViteHubPageWindow, dockViteHubPageWindows } from "./page-tools-window.ts"
@@ -414,9 +414,10 @@ async function startViteHubPageTools(options: LoadViteHubPageToolsOptions, turne
   }, { once: true, signal: pillController.signal })
   const exitChecks = new Set<() => boolean>()
   let closing = false
+  const canExit = () => !closing && [...exitChecks].every(check => check())
   // `keyboard`: the exit button was pressed with a key, so the small mark takes the focus that the button had.
   const exit = (keyboard = false) => {
-    if (closing || [...exitChecks].some(check => !check())) return
+    if (!canExit()) return
     closing = true
     const opened = session.tools.filter(tool => restored(tool.id))
     for (const tool of session.tools) remember(tool.id, false)
@@ -439,6 +440,7 @@ async function startViteHubPageTools(options: LoadViteHubPageToolsOptions, turne
       }, keyboard, folded && !matchMedia("(prefers-reduced-motion: reduce)").matches ? folded : undefined)
     })
   }
+  const account = session.account
   const pill = mountViteHubPagePill({
     name: controls.name,
     label: controls.label,
@@ -447,7 +449,11 @@ async function startViteHubPageTools(options: LoadViteHubPageToolsOptions, turne
     slots: [...session.tools.map(tool => tool.id), ...session.account ? [accountSlot] : []],
     storage: { collapsed: controls.collapsed, dock: controls.dock },
     ...(controls.initialDock ? { initial: { dock: controls.initialDock } } : {}),
-    exit: { label: `Turn off ${controls.label}`, press: exit },
+    exit: {
+      label: `Turn off ${controls.label}`,
+      press: exit,
+      ...(account && !account.guest ? { menu: (button: HTMLButtonElement) => viteHubPageExitMenu({ account, button, turnOff: { label: `Turn off ${controls.label}`, press: exit }, canExit, signal: pillController.signal }) } : {}),
+    },
     onPlace: dockViteHubPageWindows,
     ...(controls === defaultPill ? { markOnly: { active: pageAsksForMark, watch: watchPageAsk, opened: turnedOn } } : {}),
     signal: pillController.signal,
