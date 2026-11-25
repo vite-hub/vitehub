@@ -116,7 +116,7 @@ describe("database operations", () => {
 
 describe("usage operation", () => {
   it("reads the Usage section, and is `vitehub agent usage`", () => {
-    const usage = consoleOperations.find(operation => operation.name === "usage.get")
+    const usage = consoleOperations.find(operation => operation.name === "invocations.usage")
     expect(usage).toMatchObject({ kind: "read", section: "usage" })
     expect(usage && operationCliPath(usage)).toEqual({ command: "usage", namespace: "agent" })
     expect((usage?.cli || undefined)?.default).toBeUndefined()

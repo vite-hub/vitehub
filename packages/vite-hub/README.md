@@ -13,15 +13,15 @@ Use it for a Vite or Nuxt application that needs Server Primitives, Agents, or b
 
 ## Agent skill
 
-The package ships the `vitehub` agent skill at `node_modules/vite-hub/dist/skills/vitehub/`, written for the installed version. It lists the built-ins that apps often write by hand, such as migrations, SQLite backups, proxy sign-in, and deploys.
+The package ships the `vitehub` agent skill at `node_modules/vite-hub/dist/console-skills/vitehub/`, written for the installed version. It lists the built-ins that apps often write by hand, such as migrations, SQLite backups, proxy sign-in, and deploys.
 
 Coding agents don't load skills from `node_modules`. Install it into the project once, and again after `vitehub update`:
 
 ```sh
-npx skills add ./node_modules/vite-hub/dist/skills/vitehub --agent claude-code codex
+npx skills add ./node_modules/vite-hub/dist/console-skills/vitehub --agent claude-code codex
 ```
 
-The CLI copies it to `.agents/skills/vitehub/`, where Codex loads it, and links it from `.claude/skills/vitehub/` for Claude Code. For a single task without installing it, tell the agent to read `node_modules/vite-hub/dist/skills/vitehub/SKILL.md` first.
+The CLI copies it to `.agents/skills/vitehub/`, where Codex loads it, and links it from `.claude/skills/vitehub/` for Claude Code. For a single task without installing it, tell the agent to read `node_modules/vite-hub/dist/console-skills/vitehub/SKILL.md` first.
 
 ## Install
 
@@ -58,7 +58,6 @@ pnpm add vite-hub
 | `server/comments.ts` | `@vite-hub/comments` |
 | `.template.md` imports | `@vite-hub/markdown-template` |
 | Console with Agents | `@libsql/client drizzle-orm@1.0.0-rc.5` |
-| Console MCP client (`console.mcpClient`) | `@modelcontextprotocol/sdk` |
 | `vite-hub/choices` | `@vite-hub/choices` |
 | `vite-hub/device` | `@vite-hub/device` |
 | `vite-hub/forge` | `@vite-hub/forge` |
@@ -330,13 +329,15 @@ The Console **Skills** page shows the bundled files of each discovered Agent Def
 
 The Console **Usage** page provides session history with date, Agent, status, and search filters. Open a row to inspect that session in the existing Agents view. History keeps completed, failed, and cancelled Agent Invocations visible even when token or cost evidence is unavailable. Totals use the same filters as the history table. See [Session history and usage](https://vitehub.dev/docs/console/agents#skills-and-usage) for the identity, coverage, and pagination contract.
 
-Apps do not serve a Console page, a Console MCP, or a Console sign-in. They serve one Console route, `POST /_vitehub/rpc`, which the ViteHub Console at console.vitehub.dev and the CLI call with signed requests. `console: true` takes only requests signed with an Ed25519 key whose public key is in a `VITEHUB_CONSOLE_KEY_<NAME>` runtime env var. A dev server without such a var also answers this machine without a signature, so the local `vitehub` CLI works. `console: { auth: false }` takes calls without a signature from this machine, for development; a production build with it fails with `VITE_HUB_B0022`, even with `authorize` set. `console.auth: "token"`, `console.auth: "app"`, `console.auth: { ... }` (Console Auth), `console.origins`, `console.mcp`, `console.signInPage`, and `console.embed` are removed, and fail the build with `VITE_HUB_B0020` and the fix. See [Move from auth: "app" or Console Auth](https://vitehub.dev/docs/console/migrate#move-from-auth-app-or-console-auth).
+Apps do not serve the Console UI or its MCP server. The lazy `/_vitehub` routes open the Comments pill when it is enabled, or redirect to the configured Console otherwise. Apps with the pill also serve Site access at `/_vitehub/site`. At startup, the app registers a loader for Agent operations without loading the Console runtime. The runtime loads on the first Console request or when another feature first needs it.
+
+The hosted Console and the CLI send signed requests to `POST /_vitehub/rpc`. `console: true` takes only requests signed with an Ed25519 key whose public key is in a `VITEHUB_CONSOLE_KEY_<NAME>` runtime env var. A dev server without such a var also answers this machine without a signature, so the local `vitehub` CLI works. `console: { auth: false }` takes calls without a signature from this machine, for development; a production build with it fails with `VITE_HUB_B0022`, even with `authorize` set. `console.auth: "token"`, `console.auth: "app"`, `console.auth: { ... }` (Console Auth), `console.origins`, `console.mcp`, `console.signInPage`, and `console.embed` are removed, and fail the build with `VITE_HUB_B0020` and the fix. See [Move from auth: "app" or Console Auth](https://vitehub.dev/docs/console/migrate#move-from-auth-app-or-console-auth).
 
 Without a `console` option, `vite dev` serves the operation RPC, so `vitehub <command>` works. `console: false` turns the Console endpoint off completely: no `/_vitehub` route in development or production.
 
 Add `authorize: "./server/console-authorize.ts"` to decide who may use the Console. The file default-exports `defineConsoleAuthorize()` from `vite-hub/console/auth`. It receives the `Request` and the signer and its `key` name: `via: "console"` with the `user` and `team` that the Console signed, or `via: "cli"` with no `user`. When the ViteHub MCP of the Console calls for the user, `surface` is `"mcp"`: the RPC then refuses operations with `mcp: false`, runs the others with the `mcp` surface, and refuses a destructive call that the person did not confirm. A caller with `readOnly: true` runs only operations that read. The app ignores caller fields that it does not know, so a newer Console can still call it. An Agent that calls Console operations as tools receives `via: "agent"`, never a signed `via`. With `auth: false`, it receives only the `Request`. It returns `true`, `false`, a `Response`, or `{ sections: ["content"] }` to allow only some Console sections. Every Console operation declares its section, and the server returns `403` outside the allowed sections. The navigation hides the other sections.
 
-Set `console.mcpClient: true` to add the MCP client section. It runs on the server. It connects to the app's own `/mcp` and to other MCP servers with OAuth or a bearer token, as the Console caller, and it can hold several accounts of one server at once. Tokens and MCP sessions stay on the server and never reach the browser: in memory, or sealed in the app's KV store with `VITEHUB_CONSOLE_MCP_KEY`. See [Connect to MCP servers](https://vitehub.dev/docs/console/mcp-client).
+Set `console.url` to the origin of a self-hosted Console, such as `https://console.example.com`. `/_vitehub`, `hostedConsoleUrl()`, the Site access sign-in, and the Console segment of the Comments pill then go there. It defaults to `https://console.vitehub.dev`. The build refuses a value that is not an `https://` origin without a path, or `http://localhost`. The MCP client section runs on the Console server, so the app needs nothing for it. See [Connect to MCP servers](https://vitehub.dev/docs/console/mcp-client).
 
 `invoke` defaults to `true` on the development server and `false` in a production build. Invocation also enables the Schedules page **Run now** button and the `schedule.run` operation (`vitehub schedule run <name>`) for Static Schedule Definitions that set `manual: true`; see [Run Schedules on demand](https://vitehub.dev/docs/cli/primitives#run-a-schedule-on-demand).
 

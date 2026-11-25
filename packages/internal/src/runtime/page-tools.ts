@@ -29,8 +29,7 @@ export interface ViteHubPageTool extends ViteHubPageToolInfo {
   allowed(visitor: ViteHubPageToolVisitor): Promise<boolean | "lazy">
   /**
    * The roles that give a permission of this tool, such as `comments-write`. Site access in the Console offers them when
-   * someone invites a guest, and adds them to the guest's `role` of Better Auth's `admin()` plugin, or to the roles of
-   * the Site access cookie in an app without Auth. The tool checks the roles itself.
+   * someone invites a guest, and signs them into the roles of the Site access token. The tool checks the roles itself.
    */
   grants?: readonly ViteHubPageGrant[]
 }
@@ -121,14 +120,20 @@ export async function viteHubPageToolAllows(request: Request, id: string): Promi
   }
 }
 
-/** The grants that the registered page tools declare, in registration order. */
-export function viteHubPageGrants(): ViteHubPageGrant[] {
+/** The grants of the request's current tools, or the process grant catalog when called without a request. */
+export function viteHubPageGrants(request?: Request): ViteHubPageGrant[] {
+  if (request) {
+    const app = state().apps.get(request)
+    if (!app) return []
+    return [...state().tools.get(app)?.values() ?? []].flatMap(tool => tool.grants ?? [])
+  }
   return [...state().grants?.values() ?? []]
 }
 
 /**
- * A person that Site access in the Console signed in to an app without ViteHub Auth: a Console member, or a guest, with
- * their roles, such as `console` and `comments-write`. The Console seals them in the `vitehub_site` cookie.
+ * A person that Site access in the ViteHub Console signed in to the app: a Console member, or a guest, with their roles,
+ * such as `console` and `comments-write`. The Console signs them in a Site access token, which the app keeps in its
+ * site cookie.
  */
 export interface ViteHubSiteVisitor {
   id: string
@@ -136,14 +141,16 @@ export interface ViteHubSiteVisitor {
   email?: string
   image?: string
   roles: string[]
+  /** `member` for a member of the Console team, who has the `console` role. `guest` for an invited guest. */
+  kind: "member" | "guest"
 }
 
-/** Reads the Site access person of a request. It returns undefined without a valid, unrevoked cookie. */
+/** Reads the Site access person of a request. It returns undefined without a valid cookie of this app. */
 export type ViteHubSiteVisitorReader = (request: Request) => Promise<ViteHubSiteVisitor | undefined>
 
 /**
- * Installs the reader of the Site access cookie. The Console installs it when the server starts in an app without Auth,
- * so page tools, such as Comments, know the person without depending on the Console.
+ * Installs the reader of the Site access cookie. The Console installs it when the server starts, so page tools, such as
+ * Comments, know the person without depending on the Console.
  */
 export function installViteHubSiteVisitor(reader: ViteHubSiteVisitorReader): void {
   state().siteVisitor = reader

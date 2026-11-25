@@ -7,7 +7,6 @@ import { promisify } from "node:util"
 
 import { afterEach, expect, it, vi } from "vitest"
 
-import { addConsolePageToolRoutes } from "../src/console/nitro.ts"
 import { doctorTestTimeout } from "./doctor-helpers.ts"
 
 vi.setConfig({ testTimeout: doctorTestTimeout })
@@ -30,13 +29,7 @@ async function middlewareSecurityReport(manifestKey: "serverHandlers" | "resolve
   write(root, "package.json", JSON.stringify({ type: "module", dependencies: { "nuxt": "^5.0.0", "vite-hub": "*", "vue": "^3.5.0" } }))
   write(root, "nuxt.config.ts", "export default defineNuxtConfig({})\n")
   write(root, "app/middleware/auth.global.ts", "export default defineNuxtRouteMiddleware((to) => {\n  const session = useCookie(\"session\")\n  if (!session.value && to.path !== \"/login\") return navigateTo(\"/login\")\n})\n")
-  const nitro: { handlers?: Array<{ handler: string, route?: string }>, publicAssets?: [] } = {}
-  addConsolePageToolRoutes(nitro, join(root, "node_modules/vite-hub/dist/console/runtime"))
-  const console = nitro.handlers ?? []
-  const routes = [
-    ...console.map(({ handler, route }) => ({ file: handler, route })),
-    { file: join(root, commentsRouteFile), route: console[0]?.route },
-  ]
+  const routes = [{ file: join(root, commentsRouteFile), route: "/_vitehub/page/tools" }]
   for (const { file } of routes) write(root, file.slice(root.length + 1), "export { viteHubPageSessionHandler as default } from \"@vite-hub/comments/runtime\"\n")
   for (const handler of extra) write(root, handler.file, handler.text)
   const handlers = [...routes, ...extra.map(({ file, route }) => ({ file: join(root, file), route }))]
@@ -65,7 +58,7 @@ async function middlewareSecurityReport(manifestKey: "serverHandlers" | "resolve
   return report.diagnostics.map(diagnostic => diagnostic.location?.path)
 }
 
-it.each(["serverHandlers", "resolvedServerHandlers"] as const)("lets Vite Doctor pass the page tools routes of the Console and Comments, from %s", async (manifestKey) => {
+it.each(["serverHandlers", "resolvedServerHandlers"] as const)("lets Vite Doctor pass the page tools route of Comments, from %s", async (manifestKey) => {
   const unguarded = { route: "/api/admin/users", file: "server/api/admin/users.get.ts", text: "export default defineEventHandler(() => [])\n" }
   expect(await middlewareSecurityReport(manifestKey, [unguarded])).toEqual(["server/api/admin/users.get.ts"])
 })

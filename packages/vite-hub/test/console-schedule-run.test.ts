@@ -14,7 +14,7 @@ import { installProcessScheduleRuntime } from "@vite-hub/schedule/runtime/proces
 
 import { consoleSchedulesKey, consoleStateKey } from "../src/console/internal.ts"
 import { discoverConsoleBuildCatalog } from "../src/console/build.ts"
-import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
+import { writeConsoleAppModule } from "../src/console/app-module.ts"
 import { vitehub } from "../src/index.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { listConsoleDefinitions } from "../src/console/runtime/server/definitions.get.ts"
@@ -78,9 +78,9 @@ describe("Console Schedule runs", () => {
     const handler = join(root, "server/schedules/sync.ts")
     const catalog = { agents: [], content: { schedules: { definitions: [scheduleSummary("sync")], kind: "definition-catalog" as const } }, manualSchedules: [{ handler, name: "sync" }] }
 
-    await writeConsoleNitroPlugin({ file: plugin, projectRoot: root, sections: ["schedules"], catalog, blobStores: [], invoke: true })
+    await writeConsoleAppModule({ file: plugin, projectRoot: root, sections: ["schedules"], catalog, blobStores: [], invoke: true })
     const invokeEnabled = await readFile(plugin, "utf8")
-    await writeConsoleNitroPlugin({ file: plugin, projectRoot: root, sections: ["schedules"], catalog, blobStores: [] })
+    await writeConsoleAppModule({ file: plugin, projectRoot: root, sections: ["schedules"], catalog, blobStores: [] })
     const invokeDisabled = await readFile(plugin, "utf8")
 
     expect(invokeEnabled).toContain(`{ installConsoleDefinitions, installConsoleSchedules }`)
@@ -96,7 +96,7 @@ describe("Console Schedule runs", () => {
     const handler = join(root, "server/schedules/__proto__.ts")
     const catalog = { agents: [], content: { schedules: { definitions: [scheduleSummary("__proto__")], kind: "definition-catalog" as const } }, manualSchedules: [{ handler, name: "__proto__" }] }
 
-    await writeConsoleNitroPlugin({ file: plugin, projectRoot: root, sections: ["schedules"], catalog, blobStores: [], invoke: true })
+    await writeConsoleAppModule({ file: plugin, projectRoot: root, sections: ["schedules"], catalog, blobStores: [], invoke: true })
 
     expect(await readFile(plugin, "utf8")).toContain(`{ ["__proto__"]: () => import(${JSON.stringify(pathToFileURL(handler).href)}) }`)
   })
@@ -115,7 +115,7 @@ describe("Console Schedule runs", () => {
     await Reflect.apply(config, {}, [{ root }, { command: "serve", mode: "development" }])
 
     const handler = pathToFileURL(join(root, "server/schedules/daily-report.ts")).href
-    expect(await readFile(join(root, ".vitehub/nitro/console/plugin-dev.mjs"), "utf8")).toContain(`installConsoleSchedules(${JSON.stringify(root)}, { ["daily-report"]: () => import(${JSON.stringify(handler)}) })`)
+    expect(await readFile(join(root, ".vitehub/nitro/console/app-dev.mjs"), "utf8")).toContain(`installConsoleSchedules(${JSON.stringify(root)}, { ["daily-report"]: () => import(${JSON.stringify(handler)}) })`)
   })
 
   it("discovers manual Static Schedule Definitions for the Console", async () => {
@@ -135,7 +135,7 @@ describe("Console Schedule runs", () => {
     await mkdir(join(root, "server/schedules"), { recursive: true })
     await writeFile(join(root, "server/schedules/brief.ts"), "import { defineSchedule } from 'vite-hub/schedule'\nconst COPENHAGEN = 'Europe/Copenhagen'\nexport default defineSchedule({ cron: '0 14 * * 1', timeZone: COPENHAGEN, handler() {} })\n")
     const catalog = await discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot: root, sections: ["schedules"] })
-    await writeConsoleNitroPlugin({ file: plugin, projectRoot: root, sections: ["schedules"], catalog, blobStores: [] })
+    await writeConsoleAppModule({ file: plugin, projectRoot: root, sections: ["schedules"], catalog, blobStores: [] })
     const generated = await readFile(plugin, "utf8")
     expect(generated).toContain(`{ readScheduleConsoleRecords: vitehubConsoleRuntimeReader0 }`)
     expect(generated).toMatch(/import\("[^"]*[\\/]schedule[\\/](?:src|dist)[\\/]runtime[\\/]console\.(?:ts|js)"\)/)

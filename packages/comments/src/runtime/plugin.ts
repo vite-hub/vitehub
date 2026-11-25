@@ -1,4 +1,4 @@
-import { installViteHubPageTools, registerViteHubPageTool } from "@vite-hub/internal/runtime/page-tools"
+import { installViteHubPageTools, installViteHubSiteVisitor, registerViteHubPageTool } from "@vite-hub/internal/runtime/page-tools"
 import { registerViteHubUserData } from "@vite-hub/internal/runtime/user-data"
 import { installRequestStandardContext } from "@vite-hub/runtime/internal/h3"
 import { configuredPublicOrigins } from "@vite-hub/runtime/internal/public-url"
@@ -11,6 +11,7 @@ import { commentsTableNames } from "../table-names.ts"
 import { resolveCommentsIdentity, resolveCommentsPage } from "./session.ts"
 
 import type { Comments } from "../index.ts"
+import type { ViteHubSiteVisitorReader } from "@vite-hub/internal/runtime/page-tools"
 import type { InstallCommentsOptions } from "../install.ts"
 import type { CommentsRuntime } from "../operations-core/service.ts"
 import type { CommentsDatabase } from "../operations-core/store.ts"
@@ -19,6 +20,7 @@ import type { CommentsGitHubLogin } from "./github-login.ts"
 import type { CommentsSessionOptions } from "./session.ts"
 
 export interface CommentsPluginOptions extends CommentsSessionOptions {
+  siteVisitor?: ViteHubSiteVisitorReader
   comments: Comments
   /** Offers GitHub sign-in or account switching through the overlay, even before read access is granted. */
   githubLogin?: CommentsGitHubLogin
@@ -48,6 +50,8 @@ export interface CommentsPluginOptions extends CommentsSessionOptions {
   dialect?: InstallCommentsOptions["dialect"]
   /** Loads `@vite-hub/webhooks`, when `defineComments({ send })` is on. */
   webhooks?: InstallCommentsOptions["webhooks"]
+  /** Install more segments of the pill, such as the **Console** segment of `vite-hub`. Only with the overlay on. */
+  pillSegments?: ReadonlyArray<(nitroApp: unknown, context: { base?: string, development: boolean }) => void>
 }
 
 const runtimeKey = Symbol.for("vitehub.comments.installed")
@@ -105,6 +109,7 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
       },
     })
 
+    if (options.siteVisitor) installViteHubSiteVisitor(options.siteVisitor)
     // `overlay: false` leaves the page tool out; the API, the operations, and the Console stay.
     if (options.overlay === false) return
     const script = options.overlay
@@ -131,6 +136,7 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
         return !options.comments.options.identify && options.githubLogin?.configured() && (!user || user.github) ? "lazy" : false
       },
     })
+    for (const install of options.pillSegments ?? []) install(nitroApp, { base: options.base, development: options.development === true })
     // A build shows the overlay only on the origins of `vitehub({ publicUrl })`. A development server shows it on every origin.
     installViteHubPageTools(nitroApp, { base: options.base, origins: options.development === true ? [] : configuredPublicOrigins() })
   }

@@ -20,5 +20,5 @@ Notes:
   - The standalone Nitro module (nuxt-safe-runtime-config/nitro) is out of scope for this codemod.
 
 Next steps:
-  - Run `pnpm install` to install vite-hub and @vite-hub/env and remove nuxt-safe-runtime-config.
+  - Run `pnpm install` to install vite-hub and remove nuxt-safe-runtime-config.
   - Run `npx nuxi prepare` to generate the Env types, then type-check the app.

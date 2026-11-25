@@ -151,7 +151,8 @@ GitHub request results re-enter the current head's normal merge gates. An enqueu
 | `{ strategy: "direct", method, ready, trustedAuthors, markDraftsReady, bypassInheritedChecks, foldStacks }` | Direct merge with `"squash"`, `"merge"`, or `"rebase"`, an optional `ready` hook, optional trusted authors, optional draft authors, optional required checks to merge past when they only repeat the base's failure, and stack folding (default `true`). |
 
 A direct merge needs passing required checks, completed and successful
-current-head checks and statuses, loaded and resolved review threads, a
+current-head checks and statuses (a head without any check waits up to one
+minute for its first one when the branch requires none), loaded and resolved review threads, a
 non-draft PR, and GitHub's live `mergeable_state: "clean"` on the default
 branch. The merge request pins the head SHA, so a concurrent push makes GitHub
 reject it. `ready({ repository, number, head, snapshot, requiredChecks })` can

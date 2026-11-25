@@ -507,6 +507,11 @@
       "import": "./dist/env/server.js",
       "default": "./dist/env/server.js"
     },
+    "./env/vite": {
+      "types": "./dist/env/vite.d.ts",
+      "import": "./dist/env/vite.js",
+      "default": "./dist/env/vite.js"
+    },
     "./forge": {
       "types": "./dist/forge.d.ts",
       "import": "./dist/forge.js",
@@ -948,11 +953,6 @@
       "default": "./dist/workspace/server.js"
     },
     "./package.json": "./package.json",
-    "./console/mcp-client": {
-      "types": "./dist/console/runtime/server/mcp-client-operations.d.ts",
-      "import": "./dist/console/runtime/server/mcp-client-operations.js",
-      "default": "./dist/console/runtime/server/mcp-client-operations.js"
-    },
     "./page/pill.js": {
       "default": "./dist/page/pill.iife.js"
     },

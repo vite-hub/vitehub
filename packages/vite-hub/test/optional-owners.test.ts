@@ -51,8 +51,7 @@ it.each([
   expect(missingFeaturePackagesError([feature]).message).toContain(`The ${feature} feature needs ${packageName}.`)
 })
 
-it("names the packages of the Console MCP client and of the Console components", () => {
-  expect(missingFeaturePackagesError(["console mcp-client"]).message).toContain("The console mcp-client feature needs @modelcontextprotocol/sdk.")
+it("names the packages of the Console components", () => {
   expect(missingFeaturePackagesError(["console ui"]).message).toContain("The console ui feature needs @vite-hub/ui, @json-render/core, @json-render/vue, @vueuse/core.")
 })
 
@@ -284,12 +283,12 @@ describe("assertFeaturePackages version check", () => {
   })
 
   it("warns for a package whose exported package.json is a nested file", async () => {
-    const { assertFeaturePackages } = await withViteHubManifest(() => JSON.stringify({ peerDependencies: { "@modelcontextprotocol/sdk": "^99.0.0" }, version: "9.9.9" }))
+    const { assertFeaturePackages } = await withViteHubManifest(() => JSON.stringify({ peerDependencies: { "@json-render/core": "^99.0.0" }, version: "9.9.9" }))
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     try {
-      assertFeaturePackages(["console mcp-client"])
+      assertFeaturePackages(["console ui"])
       expect(warn).toHaveBeenCalledOnce()
-      expect(String(warn.mock.calls[0]![0])).toContain(`@modelcontextprotocol/sdk ${installedPackageVersion("@modelcontextprotocol/sdk")} is installed, but vite-hub 9.9.9 supports @modelcontextprotocol/sdk@^99.0.0.`)
+      expect(String(warn.mock.calls[0]![0])).toContain(`@json-render/core ${installedPackageVersion("@json-render/core")} is installed, but vite-hub 9.9.9 supports @json-render/core@^99.0.0.`)
     }
     finally {
       warn.mockRestore()

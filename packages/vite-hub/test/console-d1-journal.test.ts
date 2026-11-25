@@ -9,17 +9,12 @@ import { createDefaultAgentInvocations } from "@vite-hub/agent/internal/default-
 import { installAgentInvocations } from "@vite-hub/agent/invocations/app"
 import { getAgentInvocationsDatabase } from "@vite-hub/agent/invocations/drizzle"
 import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
-import { getConsoleInvocations, getConsoleUsageIndex, installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
-
-import { readConsoleUsage as usageHandlerRoute } from "../src/console/runtime/server/usage.get.ts"
+import { getConsoleInvocations, installConsoleInvocations, readConsoleJournalUsage } from "../src/console/runtime/server/invocations.ts"
+import { usageQueryWindow } from "../src/console/runtime/server/usage.ts"
 
 import type { AgentInvocationD1Database, AgentInvocationD1Statement } from "@vite-hub/agent/invocations"
 import type { DefaultAgentInvocationsD1 } from "@vite-hub/agent/internal/default-invocations"
 import type { AgentRetentionPolicy } from "@vite-hub/agent/server"
-import { allowed } from "./support/console-access.ts"
-import { consoleEvent } from "./console-event.ts"
-
-const usageHandler = allowed(usageHandlerRoute)
 
 /** Installs the default Agent journal in D1, as a Cloudflare production build does, and lets the Console read it. */
 function installD1Journal(projectRoot: string, d1: DefaultAgentInvocationsD1, retention?: AgentRetentionPolicy) {
@@ -160,7 +155,7 @@ describe("Default Agent D1 journal read by the Console", () => {
   })
 
   it(
-    "projects D1 usage in bounded pages without fetching transcripts and tracks writes and binding changes",
+    "adds up D1 usage without fetching transcripts and tracks writes and binding changes",
     { timeout: 30_000 },
     async () => {
       const usageDatabase = await miniflare.getD1Database("USAGE")
@@ -170,8 +165,11 @@ describe("Default Agent D1 journal read by the Console", () => {
         env: () => ({ DB: active }),
       })
       await invocations.list()
-      const index = getConsoleUsageIndex(invocations)
-      if (!index) throw new Error("Expected a D1 usage index.")
+      const usage = async (query: { now: string }) => {
+        const summary = await readConsoleJournalUsage(invocations, query, usageQueryWindow(query))
+        if (!summary) throw new Error("Expected the D1 journal to add up its usage.")
+        return summary
+      }
       const get = vi
         .spyOn(invocations, "get")
         .mockRejectedValue(new Error("Usage must not load transcripts."))
@@ -215,15 +213,9 @@ describe("Default Agent D1 journal read by the Console", () => {
             )
         }),
       )
-      expect(await index.query({ now })).toMatchObject({
-        projection: { complete: false, pending: 1 },
-        partial: true,
-        totals: { invocations: 250, costUsd: "25" },
-        sessions: expect.any(Array),
-      })
-      const complete = await index.query({ now })
+      const complete = await usage({ now })
       expect(complete).toMatchObject({
-        projection: { complete: true, pending: 0 },
+        partial: false,
         totals: { invocations: 251, costUsd: "25.1", totalTokens: 1255 },
       })
       expect(complete.sessions).toHaveLength(50)
@@ -232,106 +224,27 @@ describe("Default Agent D1 journal read by the Console", () => {
         .prepare("UPDATE vitehub_agent_invocations SET record = ?, updated_at = ? WHERE id = ?")
         .bind(JSON.stringify(record("usage-0", "0.2")), now, "usage-0")
         .all()
-      expect(await index.query({ now })).toMatchObject({
+      expect(await usage({ now })).toMatchObject({
         totals: { invocations: 251, costUsd: "25.2" },
       })
       await active
         .prepare("DELETE FROM vitehub_agent_invocations WHERE id = ?")
         .bind("usage-0")
         .all()
-      expect(await index.query({ now })).toMatchObject({
+      expect(await usage({ now })).toMatchObject({
         totals: { invocations: 250, costUsd: "25" },
       })
       active = await miniflare.getD1Database("USAGE_OTHER")
-      expect(await index.query({ now })).toMatchObject({
-        projection: { complete: true, pending: 0 },
+      expect(await usage({ now })).toMatchObject({
         totals: { invocations: 0 },
       })
       active = usageDatabase
-      expect(await index.query({ now })).toMatchObject({
+      expect(await usage({ now })).toMatchObject({
         totals: { invocations: 250, costUsd: "25" },
       })
       expect(get).not.toHaveBeenCalled()
     },
   )
-
-  it("does not share pending D1 usage reads across requests", async () => {
-    let release: (() => void) | undefined
-    const ready = new Promise<void>(resolve => { release = resolve })
-    const env = vi.fn(async () => {
-      await ready
-      return { DB: database }
-    })
-    installD1Journal("/console-d1-usage-cache", { binding: "DB", env })
-    const request = () => usageHandler(consoleEvent({ url: "http://localhost/_vitehub/api/usage" }))
-    const requests = [request(), request()]
-    try {
-      await vi.waitFor(() => expect(env).toHaveBeenCalledTimes(2))
-    } finally {
-      release?.()
-      await Promise.all(requests)
-    }
-    const calls = env.mock.calls.length
-    await request()
-    expect(env).toHaveBeenCalledTimes(calls)
-  })
-
-  it.each(["update", "delete"])("keeps newer cached D1 usage when an older response finishes after an %s", { timeout: 30_000 }, async (change) => {
-    installD1Journal(`/console-d1-usage-order-${change}`, {
-      binding: "DB", env: () => ({ DB: database }),
-    })
-    const invocations = getConsoleInvocations()
-    const index = getConsoleUsageIndex(invocations)
-    if (!index) throw new Error("Expected a D1 usage index.")
-    const journalDatabase = await getAgentInvocationsDatabase()
-    if (journalDatabase?.driver !== "d1") throw new Error("Expected the D1 journal database.")
-    const { db, schema } = journalDatabase
-    const now = new Date().toISOString()
-    const observation = (totalTokens: number) => ({
-      name: "agent.invocation.finish", type: "lifecycle" as const, sequence: 1, timestamp: now,
-      attributes: { "usage.record": { usage: { totalTokens } } },
-    })
-    const record = {
-      id: `usage-order-${change}`, agentName: `usage-order-${change}`, traceId: `usage-order-${change}`,
-      status: "completed" as const, createdAt: now, updatedAt: now, completedAt: now,
-      observations: [observation(5)],
-    }
-    await db.insert(schema.invocations).values({ id: record.id, status: record.status, agentName: record.agentName, search: "", summary: record, updatedAt: now, record }).run()
-    const request = () => usageHandler(consoleEvent({ url: `http://localhost/_vitehub/api/usage?agent=${record.agentName}` }))
-    let release: (() => void) | undefined
-    const ready = new Promise<void>(resolve => { release = resolve })
-    const query = index.query.bind(index)
-    const spy = vi.spyOn(index, "query")
-    let capture: (() => void) | undefined
-    const captured = new Promise<void>(resolve => { capture = resolve })
-    spy.mockImplementationOnce(async options => {
-      const result = await query(options)
-      capture?.()
-      await ready
-      return result
-    })
-    const older = request()
-    try {
-      await captured
-      if (change === "delete") {
-        await db.delete(schema.invocations).where(eq(schema.invocations.id, record.id)).run()
-      } else {
-        const updated = { ...record, observations: [observation(9)] }
-        await db.update(schema.invocations).set({ record: updated, updatedAt: new Date().toISOString() }).where(eq(schema.invocations.id, record.id)).run()
-      }
-      const newer = await request()
-      expect(newer).toMatchObject({ totals: { invocations: change === "delete" ? 0 : 1, totalTokens: change === "delete" ? 0 : 9 } })
-      release?.()
-      expect(await older).toMatchObject({ totals: { invocations: 1, totalTokens: 5 } })
-      expect(await request()).toEqual(newer)
-      expect(spy).toHaveBeenCalledTimes(2)
-    } finally {
-      release?.()
-      await older
-      spy.mockRestore()
-      await db.delete(schema.invocations).where(eq(schema.invocations.id, record.id)).run()
-    }
-  })
 
   it("reports a missing D1 binding", async () => {
     const invocations = createD1Journal({ binding: "JOURNAL", env: () => ({}) })

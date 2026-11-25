@@ -38,7 +38,7 @@ The command exits with `0` when every codemod completes, also when they report f
 vitehub migrate [dir] [--dry-run]
 ```
 
-`vitehub migrate` runs the upgrade codemods, the ones that move an app from an older ViteHub API, in this order: `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, `channels`, `auth-accessors`, `workspace-repo`, `kv-list-prefix`, `cli-url-flag`, `cli-yes-flag`, `cms-roles`, `choices-package`, `cli-get-list`, `cli-agent-tree`, and `nuxt-server-imports`. Each one sees the edits of the ones before it, and the report is the same as above. Install `@vite-hub/codemods` as a development dependency first. The codemods that move an app from another module, such as `nuxthub`, do not run. The report ends with a reminder to run Vite Doctor: rule `VHUB0003` finds Result calls, such as `await email.send(...)`, whose error the code drops.
+`vitehub migrate` runs the upgrade codemods, the ones that move an app from an older ViteHub API, in this order: `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, `channels`, `auth-accessors`, `workspace-repo`, `kv-list-prefix`, `cli-url-flag`, `cli-yes-flag`, `cms-roles`, `console-out-of-app`, `choices-package`, `cli-get-list`, `cli-agent-tree`, and `nuxt-server-imports`. Each one sees the edits of the ones before it, and the report is the same as above. Install `@vite-hub/codemods` as a development dependency first. The codemods that move an app from another module, such as `nuxthub`, do not run. The report ends with a reminder to run Vite Doctor: rule `VHUB0003` finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
 ## Run one codemod
 
@@ -68,7 +68,7 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `renamed-apis` | An app from the ViteHub names that this release renamed, such as `hubDb` and `kv.del()` |
 | `define-forms` | The former define forms of Queue, Schedule, Sandbox Task, Workflow, Content, and Database to the one form of each |
 | `one-entry-imports` | Imports of subpaths that moved into one entry per concept, and `vite-hub/task` to `nitro/task` |
-| `vitehub-options` | The options that moved in `vitehub()`: `preset` to `host`, `observability.logs` to `logs`, Env declarations into `vitehub({ env })`, and `devtools` and `contentImportBase` removed |
+| `vitehub-options` | The options that moved in `vitehub()`: `preset` to `host`, `observability.logs` to `logs`, Env declarations into `vitehub({ env })`, the Console journal options into `agent.invocations`, and `devtools`, `contentImportBase` and the Console options that left the app removed |
 | `tsconfig-paths` | `#vitehub/*` entries of tsconfig `paths` that point into `.vitehub/` or `.nuxt/`, which ViteHub now types itself |
 | `shell-driver` | The Shell `provider` names to `driver`: `createShellRuntime({ driver })`, `ShellDriver`, and `createJustBashDriver()`. `vitehub migrate` runs it. |
 | `access-spellings` | Realtime `auth: true` to `authorize: true`, and MCP `public: true` to `access: "public"`. `vitehub migrate` runs it. |
@@ -80,6 +80,7 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `cli-yes-flag` | Replace old CLI prompt flags in scripts and CI, or report a manual migration. `vitehub migrate` runs it. |
 | `cli-url-flag` | `vitehub` calls in scripts and CI: `--server` to `--url`, the app URL. `vitehub migrate` runs it. |
 | `cms-roles` | The `cms` preset option `access: "roles"` to `roles: true`. `vitehub migrate` runs it. |
+| `console-out-of-app` | The `via: "page"` branch of `console.authorize` and `ConsolePageAuthorizeContext` removed, and `VITEHUB_CONSOLE_MCP_KEY` lines reported. `vitehub migrate` runs it. |
 | `choices-package` | `@vite-hub/decisions` and `vite-hub/decisions` imports and the `vitehub decisions` command to `choices`. `vitehub migrate` runs it. |
 | `cli-get-list` | `vitehub` read commands in scripts and CI: `show` and `info` to `get`, `env inspect` and `env status` to `env list`, `schedule runs` to `runs list`. `vitehub migrate` runs it. |
 | `cli-agent-tree` | `vitehub` Agent calls in scripts and CI: `agents …`, `invocations …`, and `conversations export` move under `vitehub agent`. `vitehub migrate` runs it. |
@@ -188,8 +189,10 @@ npx @vite-hub/codemods define-forms [dir] [--dry-run]
 | `vite: { env }` in `nuxt.config.ts` | `env` in the `vite-hub/nuxt` options |
 | A top-level Vite key such as `kv` or `blob` | `vitehub({ kv })`, or the argument of `hubKV()` |
 | `devtools`, `contentImportBase` | removed |
+| `console: { pill }`, `console.mcpClient`, `console.embed`, `console.mcp`, `console.origins`, `console.signInPage`, `console.auth: 'token'` | removed. `console: true` when no option stays |
+| `console: { databaseUrl, observations, retention }` | `agent: { invocations: { databaseUrl, observations, retention } }` |
 
-The report lists what the codemod cannot move: `preset` next to `host`, `sandbox` options that are not a boolean, `cloudflare.secretsFile`, an `observability` or `env` value that is an expression, `env` set in two places, `vitehub({ env: false })` next to Env declarations, and source lines that name a renamed option type, such as `KVModuleOptions`, which is now `KVOptions`.
+The report lists what the codemod cannot move: `preset` next to `host`, `sandbox` options that are not a boolean, `cloudflare.secretsFile`, `console.auth: 'app'` and `console.auth: { ... }`, an `observability` or `env` value that is an expression, `env` set in two places, `vitehub({ env: false })` next to Env declarations, and source lines that name a renamed option type, such as `KVModuleOptions`, which is now `KVOptions`. The codemod leaves a Console journal option in place and reports it when the move could change the effective journal, would overwrite an existing option, or would put `databaseUrl` on an explicit store where it has no effect.
 
 Sandbox Task option objects belong in `hubSandboxTask()`. The codemod passes them to an existing standalone plugin call without arguments. When the config uses `vitehub()` or `vite-hub/nuxt`, it keeps the options in place and reports a manual follow-up because the framework accepts only boolean Sandbox Task enablement.
 
@@ -254,9 +257,11 @@ The codemod does not move local data or baseline the database. The follow-ups li
 
 ## `nuxt-safe-runtime-config`
 
+The `.env.example` migration requires `vite-hub` in the range `>=0.5.1 <1`. The codemod reads a `catalog:` version from `pnpm-workspace.yaml` and an `npm:vite-hub@` alias. If the declared range allows an unsupported release, it stops without writing files. Update the range in `package.json`, then run the codemod again. If the codemod cannot read the declaration, such as `workspace:*`, `link:`, `file:`, a pkg.pr.new URL, or `latest`, it keeps it and lists a follow-up.
+
 The codemod reads one of the two schema sources of the module:
 
-- `safeRuntimeConfig.envSchema` points at a `.env.example` with `@env-spec` annotations. The codemod replaces it with `envSchema(new URL("./.env.example", import.meta.url), { prefix: "NUXT_" })` from `@vite-hub/env/vite`. With the `NUXT_` prefix, `NUXT_PUBLIC_*` keys become Public Env and other `NUXT_*` keys become Server Env, with the same names and variables. Server `paths` stay the same. Public Env is flat, so a nested public path falls back to its flat name.
+- `safeRuntimeConfig.envSchema` points at a `.env.example` with `@env-spec` annotations. The codemod replaces it with `envSchema(new URL("./.env.example", import.meta.url), { prefix: "NUXT_" })` from `vite-hub/env/vite`. With the `NUXT_` prefix, `NUXT_PUBLIC_*` keys become Public Env and other `NUXT_*` keys become Server Env, with the same names and variables. Server `paths` stay the same. Public Env is flat, so a nested public path falls back to its flat name.
 - `safeRuntimeConfig.$schema` is a Valibot, Zod 3, Zod 4, or ArkType schema, inline or in a module. For Zod 4 before 4.2, the codemod calls `toJSONSchema()` from the app's own Zod. The codemod converts it to JSON Schema and writes `env()`, `env.number()`, `env.boolean()`, and `env.enum()` declarations under `vitehub.env`. Each declaration reads its `NUXT_*` variable with `env.source()`. A `process.env.NAME || fallback` value reads `NAME` with `env.source()` and keeps `fallback` as the default. Env treats an empty variable as unset, as `||` did. Literal `runtimeConfig` values, including empty strings, become defaults. The codemod checks each default against its field schema, applying the source module’s input coercion for runtime validation. A rejected value, such as `""` for `v.minLength(16)`, is dropped when validation is fatal, so Env requires its variable. Nonfatal `onError` modes do not drop a default solely because validation rejects it. The checks follow the installed module version. Before 0.4.0, the module checked only at build unless `validateAtRuntime: true`. From 0.4.0, it also checks when the server starts unless `validateAtRuntime: false`, so `validateAtBuild: false` alone still rejects. When the codemod cannot read the version, it uses the 0.4.0 rules. Keys under `runtimeConfig.public` become Public Env with `mode: "build"`. Credential-like server names become `secret: true`.
 
 Env options cannot hold every schema rule, such as `v.minLength(16)`, `z.url()`, or `v.transform()`, or the shape of a JSON array. For these fields the codemod writes `server/env.schema.ts`, or `server/runtime-config.schema.ts` when the first file exists. The module exports the schema of each field: `.entries.x` for Valibot, `.shape.x` for Zod, and `.get("x")` for ArkType. It imports a `$schema` module. It moves an inline `$schema` and its imports into the module, unless the schema uses other `nuxt.config` bindings. The codemod runs each export on the loaded schema before it writes it. A server field reads its export with `env.schemaFrom()`: `env({ schema })` when the schema takes a string, and `env.json(schema)` when it takes a number, boolean, or array. A public field imports its export into `nuxt.config`, and Env runs it during the build. The codemod lists public ArkType rules as follow-ups. Env stops the app when a schema fails, so the codemod writes the module only when `nuxt-safe-runtime-config` did the same: `onError: 'throw'` with build or runtime validation on. With `onError: 'warn'` or `'ignore'`, the rules become follow-ups. Keep the `$schema` file and its schema library.
@@ -668,6 +673,26 @@ npx @vite-hub/codemods cms-roles [dir] [--dry-run]
 ```
 
 The `access` option of `defineContent()` itself, such as `access: 'public'`, stays. The report lists a preset `access` value that is not the literal `'roles'`.
+
+## `console-out-of-app`
+
+The Console runs outside the app, so `console.authorize` no longer gets `via: "page"`. `console-out-of-app` removes the code that handled it:
+
+```sh
+npx @vite-hub/codemods console-out-of-app [dir] [--dry-run]
+```
+
+```diff [server/console-authorize.ts]
+ import { defineConsoleAuthorize } from 'vite-hub/console/auth'
+-import type { ConsolePageAuthorizeContext } from 'vite-hub/console/auth'
+
+ export default defineConsoleAuthorize(({ via, user }) => {
+-  if (via === 'page') return user?.role === 'admin'
+   return true
+ })
+```
+
+It edits the function passed to `defineConsoleAuthorize()` from `vite-hub/console/auth`, and the function that `server/console-authorize.ts` default-exports. It removes an `if` on `via === 'page'` without an `else`, and the `ConsolePageAuthorizeContext` import when nothing else names it. The report lists other `'page'` checks, `ConsolePageAuthorizeContext` when the file still uses it, and each env or Wrangler line that sets `VITEHUB_CONSOLE_MCP_KEY`, without its value. The SQL that removes the old Console tables and Site access users is on [Move the Console from earlier releases](https://vitehub.dev/docs/console/migrate).
 
 ## Add a codemod
 

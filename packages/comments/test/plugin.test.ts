@@ -108,6 +108,16 @@ describe("Comments page tool", () => {
     expect(identify).toHaveBeenCalledOnce()
   })
 
+  it("installs the pill segments of other packages with the base, and none with the overlay off", () => {
+    const segment = vi.fn()
+    const app = {}
+    defineCommentsPlugin({ comments: defineComments(), database: () => undefined, overlay: "/o.js", base: "/portal", pillSegments: [segment] })(app)
+    expect(segment).toHaveBeenCalledExactlyOnceWith(app, { base: "/portal", development: false })
+    segment.mockClear()
+    defineCommentsPlugin({ comments: defineComments(), database: () => undefined, overlay: false, pillSegments: [segment] })({})
+    expect(segment).not.toHaveBeenCalled()
+  })
+
   it("finds the API from the mounted overlay URL", () => {
     expect(commentsApiRoute("https://site.test/portal/_vitehub/comments/assets/overlay.js?v=1")).toBe("/portal/_vitehub/comments")
     expect(commentsApiRoute("https://site.test/_vitehub/comments/assets/overlay.js?v=1")).toBe("/_vitehub/comments")

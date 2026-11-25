@@ -40,7 +40,7 @@ console.log(error.toJSON())
 | `AUTH_C0053` | `authDatabase()` needs text IDs from Better Auth or a custom function. `serial`, `uuid`, and `false` need another adapter and schema. |
 | `AUTH_C0054` | `authDatabase()` needs one fixed Database target. Use one unconditional inline call, and keep the Database out of runtime overrides. |
 | `AUTH_C0055` | The Auth Vite plugin cannot read an `additionalFields` entry. Write it inline in `server/auth.ts`, with a literal `type`. |
-| `AUTH_C0056` | The options need a table or a column that the Database of `authDatabase()` does not have, a field conflicts with a column, or a model or field mapping renames a table or a column. Call the plugin in `server/auth.ts` or a file it imports with a relative path, or add its tables to the Database Definition, then run `vitehub database generate`. |
+| `AUTH_C0056` | The options need a table or a column that the Database of `authDatabase()` does not have, a field conflicts with a column, or a model or field mapping renames a table or a column. Import the plugin by name from its package, such as `import { admin } from "better-auth/plugins"`, and call it in `server/auth.ts` or a file it imports with a relative path, or add its tables to the Database Definition, then run `vitehub database generate`. |
 | `AUTH_C0057` | `VITEHUB_ADMIN_EMAILS` is set. It is removed: list the admin's social account in `VITEHUB_ADMINS`. |
 | `AUTH_C0058` | A `VITEHUB_ADMINS` entry is an email, has no provider or account id, or is a GitHub login instead of the numeric id. |
 | `AUTH_C0059` | `VITEHUB_ADMIN_CLAIM` is not `sha256:` and 64 hex characters. Set the value that `vitehub auth claim` prints, never the code. |
@@ -133,11 +133,7 @@ The record or plugin is missing. Refresh the list and check the plugins in the A
 
 ## AUTH_CONSOLE_UNAVAILABLE
 
-The operation needs a database adapter, the `user.role` field, or a Better Auth plugin API.
-
-- `authDatabase()` from `vite-hub/auth/database` gives the database and adds the `user.role` field that [Site access](/docs/console/site-access#sign-browsers-in) keeps its roles in. You do not need `admin()`.
-- With your own adapter and schema, add a nullable `role` text column to the `user` table, apply the migration, and declare the field with `user: { additionalFields: { role: { type: "string", required: false, input: false } } }`.
-- For a plugin operation, such as a ban or impersonation, add that Better Auth plugin. With a custom schema, add the plugin fields to your schema and apply the database migration before using the plugin. By default, `admin()` needs `user.role`, `user.banned`, `user.banReason`, `user.banExpires`, and `session.impersonatedBy`.
+The operation needs a database adapter or plugin API. Add it to the primary Auth Definition.
 
 ## AUTH_CONSOLE_PROVIDER_FAILED
 
