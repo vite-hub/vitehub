@@ -1,7 +1,8 @@
-import { readdirSync } from "node:fs"
+import { fileURLToPath } from "node:url"
 
 import { describe, expect, it } from "vitest"
 
+import { discoverMcpTools } from "../../mcp/src/vite.ts"
 import { runSetup } from "./setup-helpers.ts"
 
 const cliOf: Record<string, string[] | { none: string }> = {
@@ -10,14 +11,15 @@ const cliOf: Record<string, string[] | { none: string }> = {
   "link_app": ["apps", "link"],
   "list-pages": { none: "A docs tool. Agents read the same pages at https://vitehub.dev/llms.txt." },
   "list_apps": ["apps", "list"],
-  "list_operations": { none: "`vitehub <namespace> --help --url <app>` lists the operations of an app." },
-  "read_operation": { none: "`vitehub <namespace> <operation> --url <app>` runs it." },
-  "run_operation": { none: "`vitehub <namespace> <operation> --url <app>` runs it." },
+  "list_operations": { none: "`vitehub project get --url <app>` lists operation names for the direct CLI caller, not MCP schemas or access." },
+  "read_operation": { none: "Use the operation's CLI command with `--url <app>` and a separate app signing key, if the command exists." },
+  "run_operation": { none: "Use the operation's CLI command with `--url <app>` and a separate app signing key, if the command exists." },
   "unlink_app": ["apps", "unlink"],
   "whoami": ["whoami"],
 }
 
-const tools = readdirSync(new URL("../../console/server/mcp/tools/", import.meta.url)).map(file => file.replace(/\.ts$/u, "")).sort()
+const consoleRoot = fileURLToPath(new URL("../../console/", import.meta.url))
+const tools = discoverMcpTools({ rootDir: consoleRoot }).map(tool => tool.name).sort()
 
 describe("the Console MCP and the CLI", () => {
   it("has a CLI command, or a reason, for each MCP tool", () => {

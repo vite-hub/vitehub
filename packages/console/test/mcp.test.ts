@@ -222,9 +222,10 @@ describe("ViteHub MCP at /mcp/account", () => {
     expect(denied.body!.result).toMatchObject({ content: [{ text: "CONSOLE_PROJECT_FORBIDDEN: Only owners and admins of the team link projects." }], isError: true })
 
     const { body } = await call("link_app", { label: "Probe", url: appUrl }, tokens.ada)
-    const linked = body!.result.structuredContent as { app: { id: string, keyVariable: string, publicKey: string }, variable: string }
+    const linked = body!.result.structuredContent as { app: { id: string, keyVariable: string, publicKey: string }, next: string, variable: string }
     expect(linked.variable).toBe(`${linked.app.keyVariable}=${linked.app.publicKey}`)
     expect(linked.variable).toMatch(/^VITEHUB_CONSOLE_KEY_CONSOLE_[0-9A-F]{8}=[\w-]{43}$/)
+    expect(linked.next).toContain("owner or admin of the same team in this Console")
 
     const kept = await call("unlink_app", { id: linked.app.id }, tokens.bob)
     expect(kept.body!.result).toMatchObject({ content: [{ text: "CONSOLE_PROJECT_FORBIDDEN: Only owners and admins of the team unlink projects." }], isError: true })

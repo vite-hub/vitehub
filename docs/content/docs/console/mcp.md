@@ -160,18 +160,21 @@ With the account address, the agent works on the apps of the team that you opene
 | `read_operation` | Runs one operation that only reads, such as `kv.list`. The app refuses an operation that changes data. |
 | `run_operation` | Runs one operation that changes data, such as `comments.create`. |
 
-To link an app, have the agent call `link_app` with its URL, set the returned line in the app's environment with `console: true`, and deploy. `check_app` then answers `linked: true`. An app that deploys with [`vitehub deploy`](/docs/cli/project#link-the-app-in-the-console) after `vitehub login` needs none of these steps: deploy links it.
+To link an app, have the agent call `link_app` with its URL, set the returned line in the app's environment with `console: true`, and deploy. `check_app` then answers `linked: true`. A [supported production deploy with `vitehub deploy`](/docs/cli/project#link-the-app-in-the-console) can link the app and set the key for you. Before skipping manual setup, check that `console: true` is set, `--no-console` is not set, and `vitehub whoami` shows an owner or admin login for the same Console and team as MCP `whoami`. Check that deploy reports the expected app link and `linked: true`.
 
-Each tool has a matching CLI command, so an agent can use either:
+The CLI covers these tasks, but a Console login and a direct app signing key give different access:
 
 | Tool | CLI |
 | --- | --- |
-| `whoami` | `vitehub whoami` |
+| `whoami` | `vitehub whoami` shows the team of the CLI key, not the last team you opened in the Console. |
 | `list_apps` | `vitehub apps list` |
 | `link_app` | `vitehub apps link <url>` |
 | `check_app` | `vitehub apps check <id>` |
 | `unlink_app` | `vitehub apps unlink <id> --delete-hosted-comments` |
-| `list_operations`, `read_operation`, `run_operation` | `vitehub <namespace> <operation> --url <app>` |
+| `list_operations` | `vitehub project get --url <app>` reports the operation names allowed for the CLI caller, not the MCP caller's list or schemas. Namespace `--help` shows commands from local config, not remote operations. |
+| `read_operation`, `run_operation` | `vitehub <namespace> <operation> --url <app>` runs an operation that has a CLI command. |
+
+The `--url` commands above call the app directly. Give the CLI [its own app signing key](/docs/console/signed-requests#make-a-key-for-the-cli). `vitehub login` alone does not sign direct app requests.
 
 The Console runs each operation with a [signed request](/docs/console/signed-requests), as its UI does, so the app's `console.authorize` gets `via: "console"` and your Console user and decides what the agent may do. The agent's sign-in and the link's key never reach your app or the agent. An operation's `mcp` field can hide it (`false`). `read_operation` is marked read-only, so clients can run it without asking before a change. The app refuses a change through it. A `destructive` operation, such as `content.publish`, runs only when the agent sends `confirm: true`, so the agent asks you first.
 
