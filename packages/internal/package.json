@@ -303,6 +303,16 @@
       "import": "./dist/runtime/user-data.js",
       "default": "./dist/runtime/user-data.js"
     },
+    "./runtime/client-request": {
+      "types": "./dist/runtime/client-request.d.ts",
+      "import": "./dist/runtime/client-request.js",
+      "default": "./dist/runtime/client-request.js"
+    },
+    "./runtime/client-request-plugin": {
+      "types": "./dist/runtime/client-request-plugin.d.ts",
+      "import": "./dist/runtime/client-request-plugin.js",
+      "default": "./dist/runtime/client-request-plugin.js"
+    },
     "./runtime/request-origin": {
       "types": "./dist/runtime/request-origin.d.ts",
       "import": "./dist/runtime/request-origin.js",

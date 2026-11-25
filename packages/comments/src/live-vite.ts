@@ -8,6 +8,7 @@ import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, w
 import { reportViteHubHint, startViteHubHints } from "@vite-hub/internal/hints"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { includedNitro } from "@vite-hub/internal/build/included-nitro"
+import { ownModule } from "@vite-hub/internal/build/paths"
 import { createNitroServerKit, ownAccessRouteMeta } from "@vite-hub/internal/nitro-kit"
 import { viteHubPageToolsCookie, viteHubPageToolsQuery } from "@vite-hub/internal/runtime/page-tools-shared"
 import { parseDatabaseLocation } from "@vite-hub/database/config"
@@ -718,6 +719,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         // The handler imports server/content.ts and its Markdown renderer, so load it on the first Comments request.
         // Every Comments route checks the `authorize` policy of `defineComments()`.
         kit.addHandler({ handler, lazy: true, meta: { ...ownAccessRouteMeta }, route: `${mount}${commentsRoute}/**` })
+        kit.addPlugin(ownModule(import.meta.url, "runtime/client-request-plugin"), "start")
         kit.addPlugin(plugin)
         addViteHubPageToolRoutes(kit, { handler: pageToolsRoute, loader: builtDirectory("page"), mount })
         const nitro = kit.config

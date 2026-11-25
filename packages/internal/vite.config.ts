@@ -88,6 +88,8 @@ export default defineConfig({
       "src/integrations/hex.ts",
       "src/runtime/app.ts",
       "src/runtime/cache-bypass.ts",
+      "src/runtime/client-request.ts",
+      "src/runtime/client-request-plugin.ts",
       "src/runtime/cloudflare-env.ts",
       "src/runtime/cloudflare-env-lookup.ts",
       "src/runtime/sqlite-wasm.ts",
