@@ -45,6 +45,8 @@ npx @vite-hub/codemods nuxthub
 
 The codemod updates `nuxt.config.ts`, `package.json`, your Drizzle schema location, `hub:*` and `@nuxthub/*` imports, and KV and Blob calls. On Nuxt 4.7, it adds `nitro` when missing. If your app allows a Nuxt version before 4.7, run `pnpm add nuxt@^4.7.0 nitro` first, or pass `--nuxt-nightly` to move to Nuxt 5. See [Codemods](/docs/codemods/get-started).
 
+**Local PGlite:** Ignore the codemod's instruction to copy `.data/db/pglite`. PGlite 0.5 cannot open NuxtHub's 0.3 data directory. Use the [PGlite upgrade guide](https://pglite.dev/docs/upgrade) to dump with `pgDump` on 0.3 and restore into a fresh 0.5 database at `.vitehub/data/database/pglite`.
+
 ```diff [nuxt.config.ts]
  export default defineNuxtConfig({
 -  modules: ["@nuxthub/core"],
@@ -69,7 +71,7 @@ The codemod handles most rewrites and prints follow-ups for the rest:
 
 | Area | What changes |
 | --- | --- |
-| KV | Imports move to `vite-hub/kv` and methods return `[error, value]`. Replace `getItem`, `del`, `getKeys`, and `getItemRaw` with `get`, `delete`, `list({ prefix })`, and `get(key, { type: "bytes" })`. Set `kv: { driver: "redis" }` explicitly instead of relying on `REDIS_URL`. |
+| KV | Imports move to `vite-hub/kv` and methods return `[error, value]`. Replace `getItem`, `del`, and `getItemRaw` with `get`, `delete`, and `get(key, { type: "bytes" })`. Replace `getKeys("users")` with `kv.list({ prefix: "users:" })` and read `keys` from each result page. Set `kv: { driver: "redis" }` explicitly instead of relying on `REDIS_URL`. |
 | Blob | Imports move to `vite-hub/blob`, methods return `[error, value]`, and `head()` returns `[undefined, null]`. `useUpload()` returns an array by default, so pass `{ multiple: false }` for one object, and multipart uses `concurrency` instead of `concurrent`. |
 | Database | Uses Drizzle 1.0 in `server/databases/default/`. Replace `relations()` with `defineRelations()`, update `db.query` `where` callbacks to objects from the [Drizzle v1 to v2 guide](https://orm.drizzle.team/docs/relations-v1-v2), and replace `hub.db.casing` with `snakeCase.table()`. Pass `TURSO_DATABASE_URL` or `DATABASE_URL` explicitly in `connection.url`. |
 | Migrations | ViteHub writes migrations to `server/databases/default/migrations/` and does not apply them during dev or build. For SQLite, libSQL, D1 HTTP, and Cloudflare D1 baselines, see [Keep an existing migrations table](/docs/database/configure#keep-an-existing-migrations-table). |
@@ -91,10 +93,10 @@ ViteHub does not emulate `hub:*` imports or `hub:db:*` hooks. Both the codemod a
 ViteHub stores local data in `.vitehub/data/` instead of `.data/`. Stop the old app first:
 
 - **SQLite.** Run `mkdir -p .vitehub/data/database && cp .data/db/sqlite.db* .vitehub/data/database/` so `-wal` and `-shm` files come along.
-- **Postgres PGlite.** Do not copy `.data/db/pglite` directly because PGlite 0.3 to 0.5 requires dumping with `pgDump` and restoring.
-- **KV.** Run `mkdir -p .vitehub/data && cp -R .data/kv .vitehub/data/kv`.
+- **Postgres PGlite.** Ignore the codemod's folder-copy follow-up: PGlite 0.5 cannot open NuxtHub's 0.3 `.data/db/pglite` folder. Dump with `pgDump` on 0.3 and restore into `.vitehub/data/database/pglite`.
+- **KV.** Copy `.data/kv` into `.vitehub/data/kv` for `fs-lite`, or `.vitehub/data/kv-cloudflare/KV` for Cloudflare on the Node dev runner without a binding.
 - **Blob.** Start `pnpm nuxt dev` and re-upload each file with `pnpm vitehub blob put <pathname> .data/blob/<pathname> --content-type <type>`.
-- **Redis and Upstash KV.** Rename root keys to the `vitehub:kv:default:` prefix with `RENAMENX` before cutting over.
+- **Redis and Upstash KV.** Keep the same `base` if NuxtHub set one; otherwise rename confirmed NuxtHub KV root keys to `vitehub:kv:default:` with `RENAMENX` before cutting over.
 
 Before deploying, run `pnpm nuxt build`, check `pnpm vitehub inspect output --json`, and run [Vite Doctor](/docs/reference/doctor-rules#vhub0032) to catch leftover NuxtHub references.
 ::
