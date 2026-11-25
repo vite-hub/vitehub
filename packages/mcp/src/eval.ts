@@ -6,9 +6,11 @@ import { parseArgs } from "node:util"
 import { createMCPClient, MCPClientError, type ListToolsResult } from "@ai-sdk/mcp"
 import { generateText, type LanguageModel, type LanguageModelUsage, type StopCondition, type ToolSet } from "ai"
 
+import { caseHash, isRegression, readBaseline, staleCases, surfaceHash, type McpEvalRun, type McpEvalRunCase } from "./eval/baseline.ts"
 import { loadCases, validateCasesAgainstTools, type McpEvalTool } from "./eval/cases.ts"
 import { caseVerdict, gradeSample, needsAnotherSample, type McpEvalCall, type McpEvalCase, type McpEvalCaseStatus, type McpEvalCheck } from "./eval/grade.ts"
 
+export type { McpEvalRun, McpEvalRunCase, McpEvalRunUsage } from "./eval/baseline.ts"
 export type { McpEvalCall, McpEvalCase, McpEvalCaseKind, McpEvalCaseStatus, McpEvalCheck, McpEvalExpect, McpEvalExpectedCall } from "./eval/grade.ts"
 
 /** The `tools/list` result of the server, as the server sent it. */
@@ -61,9 +63,14 @@ export interface McpEvalCaseResult {
 export interface McpEvalReport {
   exitCode: 0 | 1
   outDir?: string
+  /** The sha256 of the live `tools/list` tools and the server instructions. */
+  surface?: string
   problems: string[]
   findings: McpEvalFinding[]
   cases: McpEvalCaseResult[]
+  /** What `--baseline` found: the cases that regressed, and why a dry run is stale. */
+  baseline?: { stale: string[], regressions: string[], warnings: string[] }
+  run?: McpEvalRun
 }
 
 export interface McpEvalOptions<MODELS extends Record<string, LanguageModel>> {
@@ -133,6 +140,7 @@ function readFlags(argv: string[]) {
   const { values } = parseArgs({
     args: argv,
     options: {
+      "baseline": { type: "string" },
       "case": { type: "string", multiple: true },
       "dry-run": { type: "boolean" },
       "max-tokens": { type: "string" },
@@ -149,6 +157,7 @@ function readFlags(argv: string[]) {
     problems.push(`--${flag} must be a positive integer.`)
   }
   return {
+    baseline: values.baseline,
     caseIds: values.case,
     dryRun: values["dry-run"] === true,
     maxTokens: count("max-tokens", values["max-tokens"]),
@@ -195,28 +204,58 @@ function formatFinding(finding: McpEvalFinding): string {
   return finding.tool ? `${finding.tool}: ${finding.message}` : finding.message
 }
 
-function summarize(input: { url: string, model: string, toolList: McpEvalToolList, instructions: boolean, findings: McpEvalFinding[], results: McpEvalCaseResult[], stopped?: string }): string {
+interface SummaryInput {
+  url: string
+  commit: string | undefined
+  model: string
+  surface: string
+  toolList: McpEvalToolList
+  instructions: boolean
+  findings: McpEvalFinding[]
+  results: McpEvalCaseResult[]
+  stopped?: string
+  baseline?: { path: string, run: McpEvalRun, regressions: string[], warnings: string[] }
+}
+
+function points(rate: number | undefined, before: number | undefined): string {
+  if (rate === undefined || before === undefined) return "n/a"
+  const delta = Math.round((rate - before) * 100)
+  return delta > 0 ? `+${delta}` : String(delta)
+}
+
+function summarize(input: SummaryInput): string {
   const samples = input.results.flatMap(result => result.samples)
   const usage = sumUsage(samples.map(sample => sample.usage))
   const calls = samples.flatMap(sample => sample.calls.map(call => ({ call, sample })))
   const large = calls.filter(({ call }) => (call.resultChars ?? 0) > largeResultChars)
   const readOnly = input.toolList.tools.filter(tool => tool.annotations?.readOnlyHint === true).length
   const percent = (rate: number | undefined) => rate === undefined ? "n/a" : `${Math.round(rate * 100)}%`
+  const baseline = input.baseline
+  const before = new Map(baseline?.run.cases.map(testCase => [testCase.id, testCase]))
+  const caseRow = (result: McpEvalCaseResult) => {
+    const status = baseline?.regressions.includes(result.id) ? `${result.status}, regression` : result.status
+    if (!baseline) return `| ${result.id} | ${result.kind} | ${result.samples.length} | ${percent(result.passRate)} | ${status} |`
+    const old = before.get(result.id)
+    return `| ${result.id} | ${result.kind} | ${result.samples.length} | ${percent(result.passRate)} | ${percent(old?.passRate)} | ${points(result.passRate, old?.passRate)} | ${status} |`
+  }
   const lines = [
     "# MCP eval",
     "",
     `- Server: ${input.url}`,
-    `- Commit: ${gitCommit() ?? "unknown"}`,
+    `- Commit: ${input.commit ?? "unknown"}`,
     `- Model: ${input.model}`,
     `- Tools: ${input.toolList.tools.length} (${readOnly} read-only)`,
     `- Server instructions: ${input.instructions ? "yes" : "no"}`,
+    `- Surface: ${input.surface}`,
+    ...(baseline ? [`- Baseline: ${baseline.path} (${baseline.run.model}, ${baseline.run.commit ?? "unknown commit"}, ${baseline.run.date})`] : []),
     ...(input.stopped ? [`- Stopped: ${input.stopped}`] : []),
+    ...(baseline?.warnings.length ? ["", ...baseline.warnings.map(warning => `> [!WARNING]\n> ${warning}`)] : []),
     "",
     "## Cases",
     "",
-    "| Case | Kind | Samples | Pass rate | Status |",
-    "| --- | --- | --- | --- | --- |",
-    ...input.results.map(result => `| ${result.id} | ${result.kind} | ${result.samples.length} | ${percent(result.passRate)} | ${result.status} |`),
+    baseline ? "| Case | Kind | Samples | Pass rate | Baseline | Delta | Status |" : "| Case | Kind | Samples | Pass rate | Status |",
+    baseline ? "| --- | --- | --- | --- | --- | --- | --- |" : "| --- | --- | --- | --- | --- |",
+    ...input.results.map(caseRow),
     "",
     "## By kind",
     "",
@@ -235,6 +274,10 @@ function summarize(input: { url: string, model: string, toolList: McpEvalToolLis
     `- Tool calls: ${calls.length}`,
     `- Model steps: ${samples.reduce((total, sample) => total + sample.steps.length, 0)}`,
   ]
+  if (baseline?.regressions.length) {
+    lines.push("", "## Regressions", "")
+    for (const id of baseline.regressions) lines.push(`- ${id} passed every baseline sample and fails now.`)
+  }
   if (large.length) {
     lines.push("", "## Large tool results", "")
     for (const { call, sample } of large) lines.push(`- ${sample.id} sample ${sample.sample}, ${call.tool}: ${call.resultChars} characters. Claude Code would move this result to a file.`)
@@ -275,6 +318,9 @@ export async function runMcpEval<MODELS extends Record<string, LanguageModel>>(o
   }
   if (!flags.dryRun && !model) report.problems.push(`--model ${modelKey ?? ""}: the models are ${Object.keys(options.models).join(", ") || "empty"}.`)
 
+  const baseline = flags.baseline === undefined ? undefined : await readBaseline(flags.baseline)
+  if (baseline && "problem" in baseline) report.problems.push(baseline.problem)
+
   const url = String(options.server.url)
   let client: Awaited<ReturnType<typeof createMCPClient>>
   try {
@@ -288,12 +334,38 @@ export async function runMcpEval<MODELS extends Record<string, LanguageModel>>(o
 
   try {
     const toolList = await listAllTools(client)
+    const surface = surfaceHash(toolList.tools, client.instructions)
+    report.surface = surface
     report.findings = options.check ? await options.check(toolList) : []
     report.problems.push(...validateCasesAgainstTools(cases, toolList.tools))
-    console.log(`${url}: ${count(toolList.tools.length, "tool")}, ${count(cases.length, "case")}${client.instructions ? ", server instructions" : ""}.`)
+    console.log(`${url}: ${count(toolList.tools.length, "tool")}, ${count(cases.length, "case")}${client.instructions ? ", server instructions" : ""}, surface ${surface.slice(0, 12)}.`)
     printList("Tool list findings", report.findings.map(formatFinding))
     printList("Problems", report.problems)
-    if (flags.dryRun || report.problems.length || !model || modelKey === undefined) return done(report.problems.length ? 1 : 0)
+    if (report.problems.length) return done(1)
+
+    const base = baseline && "run" in baseline ? { path: flags.baseline ?? "", run: baseline.run } : undefined
+    const surfaceChanged = base !== undefined && base.run.surface !== surface
+    if (flags.dryRun) {
+      if (!base) return done(0)
+      const stale = [
+        ...(surfaceChanged ? [`The tool list or the server instructions changed: surface ${surface.slice(0, 12)}, the baseline has ${base.run.surface.slice(0, 12)}.`] : []),
+        ...staleCases(loaded.cases, base.run),
+      ]
+      report.baseline = { stale, regressions: [], warnings: [] }
+      if (!stale.length) {
+        console.log(`\nThe baseline ${base.path} matches the tool list and the cases.`)
+        return done(0)
+      }
+      printList(`The baseline ${base.path} is stale. Run the eval with a model and commit the new run.json`, stale)
+      return done(1)
+    }
+    if (!model || modelKey === undefined) return done(1)
+
+    const warnings = [
+      ...(base && base.run.model !== modelKey ? [`The baseline used the model "${base.run.model}", and this run uses "${modelKey}". Compare runs of the same model.`] : []),
+      ...(surfaceChanged ? ["The tool list or the server instructions changed since the baseline."] : []),
+    ]
+    printList("Baseline warnings", warnings)
 
     const readOnly = new Set(toolList.tools.filter(tool => tool.annotations?.readOnlyHint === true).map(tool => tool.name))
     const mcpTools = client.toolsFromDefinitions(toolList)
@@ -305,6 +377,7 @@ export async function runMcpEval<MODELS extends Record<string, LanguageModel>>(o
     report.outDir = outDir
 
     let spent = 0
+    const runCases: McpEvalRunCase[] = []
     let stopped: string | undefined
     const overBudget = (tokens: number) => flags.maxTokens !== undefined && tokens > flags.maxTokens
     const stopForBudget = (tokens: number) => {
@@ -375,10 +448,50 @@ export async function runMcpEval<MODELS extends Record<string, LanguageModel>>(o
       }
       if (!samples.length) break
       const verdict = caseVerdict(samples)
-      report.cases.push({ id: testCase.id, kind: testCase.kind, samples, ...verdict, status: stopped ? "incomplete" : verdict.status })
+      const status = stopped ? "incomplete" : verdict.status
+      const graded = samples.filter(sample => !sample.error)
+      report.cases.push({ id: testCase.id, kind: testCase.kind, samples, ...verdict, status })
+      runCases.push({
+        id: testCase.id,
+        kind: testCase.kind,
+        hash: caseHash(testCase),
+        samples: graded.length,
+        passed: graded.filter(sample => sample.pass).length,
+        ...(verdict.passRate !== undefined ? { passRate: verdict.passRate } : {}),
+        status,
+      })
     }
 
-    const summary = summarize({ url, model: modelKey, toolList, instructions: Boolean(client.instructions), findings: report.findings, results: report.cases, stopped })
+    const commit = gitCommit()
+    const regressions = base ? runCases.filter(result => isRegression(base.run.cases.find(old => old.id === result.id), result.passRate)).map(result => result.id) : []
+    if (base) report.baseline = { stale: [], regressions, warnings }
+    const samples = report.cases.flatMap(result => result.samples)
+    const run: McpEvalRun = {
+      version: 1,
+      server: url,
+      surface,
+      model: modelKey,
+      ...(typeof model === "string" ? { modelId: model } : { modelId: model.modelId }),
+      ...(commit ? { commit } : {}),
+      date: new Date().toISOString(),
+      cases: runCases,
+      usage: sumUsage(samples.map(sample => sample.usage)),
+      toolCalls: samples.reduce((total, sample) => total + sample.calls.length, 0),
+    }
+    report.run = run
+    await writeFile(join(outDir, "run.json"), `${JSON.stringify(run, null, 2)}\n`)
+    const summary = summarize({
+      url,
+      commit,
+      model: modelKey,
+      surface,
+      toolList,
+      instructions: Boolean(client.instructions),
+      findings: report.findings,
+      results: report.cases,
+      stopped,
+      ...(base ? { baseline: { ...base, regressions, warnings } } : {}),
+    })
     await writeFile(join(outDir, "summary.md"), summary)
     console.log(`\n${summary}\nWrote ${outDir}`)
     const failed = report.cases.some(result => result.status !== "pass") || report.cases.length < cases.length

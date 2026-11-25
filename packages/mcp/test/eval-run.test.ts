@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -11,7 +11,7 @@ import { defineMcpTool } from "../src/index.ts"
 import { createMcpHandler } from "../src/runtime.ts"
 
 import type { H3Event } from "h3"
-import type { McpEvalCase } from "../src/eval.ts"
+import type { McpEvalCase, McpEvalRun } from "../src/eval.ts"
 
 const deleted: string[] = []
 const searchText = "Queue retries: see /docs/queue#retries. ".repeat(10)
@@ -234,5 +234,90 @@ describe("runMcpEval", () => {
     expect(model.doGenerateCalls).toHaveLength(1)
     expect(report.cases[0]?.status).toBe("incomplete")
     expect(report.exitCode).toBe(1)
+  })
+})
+
+describe("runMcpEval with a baseline", () => {
+  async function baselineRun(edit: (run: McpEvalRun) => void = () => {}): Promise<string> {
+    const first = join(out, "first")
+    await runMcpEval({ server: { url: "https://docs.example.com/mcp" }, cases, models: { mock: docsModel() }, argv: ["--out", first, "--samples", "1"] })
+    const run: McpEvalRun = JSON.parse(await readFile(join(first, "run.json"), "utf8"))
+    edit(run)
+    const path = join(out, "baseline.json")
+    await writeFile(path, JSON.stringify(run))
+    process.exitCode = undefined
+    return path
+  }
+
+  it("writes run.json with the surface hash, the case hashes, and the totals", async () => {
+    const report = await runMcpEval({ server: { url: "https://docs.example.com/mcp" }, cases, models: { mock: docsModel() }, argv: ["--out", out, "--samples", "1"] })
+    const run: McpEvalRun = JSON.parse(await readFile(join(out, "run.json"), "utf8"))
+
+    expect(run).toMatchObject({ version: 1, server: "https://docs.example.com/mcp", model: "mock", modelId: "mock-model-id", usage: { input: 400, output: 40, cacheRead: 80 }, toolCalls: 4 })
+    expect(run.surface).toMatch(/^[0-9a-f]{64}$/)
+    expect(run.surface).toBe(report.surface)
+    expect(run.cases.map(testCase => [testCase.id, testCase.samples, testCase.passed, testCase.passRate, testCase.status])).toEqual([
+      ["queue-retries", 1, 1, 1, "pass"],
+      ["say-hello", 1, 0, 0, "fail"],
+    ])
+    expect(run.cases[0]?.hash).toMatch(/^[0-9a-f]{64}$/)
+    expect(await readFile(join(out, "summary.md"), "utf8")).toContain(`- Surface: ${run.surface}`)
+  })
+
+  it("shows the baseline and the delta of each case, and flags a case that passed every baseline sample and fails now", async () => {
+    const baseline = await baselineRun((run) => {
+      run.cases = run.cases.map(testCase => testCase.id === "say-hello"
+        ? { ...testCase, samples: 2, passed: 2, passRate: 1, status: "pass" }
+        : { ...testCase, samples: 2, passed: 1, passRate: 0.5, status: "fail" })
+    })
+    const report = await runMcpEval({ server: { url: "https://docs.example.com/mcp" }, cases, models: { mock: docsModel() }, argv: ["--out", out, "--baseline", baseline] })
+    const summary = await readFile(join(out, "summary.md"), "utf8")
+
+    expect(summary).toContain("| Case | Kind | Samples | Pass rate | Baseline | Delta | Status |")
+    expect(summary).toContain("| queue-retries | bad | 2 | 100% | 50% | +50 | pass |")
+    expect(summary).toContain("| say-hello | control | 2 | 0% | 100% | -100 | fail, regression |")
+    expect(summary).toContain("- say-hello passed every baseline sample and fails now.")
+    expect(report.baseline).toEqual({ stale: [], regressions: ["say-hello"], warnings: [] })
+  })
+
+  it("warns when the baseline used a different model", async () => {
+    const baseline = await baselineRun((run) => {
+      run.model = "haiku"
+    })
+    const report = await runMcpEval({ server: { url: "https://docs.example.com/mcp" }, cases, models: { mock: docsModel() }, argv: ["--out", out, "--baseline", baseline] })
+    const warning = "The baseline used the model \"haiku\", and this run uses \"mock\". Compare runs of the same model."
+
+    expect(report.baseline?.warnings).toEqual([warning])
+    expect(await readFile(join(out, "summary.md"), "utf8")).toContain(`> [!WARNING]\n> ${warning}`)
+  })
+
+  it("passes a dry run when the tool list and the cases match the baseline, with no model call", async () => {
+    const baseline = await baselineRun()
+    const model = docsModel()
+    const report = await runMcpEval({ server: { url: "https://docs.example.com/mcp" }, cases, models: { mock: model }, argv: ["--dry-run", "--baseline", baseline] })
+
+    expect(model.doGenerateCalls).toHaveLength(0)
+    expect(report.baseline?.stale).toEqual([])
+    expect(report.exitCode).toBe(0)
+    expect(process.exitCode).toBeUndefined()
+  })
+
+  it("fails a dry run when the tool list or the cases changed since the baseline", async () => {
+    const baseline = await baselineRun((run) => {
+      run.surface = "0".repeat(64)
+      run.cases.push({ ...run.cases[0]!, id: "old-case" })
+    })
+    const model = docsModel()
+    const edited = [{ ...cases[0]!, prompt: "How do Queue retries work now?" }, cases[1]!]
+    const report = await runMcpEval({ server: { url: "https://docs.example.com/mcp" }, cases: edited, models: { mock: model }, argv: ["--dry-run", "--baseline", baseline] })
+
+    expect(model.doGenerateCalls).toHaveLength(0)
+    expect(report.baseline?.stale).toEqual([
+      `The tool list or the server instructions changed: surface ${report.surface?.slice(0, 12)}, the baseline has 000000000000.`,
+      "queue-retries: the case changed since the baseline.",
+      "old-case: the baseline has this case, but the cases do not.",
+    ])
+    expect(report.exitCode).toBe(1)
+    expect(process.exitCode).toBe(1)
   })
 })
