@@ -9,6 +9,7 @@ import { locateViteHubConfig } from "@vite-hub/internal/config-edit"
 import { dirname, join, resolve } from "pathe"
 import { parse as parseRc } from "rc9"
 import { minVersion, Range, subset, validRange } from "semver"
+import { parseDocument } from "yaml"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -31,7 +32,7 @@ export interface SetupProject {
   configSource?: string
   /** True when the target manifest declares `name` for production, or for development when `dev` is true. */
   declared: (name: string, dev: boolean) => boolean
-  /** The `nuxt` range that the manifest declares, such as `^4.7.0` or `npm:nuxt-nightly@5x`. */
+  /** The `nuxt` range from the manifest or its pnpm catalog. */
   nuxt?: string
   /** Static discovery directories; undefined when Nuxt directories or layers need evaluation. */
   serverDirs?: readonly string[]
@@ -84,6 +85,22 @@ function parentFolders(root: string): string[] {
   const folders = [root]
   for (let folder = dirname(root); folder !== folders.at(-1); folder = dirname(folder)) folders.push(folder)
   return folders
+}
+
+export function pnpmWorkspaceFile(root: string): string | undefined {
+  return parentFolders(root).map(folder => join(folder, "pnpm-workspace.yaml")).find(existsSync)
+}
+
+async function resolveNuxtSpecifier(root: string, specifier: unknown): Promise<string | undefined> {
+  if (typeof specifier !== "string") return undefined
+  if (!specifier.startsWith("catalog:")) return specifier
+  const file = pnpmWorkspaceFile(root)
+  if (!file) return undefined
+  const workspace = parseDocument(await readFile(file, "utf8"))
+  if (workspace.errors.length) return undefined
+  const catalog = specifier.slice("catalog:".length)
+  const entry: unknown = workspace.getIn(catalog && catalog !== "default" ? ["catalogs", catalog, "nuxt"] : ["catalog", "nuxt"])
+  return typeof entry === "string" ? entry : undefined
 }
 
 async function readManifest(root: string): Promise<PackageManifest | undefined> {
@@ -187,6 +204,7 @@ export async function readSetupProject(root: string, env: NodeJS.ProcessEnv): Pr
   if (framework === "nuxt" && (!config || (!config.ok && config.reason === "no-vitehub")) && existsSync(join(root, "layers"))) config = { ok: false, reason: "dynamic-options" }
   const folders = parentFolders(root)
   const require = createRequire(join(root, "package.json"))
+  const nuxt = await resolveNuxtSpecifier(root, dependencies.nuxt)
   return {
     config,
     ...(configFile ? { configFile, configSource } : {}),
@@ -205,7 +223,7 @@ export async function readSetupProject(root: string, env: NodeJS.ProcessEnv): Pr
       return false
     },
     ...detectPackageManager(root, manifest, env),
-    ...(typeof dependencies.nuxt === "string" ? { nuxt: dependencies.nuxt } : {}),
+    ...(nuxt === undefined ? {} : { nuxt }),
     root,
     serverDirs: framework === "nuxt" ? await nuxtServerDirs(root, config, env) : [join(root, "server")],
   }

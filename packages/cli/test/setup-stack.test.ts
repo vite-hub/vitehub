@@ -34,6 +34,24 @@ function featureStates(result: StatusResult) {
 
 describe("setup stack replay", () => {
   it.each([
+    ["catalog:framework", "catalogs: { framework: { nuxt: 'npm:nuxt-nightly@5x' } }", true],
+    ["catalog:", "catalog: { nuxt: '^4.7.0' }", false],
+    ["catalog:missing", "catalog: { nuxt: '^4.7.0' }", undefined],
+    ["latest", "", undefined],
+  ])("replays the Nuxt line declared as %s", async (nuxt, workspace, nightly) => {
+    const root = await createProject({
+      "apps/site/nuxt.config.ts": "export default defineNuxtConfig({ modules: [['vite-hub/nuxt', { host: 'node' }]] })\n",
+      "apps/site/package.json": JSON.stringify({ dependencies: { nuxt } }),
+      "pnpm-workspace.yaml": `packages: [apps/*]\n${workspace}\n`,
+    })
+    const result = await status(join(root, "apps/site"))
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(result.json.stack?.command).toContain("--framework nuxt")
+    expect(result.json.stack?.command?.includes("--nuxt-nightly")).toBe(nightly === true)
+    expect(result.json.stack?.omits).toEqual(nightly === undefined ? [{ path: "nuxt", reason: "unresolved-nuxt-version" }] : [])
+  })
+
+  it.each([
     ["kv.token", "dummy-upstash-token", "upstash"],
     ["kv.url", "redis://dummy-user:dummy-password@localhost:6379", "redis"],
   ])("omits the credential in %s from init and status stacks", async (field, value, driver) => {

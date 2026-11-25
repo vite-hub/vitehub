@@ -12,7 +12,7 @@ import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { confirmSetupChange, flattenOptions, mergeValue, planSetupAdd, readAddArgs, setupDiff, shellQuote } from "./add.ts"
 import { setupExitCodes, type SetupFailure, setupFailure, writeSetupError, writeSetupJson } from "./envelope.ts"
 import { gitignoreWithViteHub } from "./link.ts"
-import { declaresNuxt5, detectPackageManager, nuxtReleases, readSetupProject } from "./project.ts"
+import { declaresNuxt5, detectPackageManager, nuxtReleases, pnpmWorkspaceFile, readSetupProject } from "./project.ts"
 import { deriveSetupStack, setupStackLabels } from "./stack.ts"
 import { formatInstallCommand, installArgs, installCommand, setupStatus } from "./status.ts"
 
@@ -48,6 +48,7 @@ export const initPackages: Readonly<Record<InitFramework, { prod: readonly strin
 
 const nuxtNitroRange = "^3.0.261103-rc"
 export const nuxtNitroPackage = `nitro@${nuxtNitroRange}`
+const nuxt47ViteHub = "vite-hub@>=0.5.1 <1"
 
 /**
  * Nuxt 4 installs esbuild, and pnpm 11 and later fail the install while the esbuild build script waits for
@@ -260,6 +261,7 @@ interface InitPlanned {
   writes: { path: string, before?: string, after: string }[]
   install: { prod: string[], dev: string[] }
   scaffold?: [string, string[]]
+  workspaceFile?: string
   rerun: string
 }
 
@@ -307,7 +309,9 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
   const found = state.kind === "adopt" ? state.project.framework : undefined
   const framework: InitFramework = args.framework ?? (found === "nuxt" ? "nuxt" : "vite")
   if (found && found !== framework) throw setupFailure(cliErrorDiagnostics.SETUP_INIT_FRAMEWORK_MISMATCH({ dir: root, found, framework }), setupExitCodes.conflict)
+  const nuxt = framework !== "nuxt" ? undefined : state.kind === "adopt" ? state.project.nuxt : args.nuxtNightly ? "npm:nuxt-nightly@5x" : "^4.7.0"
   const nuxtNeedsNitro = framework === "nuxt" && (state.kind === "adopt" ? (await checkNuxtVersion(root)).needsNitro : !args.nuxtNightly)
+  const allowsNuxt4 = framework === "nuxt" && !declaresNuxt5(nuxt)
   const detected = state.kind === "adopt" ? state.project : detectPackageManager(root, undefined, context.env)
   const packageManager = args.pm ?? (detected.packageManagerSource === "default" ? "pnpm" : detected.packageManager)
 
@@ -337,13 +341,12 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
   const basePackages = initPackages[framework]
   const install = {
     dev: basePackages.dev.filter(spec => !declared(packageName(spec), true)),
-    prod: basePackages.prod.filter(spec => !declared(packageName(spec), false)),
+    prod: basePackages.prod.filter(spec => !declared(packageName(spec), false)).map(spec => allowsNuxt4 && spec === "vite-hub" ? nuxt47ViteHub : spec),
   }
   if (nuxtNeedsNitro) install.prod.push(nuxtNitroPackage)
   const willInstall = new Set([...install.prod, ...install.dev].map(packageName))
 
   const configSource = base.get(configFile)!.after
-  const nuxt = framework !== "nuxt" ? undefined : state.kind === "adopt" ? state.project.nuxt : args.nuxtNightly ? "npm:nuxt-nightly@5x" : "^4.7.0"
   const planned: SetupProject = {
     config: locateViteHubConfig(configFile, configSource),
     configFile,
@@ -387,7 +390,8 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
     base.set(".gitignore", { ...(gitignore === undefined ? {} : { before: gitignore }), after: gitignore === undefined ? ".vitehub\n" : gitignoreWithViteHub(gitignore) ?? gitignore })
   }
 
-  if (state.kind === "create" && framework === "nuxt" && nuxtNeedsNitro && packageManager === "pnpm" && await readOptional(join(root, "pnpm-workspace.yaml")) === undefined) {
+  const workspaceFile = allowsNuxt4 && packageManager === "pnpm" ? pnpmWorkspaceFile(root) : undefined
+  if (state.kind === "create" && allowsNuxt4 && packageManager === "pnpm" && !workspaceFile) {
     base.set("pnpm-workspace.yaml", { after: nuxtPnpmWorkspace })
   }
   const scaffolded = state.kind === "create" && framework === "nuxt"
@@ -427,7 +431,7 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
     ...(scaffold ? { scaffold: { command: [scaffold[0], ...scaffold[1]].join(" ") } } : {}),
     status: writes.length || scaffold || (command && args.install) ? "planned" : "unchanged",
   }
-  return { install, plan, rerun: rerunInit(args, parts()), stackProject, writes, ...(scaffold ? { scaffold } : {}) }
+  return { install, plan, rerun: rerunInit(args, parts()), stackProject, writes, ...(scaffold ? { scaffold } : {}), ...(workspaceFile ? { workspaceFile } : {}) }
 }
 
 export function setupStack(project: SetupProject, status: SetupStatus): Promise<SetupStack> {
@@ -447,7 +451,7 @@ async function applyInit(planned: InitPlanned, install: boolean, context: ViteHu
       const commandArgs = installArgs(plan.packageManager, packages, dev)
       const result = await context.spawn(plan.packageManager, commandArgs, { cwd: plan.root, env: context.env, stdout: "stderr" })
       if (result.exitCode !== 0) {
-        throw setupFailure(cliErrorDiagnostics.SETUP_INSTALL_FAILED({ command: formatInstallCommand(plan.packageManager, commandArgs), exitCode: result.exitCode ?? result.signal, filesWritten: scaffolded || plan.mode === "create" }), setupExitCodes.error)
+        throw setupFailure(cliErrorDiagnostics.SETUP_INSTALL_FAILED({ command: formatInstallCommand(plan.packageManager, commandArgs), exitCode: result.exitCode ?? result.signal, filesWritten: scaffolded || plan.mode === "create", workspaceFile: planned.workspaceFile }), setupExitCodes.error)
       }
     }
   }
@@ -531,6 +535,7 @@ async function readInputs(args: SetupInitArgs): Promise<InitInputs> {
     missing: missing.map(({ sentence: _sentence, ...item }) => item),
     rerun: rerunInit(args, {
       dir: args.dir ?? "<dir>",
+      nuxtNightly: args.nuxtNightly,
       options: args.options,
       ...(args.features ? { features: args.features } : {}),
       ...(args.host ? { host: args.host } : {}),

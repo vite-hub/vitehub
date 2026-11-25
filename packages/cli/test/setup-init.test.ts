@@ -129,6 +129,12 @@ describe("vitehub init", () => {
     expect(none.json.missing?.map(item => item.field)).toEqual(["dir", "host", "features"])
   })
 
+  it("keeps the nightly choice when asking for a missing host", async () => {
+    const result = await init(["site", "--nuxt-nightly", "--features", "kv"], await createProject())
+    expect(result.exitCode).toBe(2)
+    expect(result.json.rerun).toContain("--framework nuxt --nuxt-nightly")
+  })
+
   it("prints the plan and exits 2 without --yes and without a terminal", async () => {
     const parent = await createProject()
     const result = await init(["app", "--host", "node", "--features", "kv"], parent)
@@ -434,7 +440,7 @@ describe("vitehub init", () => {
     expect(result.exitCode, result.stdout).toBe(0)
     expect(calls[0]).toEqual([...(pm === "yarn" ? ["npx", "--yes"] : ["pnpm", "dlx"]), nuxiPackage, "init", "site", "--template", "gh:nuxt/starter#d4367031fe43d93d4e2a339f73b519ec35e78b38", ...(nightly ? ["--nightly", "5x"] : []), "--packageManager", pm, "--no-install", "--no-gitInit", "--no-modules"])
     expect(calls.slice(1)).toEqual([[pm, "add", ...result.json.install.packages]])
-    expect(result.json.install.packages).toEqual([...initPackages.nuxt.prod, ...(nightly ? [] : [nuxtNitroPackage]), "@vite-hub/kv"])
+    expect(result.json.install.packages).toEqual([nightly ? "vite-hub" : "vite-hub@>=0.5.1 <1", "h3@^2.0.8", "valibot", ...(nightly ? [] : [nuxtNitroPackage]), "@vite-hub/kv"])
     expect(result.json).toMatchObject({ framework: "nuxt", mode: "create", scaffold: { command: expect.stringContaining(nuxiPackage) }, status: "applied" })
     const config = await readFile(join(parent, "site/nuxt.config.ts"), "utf8")
     expect(locateViteHubConfig("nuxt.config.ts", config)).toMatchObject({ ok: true, site: { form: "nuxt-module-tuple", keys: { kv: { value: true }, host: { value: "vercel" } } } })
@@ -453,9 +459,33 @@ describe("vitehub init", () => {
     expect(result.exitCode, result.stdout).toBe(0)
     expect(result.json).toMatchObject({ framework: "nuxt", mode: "create", status: "planned" })
     expect(result.json.scaffold?.command.includes("--nightly 5x")).toBe(flags.length > 0)
-    expect(result.json.install.packages).toEqual([...initPackages.nuxt.prod, ...nitro, "@vite-hub/kv"])
+    expect(result.json.install.packages).toEqual([flags.length ? "vite-hub" : "vite-hub@>=0.5.1 <1", "h3@^2.0.8", "valibot", ...nitro, "@vite-hub/kv"])
+    if (!flags.length) expect(result.json.install.command).toContain("'vite-hub@>=0.5.1 <1'")
     expect(result.json.changes.some(change => change.path === "pnpm-workspace.yaml" && change.after === nuxtPnpmWorkspace)).toBe(flags.length === 0)
     expect(result.json.stack.command).toBe(`pnpm dlx vite-hub init site --host node --features kv ${replay.join(" ")} --pm pnpm --yes`)
+  })
+
+  it("keeps the parent pnpm workspace and points install failures to its build policy", async () => {
+    const workspace = "packages: [apps/*]\ncatalog: { nuxt: '^4.7.0' }\n"
+    const parent = await createProject({ "apps/.keep": "", "pnpm-workspace.yaml": workspace })
+    const args = ["apps/site", "--framework", "nuxt", "--host", "node", "--features", "kv"]
+    const plan = await init([...args, "--dry-run"], parent)
+    expect(plan.exitCode, plan.stdout).toBe(0)
+    expect(plan.json.changes.map(change => change.path)).not.toContain("pnpm-workspace.yaml")
+    const result = await init([...args, "--yes"], parent, async (_command, args) => {
+      if (args.includes("init")) {
+        await mkdir(join(parent, "apps/site"))
+        await writeFile(join(parent, "apps/site/package.json"), JSON.stringify({ dependencies: { nuxt: "^4.7.0" } }))
+        await writeFile(join(parent, "apps/site/nuxt.config.ts"), "export default defineNuxtConfig({})\n")
+        return { exitCode: 0 }
+      }
+      expect(existsSync(join(parent, "apps/site/pnpm-workspace.yaml"))).toBe(false)
+      expect(await readFile(join(parent, "pnpm-workspace.yaml"), "utf8")).toBe(workspace)
+      return { exitCode: 1 }
+    })
+    expect(result.json.error?.code).toBe("SETUP_INSTALL_FAILED")
+    expect(result.json.error?.fix).toContain(join(parent, "pnpm-workspace.yaml"))
+    expect(result.json.error?.fix).toContain("esbuild: false")
   })
 
   it("rejects --nuxt-nightly for a Vite app", async () => {
@@ -517,7 +547,7 @@ describe("vitehub init", () => {
       return { exitCode: 0 }
     })
     expect(result.exitCode, result.stdout).toBe(0)
-    expect(result.json.install.packages.slice(0, initPackages.nuxt.prod.length + 1)).toEqual([...initPackages.nuxt.prod, nuxtNitroPackage])
+    expect(result.json.install.packages.slice(0, initPackages.nuxt.prod.length + 1)).toEqual(["vite-hub@>=0.5.1 <1", ...initPackages.nuxt.prod.slice(1), nuxtNitroPackage])
     expect(calls).toEqual([["pnpm", "add", ...result.json.install.packages]])
     const config = await readFile(join(root, "nuxt.config.ts"), "utf8")
     expect(locateViteHubConfig("nuxt.config.ts", config)).toMatchObject({ ok: true, site: { keys: { kv: { value: true }, host: { value: "node" } } } })
