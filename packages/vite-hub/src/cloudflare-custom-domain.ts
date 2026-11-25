@@ -14,8 +14,9 @@ export function readProjectWranglerConfig(rootDir: string): Record<string, unkno
     const configPath = wranglerConfigFiles.map(file => join(directory, file)).find(file => existsSync(file) && statSync(file).isFile())
     if (configPath) {
       const text = readFileSync(configPath, "utf8")
+      if (!text.trim()) return
       const extension = extname(configPath)
-      const config: unknown = extension === ".toml" ? parseTOML(text) : parseJSONC(text)
+      const config: unknown = extension === ".toml" ? parseTOML(text) : parseJSONC(text, { allowTrailingComma: true })
       return isRecord(config) ? config : undefined
     }
     const parent = dirname(directory)

@@ -122,7 +122,7 @@ The Logs section of the [Console](/docs/console) reads the same events with the 
 
 ## What happens when you deploy
 
-Local capture works only in development and requires Nitro 3 in Vite or Nuxt 5. In production, Logs reads your events from the log service that you already use. See [Read an existing backend](/docs/logs/configure#read-an-existing-backend).
+Local capture works only in development and requires Nitro 3: in Vite, in Nuxt 4.7 with the `nitro` package, or in Nuxt 5. In production, Logs reads your events from the log service that you already use. See [Read an existing backend](/docs/logs/configure#read-an-existing-backend).
 
 For a richer example with a checkout request, redacted fields, and a diagnostic, run `playground/logs` in the ViteHub repository and follow its README.
 

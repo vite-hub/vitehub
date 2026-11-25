@@ -317,7 +317,7 @@ function createRunIdLookup(backend: OpenWorkflowBackend, options: OpenWorkflowSt
       const [row] = await connection`SELECT "id" FROM ${connection(options.schema)}.${connection("workflow_runs")} WHERE "namespace_id" = ${options.namespaceId} AND "workflow_name" = ${name} AND "idempotency_key" = ${key} ORDER BY "created_at" ASC, "id" ASC LIMIT 1`
       return readRowId(row)
     }
-    throw invariantError(`OpenWorkflow 0.9 backends keep their connection in \`db\` (SQLite) or \`pg\` (Postgres), but the ${options.backend} backend has neither`)
+    throw invariantError(`OpenWorkflow backends keep their connection in \`db\` (SQLite) or \`pg\` (Postgres), but the ${options.backend} backend has neither`)
   }
 }
 

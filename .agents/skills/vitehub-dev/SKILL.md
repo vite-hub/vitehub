@@ -79,7 +79,7 @@ A behavior stays in the consumer when it is one app's workflow. Keep a consumer'
 
 ### Hosts, inspection, and authority
 
-- The developer writes the same code for Node, Cloudflare, Vercel, Netlify, and Deno. Build for Nuxt 5 and Nitro 3 only. When a host cannot support a feature, say so at build time and in the docs.
+- The developer writes the same code for Node, Cloudflare, Vercel, Netlify, and Deno. Build for Nitro 3 only: Nuxt 5, or Nuxt 4.7 and newer with the `nitro` package. When a host cannot support a feature, say so at build time and in the docs.
 - Each primitive exposes its state through code and the CLI first. The Console builds on that same inspection API. Operator tasks, such as reading a primitive's data or acting on a run, belong in the Console, not in custom pages inside each app.
 - Keep authority explicit through Capabilities, grants, Workspace access, and Sources. A guard returns a grant and the action requires it. State durability, isolation, persistence, cost, and production readiness openly.
 
@@ -160,7 +160,7 @@ Apply this section when you open, update, or review a pull request, or when a co
 **Prove it end to end.**
 
 - A bug fix starts with a test or script that fails on `main`.
-- Test in a real project, beyond mocks. For a framework change, create a Nuxt 5 app outside the repository, install the branch build from pkg.pr.new, and run it in dev and in production.
+- Test in a real project, beyond mocks. For a framework change, create a Nuxt 4.7 app with `nitro` and a Nuxt 5 app outside the repository, install the branch build from pkg.pr.new, and run it in dev and in production.
 - Test every host, provider, and configuration form that the change affects.
 - For speed, size, or startup claims, measure on the base and on the branch with the same build. Put both numbers in the pull request.
 

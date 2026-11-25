@@ -398,13 +398,13 @@ describe("the account in the pill", () => {
     expect(await pageSession(nitroApp, cookie)).toEqual({ tools: [] })
   })
 
-  it("names a guest without the made-up email, and without the Console line", async () => {
+  it("names a guest without the made-up email, without the Console line, and as a guest", async () => {
     const nitroApp = pageApp()
     const { value } = await call("site.invite", { name: "Ana", grants: ["comments-write"] })
     const { cookie } = await open(String(Reflect.get(Object(value), "url")))
     const { tools, account } = await pageSession(nitroApp, cookie)
     expect(tools.map(tool => tool.id)).toEqual(["comments"])
-    expect(account).toEqual({ name: "Ana", signOut: "/api/auth/sign-out" })
+    expect(account).toEqual({ name: "Ana", signOut: "/api/auth/sign-out", guest: true })
   })
 
   it("never names anyone to an anonymous visitor", async () => {

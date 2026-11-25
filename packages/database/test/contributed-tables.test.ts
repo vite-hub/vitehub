@@ -232,7 +232,7 @@ describe("contribution targets", () => {
     // drizzle-kit writes the migration where `server/databases/default.ts` would keep it.
     await writeGeneratedDatabaseArtifacts(config!)
     await execFileAsync(process.execPath, [
-      join(import.meta.dirname, "../node_modules/drizzle-kit/bin.cjs"),
+      join(import.meta.dirname, "../node_modules/drizzle-kit/bin.js"),
       "generate",
       "--config",
       config!.generatedDrizzleConfigFile,
@@ -323,7 +323,7 @@ describe("contributed Database Definitions", () => {
     expect(config.tableContributionsByDatabase.default).toHaveLength(1)
 
     await writeGeneratedDatabaseArtifacts(config)
-    await execFileAsync(process.execPath, [join(import.meta.dirname, "../node_modules/drizzle-kit/bin.cjs"), "generate", "--config", config.generatedDrizzleConfigFile], { cwd: rootDir })
+    await execFileAsync(process.execPath, [join(import.meta.dirname, "../node_modules/drizzle-kit/bin.js"), "generate", "--config", config.generatedDrizzleConfigFile], { cwd: rootDir })
     const migrations = join(rootDir, "server/databases/default/migrations")
     const sql = await readFile(join(migrations, (await readdir(migrations))[0]!, "migration.sql"), "utf8")
     expect(sql).toContain("CREATE TABLE `history_refs`")
@@ -403,7 +403,7 @@ describe("contributed tables in generated artifacts", () => {
     expect(types).toContain("schema: typeof database_0.schema & typeof contribution_0_0 & typeof contribution_0_1")
 
     await execFileAsync(process.execPath, [
-      join(import.meta.dirname, "../node_modules/drizzle-kit/bin.cjs"),
+      join(import.meta.dirname, "../node_modules/drizzle-kit/bin.js"),
       "generate",
       "--config",
       config.generatedDrizzleConfigFile,
@@ -512,7 +512,7 @@ describe("contributed tables at runtime", () => {
 })
 
 describe("contributed tables at build time", () => {
-  const drizzleKit = join(import.meta.dirname, "../node_modules/drizzle-kit/bin.cjs")
+  const drizzleKit = join(import.meta.dirname, "../node_modules/drizzle-kit/bin.js")
   const migrationsPath = "server/databases/default/migrations"
 
   async function kitGenerate(config: Awaited<ReturnType<typeof generate>>, name: string, ...options: string[]) {
