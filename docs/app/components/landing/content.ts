@@ -114,7 +114,7 @@ export const agentStory = {
 export const closingFacts = [
   { id: "local", label: "No account to start" },
   { id: "license", label: "Apache-2.0", to: "https://github.com/vite-hub/vitehub/blob/main/LICENSE" },
-  { id: "nuxthub", label: "Migrate from NuxtHub", to: "/docs/getting-started/migrate-from-nuxthub" },
+  { id: "nuxthub", label: "Migrate from NuxtHub", to: "/docs/compare/nuxthub#migrate-from-nuxthub" },
   { id: "hosts", label: "Runs on", to: "/docs/frameworks-hosts" },
 ] as const;
 

@@ -1,11 +1,8 @@
 /**
- * The MCP client section of the Console: an MCP client that runs on the server. It connects to MCP servers over Streamable
- * HTTP as the person who signed in to the Console, and keeps each grant, token, and MCP session on the server. The
- * browser gets only these descriptions.
+ * The MCP client section of the Console: an MCP client that runs on the ViteHub Console server, not in the app. It
+ * connects to MCP servers over Streamable HTTP as the person who signed in to the Console, and keeps each grant, token,
+ * and MCP session on the server. The browser gets only these descriptions.
  */
-
-/** Path of the OAuth callback page under the Console mount. Authorization servers redirect the browser here. */
-export const consoleMcpCallbackPath = "/_vitehub/mcp-client/callback"
 
 /**
  * How a connection proves who it is:

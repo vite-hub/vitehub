@@ -307,7 +307,7 @@ describe("schema migration safety", () => {
   ])("keeps an empty string default for %s (required: %s, value: %s)", async (name, required, value) => {
     const cwd = await app({ "nuxt.config.ts": `export default defineNuxtConfig({ modules: ['nuxt-safe-runtime-config'], runtimeConfig: { ${name}: ${value} } })` })
     const config = await readNuxtConfig(cwd)
-    const plan = planFromJsonSchema({
+    const plan = await planFromJsonSchema({
       jsonSchema: { type: "object", required: required ? [name] : [], properties: { [name]: { type: "string", ...(value.includes("process.env") ? { default: "schema-default" } : {}) } } },
       issues: new Map(),
       runtimeConfig: readRuntimeConfig(config).values,
@@ -338,7 +338,7 @@ describe("schema migration safety", () => {
     const cwd = await app({ "nuxt.config.ts": `export default defineNuxtConfig({ modules: ['nuxt-safe-runtime-config'], runtimeConfig: ${value}, nitro: { preset: 'node-server' } })` })
     const config = await readNuxtConfig(cwd)
     const schema = path.reduceRight<Record<string, unknown>>((child, key) => ({ type: "object", required: [key], properties: Object.fromEntries([[key, child]]) }), { type: "string" })
-    const plan = planFromJsonSchema({ jsonSchema: schema, issues: new Map(), runtimeConfig: readRuntimeConfig(config).values })
+    const plan = await planFromJsonSchema({ jsonSchema: schema, issues: new Map(), runtimeConfig: readRuntimeConfig(config).values })
     expect(plan.fields).toHaveLength(1)
     try {
       const edited = editNuxtConfig({ config, env: { kind: "fields", fields: plan.fields }, migrated: new Set([path.join(".")]) })
@@ -372,7 +372,7 @@ describe("schema migration safety", () => {
     const fallback = type === "string" ? "'fallback'" : type === "number" ? "7" : "true"
     const cwd = await app({ "nuxt.config.ts": `export default defineNuxtConfig({ modules: ['nuxt-safe-runtime-config'], runtimeConfig: { value: process.env.SOURCE || ${fallback} } })` })
     const config = await readNuxtConfig(cwd)
-    const plan = planFromJsonSchema({ jsonSchema: { type: "object", required: ["value"], properties: { value: { type } } }, issues: new Map(), runtimeConfig: readRuntimeConfig(config).values })
+    const plan = await planFromJsonSchema({ jsonSchema: { type: "object", required: ["value"], properties: { value: { type } } }, issues: new Map(), runtimeConfig: readRuntimeConfig(config).values })
     expect(plan.unmigrated).toEqual([])
     expect(plan.fields[0]).toMatchObject({ extraVariables: ["SOURCE"] })
     const edited = editNuxtConfig({ config, env: { kind: "fields", fields: plan.fields }, migrated: new Set(["value"]) })
@@ -393,7 +393,7 @@ describe("schema migration safety", () => {
 
   it("keeps nullish fallbacks eligible for conversion", async () => {
     const cwd = await app({ "nuxt.config.ts": "export default defineNuxtConfig({ runtimeConfig: { title: process.env.SOURCE ?? 'fallback' } })" })
-    const plan = planFromJsonSchema({
+    const plan = await planFromJsonSchema({
       jsonSchema: { type: "object", properties: { title: { type: "string" } } },
       issues: new Map(),
       runtimeConfig: readRuntimeConfig(await readNuxtConfig(cwd)).values,
@@ -408,7 +408,7 @@ describe("schema migration safety", () => {
     const source = "export const first = useSafeRuntimeConfig().public.fooBar\nexport const second = useSafeRuntimeConfig().public.foo.bar\nexport const title = useSafeRuntimeConfig().public.title\n"
     const cwd = await app({ "nuxt.config.ts": code, [file]: source })
     const config = await readNuxtConfig(cwd)
-    const plan = planFromJsonSchema({
+    const plan = await planFromJsonSchema({
       jsonSchema: { type: "object", properties: { public: { type: "object", properties: { fooBar: { type: "string" }, foo: { type: "object", properties: { bar: { type: "string" } } }, title: { type: "string" } } } } },
       issues: new Map(),
       runtimeConfig: readRuntimeConfig(config).values,
@@ -439,7 +439,7 @@ describe("schema conversion", () => {
       plain: z.number(),
     })
     const issues = schemaIssues(schema)
-    const plan = planFromJsonSchema({ jsonSchema: await schemaToJsonSchema(schema), issues, runtimeConfig: new Map() })
+    const plan = await planFromJsonSchema({ jsonSchema: await schemaToJsonSchema(schema), issues, runtimeConfig: new Map() })
     for (const [name, type] of [["count", "number"], ["title", "string"], ["enabled", "boolean"], ["nullableCount", "number"]]) {
       expect(issues.get(name)?.join(" ")).toContain(`z.coerce.${type}()`)
       expect(plan.followUps.some(entry => entry.message.includes(name) && entry.message.includes(`z.coerce.${type}()`))).toBe(true)
@@ -463,7 +463,7 @@ describe("schema conversion", () => {
       "server/api/config.ts": "export default () => useSafeRuntimeConfig().value",
     })
     const config = await readNuxtConfig(cwd)
-    const plan = planFromJsonSchema({ jsonSchema: await schemaToJsonSchema(schema), issues: schemaIssues(schema), runtimeConfig: readRuntimeConfig(config).values })
+    const plan = await planFromJsonSchema({ jsonSchema: await schemaToJsonSchema(schema), issues: schemaIssues(schema), runtimeConfig: readRuntimeConfig(config).values })
     expect(plan.fields.map(field => field.configPath)).toEqual([["title"]])
     expect(plan.unmigrated).toEqual(["value"])
     expect(plan.followUps).toContainEqual(expect.objectContaining({ message: expect.stringContaining("Zod catch fallback") }))
@@ -485,12 +485,12 @@ describe("schema conversion", () => {
       public: z.object({ value: z.number().catch(7) }),
       promised: z.string().promise(),
     })
-    const plan = planFromJsonSchema({ jsonSchema: await schemaToJsonSchema(schema), issues: schemaIssues(schema), runtimeConfig: new Map() })
+    const plan = await planFromJsonSchema({ jsonSchema: await schemaToJsonSchema(schema), issues: schemaIssues(schema), runtimeConfig: new Map() })
     expect(plan.fields).toEqual([])
     expect(plan.unmigrated).toEqual(["optional", "nullable", "branded", "readonly", "defaulted", "public.value", "promised"])
   })
 
-  it("reports Zod 3 transforms and checks that Env cannot keep, including branded refinements", async () => {
+  it("reports Zod 3 transforms and checks that the codemod cannot keep, including branded refinements", async () => {
     const { z } = await import("zod/v3")
     const schema = z.object({
       title: z.string().trim().toLowerCase(),
@@ -509,10 +509,10 @@ describe("schema conversion", () => {
     expect(issues.get("count")).toEqual(["the Zod multipleOf check"])
     expect(issues.get("refined")).toEqual(["a Zod refinement"])
     const jsonSchema = await schemaToJsonSchema(schema)
-    const plan = planFromJsonSchema({ jsonSchema, issues, runtimeConfig: new Map() })
+    const plan = await planFromJsonSchema({ jsonSchema, issues, runtimeConfig: new Map() })
     expect(plan.fields).toHaveLength(5)
     for (const name of Object.keys(schema.shape)) {
-      expect(plan.followUps).toContainEqual(expect.objectContaining({ message: expect.stringContaining(`${name}: Env does not keep`) }))
+      expect(plan.followUps).toContainEqual(expect.objectContaining({ message: expect.stringContaining(`${name}: the codemod did not keep`) }))
     }
   })
 
@@ -527,7 +527,7 @@ describe("schema conversion", () => {
     })
     expect(schema.parse({})).toEqual({ defaulted: "fallback" })
     const jsonSchema = await schemaToJsonSchema(schema)
-    const plan = planFromJsonSchema({ jsonSchema, issues: schemaIssues(schema), runtimeConfig: new Map() })
+    const plan = await planFromJsonSchema({ jsonSchema, issues: schemaIssues(schema), runtimeConfig: new Map() })
     expect(plan.fields).toHaveLength(5)
     expect(plan.fields.every(field => !field.required)).toBe(true)
     expect(plan.fields.find(field => field.configPath[0] === "defaulted")?.default).toBe("fallback")
@@ -543,7 +543,7 @@ describe("schema conversion", () => {
     for (const value of expected) expect(schema.safeParse({ mode: value }).success).toBe(true)
     const jsonSchema = await schemaToJsonSchema(schema)
     expect(jsonSchema).toMatchObject({ properties: { mode: { enum: expected } } })
-    const plan = planFromJsonSchema({ jsonSchema, issues: schemaIssues(schema), runtimeConfig: new Map() })
+    const plan = await planFromJsonSchema({ jsonSchema, issues: schemaIssues(schema), runtimeConfig: new Map() })
     if (supported) {
       expect(plan.fields[0]).toMatchObject({ kind: "enum", values: expected })
       expect(plan.unmigrated).toEqual([])

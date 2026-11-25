@@ -78,7 +78,7 @@ import { viteHubDurabilityPlugin } from "./durability/vite.ts"
 import { browserErrorsVitePlugin } from "./browser-errors-vite.ts"
 import { logsVitePlugin } from "./logs-vite.ts"
 import { observabilityVitePlugin, type LogsOptions, type ObservabilityOptions } from "./observability-vite.ts"
-import { isConsoleMcpClientEnabled, resolveConsoleSectionIds } from "./console/runtime/sections.ts"
+import { resolveConsoleSectionIds } from "./console/runtime/sections.ts"
 
 import type { AgentOptions as AgentPluginOptions } from "@vite-hub/agent"
 import type { AgentInvocationsDefault } from "@vite-hub/agent"
@@ -110,6 +110,7 @@ import type { QueueOptions } from "@vite-hub/queue"
 import type { Plugin, PluginOption, ResolvedConfig, UserConfig } from "vite"
 import type { DoctorPluginApi } from "vite-doctor/extension"
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
+import { readViteHubVersion } from "./version.ts"
 
 export type { CacheOptions } from "./cache-storage.ts"
 export type { ConsoleOptions } from "./console/vite.ts"
@@ -666,7 +667,8 @@ export interface ViteHubOptions {
    * Messages in the source language, translated per request: `{ i18n: { locales: ["en", "es"] } }`. The first locale is
    * the language of the code. Write ``t`Save` `` in templates, and import `t` from `vite-hub/i18n` in scripts and server
    * code. Translations are records in `locales/<locale>/`, and `vitehub i18n status` shows what is missing. Needs
-   * Nitro 3: Nuxt 5, or Vite with Nitro 3.
+   * Nitro 3: Nuxt 4.7 or newer with the `nitro` package, Nuxt 5, or Vite with Nitro 3. On Nuxt 4, use i18n without
+   * `i18n.workspace`.
    */
   i18n?: I18nOptions
   /**
@@ -1622,7 +1624,6 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
     ["channels", options.channels],
     ["comments", options.comments],
     ["console agents", configuredConsole && options.agent],
-    ["console mcp-client", isConsoleMcpClientEnabled(configuredConsole)],
     ["connections", options.connections],
     // `withConnectionsDatabase()` turns `database` on for Connections, so name the feature that the app enabled.
     ["database", options.database && !options.connections],
@@ -1752,10 +1753,13 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
   if (options.webContainer) plugins.push(requireOptionalOwner(ownerModules.webContainerVite, "webContainer").webContainerVitePlugin(options.webContainer))
   plugins.push(staleChunkReloadVitePlugin())
 
+  // Without a `console` option, `vite dev` serves the operation RPC and the development Setup page.
+  // `console: false` turns the RPC off.
+  const devOperationsOnly = options.console === undefined
   const runtimeCapabilityImports = {
     blob: blobEnabled ? "vite-hub/blob" : false,
     connections: options.connections ? generatedModules.connectionsAgent : false,
-    console: configuredConsole ? "vite-hub/console/server" : false,
+    console: configuredConsole || devOperationsOnly ? generatedModules.consoleAgent : false,
     db: options.database ? "@vite-hub/database/runtime/registry" : false,
     i18n: options.i18n ? "vite-hub/i18n/server" : false,
     // The `page()` Capability reaches the page through Realtime.
@@ -1767,9 +1771,6 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
 
   plugins.push(setupDevPlugin())
   plugins.push(operationsCheckPlugin())
-  // Without a `console` option, `vite dev` serves the operation RPC and the development Setup page.
-  // `console: false` turns the RPC off.
-  const devOperationsOnly = options.console === undefined
   if (configuredConsole || devOperationsOnly) {
     const invocationRootState = {}
     const consolePlugin = consoleVitePlugin({
@@ -1779,6 +1780,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
       blobStores: blobStoreNames,
       console: configuredConsole || undefined,
       rpcOnly: devOperationsOnly,
+      comments: options.comments,
       runtimeCapabilityImports,
       databaseDiscoveryRoot: options.database && options.database !== true ? options.database.projectRoot : undefined,
       rateLimitDiscoveryRoot: options.rateLimit && options.rateLimit !== true ? options.rateLimit.projectRoot : undefined,
@@ -1953,8 +1955,10 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
       rateLimit: "vite-hub/rate-limit",
       realtime: generatedModules.commentsRealtime,
       runtime: "vite-hub/comments/runtime",
+      ...(configuredConsole ? { siteVisitor: generatedModules.consoleSiteVisitor } : {}),
       webhooks: "vite-hub/webhooks",
     },
+    ...configuredConsole ? { pillSegments: [{ module: generatedModules.consolePill, export: "installConsolePill", options: { version: readViteHubVersion(), useCurrentGrants: configuredConsole.authorize === undefined } }] } : {},
   })
   if (options.realtime) {
     plugins.push(requireOptionalOwner(ownerModules.realtimeVite, "realtime").hubRealtime({

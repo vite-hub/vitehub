@@ -1,6 +1,7 @@
 import type { EnvMode, EnvSchemaModuleReference, EnvSource, EnvSourceResolver, EnvTypedVariableOptions, EnvValueSchema, EnvVariableDeclaration, EnvVariableOptions } from "../types.ts"
 import { envErrorDiagnostics } from "../error-diagnostics.ts"
 import { isRuntimeRecord } from "../internal/runtime-type.ts"
+import { readStandardValidate } from "../schema.ts"
 import { envValueTypeName, listItemKinds, parseEnvValue, readJsonInput, stringValueSchema } from "./values.ts"
 
 type EnvListItem = boolean | number | string
@@ -255,14 +256,7 @@ function isSchemaModule(value: unknown): value is EnvSchemaModuleReference {
 }
 
 function isStandardSchemaLike(value: unknown): value is StandardSchemaLike {
-  try {
-    if ((typeof value !== "object" && typeof value !== "function") || value === null) return false
-    const standard: unknown = Reflect.get(value, "~standard")
-    return isRuntimeRecord(standard) && typeof standard.validate === "function"
-  }
-  catch {
-    return false
-  }
+  return readStandardValidate(value, "env.json()") !== undefined
 }
 
 function isDeclaration(value: unknown): value is EnvVariableDeclaration {

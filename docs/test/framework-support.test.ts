@@ -4,7 +4,8 @@ import { describe, expect, it } from "vitest";
 import { primitiveLandings } from "../app/data/primitive-landings";
 
 const docsRoot = resolve(import.meta.dirname, "../content/docs");
-const unsupported = /Nuxt\s+4\b|Nitro\s+2\b|nitropack|nuxt@\^?4\b|["']nuxt["']:\s*["']\^?4\b/;
+const before47 = String.raw`4(?!\.(?:[7-9]|[1-9]\d))\b`;
+const unsupported = new RegExp(String.raw`Nuxt\s+${before47}|Nitro\s+2\b|nitropack|nuxt@\^?${before47}|["']nuxt["']:\s*["']\^?${before47}`);
 
 // The chat version must match its build fixture. Check the Cloudflare workaround
 // before removing its runtime note.

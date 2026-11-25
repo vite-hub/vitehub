@@ -6,7 +6,7 @@ description: "Where ViteHub Logs captures events: Nitro 3 local capture, Cloudfl
 icon: i-lucide-logs
 ---
 
-Local Evlog capture supports Nitro 3, in Vite and in Nuxt 5, and registers `evlog/nitro/v3`. Import the request logger from `evlog/nitro/v3`.
+Local Evlog capture supports Nitro 3, in Vite, in Nuxt 4.7 with the `nitro` package, and in Nuxt 5, and registers `evlog/nitro/v3`. Import the request logger from `evlog/nitro/v3`.
 
 ## Cloudflare
 

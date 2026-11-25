@@ -42,7 +42,7 @@ export function createInlineEdit(options: InlineEditOptions) {
       return options.failed(error)
     }
     options.drafted(field)
-    options.info("Saved as a draft. Publish it in the Console at console.vitehub.dev.")
+    options.info("Saved as a draft. Publish it in the Console.")
   }
 
   async function start(element: HTMLElement) {
@@ -57,7 +57,7 @@ export function createInlineEdit(options: InlineEditOptions) {
     if (request !== generation || !element.isConnected) return
     if (error) return options.failed(error)
     if (!value.editable || value.value === null) {
-      options.info("This field is not plain text. Edit it in the Console at console.vitehub.dev.")
+      options.info("This field is not plain text. Edit it in the Console.")
       return
     }
     editing = { element, field, page, digest: value.digest, original: element.textContent ?? "", initial: value.value }

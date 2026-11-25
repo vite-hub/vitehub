@@ -4,7 +4,7 @@
   "type": "module",
   "dependencies": {
     "@t3-oss/env-nuxt": "^0.13.11",
-    "nuxt": "^4.4.8",
+    "nuxt": "npm:nuxt-nightly@5x",
     "zod": "^4.4.3"
   }
 }

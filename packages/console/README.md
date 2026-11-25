@@ -105,7 +105,7 @@ The Console refuses private MCP addresses, such as `localhost` and `10.0.0.8`, a
 
 ## Skills and page tools for apps
 
-The Console serves the public ViteHub skill of its `vite-hub` version, in the same well-known format as an app at `<base>/_vitehub/.well-known/skills`. The build copies the files from the built `vite-hub` package, so build `vite-hub` first.
+The Console serves the public ViteHub skill of its `vite-hub` version in the well-known skills format. Apps do not serve it. The build copies the files from `dist/console-skills` of the built `vite-hub` package, so build `vite-hub` first.
 
 ```sh
 npx skills add https://console.vitehub.dev               # the Console's version
@@ -116,7 +116,7 @@ The Console also serves the Console segment of the page tools pill (`page-tool.j
 
 The contract with an app's page tools loader:
 
-- The app decides who sees the pill. Its session route `<base>/_vitehub/page/tools` reads the app's own `__Host-vitehub-site` token and gives the Console tool only to a token with the `console` role. The Console never reads a cookie for these files: browsers block third-party cookies.
+- The app decides who sees the pill. Its session route `<base>/_vitehub/page/tools` reads the app's Site access cookie and gives the Console tool only to a token with the `console` role. Apps on the same origin use separate cookies for each base path. The Console never reads a cookie for these files: browsers block third-party cookies.
 - The `script` of the Console tool is `<console origin>/page/<vite-hub version>/page-tool.js?base=<app base>`. The segment reads the app base from `base` and opens the Console that served it.
 - The account item is `<console origin>/page/<vite-hub version>/account.js`. Its default export is `mountViteHubPageAccount` from `@vite-hub/internal/runtime/page-account`.
 - An app with a Content Security Policy adds the Console origin to `script-src`, for example `script-src 'self' https://console.vitehub.dev`. A policy with `'strict-dynamic'` ignores origins, so the app must then serve the same files itself.
@@ -182,9 +182,9 @@ The `/api/projects` routes and the forward need a session or an API key. They ac
 | `DELETE /api/projects/<id>/site/invites/<id>` | Revoke an invite that nobody opened. |
 | `POST /api/projects/<id>/site/codes` | A one-time code for the caller, such as for a phone: `{ "path": "/runs/42" }`. The answer holds the link `/go/<secret>`. It works once, for 10 minutes. |
 | `DELETE /api/projects/<id>/site/sessions/<id>` | Revoke the pass of a browser. The Console signs no new token for it. |
-| `POST /api/projects/<id>/site/token` | A Site access token for the caller, a member of the team: `{ "path": "/docs", "state": "<state hash of the app>" }`. The answer is `{ "url": "<app>/_vitehub/site?token=vst1.…" }`. |
+| `POST /api/projects/<id>/site/token` | A Site access token for the caller, a member of the team: `{ "path": "/docs", "state": "<state hash of the app>" }`. The answer is `{ "url": "<app>/_vitehub/site?token=vst1.…" }` and sets the browser's revocable Console pass, as a signed-in `/visit` does. Revoking a pass does not revoke a token the app already accepted; it can remain valid for up to 12 hours. A member with a Console session can get a new pass. |
 | `GET /visit?app=<app URL>&state=<state hash>&return=<path>&project=<id>` | The app's `/_vitehub/site` sends a browser here. With a pass of this browser, or a session of a team member, of the `project` when it is set, the Console asks the app with the signed `site.access` call and signs a token for 60 seconds with the roles of the current policy. A guest gets only the invite roles that the inviter can still give. Then it goes back to the app. Else it opens `/open?…&app=<id>`, which asks for a sign-in. It needs no session. |
-| `GET /i/<secret>`, `GET /go/<secret>` | Open a guest invite or a one-time code once. First the Console asks the app with `site.access`: for a code, as its member; for an invite, as the inviter, who must still give at least one of the invite's roles to guests. If not, it answers `403` and the link stays unused. The browser gets a pass for 7 days, renewed on each visit, and goes to the app's `/_vitehub/site?project=<id>`. A second open answers `410`. They need no session. |
+| `GET /i/<secret>`, `GET /go/<secret>` | Open a guest invite or a one-time code once. First the Console asks the app with `site.access`: for a code, as its member; for an invite, as the inviter, who must still give at least one of the invite's roles to guests. If not, it answers `403` and the link stays unused. The browser gets a pass for 7 days, renewed on each visit, and goes to the app's `/_vitehub/site` with a signed handoff. The handoff sends the browser back to the Console that set the pass. A second open answers `410`. They need no session. |
 | `GET /device` | The page where a person approves `vitehub login`. It needs no session to open. |
 | `/api/auth/**` | Better Auth: sign-in, passkeys, and teams (`/api/auth/organization/*`). |
 

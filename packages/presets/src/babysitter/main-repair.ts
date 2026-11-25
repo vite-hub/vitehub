@@ -18,14 +18,14 @@ export interface BabysitterMainRepair {
   stuckJobMinutes?: number | false;
 }
 
-/** GitHub REST calls with the repository's credentials. `read` returns undefined for a 404. */
+/** GitHub REST calls with the repository's credentials. `read` returns undefined for a 404. `write` sends a POST unless `method` says otherwise. */
 export interface MainRepairGitHub {
   read(path: string, query?: Record<string, string | number>): Promise<unknown>;
-  write(path: string, body?: Record<string, unknown>): Promise<unknown>;
+  write(path: string, body?: Record<string, unknown>, method?: "POST" | "PATCH"): Promise<unknown>;
 }
 
 export type MainRepairOutcome =
-  | { state: "green"; head: string }
+  | { state: "green"; head: string; closed?: number[] }
   | { state: "waiting"; head: string; reason: "ci-running" | "no-ci-run" }
   | { state: "repair-open"; head: string; pullRequest: number }
   | { state: "already-attempted"; head: string; red: string; branch: string }
@@ -41,7 +41,11 @@ const runSchema = v.looseObject({
 });
 const runsSchema = v.looseObject({ workflow_runs: v.array(runSchema) });
 const jobsSchema = v.looseObject({ jobs: v.array(v.looseObject({ name: v.string(), status: v.nullish(v.string()), conclusion: v.nullish(v.string()), started_at: v.nullish(v.string()), html_url: v.nullish(v.string()) })) });
-const pullsSchema = v.array(v.looseObject({ number: v.number(), merged_at: v.nullish(v.string()), head: v.looseObject({ ref: v.string(), repo: v.nullish(v.looseObject({ full_name: v.string() })) }) }));
+const pullsSchema = v.array(v.looseObject({
+  number: v.number(), merged_at: v.nullish(v.string()), title: v.optional(v.string()),
+  user: v.nullish(v.looseObject({ login: v.string() })),
+  head: v.looseObject({ ref: v.string(), repo: v.nullish(v.looseObject({ full_name: v.string() })) }),
+}));
 const createdSchema = v.looseObject({ sha: v.string() });
 const pullSchema = v.looseObject({ number: v.number() });
 
@@ -75,7 +79,7 @@ export function mainRepairWorkerContext(input: { enabled: boolean; repository: s
  */
 export async function repairBaseBranch(
   github: MainRepairGitHub,
-  options: { repository: string; branchPrefix: string; mainRepair: BabysitterMainRepair; now?: number; event?: (name: string, properties: Record<string, unknown>) => void },
+  options: { repository: string; branchPrefix: string; repairAuthor?: string; mainRepair: BabysitterMainRepair; now?: number; event?: (name: string, properties: Record<string, unknown>) => void },
 ): Promise<MainRepairOutcome> {
   const { repository, branchPrefix, mainRepair, now = Date.now() } = options;
   const workflows = new Set(mainRepair.workflows);
@@ -87,9 +91,14 @@ export async function repairBaseBranch(
   const base = v.parse(repositorySchema, await github.read(`repos/${repository}`)).default_branch;
   const tip = v.parse(branchSchema, await github.read(`repos/${repository}/branches/${encodeURIComponent(base)}`));
   const head = tip.commit.sha;
+  const repairTitle = (shortSha: string) => `fix: repair ${base} after ${shortSha}`;
+  const repairAuthor = options.repairAuthor?.toLowerCase();
+  const ownedRepairPull = (pull: v.InferOutput<typeof pullsSchema>[number]) => {
+    const shortSha = pull.head.ref.slice(branchPrefix.length);
+    return repairAuthor !== undefined && pull.user?.login.toLowerCase() === repairAuthor
+      && /^[0-9a-f]{8}$/.test(shortSha) && pull.title === repairTitle(shortSha);
+  };
 
-  // A push run on the default branch waits behind the one in progress. A job whose runner vanished can
-  // keep a run in progress for hours, and every later run stays pending.
   const stuckJobMinutes = mainRepair.stuckJobMinutes ?? defaultStuckJobMinutes;
   if (stuckJobMinutes !== false) {
     const running = v.parse(runsSchema, await github.read(`repos/${repository}/actions/runs`, { branch: base, event: "push", status: "in_progress", per_page: 20 }));
@@ -108,9 +117,6 @@ export async function repairBaseBranch(
 
   const runs = v.parse(runsSchema, await github.read(`repos/${repository}/actions/runs`, { branch: base, event: "push", head_sha: head, per_page: 20 })).workflow_runs.filter(watched);
   let failed = runs.find(run => run.status === "completed" && run.conclusion === "failure");
-  // The branch moves faster than its CI finishes, and a newer push cancels the queued run, so the tip
-  // rarely has a finished run. Fall back to the newest finished run of each watched workflow that
-  // started after the last repair PR merged.
   if (!failed) {
     const closed = v.parse(pullsSchema, await github.read(`repos/${repository}/pulls`, { state: "closed", base, sort: "updated", direction: "desc", per_page: 50 }));
     const repairedAt = Math.max(0, ...closed.filter(pull => repairPull(pull) && pull.merged_at).map(pull => Date.parse(pull.merged_at!)));
@@ -118,30 +124,39 @@ export async function repairBaseBranch(
       .filter(run => watched(run) && !["cancelled", "skipped"].includes(run.conclusion ?? "") && Date.parse(run.created_at) > repairedAt);
     failed = mainRepair.workflows.flatMap(name => finished.find(run => run.name === name) ?? []).find(run => run.conclusion === "failure");
   }
+  async function* openRepairs() {
+    for (let page = 1; ; page++) {
+      const pulls = v.parse(pullsSchema, await github.read(`repos/${repository}/pulls`, { state: "open", base, per_page: 100, page }));
+      yield* pulls.filter(repairPull);
+      if (pulls.length < 100) return;
+    }
+  }
   if (!failed) {
     if (!runs.length || runs.some(run => run.status !== "completed")) {
       event("waiting", { head, reason: runs.length ? "ci-running" : "no-ci-run" });
       return { state: "waiting", head, reason: runs.length ? "ci-running" : "no-ci-run" };
     }
-    event("green", { head });
-    return { state: "green", head };
+    const tipPassed = runs.every(run => run.conclusion === "success")
+      && mainRepair.workflows.every(name => runs.some(run => run.name === name));
+    const stale: v.InferOutput<typeof pullsSchema> = [];
+    if (tipPassed && repairAuthor) {
+      for await (const pull of openRepairs()) if (ownedRepairPull(pull)) stale.push(pull);
+    }
+    for (const pull of stale) {
+      await github.write(`repos/${repository}/issues/${pull.number}/comments`, { body: `${base} is green at ${head}, so this repair is no longer needed. Closed by the Babysitter.` });
+      await github.write(`repos/${repository}/pulls/${pull.number}`, { state: "closed" }, "PATCH");
+    }
+    const closed = stale.map(pull => pull.number);
+    event("green", { head, ...closed.length ? { closed } : {} });
+    return closed.length ? { state: "green", head, closed } : { state: "green", head };
   }
 
-  // One repair at a time: an open repair PR already works on the default branch.
-  let open: v.InferOutput<typeof pullsSchema>[number] | undefined;
-  for (let page = 1; !open; page++) {
-    const pulls = v.parse(pullsSchema, await github.read(`repos/${repository}/pulls`, { state: "open", base, per_page: 100, page }));
-    open = pulls.find(repairPull);
-    if (pulls.length < 100) break;
-  }
-  if (open) {
+  for await (const open of openRepairs()) {
     event("repair_open", { head, pull_request: open.number });
     return { state: "repair-open", head, pullRequest: open.number };
   }
   const red = failed.head_sha;
   const branch = `${branchPrefix}${red.slice(0, 8)}`;
-  // Query all states by exact head before retrying an ambiguous create response. Closed and merged
-  // PRs consume the attempt; a ref alone does not prove a PR was ever created.
   const previous = v.parse(pullsSchema, await github.read(`repos/${repository}/pulls`, { state: "all", head: `${repository.split("/")[0]}:${branch}`, per_page: 100 }))
     .find(pull => repairPull(pull) && pull.head.ref === branch);
   if (previous) {
@@ -163,7 +178,7 @@ Opened automatically by the Babysitter.`;
     const commit = v.parse(createdSchema, await github.write(`repos/${repository}/git/commits`, { message: `chore: start ${base} repair for ${red.slice(0, 8)}`, tree: tip.commit.commit.tree.sha, parents: [head] }));
     await github.write(`repos/${repository}/git/refs`, { ref: `refs/heads/${branch}`, sha: commit.sha });
   }
-  const pull = v.parse(pullSchema, await github.write(`repos/${repository}/pulls`, { title: `fix: repair ${base} after ${red.slice(0, 8)}`, head: branch, base, body }));
+  const pull = v.parse(pullSchema, await github.write(`repos/${repository}/pulls`, { title: repairTitle(red.slice(0, 8)), head: branch, base, body }));
   event("opened", { head, red, branch, pull_request: pull.number, jobs: jobs.map(job => job.name) });
   return { state: "opened", head, red, branch, pullRequest: pull.number, jobs: jobs.map(job => job.name) };
 }

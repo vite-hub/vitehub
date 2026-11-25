@@ -151,6 +151,22 @@ Better Auth or a computed column reader failed. Read the error cause in server c
 
 The access token fails a check on its signature, issuer, audience (the resource), or expiry, or its user is gone or banned. It also fails on a path that is not a resource of `mcpOAuth()`, unless `verifyMcpRequest()` gets `resource`. Answer `401` with `error="invalid_token"` so the client signs in again.
 
+`error.data.reason` names the check that failed, for a log or a metric. After `error.code === "AUTH_MCP_TOKEN_INVALID"`, TypeScript types `error.data` as `McpTokenInvalidData` for both `verifyMcpRequest()` and `requireCaller()`. The reason is one of `mcpTokenInvalidReasons` from `vite-hub/auth/mcp`:
+
+| Reason | The token |
+| --- | --- |
+| `expired` | is past its `exp` |
+| `malformed` | has a bad signature, issuer, or claim, or is not a JWT |
+| `wrong_resource` | names another resource, or the path is not a resource of `mcpOAuth()` |
+| `no_keys` | cannot be checked: the Auth has no signing keys |
+| `sender_constrained` | is bound to a key, such as a DPoP token |
+| `user_gone` | names a user that is deleted or banned |
+| `not_allowed` | names a user that `access.policy` or `VITEHUB_MEMBERS` does not allow |
+| `client_disabled` | names an OAuth client that is deleted or disabled |
+| `session_ended` | names a session that ended, without `offline_access` |
+
+`error.data.clientId` is the OAuth client id once the signature and the claims pass, and `undefined` before.
+
 ## AUTH_MCP_CLEANUP_FAILED
 
 `deleteUnusedMcpClients()` could not list or delete OAuth clients. Read the database error in `error.cause`, then run the cleanup again.

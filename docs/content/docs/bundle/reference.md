@@ -11,7 +11,7 @@ icon: i-lucide-book-open
 | Placement | Value | Effect |
 | --- | --- | --- |
 | `vitehub({ bundle })` in `vite.config.ts` | `boolean` | `true` writes a report of each production build. Omission or `false` writes nothing. |
-| `vitehub: { bundle }` in `nuxt.config.ts` | `boolean` | The same, for a Nuxt 5 app with `vite-hub/nuxt`. |
+| `vitehub: { bundle }` in `nuxt.config.ts` | `boolean` | The same, for a Nuxt 4.7 or Nuxt 5 app with `vite-hub/nuxt`. |
 
 ## Commands
 

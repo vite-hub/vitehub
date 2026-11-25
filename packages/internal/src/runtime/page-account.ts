@@ -34,11 +34,18 @@ export interface ViteHubPageAccountOptions {
   signal: AbortSignal
 }
 
+const menuStyles = `[role=menu]{position:fixed;inset:auto;box-sizing:border-box;width:max-content;min-width:220px;max-width:min(300px,calc(100vw - 16px));margin:0;padding:6px;overflow:visible;border:1px solid var(--vitehub-pill-line);border-radius:12px;background:#171717;color:var(--vitehub-pill-text);font:500 13px/1.3 ui-sans-serif,system-ui,sans-serif;box-shadow:0 16px 40px rgb(0 0 0/30%);color-scheme:dark;pointer-events:auto}
+[role=menuitem]{display:flex;width:100%;height:32px;justify-content:flex-start;gap:8px;font-size:13px}
+[role=menuitem] svg{width:15px;height:15px;color:var(--vitehub-pill-muted)}
+[role=menuitem][hidden]{display:none}
+[role=menuitem][aria-disabled=true]{cursor:progress}
+@media(any-pointer:coarse){[role=menuitem]{height:44px}}`
+
 const styles = `${viteHubPillButtonStyles}
+${menuStyles}
 .who{align-self:flex-start;padding:0 3px}
 .avatar{box-sizing:border-box;display:grid;place-items:center;width:22px;height:22px;flex:none;overflow:hidden;border-radius:50%;background:#404040;color:var(--vitehub-pill-strong);font-size:10px;font-weight:600;line-height:1}
 .avatar img{display:block;width:100%;height:100%;object-fit:cover}
-[role=menu]{position:fixed;inset:auto;box-sizing:border-box;width:max-content;min-width:220px;max-width:min(300px,calc(100vw - 16px));margin:0;padding:6px;overflow:visible;border:1px solid var(--vitehub-pill-line);border-radius:12px;background:#171717;color:var(--vitehub-pill-text);font:500 13px/1.3 ui-sans-serif,system-ui,sans-serif;box-shadow:0 16px 40px rgb(0 0 0/30%);color-scheme:dark}
 .me{display:flex;align-items:center;gap:10px;margin-bottom:4px;padding:8px 8px 10px;border-bottom:1px solid var(--vitehub-pill-line)}
 .me .avatar{width:32px;height:32px;font-size:12px}
 .me div{min-width:0}
@@ -47,14 +54,11 @@ const styles = `${viteHubPillButtonStyles}
 .me small{margin-top:2px;color:var(--vitehub-pill-muted);font-size:12px}
 .via{display:flex;align-items:center;gap:6px;padding:6px 8px;color:var(--vitehub-pill-muted);font-size:12px}
 .via svg{width:11px;height:10px;flex:none;fill:var(--vitehub-pill-text)}
-[role=menuitem]{display:flex;width:100%;height:32px;justify-content:flex-start;gap:8px;font-size:13px}
-[role=menuitem] svg{width:15px;height:15px;color:var(--vitehub-pill-muted)}
-[role=menuitem][hidden]{display:none}
-[role=menuitem][aria-disabled=true]{cursor:progress}
-@media(any-pointer:coarse){[role=menuitem]{height:44px}}`
+`
 
 /** Lucide `arrow-up-right`, as the Console link of the pill. */
 const openIcon = `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 7h10v10M7 17 17 7"/></svg>`
+const turnOffIcon = `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49M14.084 14.158a3 3 0 0 1-4.242-4.242M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143M2 2l20 20"/></svg>`
 /** Lucide `log-out`. */
 const signOutIcon = `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 17 5-5-5-5M21 12H9M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/></svg>`
 
@@ -154,13 +158,70 @@ export function mountViteHubPageAccount(options: ViteHubPageAccountOptions): voi
   menu.append(open.item, signOut.item)
   shadow.append(style, button, menu)
 
-  const items = () => [...menu.querySelectorAll<HTMLButtonElement>("[role=menuitem]")].filter(item => !item.hidden)
   let openConsole: (() => void) | undefined
+  wireMenu({
+    menu,
+    button,
+    pill,
+    beforeOpen: () => {
+      openConsole = options.openConsole?.()
+      open.item.hidden = !openConsole
+    },
+    signal,
+  })
+  open.item.addEventListener("click", () => {
+    menu.hidePopover()
+    openConsole?.()
+  }, { signal })
+  wireSignOut(account, signOut, signal)
+}
+
+/**
+ * The menu of the pill's exit button for a signed-in person who is not a guest: "Turn off" first, so Enter twice still
+ * turns the tools off, then the sign-out of the account menu. Returns the nodes that go next to the button in its shadow
+ * root, so the button opens the menu with `popovertarget`.
+ */
+export function viteHubPageExitMenu(options: { account: ViteHubPageAccount, button: HTMLButtonElement, turnOff: { label: string, press: (keyboard: boolean) => void }, canExit: () => boolean, signal: AbortSignal }): Node[] {
+  const { account, button, turnOff, canExit, signal } = options
+  const style = document.createElement("style")
+  style.textContent = menuStyles
+  const menu = document.createElement("vitehub-menu")
+  menu.id = "exit-menu"
+  menu.setAttribute("popover", "auto")
+  menu.setAttribute("role", "menu")
+  menu.setAttribute("aria-label", "Turn off tools or sign out")
+  const off = menuItem(turnOffIcon, turnOff.label)
+  const signOut = menuItem(signOutIcon, `Sign out of ${location.host}`)
+  menu.append(off.item, signOut.item)
+  const label = "Turn off tools or sign out"
+  button.setAttribute("aria-label", label)
+  button.title = label
+  button.setAttribute("aria-haspopup", "menu")
+  button.setAttribute("aria-expanded", "false")
+  button.setAttribute("aria-controls", menu.id)
+  button.setAttribute("popovertarget", menu.id)
+  const host = button.getRootNode()
+  wireMenu({ menu, button, pill: host instanceof ShadowRoot && host.host instanceof HTMLElement ? host.host : null, signal })
+  off.item.addEventListener("click", (event) => {
+    menu.hidePopover()
+    turnOff.press(event.detail === 0)
+  }, { signal })
+  wireSignOut(account, signOut, signal, canExit)
+  return [style, menu]
+}
+
+function wireMenu(options: { menu: HTMLElement, button: HTMLButtonElement, pill: HTMLElement | null, beforeOpen?: () => void, signal: AbortSignal }): void {
+  const { menu, button, pill, signal } = options
+  const active = () => {
+    const root = menu.getRootNode()
+    return root instanceof ShadowRoot || root instanceof Document ? root.activeElement : null
+  }
+  const items = () => [...menu.querySelectorAll<HTMLButtonElement>("[role=menuitem]")].filter(item => !item.hidden)
   // Place the menu next to the pill, toward the page, then clamp its measured width on horizontal docks once it shows.
   const place = (edge: string) => {
     const width = document.documentElement.clientWidth
     const height = document.documentElement.clientHeight
-    const around = (pill ?? bar).getBoundingClientRect()
+    const around = (pill ?? button).getBoundingClientRect()
     const box = button.getBoundingClientRect()
     const place = { top: "auto", right: "auto", bottom: "auto", left: "auto" }
     if (edge === "bottom" || edge === "top") {
@@ -187,11 +248,10 @@ export function mountViteHubPageAccount(options: ViteHubPageAccountOptions): voi
 
   menu.addEventListener("beforetoggle", (event) => {
     if (event.newState === "closed") {
-      if (menu.contains(shadow.activeElement)) button.focus({ preventScroll: true })
+      if (menu.contains(active())) button.focus({ preventScroll: true })
       return
     }
-    openConsole = options.openConsole?.()
-    open.item.hidden = !openConsole
+    options.beforeOpen?.()
     const edge = pill?.getAttribute("edge") ?? "bottom"
     place(edge)
     // The menu shows right after this event, and before the next frame.
@@ -204,7 +264,7 @@ export function mountViteHubPageAccount(options: ViteHubPageAccountOptions): voi
   }, { signal })
   menu.addEventListener("keydown", (event) => {
     const list = items()
-    const at = list.findIndex(item => item === shadow.activeElement)
+    const at = list.findIndex(item => item === active())
     const next = event.key === "ArrowDown" ? at + 1 : event.key === "ArrowUp" ? at - 1 : event.key === "Home" ? 0 : event.key === "End" ? list.length - 1 : undefined
     if (next !== undefined) {
       event.preventDefault()
@@ -216,12 +276,20 @@ export function mountViteHubPageAccount(options: ViteHubPageAccountOptions): voi
     else if (event.key === "Tab") menu.hidePopover()
   }, { signal })
 
-  open.item.addEventListener("click", () => {
-    menu.hidePopover()
-    openConsole?.()
-  }, { signal })
+  if (pill) {
+    // The pill sets `edge` again each time it measures itself, so only a new value counts.
+    const watched = new MutationObserver((records) => {
+      if (records.some(record => record.oldValue !== pill.getAttribute(record.attributeName ?? ""))) menu.hidePopover()
+    })
+    watched.observe(pill, { attributes: true, attributeOldValue: true, attributeFilter: ["collapsed", "dragging", "edge"] })
+    signal.addEventListener("abort", () => watched.disconnect(), { once: true })
+  }
+  signal.addEventListener("abort", () => menu.hidePopover(), { once: true })
+}
+
+function wireSignOut(account: ViteHubPageAccount, signOut: { item: HTMLButtonElement, label: HTMLSpanElement }, signal: AbortSignal, canSignOut?: () => boolean): void {
   signOut.item.addEventListener("click", async () => {
-    if (signOut.item.getAttribute("aria-disabled") === "true") return
+    if (signOut.item.getAttribute("aria-disabled") === "true" || canSignOut?.() === false) return
     signOut.item.setAttribute("aria-disabled", "true")
     signOut.label.textContent = "Signing out…"
     const response = await fetch(account.signOut, { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: "{}" }).catch((error: unknown) => error)
@@ -235,15 +303,4 @@ export function mountViteHubPageAccount(options: ViteHubPageAccountOptions): voi
     if (url.href === location.href) location.reload()
     else location.replace(url)
   }, { signal })
-
-  // The menu belongs to the bar: it closes when the pill folds, moves, or goes away.
-  if (pill) {
-    // The pill sets `edge` again each time it measures itself, so only a new value counts.
-    const watched = new MutationObserver((records) => {
-      if (records.some(record => record.oldValue !== pill.getAttribute(record.attributeName ?? ""))) menu.hidePopover()
-    })
-    watched.observe(pill, { attributes: true, attributeOldValue: true, attributeFilter: ["collapsed", "dragging", "edge"] })
-    signal.addEventListener("abort", () => watched.disconnect(), { once: true })
-  }
-  signal.addEventListener("abort", () => menu.hidePopover(), { once: true })
 }

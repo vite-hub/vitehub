@@ -58,7 +58,7 @@ describe("Plugin order with the Nitro Vite plugin", () => {
       await writeFile(join(root, "index.html"), "<main>ok</main>\n")
       const { nitro } = (await import("nitro/vite" as string)) as { nitro: (config: { framework?: { name: string, version: string } }) => unknown }
       const server = nitro(nitroPosition === "before" ? { framework: { name: "nitro", version: "3.0.0-test-builder" } } : {})
-      const publicUrl = "http://app.example.com"
+      const publicUrl = "https://app.example.com"
       const hub = vitehub({ host: "node", publicUrl, console: true })
       const builder = await createBuilder({
         logLevel: "silent",
@@ -70,15 +70,11 @@ describe("Plugin order with the Nitro Vite plugin", () => {
       await withBuiltServer(root, async (fetchServer) => {
         const page = await fetchServer("/_vitehub", { redirect: "manual" })
         expect(page.status).toBe(303)
-        expect(page.headers.get("location")).toBe("/_vitehub/site?return=%2F")
-        const site = await fetchServer("/_vitehub/site?return=%2F", { redirect: "manual" })
-        expect(site.status).toBe(303)
-        const target = new URL(site.headers.get("location")!)
-        expect(`${target.origin}${target.pathname}`).toBe("https://console.vitehub.dev/visit")
-        expect(target.searchParams.get("app")).toBe(publicUrl)
-        expect(target.searchParams.get("return")).toBe("/")
-        expect(target.searchParams.get("state")).toMatch(/^[\w-]{43}$/)
-        expect(site.headers.get("set-cookie")).toMatch(/__Host-vitehub-site-state=[\w-]{43};/)
+        const target = new URL(page.headers.get("location")!)
+        expect(target.origin).toBe("https://console.vitehub.dev")
+        expect(target.pathname).toBe("/open")
+        expect(Object.fromEntries(target.searchParams)).toEqual({ path: "/", project: publicUrl })
+        expect(page.headers.get("set-cookie")).toBeNull()
         const signed = await signedRpcRequest({ key: ci.key, url: `${publicUrl}/_vitehub/rpc` })
         const rpc = await fetchServer("/_vitehub/rpc", { body: await signed.text(), headers: signed.headers, method: "POST" })
         expect(rpc.status, await rpc.clone().text()).toBe(200)

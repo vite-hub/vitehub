@@ -295,7 +295,7 @@ export function consoleRealtimeAccess(section: ConsoleSectionId): ConsoleRealtim
     if (!pending) {
       // SAFETY: Realtime passes the H3 event of the WebSocket or HTTP request, which has the members the check reads.
       const consoleEvent = event as ConsoleRequestEvent
-      pending = checkConsoleAccess(consoleEvent).then(result => isRuntimeResponse(result) || !consoleAccessAllows(result, section) ? undefined : result)
+      pending = import("#vitehub/console/app").then(() => checkConsoleAccess(consoleEvent)).then(result => isRuntimeResponse(result) || !consoleAccessAllows(result, section) ? undefined : result)
       checked.set(event, pending)
     }
     return pending

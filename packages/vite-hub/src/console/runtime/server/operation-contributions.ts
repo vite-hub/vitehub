@@ -25,7 +25,7 @@ let builtin: OperationRegistry | undefined
  * Console runtime calls this when it loads. Agent tools load it through `installedOperationRegistry()`, so they need no
  * prior RPC call.
  */
-export function installConsoleOperations(contributed: readonly ConsoleOperationContribution[] = [], options: { invoke?: boolean } = {}): OperationRegistry {
+export function installConsoleOperations(contributed: readonly ConsoleOperationContribution[] = [], options: { invoke?: boolean, site?: boolean } = {}): OperationRegistry {
   // An operation that runs app code is registered only when `console.invoke` is on. Without options, nothing is held back.
   const heldBack = new Set<string>()
   const installed = contributed.map(entry => ({
@@ -36,7 +36,8 @@ export function installConsoleOperations(contributed: readonly ConsoleOperationC
     }),
     ...(entry.plugin ? { plugin: entry.plugin } : {}),
   }))
-  const registry = createOperationRegistry([{ operations: consoleOperations, plugin: "vite-hub" }, ...installed])
+  const builtins = options.site === false ? consoleOperations.filter(operation => operation.name !== "site.access") : consoleOperations
+  const registry = createOperationRegistry([{ operations: builtins, plugin: "vite-hub" }, ...installed])
   scope[contributionKey] = { contributed: installed, heldBack, registry }
   installOperationRegistry(registry)
   return registry

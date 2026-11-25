@@ -273,7 +273,8 @@ import type {
 import type { WorkflowHandle } from "@vite-hub/workflow"
 import type { OpenTelemetryLogRecordView, OpenTelemetrySpanView, TraceActivityContext, TraceEventLogEntry } from "@vite-hub/runtime"
 
-export { agentInvocationId, agentInvocationRerunInput } from "./invocations.ts"
+export { agentInvocationId } from "./invocations.ts"
+export { agentInvocationRerunInput } from "./invocation-rerun.ts"
 export { invocationPageChanges } from "./invocations/page-changes.ts"
 export type { InvocationPageApproval, InvocationPageChange } from "./invocations/page-changes.ts"
 
@@ -1483,7 +1484,7 @@ async function runAgentAsWorkflow<
         const invocationJournal = await bindAgentInvocations(agent.invocations, {
           ...context,
           run: { ...context.run, runId: failedRunId },
-        }, { agentName: agentInvocationName(agent, context), deferClaim: ambiguous, terminalTakeover: true })
+        }, { agentName: agentInvocationName(agent, context), deferClaim: ambiguous, executionMode: "workflow", terminalTakeover: true })
         if (!ambiguous) await invocationJournal?.finish(status, error)
       }
     }
@@ -1526,7 +1527,7 @@ async function runAgentAsWorkflow<
     invocationJournal = await bindAgentInvocations(agent.invocations, {
       ...context,
       run: { ...context.run, runId: options.fresh && !durableChannelDelivery ? run.id : context.run?.runId ?? run.id },
-    }, { agentName: agentInvocationName(agent, context), deferClaim: true, terminalTakeover: true })
+    }, { agentName: agentInvocationName(agent, context), deferClaim: true, executionMode: "workflow", terminalTakeover: true })
     if (snapshot?.status === "cancelled" || snapshot?.status === "completed" || snapshot?.status === "failed") {
       await invocationJournal?.finish(snapshot.status, snapshot.error)
     }
@@ -8452,6 +8453,7 @@ async function executeAgentInvocation<
         // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         agentName: agentInvocationName(definition as AgentDefinition, context),
         cancellationDriver: invocationCancellationDriver(definition),
+        executionMode: workflowAttempt ? "workflow" : "inline",
         // A Workflow turn runs its Driver at most once. A retry must not take over the record of an interrupted Driver.
         ...(workflowAttempt ? { driverAtMostOnce: true } : {}),
         // Channel replay depends on the journal claim to prevent duplicate runs.
