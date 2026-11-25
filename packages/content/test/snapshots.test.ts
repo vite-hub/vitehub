@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url"
 import { gzipSync } from "node:zlib"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { defineSource, files } from "@vite-hub/source"
 import type { ContentFile, ContentPlugin } from "comark-content"
 import type { Plugin as RolldownPlugin } from "vite/rolldown"
@@ -216,14 +217,14 @@ describe("Content snapshot build", () => {
     root = undefined
   })
 
-  async function fixture(contentModule: string) {
+  async function fixture(contentModule: string, serverDir = "server") {
     // Inside the package, so the fixture resolves `@vite-hub/source` and `comark-content` as an app would.
     await mkdir(join(import.meta.dirname, ".vitest-tmp"), { recursive: true })
     root = await mkdtemp(join(import.meta.dirname, ".vitest-tmp/snapshot-app-"))
-    await mkdir(join(root, "server"), { recursive: true })
+    await mkdir(join(root, serverDir), { recursive: true })
     await writeFile(join(root, "package.json"), "{ \"type\": \"module\" }\n")
-    await writeFile(join(root, "server/content.ts"), contentModule)
-    await writeFile(join(root, "server/entry.ts"), "export { default } from \"./content.ts\"\n")
+    await writeFile(join(root, serverDir, "content.ts"), contentModule)
+    await writeFile(join(root, serverDir, "entry.ts"), "export { default } from \"./content.ts\"\n")
     return root
   }
 
@@ -267,21 +268,25 @@ describe("Content snapshot build", () => {
     expect(await content.navigation()).toEqual(await live.navigation())
   })
 
-  it("ships the parsed Sources in a Nitro build outside Vite", { timeout: 30_000 }, async () => {
-    const project = await fixture(contentModule)
+  it.each(["server", "node_modules/test-layer/server"])("ships the parsed Sources from %s in a Nitro build outside Vite", { timeout: 30_000 }, async (serverDir) => {
+    const project = await fixture(contentModule, serverDir)
+    const entry = join(project, serverDir, "entry.ts")
+    const kvModule = join(import.meta.dirname, "../src/kv.ts")
+    await writeFile(entry, `export { default } from "./content.ts"\nexport { contentKV } from ${JSON.stringify(kvModule)}\n`)
     const plugin = hubContent({ importBase })
     // SAFETY: The hook reads only the root, aliases, and plugin names.
-    Reflect.apply(plugin.configResolved as (config: object) => void, {}, [{ root: project, resolve: { alias: [] }, plugins: [] }])
+    Reflect.apply(plugin.configResolved as (config: object) => void, {}, [{ root: project, [VITEHUB_SERVER_DIRS]: [serverDir], resolve: { alias: [] }, plugins: [{ name: "@vite-hub/kv/vite" }] }])
     const options = { dev: false, rollupConfig: { plugins: [] as RolldownPlugin[] } }
     plugin.nitro.setup({ options })
     const { rolldown } = await import("vite/rolldown")
-    const bundle = await rolldown({ input: join(project, "server/entry.ts"), cwd: project, platform: "node", external: [/^node:/], plugins: options.rollupConfig.plugins })
+    const bundle = await rolldown({ input: entry, cwd: project, platform: "node", external: [/^node:/, "@vite-hub/kv"], plugins: options.rollupConfig.plugins })
     await bundle.write({ dir: join(project, "dist"), entryFileNames: "entry.mjs" })
     await bundle.close()
 
     const output = await readdir(join(project, "dist"), { recursive: true })
     expect(output.filter(file => file.includes("vitehub-content-snapshot_"))).toEqual([expect.stringMatching(/vitehub-content-snapshot_docs-/), expect.stringMatching(/vitehub-content-snapshot_docs_0-/)])
-    const { default: content } = await import(pathToFileURL(join(project, "dist/entry.mjs")).href)
+    const { default: content, contentKV } = await import(pathToFileURL(join(project, "dist/entry.mjs")).href)
+    expect(contentKV()).toEqual(expect.objectContaining({ get: expect.any(Function), set: expect.any(Function) }))
     expect((await content.list("docs")).map((item: ContentFile) => item.meta.partial)).toEqual([false, false])
   })
 

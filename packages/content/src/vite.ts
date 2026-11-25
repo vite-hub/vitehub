@@ -51,7 +51,7 @@ interface InternalContentOptions extends HubContentOptions {
 const SNAPSHOT_ID = "\0vitehub-content-snapshot:"
 const SNAPSHOT_ID_PATTERN = /^\0vitehub-content-snapshot:/
 
-const CONTENT_ENTRY_FILTER = { include: /\/content\.[cm]?[jt]s(?:\?.*)?$/, exclude: /\/node_modules\// }
+const CONTENT_ENTRY_PATTERN = /\/content\.[cm]?[jt]s(?:\?.*)?$/
 
 const CONTENT_NITRO_PLUGIN_NAME = "@vite-hub/content/nitro"
 
@@ -215,7 +215,7 @@ export function hubContent(options: HubContentOptions = {}): ContentVitePlugin {
             key = {}
           },
           transform: {
-            filter: { id: CONTENT_ENTRY_FILTER },
+            filter: { id: CONTENT_ENTRY_PATTERN },
             async handler(this: { warn(message: string): void }, code: string, id: string) {
               let registration = await registerKV(code, id)
               if (snapshots) registration += await registerSnapshots(key, code, id, message => this.warn(message))
@@ -237,7 +237,7 @@ export function hubContent(options: HubContentOptions = {}): ContentVitePlugin {
       if (this.environment) snapshotsByBuild.delete(this.environment)
     },
     transform: {
-      filter: { id: CONTENT_ENTRY_FILTER },
+      filter: { id: { include: CONTENT_ENTRY_PATTERN, exclude: /\/node_modules\// } },
       async handler(code, id) {
         const environment = this.environment
         if (!environment || environment.config.consumer !== "server") return
