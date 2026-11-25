@@ -662,6 +662,38 @@ The device flow did not finish: the Console did not answer, the person denied th
 
 The CLI has no valid key for the Console: there is no saved key, or the Console answered `401` because the key expired or was revoked. Run `vitehub login`, or set `VITEHUB_CONSOLE_TOKEN`.
 
+## Link an app to a Console
+
+`vitehub apps` lists, links, checks, and unlinks the apps of your team in the Console, with the key of `vitehub login`. It needs no project. Each command matches a tool of the Console MCP and prints the same JSON with `--json`.
+
+| CLI | Console MCP tool |
+| --- | --- |
+| `vitehub apps list` | `list_apps` |
+| `vitehub apps link <url> [--label <name>] [--kind site]` | `link_app` |
+| `vitehub apps check <id>` | `check_app` |
+| `vitehub apps unlink <id> --delete-hosted-comments` | `unlink_app` |
+
+```bash [Terminal]
+vitehub apps link https://app.example.com --label Docs
+vitehub apps check a1b2c3d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d
+```
+
+```txt [Output]
+Linked Docs (https://app.example.com) as a1b2c3d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d.
+VITEHUB_CONSOLE_KEY_CONSOLE_A1B2C3D4=MCowBQYDK2VwAyEA...
+Set VITEHUB_CONSOLE_KEY_CONSOLE_A1B2C3D4 in the environment of https://app.example.com, with console: true in its vitehub config. Deploy it, then run `vitehub apps check a1b2c3d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d`.
+The app answers signed requests of https://console.vitehub.dev.
+```
+
+- `apps link` of a URL that the team already linked prints the same link and key again, so you can run it on every deploy. Only owners and admins may link.
+- The variable holds the public key of the link. It is not a secret, but set it as a secret on Cloudflare so that a deploy from the dashboard or `wrangler deploy` keeps it.
+- `apps check` exits with `1` until the deployed app has the variable.
+- `apps unlink` deletes the private key of the link and the hosted comment threads of the app, so it needs `--delete-hosted-comments`.
+
+### `CLI_CONSOLE_REQUEST_FAILED`
+
+The Console refused the request. The message has the Console's code, such as `CONSOLE_PROJECT_FORBIDDEN` for a member who is not an owner or admin, or `CONSOLE_PROJECT_EXISTS` when the team linked the URL as a site. Run `vitehub whoami` to see the team and the role of the key.
+
 ## Pull env values from a Console
 
 A self-hosted Console can keep the env values of each app and stage when its operator turns them on. The hosted Console at console.vitehub.dev never stores values. `vitehub env pull --from console` writes the values of one stage to `.env.<stage>` with the key of `vitehub login`. It needs no project config.

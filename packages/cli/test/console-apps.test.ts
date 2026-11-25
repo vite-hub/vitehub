@@ -1,0 +1,129 @@
+import { describe, expect, it } from "vitest"
+
+import { createProject, runSetup } from "./setup-helpers.ts"
+
+const consoleUrl = "https://console.example.com"
+const token = `vhk_${"S".repeat(43)}`
+const env = (home: string) => ({ VITEHUB_CONSOLE_TOKEN: token, VITEHUB_CONSOLE_URL: consoleUrl, XDG_CONFIG_HOME: home })
+
+interface FakeApp { id: string, teamId: string, url: string, label: string | null, createdBy: string, createdAt: number, publicKey: string | null, keyVariable: string | null }
+
+function fakeConsole(options: { role?: string, appKnowsKey?: boolean } = {}) {
+  const apps: FakeApp[] = []
+  const requests: { method: string, path: string, search: string, body: unknown }[] = []
+  const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(String(input))
+    const method = init?.method ?? "GET"
+    const body: unknown = init?.body ? JSON.parse(String(init.body)) : undefined
+    requests.push({ body, method, path: url.pathname, search: url.search })
+    if (new Headers(init?.headers).get("authorization") !== `Bearer ${token}`) return Response.json({ code: "CONSOLE_API_KEY_INVALID" }, { status: 401 })
+    if (url.pathname === "/api/whoami") return Response.json({ key: { expiresAt: 0, id: "key-1" }, projectIds: null, roles: [options.role ?? "owner"], team: { id: "t1", name: "Acme" }, user: { email: "", id: "u1", name: "Ada" } })
+    if (url.pathname === "/api/projects" && method === "GET") return Response.json({ projects: apps })
+    if (url.pathname === "/api/projects" && method === "POST") {
+      if (options.role === "member") return Response.json({ code: "CONSOLE_PROJECT_FORBIDDEN", message: "Only owners and admins of the team link projects.", ok: false, status: 403 }, { status: 403 })
+      const input = body as { url: string, label?: string, kind?: "site" }
+      const found = apps.find(app => app.url === input.url.replace(/\/$/, ""))
+      if (found) return Response.json({ project: found })
+      const id = `a1b2c3d4-${apps.length}`
+      const app: FakeApp = { createdAt: 1, createdBy: "u1", id, label: input.label ?? null, teamId: "t1", url: input.url.replace(/\/$/, ""), ...(input.kind === "site" ? { keyVariable: null, publicKey: null } : { keyVariable: "VITEHUB_CONSOLE_KEY_CONSOLE_A1B2C3D4", publicKey: "pk" }) }
+      apps.push(app)
+      return Response.json({ project: app }, { status: 201 })
+    }
+    const check = /^\/api\/projects\/([^/]+)\/check$/.exec(url.pathname)
+    if (check && method === "POST") {
+      return options.appKnowsKey
+        ? Response.json({ answer: { name: "app" }, linked: true, status: 200 })
+        : Response.json({ answer: { code: "CONSOLE_KEY_UNKNOWN", message: "The app has no key for this Console." }, linked: false, status: 401 })
+    }
+    const project = /^\/api\/projects\/([^/]+)$/.exec(url.pathname)
+    if (project && method === "DELETE") {
+      const index = apps.findIndex(app => app.id === decodeURIComponent(project[1]!))
+      if (index < 0) return Response.json({ code: "CONSOLE_PROJECT_NOT_FOUND", message: "There is no such project." }, { status: 404 })
+      apps.splice(index, 1)
+      return new Response(null, { status: 204 })
+    }
+    return Response.json({ code: "NOT_FOUND" }, { status: 404 })
+  }) as typeof globalThis.fetch
+  return { apps, fetch, requests }
+}
+
+describe("vitehub apps", () => {
+  it("links an app, links it again with the same key, lists, and checks it", async () => {
+    const home = await createProject()
+    const console = fakeConsole()
+
+    const empty = await runSetup(["apps", "list"], home, env(home), { fetch: console.fetch })
+    expect(empty.exitCode).toBe(0)
+    expect(empty.stdout).toContain("Team Acme has no apps.")
+
+    const linked = await runSetup<{ app: FakeApp, variable: string, next: string }>(["apps", "link", "https://app.example.com", "--label", "Docs", "--json"], home, env(home), { fetch: console.fetch })
+    expect(linked.exitCode).toBe(0)
+    expect(linked.json).toMatchObject({ app: { id: "a1b2c3d4-0", label: "Docs" }, console: consoleUrl, schemaVersion: 1, variable: "VITEHUB_CONSOLE_KEY_CONSOLE_A1B2C3D4=pk" })
+    expect(linked.json.next).toContain("vitehub apps check a1b2c3d4-0")
+    expect(console.requests.at(-1)).toMatchObject({ body: { label: "Docs", url: "https://app.example.com" }, method: "POST", path: "/api/projects" })
+    expect(linked.stdout).not.toContain(token)
+
+    const again = await runSetup(["apps", "link", "https://app.example.com/"], home, env(home), { fetch: console.fetch })
+    expect(again.exitCode).toBe(0)
+    expect(again.stdout).toContain("Already linked Docs (https://app.example.com) as a1b2c3d4-0.\nVITEHUB_CONSOLE_KEY_CONSOLE_A1B2C3D4=pk\n")
+    expect(console.apps).toHaveLength(1)
+
+    const list = await runSetup<{ apps: FakeApp[], team: object }>(["apps", "list", "--json"], home, env(home), { fetch: console.fetch })
+    expect(list.json).toMatchObject({ apps: [{ id: "a1b2c3d4-0" }], team: { id: "t1", name: "Acme", role: "owner" } })
+    expect((await runSetup(["apps", "list"], home, env(home), { fetch: console.fetch })).stdout).toMatch(/^id\s+label\s+url\s+kind\na1b2c3d4-0\s+Docs\s+https:\/\/app\.example\.com\s+app\n$/)
+
+    const unlinkedApp = await runSetup<{ linked: boolean, status: number }>(["apps", "check", "a1b2c3d4-0", "--json"], home, env(home), { fetch: console.fetch })
+    expect(unlinkedApp.exitCode).toBe(1)
+    expect(unlinkedApp.json).toMatchObject({ linked: false, status: 401 })
+    const text = await runSetup(["apps", "check", "a1b2c3d4-0"], home, env(home), { fetch: console.fetch })
+    expect(text.stdout).toBe("The app does not accept the Console yet: 401 CONSOLE_KEY_UNKNOWN: The app has no key for this Console.\n")
+
+    const ok = await runSetup(["apps", "check", "a1b2c3d4-0"], home, env(home), { fetch: fakeConsole({ appKnowsKey: true }).fetch })
+    expect(ok.exitCode).toBe(0)
+    expect(ok.stdout).toBe(`The app answers signed requests of ${consoleUrl}.\n`)
+  })
+
+  it("registers a site with --kind site and prints its script tag", async () => {
+    const home = await createProject()
+    const console = fakeConsole()
+    const site = await runSetup<{ script: string }>(["apps", "link", "https://site.example.com", "--kind", "site", "--json"], home, env(home), { fetch: console.fetch })
+    expect(site.exitCode).toBe(0)
+    expect(site.json.script).toBe(`<script type="module" src="${consoleUrl}/hosted-comments.js" data-vitehub-comments="a1b2c3d4-0"></script>`)
+    expect(console.requests.at(-1)?.body).toEqual({ kind: "site", url: "https://site.example.com" })
+    const wrong = await runSetup(["apps", "link", "https://site.example.com", "--kind", "app"], home, env(home), { fetch: console.fetch })
+    expect(wrong.exitCode).toBe(1)
+    expect(wrong.stderr).toContain("--kind takes only \"site\"")
+  })
+
+  it("unlinks only with --delete-hosted-comments", async () => {
+    const home = await createProject()
+    const console = fakeConsole()
+    await runSetup(["apps", "link", "https://app.example.com"], home, env(home), { fetch: console.fetch })
+    const refused = await runSetup(["apps", "unlink", "a1b2c3d4-0"], home, env(home), { fetch: console.fetch })
+    expect(refused.exitCode).toBe(1)
+    expect(refused.stderr).toContain("--delete-hosted-comments")
+    expect(console.requests.some(request => request.method === "DELETE")).toBe(false)
+
+    const unlinked = await runSetup<{ unlinked: string, next: string }>(["apps", "unlink", "a1b2c3d4-0", "--delete-hosted-comments", "--json"], home, env(home), { fetch: console.fetch })
+    expect(unlinked.exitCode).toBe(0)
+    expect(unlinked.json).toMatchObject({ next: "Remove VITEHUB_CONSOLE_KEY_CONSOLE_A1B2C3D4 from the environment of https://app.example.com.", unlinked: "a1b2c3d4-0" })
+    expect(console.requests.at(-1)).toMatchObject({ method: "DELETE", path: "/api/projects/a1b2c3d4-0", search: "?deleteHostedComments=true" })
+    expect(console.apps).toHaveLength(0)
+  })
+
+  it("passes the Console's refusal on, and asks for a login without a key", async () => {
+    const home = await createProject()
+    const member = await runSetup<{ error: { code: string, why: string } }>(["apps", "link", "https://app.example.com", "--json"], home, env(home), { fetch: fakeConsole({ role: "member" }).fetch })
+    expect(member.exitCode).toBe(1)
+    expect(member.json.error).toMatchObject({ code: "CLI_CONSOLE_REQUEST_FAILED" })
+    expect(member.json.error.why).toContain("CONSOLE_PROJECT_FORBIDDEN")
+
+    const signedOut = await runSetup<{ error: { code: string } }>(["apps", "list", "--json"], home, { VITEHUB_CONSOLE_URL: consoleUrl, XDG_CONFIG_HOME: home })
+    expect(signedOut.exitCode).toBe(1)
+    expect(signedOut.json.error.code).toBe("CLI_CONSOLE_SIGNED_OUT")
+
+    const usage = await runSetup(["apps", "check"], home, env(home))
+    expect(usage.exitCode).toBe(1)
+    expect(usage.stderr).toContain("Pass one app id.")
+  })
+})
