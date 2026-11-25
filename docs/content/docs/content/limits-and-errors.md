@@ -14,7 +14,7 @@ icon: i-lucide-circle-alert
 - Each of these throws an error with its own code: `collections` without `workspace` or `extends: cms`, `extends` with `workspace`, a collection not made by `documents()`, a collection named like a Source, a `route` other than `true` or `false` (`route: 'public'` names `access: 'public'` in its message), an `access` other than `'public'`, or a `github()` Source without `authorize` that `/api/content/**`, an SEO route other than `robots`, or `previews` would serve, unless `access` is `'public'`.
 - `documents()` paths are relative globs with `*`, `**`, and `?` that end in one extension, such as `posts/**/*.md`. `path` can be a list of globs with that extension. An empty list, a repeated glob, mixed extensions, or a glob without a wildcard throws an error. `content.resolve()` throws for a path that is not a string. Every field is a Standard Schema validator.
 - `defineContent()` needs `AsyncLocalStorage` from `node:async_hooks` in the runtime.
-- Generated Content HTTP routes require Nitro 3, including Nuxt 5. Routes expose `fetch(request)` with a Web `Request`; Markdown middleware reads `event.req`.
+- Generated Content HTTP routes require Nitro 3, which Nuxt 4.7 with the `nitro` package and Nuxt 5 run. Routes expose `fetch(request)` with a Web `Request`; Markdown middleware reads `event.req`.
 
 ## Sources
 
@@ -47,7 +47,7 @@ icon: i-lucide-circle-alert
 
 - `VITEHUB_CONTENT_KEY` signs preview tokens. Without it, preview works only when `NODE_ENV` is `development` or `test`, with a key that changes on restart.
 - A token lives 60 seconds to 24 hours (default one hour) and previews every collection. It is not bound to a user, and the server cannot revoke one token early. Rotating the key ends all of them.
-- Preview covers requests through Nitro 3, in Vite and in Nuxt 5. The preview plugin throws on an app without Nitro 3's fetch entry. Elsewhere, wrap reads in `content.preview.run(event, callback)`.
+- Preview covers requests through Nitro 3, in Vite, in Nuxt 4.7 with the `nitro` package, and in Nuxt 5. The preview plugin throws on an app without Nitro 3's fetch entry. Elsewhere, wrap reads in `content.preview.run(event, callback)`.
 - Nitro's response and function cache skips preview requests. A CDN cannot see the cookie, so make it skip its cache for preview requests. See [Caching](/docs/content/preview#caching).
 
 ## Sessions

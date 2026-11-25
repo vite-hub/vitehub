@@ -76,7 +76,7 @@ Each request gets its own grant through `AsyncLocalStorage`, so parallel preview
 
 A generated Nitro plugin wraps Nitro's request entry. The whole request runs in the preview scope: route rules, middleware, cached routes, pages, and server routes. Requests without the cookie pass through. Your server code does not change.
 
-Preview requires Nitro 3. This works with the `vitehub()` Vite plugin on Nitro 3 and the `vite-hub/nuxt` module on Nuxt 5, with no Nitro experimental flag. Nuxt `useFetch()` during SSR forwards the cookie, so the rendered page shows the draft too.
+Preview requires Nitro 3. This works with the `vitehub()` Vite plugin on Nitro 3 and the `vite-hub/nuxt` module on Nuxt 4.7 with the `nitro` package or on Nuxt 5, with no Nitro experimental flag. Nuxt `useFetch()` during SSR forwards the cookie, so the rendered page shows the draft too.
 
 Preview needs the host's `AsyncLocalStorage` request context. On Cloudflare Workers, turn on the `nodejs_als` compatibility flag in the Worker configuration. Without this API, ViteHub reports a configuration error before it serves requests.
 
