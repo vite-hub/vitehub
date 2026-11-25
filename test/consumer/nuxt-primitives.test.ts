@@ -6,13 +6,8 @@ import { dirname, join } from "node:path"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import { featureIds } from "../../packages/internal/src/features.ts"
-import { agents } from "./nuxt-primitives/agents.ts"
-import { access } from "./nuxt-primitives/access.ts"
-import { content } from "./nuxt-primitives/content.ts"
-import { jobs } from "./nuxt-primitives/jobs.ts"
-import { ops } from "./nuxt-primitives/ops.ts"
+import { entries, notPrimitives } from "./nuxt-primitives/index.ts"
 import { ConfigSource, isRow, modes, type Mode, type PrimitiveRow, type Target } from "./nuxt-primitives/row.ts"
-import { storage } from "./nuxt-primitives/storage.ts"
 import {
   availablePort,
   consumerNuxt,
@@ -25,19 +20,10 @@ import {
   type PackageManifest,
 } from "./packed-app.ts"
 
-const entries = [...storage, ...jobs, ...agents, ...content, ...access, ...ops]
 const rows = entries.filter(isRow)
 const nuxtVersion = process.env.VITEHUB_CONSUMER_NUXT === "4.7" ? "Nuxt 4.7" : "Nuxt 5 nightly"
 
 const featurePackages: Record<string, string> = { rateLimit: "rate-limit", sandboxTask: "sandbox" }
-const notPrimitives: Record<string, string> = {
-  cli: "The `vitehub` command, which the Database row runs.",
-  docs: "A Nuxt module of its own, `vite-hub/docs/nuxt`, that `vite-hub/nuxt` does not install. It adds Nuxt UI and owns `/sitemap.xml`, `/mcp`, and the trailing-slash rule of the site, so it cannot share the primitives app. packages/docs/test/nuxt-consumer.test.ts builds it in a Nuxt app.",
-  codemods: "Rewrites app source before it moves to ViteHub. It adds nothing to a Nuxt app.",
-  presets: "Agent presets built from the other primitives.",
-  runtime: "The shared error and request contracts of every primitive.",
-  ui: "Vue parts that the other primitives render.",
-}
 
 async function viteHubFeatureKeys() {
   const manifest = JSON.parse(await readFile(join(repoRoot, "packages/vite-hub/package.json"), "utf8")) as PackageManifest

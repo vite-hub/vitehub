@@ -103,8 +103,6 @@ The tables show what CI exercises on each host. See the [live smoke runs](https:
 
 Local Vite and Nitro and UnJS have no test status. Local Vite is the dev server, and Nitro is integration glue.
 
-The Nuxt module has two tested paths. CI on `main` builds the packed Nuxt apps of the consumer tests, starts them, and calls their routes on the Nuxt 5 nightly. A second job runs the same apps on Nuxt 4.7 with the `nitro` package.
-
 On Cloudflare and Vercel, the status changes per primitive. A dash means that the host has no provider for the primitive.
 
 <!-- support-matrix:test-status:start -->
@@ -128,6 +126,68 @@ On Cloudflare and Vercel, the status changes per primitive. A dash means that th
 The [Vercel Queue live smoke](https://github.com/vite-hub/vitehub/actions/runs/45181386544/job/137716993575) accepted the direct send, but observed neither the direct nor the deferred job marker. Verify both paths on your deployment before relying on Vercel Queue delivery.
 
 Agent routes are not in the live smoke on any host.
+
+### Nuxt
+
+The Nuxt module has its own check. CI packs the ViteHub packages, installs them in one Nuxt app with a row for each package that `vite-hub/nuxt` installs, starts the app, and calls the routes of each row. One job runs it on the Nuxt 5 nightly and one on Nuxt 4.7 with the `nitro` package, so each cell holds for both. Each row runs in four modes: `nuxt build` with the Node server, `nuxt dev`, `nuxt build` with the `cloudflare_module` preset under `wrangler dev`, and `nuxt dev` with the Cloudflare host. `Not tested` means that the mode has a written exemption below. `Not checked yet` means that the package has no row yet.
+
+<!-- support-matrix:nuxt:start -->
+| Package | Node build | Node dev | Cloudflare build | Cloudflare dev |
+| --- | --- | --- | --- | --- |
+| `kv` | Tested | Tested | Tested | Tested |
+| `database` | Tested | Tested | Tested | Tested |
+| `blob` | Tested | Tested | Tested | Tested |
+| `cache` | Tested | Tested | Tested | Tested |
+| `sync` | Tested | Tested | Tested | Tested |
+| `rate-limit` | Tested | Tested | Tested | Tested |
+| `queue` | Tested | Tested | Tested | Tested |
+| `schedule` | Tested | Tested | Tested | Tested |
+| `workflow` | Tested | Tested | Tested | Tested |
+| `sandbox` | Not tested | Tested | Not tested | Tested |
+| `realtime` | Tested | Tested | Tested | Tested |
+| `agent` | Tested | Tested | Tested | Tested |
+| `channels` | Tested | Tested | Tested | Tested |
+| `connections` | Tested | Tested | Tested | Tested |
+| `gateways` | Tested | Tested | Tested | Tested |
+| `mcp` | Tested | Tested | Tested | Tested |
+| `choices` | Tested | Tested | Tested | Tested |
+| `source` | Tested | Tested | Tested | Tested |
+| `content` | Tested | Tested | Tested | Tested |
+| `cms` | Tested | Tested | Tested | Tested |
+| `workspace` | Tested | Tested | Tested | Tested |
+| `markdown-template` | Tested | Tested | Tested | Tested |
+| `i18n` | Tested | Tested | Tested | Tested |
+| `seo` | Tested | Tested | Tested | Tested |
+| `web-container` | Tested | Tested | Tested | Tested |
+| `env` | Tested | Tested | Tested | Tested |
+| `email` | Tested | Tested | Tested | Tested |
+| `forms` | Tested | Tested | Tested | Tested |
+| `webhooks` | Tested | Tested | Tested | Tested |
+| `auth` | Tested | Tested | Tested | Tested |
+| `comments` | Tested | Tested | Tested | Tested |
+| `console` | Not checked yet | Not checked yet | Not checked yet | Not checked yet |
+| `logs` | Not checked yet | Not checked yet | Not checked yet | Not checked yet |
+| `device` | Not checked yet | Not checked yet | Not checked yet | Not checked yet |
+| `forge` | Not checked yet | Not checked yet | Not checked yet | Not checked yet |
+| `shell` | Not checked yet | Not checked yet | Not checked yet | Not checked yet |
+| `browser` | Not checked yet | Not checked yet | Not checked yet | Not checked yet |
+| `bundle` | Not checked yet | Not checked yet | Not checked yet | Not checked yet |
+| `observability` | Not checked yet | Not checked yet | Not checked yet | Not checked yet |
+
+Not tested:
+
+- `sandbox`, Node build: The Vercel Sandbox driver needs credentials in a Node production build, which this local check does not have.
+- `sandbox`, Cloudflare build: `wrangler dev` does not start the Sandbox Container on a local machine: workerd logs `kj/timer.c++:30: overloaded: operation timed out` and then `exec() cannot be called on a container that is not running`, with rootless Docker and with rootful Docker 29. The repository's local e2e also treats Sandbox as live-only, and the `Sandbox Task Live E2E` job in live-smoke.yml runs it on Cloudflare.
+
+Packages without a row:
+
+- `cli`: The `vitehub` command, which the Database row runs.
+- `docs`: A Nuxt module of its own, `vite-hub/docs/nuxt`, that `vite-hub/nuxt` does not install. It adds Nuxt UI and owns `/sitemap.xml`, `/mcp`, and the trailing-slash rule of the site, so it cannot share the primitives app. packages/docs/test/nuxt-consumer.test.ts builds it in a Nuxt app.
+- `codemods`: Rewrites app source before it moves to ViteHub. It adds nothing to a Nuxt app.
+- `presets`: Agent presets built from the other primitives.
+- `runtime`: The shared error and request contracts of every primitive.
+- `ui`: Vue parts that the other primitives render.
+<!-- support-matrix:nuxt:end -->
 
 ## Qualifications
 
