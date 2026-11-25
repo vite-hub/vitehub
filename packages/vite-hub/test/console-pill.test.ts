@@ -1,6 +1,6 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { basename, join } from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -106,9 +106,7 @@ describe("the Console link", () => {
       .toBe("https://console.vitehub.dev/open?project=https%3A%2F%2Fapp.example.com&path=%2Fcontent%2Fposts%2Fhello")
     expect(consoleDocumentPath(["settings#title"])).toBe("/content/settings")
     expect(consoleDocumentPath(["docs:guide/intro page#title"])).toBe("/content/docs/guide/intro%20page")
-    // A layout singleton next to the post: the document with an id wins.
     expect(consoleDocumentPath(["settings#title", "posts:hello#title"])).toBe("/content/posts/hello")
-    // Two posts, or nothing that parses: the project overview.
     expect(consoleDocumentPath(["posts:a#title", "posts:b#title"])).toBe("/")
     expect(consoleDocumentPath(["", "not a field"])).toBe("/")
   })
@@ -161,9 +159,8 @@ describe("a Console app without Comments", () => {
       for (const options of [{ console: {}, sections: [] }, { rpcOnly: true, sections: [] }]) {
         const config = await nitro(options)
         expect(config?.handlers?.map(handler => handler.route)).not.toContain("/_vitehub/page/tools")
-        expect(config?.plugins ?? []).toEqual([])
-        expect((config?.publicAssets ?? []).map(asset => asset.baseURL)).not.toContain("/_vitehub/console/assets")
-        expect((config?.publicAssets ?? []).map(asset => asset.baseURL)).not.toContain("/_vitehub/page/assets")
+        expect((config?.plugins ?? []).map(plugin => basename(plugin))).toEqual(["operation-loader.js"])
+        expect((config?.publicAssets ?? []).map(asset => asset.baseURL)).toEqual(options.rpcOnly ? [] : ["/_vitehub/.well-known/skills"])
       }
     }
     finally {
