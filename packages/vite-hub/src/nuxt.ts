@@ -18,6 +18,7 @@ import { removeViteHubDevServerFile, writeViteHubDevServerFile } from "@vite-hub
 import { describeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
 import { generatedModules } from "./internal/generated-modules.ts"
 import { nitroOptionalPeers } from "./internal/nitro-optional-peers.ts"
+import { nitroViteImports } from "./internal/nitro-vite-imports.ts"
 import { forgeBuildCheckPlugin } from "./internal/forge-build-check.ts"
 import { drizzleBuildCheckPlugin } from "./internal/drizzle-build-check.ts"
 import { withPrintedDiagnostics } from "./hook-errors.ts"
@@ -339,6 +340,7 @@ const nitroRuntimeResolverNames = new Set([
   "@vite-hub/markdown-template/vite",
   "@vite-hub/realtime/vite",
   "@vite-hub/schedule/vite",
+  "@vite-hub/source/vite",
   "vite-hub/optional-owner-imports",
   "vite-hub/cloudflare-sh-syntax",
   // The durability boot plugin imports `#vitehub/durability/reporters`, which this plugin renders from the replayed plugins.
@@ -350,6 +352,7 @@ const nitroRuntimeResolverNames = new Set([
 const nitroServerTransformNames = new Set([
   "@vite-hub/i18n/vite",
   "@vite-hub/schedule/vite",
+  "@vite-hub/source/vite",
   "@vite-hub/workflow/vite",
 ])
 
@@ -461,6 +464,18 @@ function installNitroRuntimeResolvers(config: Record<string, unknown>, plugins: 
   for (const resolver of resolvers) {
     if (!nitroPlugins.some(candidate => pluginOptionHasName(candidate, resolver.name))) nitroPlugins.push(resolver)
   }
+}
+
+async function installNitroViteImports(config: Record<string, unknown>, root: string): Promise<void> {
+  const rollupConfig = (config.rollupConfig ??= {}) as Record<string, unknown>
+  const configuredPlugins: unknown = rollupConfig.plugins
+  const plugins: unknown[] = Array.isArray(configuredPlugins) ? configuredPlugins : configuredPlugins ? [configuredPlugins] : []
+  rollupConfig.plugins = plugins
+  if (plugins.some(plugin => isRecord(plugin) && plugin.name === "vite-hub/nitro-raw-imports")) return
+
+  const paths = isRecord(config.deps) ? config.deps.paths : undefined
+  const rolldownPath = isRecord(paths) && typeof paths.rolldown === "string" ? paths.rolldown : undefined
+  plugins.push(...await nitroViteImports(root, rolldownPath))
 }
 
 function addTypeScriptDefaults(options: Record<string, unknown>, includes: string[], excludes: string[], key: "sharedTsConfig" | "tsConfig" = "tsConfig"): void {
@@ -1628,10 +1643,13 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     if (incomingNoExternals === false && Array.isArray(config.noExternals)) nitro3ExternalLists.set(config, config.noExternals)
     else nitro3ExternalLists.delete(config)
     // When Nuxt builds Nitro in a Vite environment, the ViteHub plugins already run there.
-    if (!nuxt.options.experimental?.nitroViteEnvironment) installNitroRuntimeResolvers(config, replayPlugins, {
-      root: replayConfig.root || viteRoot,
-      serverDirs: resolveNuxtServerDirs(nuxt.options),
-    })
+    if (!nuxt.options.experimental?.nitroViteEnvironment) {
+      installNitroRuntimeResolvers(config, replayPlugins, {
+        root: replayConfig.root || viteRoot,
+        serverDirs: resolveNuxtServerDirs(nuxt.options),
+      })
+      await installNitroViteImports(config, rootDir)
+    }
     normalizeGeneratedNitroPlugins(config, projectRoot)
     installNitroBuildPlugins(config, [join(projectRoot, ".vitehub"), join(nuxt.options.buildDir, "vitehub")], nuxt.options.dev === true && plan.host === "cloudflare", consoleSections, !nuxt.options.dev)
     if (nuxt.options.dev && plan.host === "cloudflare") {
