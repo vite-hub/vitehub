@@ -193,6 +193,8 @@ export interface ViteHubPageAccount {
   via?: "console"
   /** The path that ends the app session with a `POST`, such as `/api/auth/sign-out`. It ends no other session. */
   signOut: string
+  /** A guest of Site access, whose one-time invite cannot sign them in again, so the exit button never signs them out. */
+  guest?: true
 }
 
 /** The answer of `GET /_vitehub/page/tools`. */
@@ -234,6 +236,7 @@ export function readViteHubPageAccount(value: unknown): ViteHubPageAccount | und
   const image = text(Reflect.get(value, "image"))
   if (image && /^https?:\/\//i.test(image)) account.image = image
   if (Reflect.get(value, "via") === "console") account.via = "console"
+  if (Reflect.get(value, "guest") === true) account.guest = true
   return account
 }
 

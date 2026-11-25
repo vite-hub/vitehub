@@ -78,7 +78,7 @@ export default defineEventHandler((event) => {
   :::
 
   :::product-feature-item{title="Know the limits" icon="i-lucide-info" to="/docs/i18n/limits-and-errors#limits"}
-  Nitro 3 only: Vite with Nitro 3, or Nuxt 5. Each error code has a fix.
+  Nitro 3 only: Vite with Nitro 3, Nuxt 4.7 with the `nitro` package, or Nuxt 5. Each error code has a fix.
   :::
 ::
 
@@ -87,5 +87,5 @@ Use i18n to translate the text of a Vue app and its server routes. Do not add me
 
 In Vue templates, use ``{{ t`Text` }}`` and `<Trans>` with no import. In scripts and server code, import `t`, `plural`, `select`, `selectOrdinal`, and `msg` from `vite-hub/i18n`. Do not call `t` at the top level of a module. Use `msg` there, and call `translate()` where the code runs.
 
-Check coverage with `pnpm vitehub i18n status --json`. Each translation is a Diglot record in `locales/<locale>/segments/<hh>/<hash>.json`: edit its `text` field only, or use `pnpm vitehub i18n import <locale> <file.po>`. A translation must keep each `{0}` of its message. i18n needs Nitro 3. Use Vite with Nitro 3, or Nuxt 5.
+Check coverage with `pnpm vitehub i18n status --json`. Each translation is a Diglot record in `locales/<locale>/segments/<hh>/<hash>.json`: edit its `text` field only, or use `pnpm vitehub i18n import <locale> <file.po>`. A translation must keep each `{0}` of its message. i18n needs Nitro 3: use Vite with Nitro 3, Nuxt 4.7 with the `nitro` package, or Nuxt 5. Follow the [Nuxt install guide](/docs/frameworks-hosts/nuxt#install-the-module) for the matching ViteHub version.
 ::

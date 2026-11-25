@@ -1,28 +1,35 @@
 import { renderSVG } from "uqr"
 
 import { isRecord } from "@vite-hub/internal/object"
+import { siteAccessOperation } from "@vite-hub/internal/site-token"
 
 import { useConsoleProjects } from "./project-session"
-import { ConsoleRequestError, consoleResponseError } from "./request"
+import { ConsoleRequestError, consoleResponseError, requestConsoleOperation } from "./request"
 import { openConsoleLink } from "./site-link"
 
 import type { ConsoleLink } from "./site-link"
 
-/** A browser that Site access signed in to the app: its pass in the ViteHub Console. */
+export const siteAccessOperations = {
+  link: "site.link",
+  sessions: "site.sessions",
+  revokeSession: "site.revoke-session",
+  invite: "site.invite",
+  invites: "site.invites",
+  revokeInvite: "site.revoke-invite",
+  grants: "site.grants",
+} as const
+
 export interface SiteSession {
   id: string
   kind: "member" | "guest"
   person: { id: string, name: string, email?: string, image?: string }
-  /** The roles of the person, such as `comments-write`, and `console` for a member. */
   grants: string[]
-  /** Such as `Chrome · macOS`. */
   device: string
   createdAt: string
   lastSeenAt: string
   expiresAt: string
 }
 
-/** A guest invite that nobody opened yet. */
 export interface SiteInvite {
   id: string
   name: string
@@ -32,7 +39,6 @@ export interface SiteInvite {
   createdBy: { id: string, name: string }
 }
 
-/** A role that Site access may give, such as `comments-write`. `console` is for members only. */
 export interface SiteGrant {
   id: string
   label: string
@@ -40,9 +46,27 @@ export interface SiteGrant {
   membersOnly?: true
 }
 
-/** Whether a Site access request was refused with a reason to show, such as a missing role or a bad invite. */
+/**
+ * Whether the Console keeps the Site access of the open project: an app that answers
+ * `site.access`. Else the app keeps it, and the Console calls its `site.*` operations.
+ */
+export function usesConsoleSiteAccess(): boolean {
+  const projects = useConsoleProjects()
+  return Boolean(projects.current.value && projects.info.value?.operations.includes(siteAccessOperation))
+}
+
+/**
+ * Whether a Site access request was refused with a reason to show: any refusal of the Console, such as a missing role or
+ * a bad invite, or the Auth setup guidance of an app that keeps Site access itself.
+ */
 export function isSiteAccessProblem(error: unknown): error is ConsoleRequestError {
-  return error instanceof ConsoleRequestError
+  return error instanceof ConsoleRequestError && (usesConsoleSiteAccess() || error.code === "AUTH_CONSOLE_UNAVAILABLE")
+}
+
+async function appOperation(operation: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown>> {
+  const body = await requestConsoleOperation(operation, input, signal ? { signal } : {})
+  if (!isRecord(body)) throw new ConsoleRequestError(502, `The app answered ${operation} with no JSON object.`)
+  return body
 }
 
 function currentProject(): { id: string, url: string } {
@@ -95,41 +119,67 @@ function isGrant(value: unknown): value is SiteGrant {
   return hasId(value) && typeof value.label === "string"
 }
 
-/** Everything the Site access section shows, read from the Console in one go. */
-export async function readSiteAccess(signal?: AbortSignal): Promise<{ sessions: SiteSession[], invites: SiteInvite[], grants: SiteGrant[] }> {
+async function readAppSiteAccess(signal?: AbortSignal): Promise<{ sessions: SiteSession[], invites: SiteInvite[], grants: SiteGrant[], sessionsError?: ConsoleRequestError }> {
+  const [sessions, invites, grants] = await Promise.all([
+    appOperation(siteAccessOperations.sessions, {}, signal).catch((error: unknown) => {
+      if (error instanceof ConsoleRequestError && error.code === "AUTH_CONSOLE_UNAVAILABLE") return error
+      throw error
+    }),
+    appOperation(siteAccessOperations.invites, {}, signal),
+    appOperation(siteAccessOperations.grants, {}, signal),
+  ])
+  return {
+    ...(sessions instanceof ConsoleRequestError ? { sessions: [], sessionsError: sessions } : { sessions: listOf(sessions, "sessions", isSession) }),
+    invites: listOf(invites, "invites", isInvite),
+    grants: listOf(grants, "grants", isGrant),
+  }
+}
+
+/**
+ * Everything the Site access section shows, read in one go: from the Console, or from the app when the app keeps Site
+ * access. `sessionsError` is the Auth setup guidance of an app that cannot list its site browsers.
+ */
+export async function readSiteAccess(signal?: AbortSignal): Promise<{ sessions: SiteSession[], invites: SiteInvite[], grants: SiteGrant[], sessionsError?: ConsoleRequestError }> {
+  if (!usesConsoleSiteAccess()) return await readAppSiteAccess(signal)
   const body = await siteApi("GET", "", signal ? { signal } : {})
   return { sessions: listOf(body, "sessions", isSession), invites: listOf(body, "invites", isInvite), grants: listOf(body, "grants", isGrant) }
 }
 
 /**
- * Opens the app in a new tab, signed in as you. The tab opens `<app>/_vitehub/site?project=<id>`, which goes through the
- * Console, with the pass and the policy of this project, and back to the page.
+ * Opens the app in a new tab, signed in as you. With Site access in the Console, the tab opens
+ * `<app>/_vitehub/site?project=<id>`, which goes through the Console, with the pass and the policy of this project, and
+ * back to the page. Else the app signs the tab in with a link of its own.
  */
 export async function openSite(path?: string): Promise<void> {
+  if (!usesConsoleSiteAccess()) {
+    await openConsoleLink(() => appOperation(siteAccessOperations.link, path ? { path } : {}))
+    return
+  }
   const { id, url } = currentProject()
   await openConsoleLink(async () => ({ url: `${url.replace(/\/+$/, "")}/_vitehub/site?${new URLSearchParams({ return: path ?? "/", project: id })}` }))
 }
 
 /** A one-time link for a phone, such as `/go/<code>` of the Console: it lasts 10 minutes, so there is time to scan it. */
 export async function phoneLink(): Promise<ConsoleLink> {
-  return linkOf(await siteApi("POST", "/codes", { body: {} }))
+  return linkOf(usesConsoleSiteAccess() ? await siteApi("POST", "/codes", { body: {} }) : await appOperation(siteAccessOperations.link, { qr: true }))
 }
 
-/** Invites a guest. The answer has the link, which the Console shows once: the Console keeps only its hash. */
+/** Invites a guest. The answer has the link, which the Console shows once: the Console or the app keeps only its hash. */
 export async function inviteGuest(input: { name: string, grants: string[], expiresInDays: 1 | 7 | 30 }): Promise<ConsoleLink & { invite: SiteInvite }> {
-  const body = await siteApi("POST", "/invites", { body: input })
+  const body = usesConsoleSiteAccess() ? await siteApi("POST", "/invites", { body: input }) : await appOperation(siteAccessOperations.invite, input)
   if (!isInvite(body.invite)) throw new ConsoleRequestError(502, "The answer has no invite.")
   return { ...linkOf(body), invite: body.invite }
 }
 
-/** Revokes the pass of a browser. */
+/** Revokes the pass of a browser, or its app session when the app keeps Site access. */
 export async function revokeSession(id: string): Promise<void> {
-  await siteApi("DELETE", `/sessions/${encodeURIComponent(id)}`)
+  if (usesConsoleSiteAccess()) await siteApi("DELETE", `/sessions/${encodeURIComponent(id)}`)
+  else await appOperation(siteAccessOperations.revokeSession, { id })
 }
 
-/** Revokes a guest invite that nobody opened yet. */
 export async function revokeInvite(id: string): Promise<void> {
-  await siteApi("DELETE", `/invites/${encodeURIComponent(id)}`)
+  if (usesConsoleSiteAccess()) await siteApi("DELETE", `/invites/${encodeURIComponent(id)}`)
+  else await appOperation(siteAccessOperations.revokeInvite, { id })
 }
 
 export async function readHostedCommentsAccess(commentsProject: string): Promise<{ sessions: SiteSession[], invites: SiteInvite[], grants: SiteGrant[] }> {
@@ -153,10 +203,11 @@ export function qrCode(url: string): string {
 }
 
 /**
- * What a browser may do, in words: the labels of its grants, such as `Read comments, Write comments`. Grants the
- * catalogue does not know keep their id.
+ * What a browser may do, in words: the labels of its grants, such as `Read comments, Write comments`, or for a member of
+ * an app that keeps Site access itself, `Console and every page tool`. Grants the catalogue does not know keep their id.
  */
-export function grantSummary(grants: readonly string[], catalogue: readonly SiteGrant[]): string {
+export function grantSummary(kind: "member" | "guest", grants: readonly string[], catalogue: readonly SiteGrant[]): string {
+  if (kind === "member" && !usesConsoleSiteAccess()) return "Console and every page tool"
   const labels = grants.map(id => catalogue.find(grant => grant.id === id)?.label ?? id)
   return labels.length ? labels.join(", ") : "Nothing"
 }

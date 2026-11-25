@@ -34,7 +34,7 @@ function consoleRouteGuard(routes: readonly string[]): { name: string, setup: (n
     name: consoleRouteGuardName,
     setup(nitro) {
       nitro.hooks.hook("build:before", () => {
-        const conflict = nitro.scannedHandlers.find(candidate => !candidate.middleware && candidate.route !== undefined && routes.includes(candidate.route))
+        const conflict = nitro.scannedHandlers.find(candidate => !candidate.middleware && candidate.route !== undefined && routes.includes(withoutTrailingSlashes(candidate.route)))
         if (!conflict) return
         throw viteHubErrorDiagnostics.VITE_HUB_R0040({ message: `Cannot mount the ViteHub Console handler at "${conflict.route}" because the app route "${conflict.handler}" uses that path. Move the app route to another path.` })
       })
@@ -42,19 +42,23 @@ function consoleRouteGuard(routes: readonly string[]): { name: string, setup: (n
   }
 }
 
+function withoutTrailingSlashes(path: string): string {
+  return path.replace(/\/+$/, "")
+}
+
 function isConsoleRouteGuard(value: unknown): boolean {
   return value instanceof Object && "name" in value && value.name === consoleRouteGuardName
 }
 
 /**
- * Add the Console route of the app: one lazy `<base>/_vitehub/**` handler. The ViteHub Console and the CLI `POST` signed
+ * Add the Console route of the app: lazy handlers under `<base>/_vitehub`. The ViteHub Console and the CLI `POST` signed
  * calls to `/_vitehub/rpc`. A browser that opens `/_vitehub` or `/_vitehub/<page>` goes to the page of the app with the
  * pill, or, in an app without Comments, to that page of the app in the ViteHub Console. See `server/site-entry.ts`.
  * `/_vitehub/site` takes the tokens of the Console: impersonation and Content preview in every app, and with
  * `siteAccess`, in an app with Comments, Site access. See `server/site.ts`.
  */
 export function addConsoleRpcHandler(
-  nitro: { handlers?: Array<{ handler: string; route?: string }>; modules?: unknown[]; routes?: Record<string, unknown> },
+  nitro: { handlers?: Array<{ handler: string; route?: string }>; modules?: unknown[]; plugins?: string[]; routes?: Record<string, unknown> },
   consoleRuntimeRoot: string,
   base?: string,
   options: { siteAccess?: boolean } = {},
@@ -66,14 +70,12 @@ export function addConsoleRpcHandler(
   const siteAccessEntry = join(consoleRuntimeRoot, "server/entry-site-access.js")
   const entries = [consoleEntry, siteAccessEntry]
   const handler = options.siteAccess ? siteAccessEntry : consoleEntry
-  const suffix = "/_vitehub/**"
-  const retainedHandlers = handlers.filter(candidate => !entries.includes(candidate.handler) || candidate.route === undefined || !candidate.route.endsWith(suffix))
+  const suffixes = ["/_vitehub/**", "/_vitehub", "/_vitehub/rpc", "/_vitehub/site"]
+  const retainedHandlers = handlers.filter(candidate => !entries.includes(candidate.handler) || !suffixes.some(suffix => candidate.route?.endsWith(suffix)))
   handlers.splice(0, handlers.length, ...retainedHandlers)
 
-  const route = mountPath(base, suffix)
-  // The paths that the one route serves itself. A handler of the app on one of them would answer in place of the Console.
-  const routes = [route, ...["/_vitehub", "/_vitehub/rpc", "/_vitehub/site"].map(path => mountPath(base, path))]
-  const taken = (path: string) => routes.includes(path.length > 1 ? path.replace(/\/+$/, "") : path)
+  const routes = suffixes.map(path => mountPath(base, path))
+  const taken = (path: string) => routes.includes(withoutTrailingSlashes(path))
   const conflict = retainedHandlers.find(candidate => candidate.route !== undefined && taken(candidate.route))
   if (conflict) {
     throw viteHubErrorDiagnostics.VITE_HUB_R0040({ message: `Cannot mount the ViteHub Console handler at "${conflict.route}" because that route already uses "${conflict.handler}".` })
@@ -82,9 +84,9 @@ export function addConsoleRpcHandler(
   if (routeConflict) {
     throw viteHubErrorDiagnostics.VITE_HUB_R0040({ message: `Cannot mount the ViteHub Console handler at "${routeConflict}" because the Nitro routes option uses that path. Move the app route to another path.` })
   }
-  // The route checks its own access: a signed POST has no app session, and a token GET has the signed token as proof. Its
-  // modules import the generated Console app module. Loaded on the first request, they stay out of every cold start.
-  kit.addHandler({ handler, lazy: true, meta: { ...consoleRouteMeta }, route }, "end")
+  for (const route of routes) kit.addHandler({ handler, lazy: true, meta: { ...consoleRouteMeta }, route }, "end")
+  const operationLoader = join(consoleRuntimeRoot, "operation-loader.js")
+  nitro.plugins = [...new Set([...nitro.plugins ?? [], operationLoader])]
 
   // SAFETY: The kit preserves the caller's Nitro handler array while adding the Console routes.
   nitro.handlers = kit.config.handlers as Array<{ handler: string; route?: string }>

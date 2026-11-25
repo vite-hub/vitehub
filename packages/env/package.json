@@ -105,6 +105,7 @@
     "@env-spec/parser": "0.6.3",
     "@valibot/to-json-schema": "catalog:runtime",
     "@vite-hub/runtime": "workspace:*",
+    "magic-string": "^1.4.5",
     "nostics": "catalog:runtime",
     "valibot": "catalog:runtime"
   },

@@ -43,7 +43,6 @@ describe("generated Agent routes with the Console fallback", () => {
   })
 })
 
-/** A path that reads the same on every machine: `console/`, `app/`, or `@vite-hub/<package>/`. */
 function owner(root: string, path: string): string {
   if (path.startsWith(`${consoleRuntime}/`)) return `console/${relative(consoleRuntime, path)}`
   if (path.startsWith(`${root}/`)) return `app/${relative(root, path)}`
@@ -51,12 +50,6 @@ function owner(root: string, path: string): string {
   return path
 }
 
-/**
- * Every route, middleware, Nitro plugin, and public asset directory that ViteHub hands to Nitro for one production
- * build, one line each, sorted. A Console route, plugin, or asset that a change adds or removes shows here. The Console
- * adds no Nitro plugin: its routes import the generated Console app module. `connections.management` sets
- * the app's own actor module, so the Connections management API is the app's, not the Console's.
- */
 async function nitroInventory(consoleOptions: true | ConsoleOptions): Promise<{ handlers: string[], plugins: string[], publicAssets: string[] }> {
   const root = await createProject({
     "package.json": JSON.stringify({ name: "console-route-inventory", private: true, type: "module" }),
@@ -98,29 +91,18 @@ async function nitroInventory(consoleOptions: true | ConsoleOptions): Promise<{ 
   }
 }
 
-/**
- * The one Console route of an app, `/_vitehub/**`. The ViteHub Console and the CLI `POST` signed calls to
- * `/_vitehub/rpc`, and a browser opens `/_vitehub` and its pages. In an app with Comments, it also serves Site access at
- * `/_vitehub/site`.
- */
 const consoleRoutes = [
+  "route ALL /_vitehub console/server/entry-site-access.js",
   "route ALL /_vitehub/** console/server/entry-site-access.js",
+  "route ALL /_vitehub/rpc console/server/entry-site-access.js",
+  "route ALL /_vitehub/site console/server/entry-site-access.js",
 ]
 
-/**
- * App features that stay on purpose. They serve the app and its visitors, with the app's own identity, not the Console:
- * Blob signed links, the Comments overlay, app Auth, and the Connections management API with the app's own actor module.
- */
 const appRoutes = [
-  // Signed links for private files in the app's fs Blob store.
   "route ALL /_vitehub/blob-signed/** @vite-hub/blob/dist/runtime/signed.js",
-  // The Comments API of the overlay, with the app's own identity.
   "route ALL /_vitehub/comments/** app/.vitehub/nitro/comments/handler.mjs",
-  // The page tools session of the Comments overlay: which tools this visitor may load on a page of the app.
   "route ALL /_vitehub/page/tools app/.vitehub/nitro/comments/page-tools-route.mjs",
-  // App Auth: the sign-in of the app's own users.
   "route ALL /api/auth/** app/.vitehub/auth/route.ts",
-  // The Connections management API of the app. The test config mounts it with the app's own actor module.
   "route GET /_vitehub/connections/callback app/.vitehub/nitro/connections/handler.ts",
   "route GET /_vitehub/connections/connect/** app/.vitehub/nitro/connections/handler.ts",
   "route POST /_vitehub/connections app/.vitehub/nitro/connections/handler.ts",
@@ -133,17 +115,15 @@ const plugins = [
   "app/.vitehub/nitro/comments/plugin.mjs",
   "app/.vitehub/nitro/durability/plugin.mjs",
   "app/.vitehub/nitro/error-log.mjs",
-  // `security` headers, on by default in built output.
   "app/.vitehub/nitro/request-policy.mjs",
   "app/.vitehub/nitro/schedule/plugin.ts",
   "app/.vitehub/nitro/standard-context.mjs",
   "app/.vitehub/nitro/workflow/build-plugin.mjs",
+  "console/operation-loader.js",
 ]
 
 const publicAssets = [
-  // The Comments overlay script, in the assets folder of the Comments API route.
   "/_vitehub/comments/assets @vite-hub/comments/dist/overlay",
-  // The page tools loader of the Comments pill.
   "/_vitehub/page/assets @vite-hub/comments/dist/page",
 ]
 

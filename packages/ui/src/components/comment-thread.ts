@@ -282,6 +282,7 @@ export const CommentReply = defineComponent({
                   autofocus: true,
                   busy: busy.value,
                   error: error.value,
+                  layout: "row",
                   mentions: mentions.value,
                   modelValue: draft.value,
                   onCancel: () => {

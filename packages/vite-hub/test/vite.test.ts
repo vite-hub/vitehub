@@ -866,7 +866,7 @@ describe("vitehub", () => {
         auth: "vite-hub/auth/agent",
         blob: "vite-hub/blob",
         connections: false,
-        console: expect.stringMatching(/console\/runtime\/server\/agent-capability\.(?:ts|js)$/),
+        console: expect.stringMatching(/console\/runtime\/server\/agent-console\.(?:ts|js)$/),
         db: "@vite-hub/database/runtime/registry",
         i18n: false,
         kv: "vite-hub/kv",
@@ -937,7 +937,7 @@ describe("vitehub", () => {
     const workflowCallsBefore = integrationMocks.hubWorkflow.mock.calls.length
     vitehub({ agent: true, host: "node" })
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
-      runtimeCapabilityImports: expect.objectContaining({ console: expect.stringMatching(/console\/runtime\/server\/agent-capability\.(?:ts|js)$/), db: false }),
+      runtimeCapabilityImports: expect.objectContaining({ console: expect.stringMatching(/console\/runtime\/server\/agent-console\.(?:ts|js)$/), db: false }),
     }))
     vitehub({ agent: true, console: false, host: "node" })
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
@@ -950,7 +950,7 @@ describe("vitehub", () => {
     }))
     vitehub({ agent: true, console: { auth: false }, host: "node" })
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
-      runtimeCapabilityImports: expect.objectContaining({ console: expect.stringMatching(/console\/runtime\/server\/agent-capability\.(?:ts|js)$/) }),
+      runtimeCapabilityImports: expect.objectContaining({ console: expect.stringMatching(/console\/runtime\/server\/agent-console\.(?:ts|js)$/) }),
     }))
     expect(integrationMocks.hubWorkspace).toHaveBeenLastCalledWith({
       assertGitHubStoreAvailable: expect.any(Function),
@@ -959,7 +959,7 @@ describe("vitehub", () => {
 
     vitehub({ agent: true, console: { auth: false }, host: "node" })
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
-      runtimeCapabilityImports: expect.objectContaining({ console: expect.stringMatching(/console\/runtime\/server\/agent-capability\.(?:ts|js)$/) }),
+      runtimeCapabilityImports: expect.objectContaining({ console: expect.stringMatching(/console\/runtime\/server\/agent-console\.(?:ts|js)$/) }),
     }))
 
     vitehub({

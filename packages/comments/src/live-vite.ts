@@ -36,6 +36,7 @@ export { findCommentsEntry } from "./entry.ts"
 export interface CommentsImports {
   /** Exports `defineCommentsPlugin`, `createCommentsHandler`, and `viteHubPageSessionHandler`. */
   runtime: string
+  siteVisitor?: string
   /** Exports `commentsRealtime`. */
   realtime: string
   /** Exports `commentsAuthSession`. */
@@ -423,6 +424,9 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
   const postgres = input.session?.dialect === "postgresql"
   const overlay = input.session?.overlay === false ? "false" : JSON.stringify(`${commentsRoute}/assets/overlay.js?v=${version}`)
   const segments = pillSegmentLines(input.session?.overlay === false ? [] : input.session?.pillSegments ?? [])
+  const siteVisitor = input.session?.overlay === false && input.imports.siteVisitor
+    ? `siteVisitor: async (request) => (await import(${JSON.stringify(input.imports.siteVisitor)})).readConsoleSiteVisitor(request, ${JSON.stringify(input.base ?? "")}, ${input.development === true})`
+    : undefined
   if (input.standalone) {
     const { where, fallback, node } = input.standalone
     const options = [`name: "comments"`, ...(fallback ? [`fallback: ${JSON.stringify(fallback)}`] : [])]
@@ -470,6 +474,7 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
       `development: ${input.development === true}`,
       `overlay: ${overlay}`,
       `base: ${JSON.stringify(input.base ?? "")}`,
+      ...(siteVisitor ? [siteVisitor] : []),
       ...(segments.value ? [`pillSegments: ${segments.value}`] : []),
     ].join(", ")} })`,
     "",

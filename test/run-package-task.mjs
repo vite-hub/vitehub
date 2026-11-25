@@ -393,7 +393,7 @@ export async function runPackageTask(options) {
 
   const taskResults = await runPhase({
     execute,
-    maxParallel: options.maxParallel ?? DEFAULT_MAX_PARALLEL,
+    maxParallel: options.task === "typecheck" ? 1 : options.maxParallel ?? DEFAULT_MAX_PARALLEL,
     packages: selected,
     packageByName,
     parallelSafePackages: options.parallelSafePackages ?? DEFAULT_PARALLEL_SAFE_PACKAGES,

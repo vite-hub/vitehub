@@ -11,6 +11,7 @@ import {
   isSiteStateHash,
   readSiteAccessPolicy,
   readSiteTokenTarget,
+  signSiteHandoff,
   siteAccessOperation,
   siteAccessRoles,
   siteActionOperation,
@@ -216,17 +217,26 @@ export const siteVisitRoute = withAnonymousAuthorization(() => true, async (requ
   for (const project of projects) {
     const access = userId ? await memberAccess(project, userId) : undefined
     const visited = access ? await visitLocation(project, access, state, path) : undefined
-    if (visited) return visited
+    if (visited && access) {
+      if (visited.status === 303) {
+        const pass = await createConsoleSiteStore(db, project.id).rememberMember(access.person, access.roles, request.headers.get("user-agent") ?? "")
+        visited.headers.append("set-cookie", sitePassSetCookie(project.id, pass, secure))
+      }
+      return visited
+    }
   }
   return seeOther(`/open?${new URLSearchParams({ project: app, site: path, visit: state, ...(only ? { app: only } : {}) })}`)
 })
 
 export async function openSiteLink(request: Request, kind: "invite" | "code" | "comments"): Promise<Response> {
   if (request.method !== "GET") return new Response(null, { headers: { allow: "GET" }, status: 405 })
-  const secret = new URL(request.url).pathname.split("/")[kind === "comments" ? 3 : 2] ?? ""
+  const url = new URL(request.url)
+  const secret = url.pathname.split("/")[kind === "comments" ? 3 : 2] ?? ""
   const db = useDatabase("default").db
   const what = kind === "code" ? "code" : "invite"
   if (!/^[\w-]{43}$/.test(secret)) return linkProblem(404, `There is no such ${what}.`)
+  let handoff: string | undefined
+  let handoffUnavailable = false
   const opened = await openConsoleSiteLink(db, {
     kind,
     secret,
@@ -234,22 +244,27 @@ export async function openSiteLink(request: Request, kind: "invite" | "code" | "
     allow: async (link) => {
       const project = { id: link.projectId, teamId: link.teamId }
       if (link.kind === "comments") return Boolean(await siteMember(db, project, link.createdBy))
-      if (link.kind === "invite") return (await guestRoles(project, link.createdBy, link.roles ?? [])).length > 0
-      return link.userId !== null && Boolean(await memberAccess(project, link.userId))
+      const allowed = link.kind === "invite"
+        ? (await guestRoles(project, link.createdBy, link.roles ?? [])).length > 0
+        : link.userId !== null && Boolean(await memberAccess(project, link.userId))
+      if (!allowed) return false
+      const projects = useConsoleProjects(project.teamId)
+      const target = projects instanceof Response ? undefined : await projects.target(project.id)
+      handoff = target && await signSiteHandoff({ app: target.project.url, issuer: url.origin, project: project.id, path: link.path, key: target.key })
+      handoffUnavailable = handoff === undefined
+      return !handoffUnavailable
     },
   })
+  if (handoffUnavailable) return linkProblem(503, "The Console cannot start this Site access visit. Ask the Console operator to check the project link and Console origin.")
   if (opened === "forbidden") return linkProblem(403, `The person of this ${what} can no longer give access to this site from the Console.`)
+  if (opened && handoff) {
+    return seeOther(handoff, new Headers({ "set-cookie": sitePassSetCookie(opened.projectId, opened.pass, isSecure(request)) }))
+  }
   const [project] = opened ? await db.select().from(consoleProjects).where(eq(consoleProjects.id, opened.projectId)).limit(1) : []
   if (opened && project) {
-    const headers = new Headers()
-    if (kind === "comments") {
-      headers.append("set-cookie", sitePassSetCookie(project.id, opened.pass, isSecure(request), "comments", opened.expiresAt))
-      const destination = new URL(project.url)
-      destination.searchParams.set("comment", "")
-      return seeOther(destination.href, headers)
-    }
-    headers.append("set-cookie", sitePassSetCookie(project.id, opened.pass, isSecure(request)))
-    return seeOther(`${project.url}${siteRoute}?${new URLSearchParams({ return: opened.path, project: project.id })}`, headers)
+    const destination = new URL(project.url)
+    destination.searchParams.set("comment", "")
+    return seeOther(destination.href, new Headers({ "set-cookie": sitePassSetCookie(project.id, opened.pass, isSecure(request), "comments", opened.expiresAt) }))
   }
   return linkProblem(410, `This ${what} was already opened, revoked, or it expired. Ask for a new one.`)
 }
@@ -324,8 +339,17 @@ export async function consoleSiteRoute(request: Request, caller: ConsoleTeamCall
       if (!person) return consoleProblem(403, "CONSOLE_SITE_FORBIDDEN", "Only members of the team open the site from the Console.")
       const target = await caller.projects.target(project.id)
       if (!target) return projectNotFound()
-      const location = await signedLocation({ project: target.project, key: target.key, person, roles: siteMemberRoles(policy), state, path })
-      return location instanceof Response ? location : consoleJson({ url: location })
+      const roles = siteMemberRoles(policy)
+      const location = await signedLocation({ project: target.project, key: target.key, person, roles, state, path })
+      if (location instanceof Response) return location
+      const secure = isSecure(request)
+      const existing = readCookie(request, sitePassCookie(project.id, secure))
+      const grant = existing ? await store.pass(existing, person.id) : undefined
+      if (grant) await store.issued(grant.id, roles)
+      const pass = grant && existing ? existing : await store.rememberMember(person, roles, request.headers.get("user-agent") ?? "")
+      const response = consoleJson({ url: location })
+      response.headers.append("set-cookie", sitePassSetCookie(project.id, pass, secure))
+      return response
     }
     default:
       return consoleProblem(404, "NOT_FOUND", "Not found.")

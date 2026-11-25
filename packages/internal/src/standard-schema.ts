@@ -23,6 +23,15 @@ export function isStandardSchema(value: unknown): value is StandardSchemaV1 {
 }
 
 /**
+ * The issues of a Standard Schema result, or `undefined` when the result has none. The result can be an array that
+ * carries its own `issues`, such as ArkType's `ArkErrors`.
+ */
+export function standardResultIssues(result: unknown): readonly unknown[] | undefined {
+  const issues = readOwn(result, "issues")
+  return Array.isArray(issues) && issues.length > 0 ? issues : undefined
+}
+
+/**
  * Read a Standard JSON Schema projection without throwing.
  *
  * Returns `undefined` when the schema has no `~standard.jsonSchema`, when the library cannot represent the type

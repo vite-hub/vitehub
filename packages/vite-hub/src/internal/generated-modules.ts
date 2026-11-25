@@ -8,7 +8,7 @@ export const generatedModules = {
   commentsRealtime: ownModule(import.meta.url, "comments/realtime"),
   commentsRuntimeAuth: ownModule(import.meta.url, "comments/runtime/auth"),
   connectionsAgent: ownModule(import.meta.url, "connections/agent"),
-  consoleAgent: ownModule(import.meta.url, "console/runtime/server/agent-capability"),
+  consoleAgent: ownModule(import.meta.url, "console/runtime/server/agent-console"),
   consoleAgentOperations: ownModule(import.meta.url, "agent/console/operations"),
   consoleAuthOperations: ownModule(import.meta.url, "auth/console/operations"),
   consoleBlob: ownModule(import.meta.url, "console/runtime/server/blob"),
@@ -27,4 +27,5 @@ export const generatedModules = {
   consoleSetup: ownModule(import.meta.url, "console/runtime/server/setup"),
   consoleSiteAccessOperations: ownModule(import.meta.url, "console/runtime/server/site-access-operation"),
   consoleWorkspaceOperations: ownModule(import.meta.url, "workspace/console/operations"),
+  consoleSiteVisitor: ownModule(import.meta.url, "console/runtime/server/site-visitor"),
 }
