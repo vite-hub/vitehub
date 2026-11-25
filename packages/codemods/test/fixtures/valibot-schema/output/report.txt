@@ -1,4 +1,4 @@
-nuxt-safe-runtime-config: migrated 11 Env declarations (2 public, 9 server) from $schema to vite-hub/nuxt.
+nuxt-safe-runtime-config: moved here because the schema has transforms on `allowedOrigins`. Migrated 11 Env declarations (2 public, 9 server) from $schema to vite-hub/nuxt.
 Dry run: no files were written.
 
 Files to change (7):

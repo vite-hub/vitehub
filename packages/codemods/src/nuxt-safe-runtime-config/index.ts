@@ -196,6 +196,19 @@ interface SchemaPlanResult {
   sourceLabel: string
   schemaModule?: SchemaModuleReference
   generated?: { path: string, code: string, importedSources: string[] }
+  transforms: string[]
+}
+
+const reasonList = new Intl.ListFormat("en", { type: "conjunction" })
+
+function routeReason(reasons: readonly string[], summary: string): string {
+  if (!reasons.length) return summary
+  return `moved here because ${reasonList.format(reasons)}. ${summary.charAt(0).toUpperCase()}${summary.slice(1)}`
+}
+
+function transformReason(transforms: readonly string[]): string[] {
+  if (!transforms.length) return []
+  return [`the schema has transforms on ${reasonList.format(transforms.map(path => path ? `\`${path}\`` : "the whole runtimeConfig"))}`]
 }
 
 async function planSchema(input: { cwd: string, config: NuxtConfigFile, options: ResolvedOptions, optionNodes: readonly (Node | undefined)[], framework: Framework }): Promise<SchemaPlanResult> {
@@ -228,11 +241,12 @@ async function planSchema(input: { cwd: string, config: NuxtConfigFile, options:
     ? planSchemaModule({ cwd, config, schemaPath: options.schemaPath, options: input.optionNodes })
     : { reason: onError === "throw" ? "The module did not validate runtimeConfig, so the codemod wrote no schema module." : `The module only reported validation failures (onError: '${onError}'), but Env stops the app when a schema fails, so the codemod wrote no schema module.` }
   const target = "target" in moduleTarget ? moduleTarget.target : undefined
+  const issues = schemaIssues(schema)
   const plan = await planFromJsonSchema({
     schema,
     schemaExports: Boolean(target),
     jsonSchema: await schemaToJsonSchema(schema, cwd),
-    issues: schemaIssues(schema),
+    issues,
     runtimeConfig: runtime.values,
     validateAtBuild,
     validateAtRuntime,
@@ -258,7 +272,7 @@ async function planSchema(input: { cwd: string, config: NuxtConfigFile, options:
   else if (schemaFile) {
     notes.push(`The codemod did not delete ${schemaFile}. Delete it, and its schema library if nothing else uses it.`)
   }
-  return { fields, unmigrated, planned, notes, schemaFile, lines, sourceLabel, schemaModule, generated }
+  return { fields, unmigrated, planned, notes, schemaFile, lines, sourceLabel, schemaModule, generated, transforms: [...issues.transforms] }
 }
 
 async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
@@ -291,6 +305,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
       notes: [`envSchema() with prefix "NUXT_" reads the same variable names: NUXT_PUBLIC_* keys become Public Env and other NUXT_* keys become Server Env, with the same camelCase names. Each field reads its exact schema key.`],
       lines: new Map(),
       sourceLabel: `envSchema (${file})`,
+      transforms: [],
     }
     env = { kind: "env-schema", file, paths: plan.paths }
   }
@@ -298,7 +313,8 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     schemaPlan = await planSchema({ cwd, config, options, optionNodes: [moduleEntry?.inlineOptions, safeProperty?.value], framework: "nuxt" })
     env = { kind: "fields", fields: schemaPlan.fields }
   }
-  const { fields, unmigrated, planned, notes, schemaFile, lines, sourceLabel, schemaModule, generated } = schemaPlan
+  const { fields, unmigrated, planned, notes, schemaFile, lines, sourceLabel, schemaModule, generated, transforms } = schemaPlan
+  const reasons = env.kind === "env-schema" ? [`the app validates with envSchema (\`${env.file}\`)`] : transformReason(transforms)
 
   const migrated = new Set(fields.map(field => pathLabel(field)))
   const edited = editNuxtConfig({ config, env, migrated, schemaModule })
@@ -354,7 +370,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   if (!eslint.length) notes.push("No ESLint config references nuxt-safe-runtime-config/eslint.")
 
   return {
-    summary: `migrated ${fields.length} Env declaration${fields.length === 1 ? "" : "s"} (${publicCount} public, ${fields.length - publicCount} server) from ${sourceLabel} to vite-hub/nuxt.`,
+    summary: routeReason(reasons, `migrated ${fields.length} Env declaration${fields.length === 1 ? "" : "s"} (${publicCount} public, ${fields.length - publicCount} server) from ${sourceLabel} to vite-hub/nuxt.`),
     edits,
     requiresNitro3: true,
     followUps: [...configFollowUps, ...calls.followUps, ...secretFollowUps, ...eslint, ...outOfScope.followUps, ...packageResult.followUps],
@@ -440,7 +456,9 @@ async function migrateNitro(cwd: string): Promise<CodemodResult> {
   if (options.envSchema) throw codemodError(`safeRuntimeConfig sets envSchema. The codemod migrates envSchema only in Nuxt apps. Move the fields to a $schema, then run the codemod again.`)
   if (options.schemaPath === undefined && options.schema === undefined) return removeUnusedNitroModule(cwd, config, moduleEntry)
 
-  const { fields, unmigrated, planned, notes, schemaFile, lines, sourceLabel, schemaModule, generated } = await planSchema({ cwd, config, options, optionNodes: [safeProperty?.value], framework: "nitro" })
+  const { fields, unmigrated, planned, notes, schemaFile, lines, sourceLabel, schemaModule, generated, transforms } = await planSchema({ cwd, config, options, optionNodes: [safeProperty?.value], framework: "nitro" })
+  const reasons = transformReason(transforms)
+  if (moduleEntry) reasons.unshift(`${config.fileName} uses \`${nitroModuleName}\``)
   const migrated = new Set(fields.map(field => pathLabel(field)))
   const runtime = readRuntimeConfig(config)
   const kept = [...runtime.values].flatMap(([path, { property }]) => {
@@ -508,7 +526,7 @@ async function migrateNitro(cwd: string): Promise<CodemodResult> {
   if (!eslint.length) notes.push("No ESLint config references nuxt-safe-runtime-config/eslint.")
 
   return {
-    summary: `migrated ${fields.length} Env declaration${fields.length === 1 ? "" : "s"} (0 public, ${fields.length} server) from ${sourceLabel} to vitehub() in ${viteFile}.`,
+    summary: routeReason(reasons, `migrated ${fields.length} Env declaration${fields.length === 1 ? "" : "s"} (0 public, ${fields.length} server) from ${sourceLabel} to vitehub() in ${viteFile}.`),
     edits,
     followUps: [...configFollowUps, ...calls.followUps, ...secretFollowUps, ...eslint, ...outOfScope.followUps],
     notes,

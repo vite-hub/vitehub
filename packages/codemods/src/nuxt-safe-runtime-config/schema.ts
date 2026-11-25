@@ -174,12 +174,17 @@ const valibotJsonValidations = new Set([
   "value", "values",
 ])
 
-function addIssue(issues: Map<string, string[]>, path: readonly string[], issue: string): void {
+/** Rules that JSON Schema cannot hold, by dotted path, and the paths whose rules change the value. */
+export class SchemaIssues extends Map<string, string[]> {
+  readonly transforms = new Set<string>()
+}
+
+function addIssue(issues: SchemaIssues, path: readonly string[], issue: string): void {
   const key = path.join(".")
   issues.set(key, [...(issues.get(key) ?? []), issue])
 }
 
-function valibotIssues(schema: unknown, path: string[], issues: Map<string, string[]>): void {
+function valibotIssues(schema: unknown, path: string[], issues: SchemaIssues): void {
   if (!isRecord(schema)) return
   if (Array.isArray(schema.pipe)) {
     for (const action of schema.pipe.slice(1)) {
@@ -203,7 +208,7 @@ function zodDefinition(schema: unknown): JsonObject | undefined {
   return isRecord(schema) && isRecord(schema._zod) && isRecord(schema._zod.def) ? schema._zod.def : undefined
 }
 
-function zodIssues(schema: unknown, path: string[], issues: Map<string, string[]>): void {
+function zodIssues(schema: unknown, path: string[], issues: SchemaIssues): void {
   const definition = zodDefinition(schema)
   if (!definition) return
   for (const check of Array.isArray(definition.checks) ? definition.checks : []) {
@@ -233,13 +238,14 @@ function zodIssues(schema: unknown, path: string[], issues: Map<string, string[]
 
 // Checks that zod3ToJsonSchema writes as JSON Schema keywords. Other checks need follow-ups.
 const zod3JsonChecks = new Set(["url", "email", "uuid", "min", "max", "length", "regex", "int"])
+const zod3TransformChecks = new Set(["trim", "toLowerCase", "toUpperCase"])
 
-function zod3Issues(schema: unknown, path: string[], issues: Map<string, string[]>): void {
+function zod3Issues(schema: unknown, path: string[], issues: SchemaIssues): void {
   const definition = zod3Definition(schema)
   if (!definition) return
   for (const check of Array.isArray(definition.checks) ? definition.checks : []) {
     if (!isRecord(check) || typeof check.kind !== "string") continue
-    if (["trim", "toLowerCase", "toUpperCase"].includes(check.kind)) addIssue(issues, path, `a Zod ${check.kind} transform`)
+    if (zod3TransformChecks.has(check.kind)) addIssue(issues, path, `a Zod ${check.kind} transform`)
     else if (!zod3JsonChecks.has(check.kind)) addIssue(issues, path, `the Zod ${check.kind} check`)
   }
   const type = definition.typeName
@@ -289,12 +295,15 @@ function arktypeNarrows(json: unknown): boolean {
   return Object.values(json).some(arktypeNarrows)
 }
 
-function arktypeIssues(schema: unknown, path: string[], issues: Map<string, string[]>): void {
+function arktypeIssues(schema: unknown, path: string[], issues: SchemaIssues): void {
   if (!isRecordOrFunction(schema) || !isRecordOrFunction(schema.internal)) return
   const json = schema.json
   const object = schema.internal.kind !== "morph" && isRecord(json) && json.domain === "object" && json.proto === undefined
   if (!object) {
-    if (schema.internal.includesTransform === true) addIssue(issues, path, "an ArkType morph")
+    if (schema.internal.includesTransform === true) {
+      addIssue(issues, path, "an ArkType morph")
+      issues.transforms.add(path.join("."))
+    }
     if (arktypeNarrows(json)) addIssue(issues, path, "an ArkType narrow")
     return
   }
@@ -305,13 +314,103 @@ function arktypeIssues(schema: unknown, path: string[], issues: Map<string, stri
   }
 }
 
+function collectTransformPaths(schema: unknown, transforms: Set<string>): void {
+  function visit(node: unknown, path: string[]): void {
+    if (!isRecord(node)) return
+    const mark = () => transforms.add(path.join("."))
+    const at = (child: unknown, key: string) => visit(child, [...path, key])
+    const samePath = (child: unknown) => visit(child, path)
+    const entries = (shape: unknown) => {
+      if (isRecord(shape)) for (const [key, child] of Object.entries(shape)) at(child, key)
+    }
+    const items = (values: unknown) => {
+      if (Array.isArray(values)) values.forEach((child, index) => at(child, String(index)))
+    }
+    const options = (values: unknown) => {
+      if (Array.isArray(values)) values.forEach(samePath)
+    }
+
+    const zod = zodDefinition(node)
+    const definition = zod ?? zod3Definition(node)
+    if (definition) {
+      const checks = Array.isArray(definition.checks) ? definition.checks : []
+      const effect = isRecord(definition.effect) ? definition.effect.type : undefined
+      const changesValue = zod
+        ? definition.type === "transform" || checks.some(check => zodDefinition(check)?.check === "overwrite")
+        : effect === "transform" || effect === "preprocess" || checks.some(check => isRecord(check) && typeof check.kind === "string" && zod3TransformChecks.has(check.kind))
+      if (changesValue) mark()
+      switch (zod ? definition.type : definition.typeName) {
+        case "object":
+        case "ZodObject":
+          entries(typeof definition.shape === "function" ? Reflect.apply(definition.shape, undefined, []) : definition.shape)
+          at(definition.catchall, "*")
+          break
+        case "tuple":
+        case "ZodTuple":
+          items(definition.items)
+          at(definition.rest, "*")
+          break
+        case "array":
+        case "ZodArray":
+          at(zod ? definition.element : definition.type, "*")
+          break
+        case "record":
+        case "ZodRecord":
+        case "map":
+        case "ZodMap":
+          at(definition.keyType, "*")
+          at(definition.valueType, "*")
+          break
+        case "set":
+        case "ZodSet":
+          at(definition.valueType, "*")
+          break
+        case "union":
+        case "ZodUnion":
+        case "ZodDiscriminatedUnion":
+          options(definition.options)
+          break
+        case "intersection":
+        case "ZodIntersection":
+          samePath(definition.left)
+          samePath(definition.right)
+          break
+        case "pipe":
+        case "ZodPipeline":
+          samePath(definition.in)
+          samePath(definition.out)
+          break
+        case "ZodEffects": samePath(definition.schema); break
+        case "ZodBranded": samePath(definition.type); break
+        default: samePath(definition.innerType)
+      }
+    }
+    else if (node.kind === "schema" || node.kind === "transformation") {
+      if (node.kind === "transformation") mark()
+      if (Array.isArray(node.pipe)) {
+        options(node.pipe)
+        return
+      }
+      entries(node.entries)
+      items(node.items)
+      options(node.options)
+      samePath(node.wrapped)
+      at(node.item, "*")
+      at(node.rest, "*")
+      at(node.value, "*")
+    }
+  }
+  visit(schema, [])
+}
+
 /** Rules that JSON Schema cannot hold, such as transforms and custom checks, by dotted path. `""` is the schema root. */
-export function schemaIssues(schema: unknown): Map<string, string[]> {
-  const issues = new Map<string, string[]>()
+export function schemaIssues(schema: unknown): SchemaIssues {
+  const issues = new SchemaIssues()
   if (isValibotSchema(schema)) valibotIssues(schema, [], issues)
   else if (zodDefinition(schema)) zodIssues(schema, [], issues)
   else if (zod3Definition(schema)) zod3Issues(schema, [], issues)
   else if (isRecordOrFunction(schema) && isRecord(schema["~standard"]) && schema["~standard"].vendor === "arktype") arktypeIssues(schema, [], issues)
+  collectTransformPaths(schema, issues.transforms)
   return issues
 }
 
