@@ -278,6 +278,7 @@ describe("codemods that add vite-hub/nuxt on Nuxt 4.7", () => {
 
   it.each([
     ["dependencies", { nuxt: "^4.7.0", nitro: "^3.0.261103-rc" }],
+    ["dependencies", { nuxt: "^4.7.0", nitro: "3.0.261103-rc || ^3.0.261103" }],
     ["devDependencies", { nuxt: "~4.7.2" }],
   ])("leaves nitro and Nuxt as they are when %s list nitro", async (section, extra) => {
     const manifest = JSON.parse(withDependencies(extra))
@@ -300,6 +301,8 @@ describe("codemods that add vite-hub/nuxt on Nuxt 4.7", () => {
   it.each([
     ["2.2.28", "dependencies"],
     ["3.0.261102-rc", "dependencies"],
+    ["3.0.261104-rc", "dependencies"],
+    ["^3.0.261103-rc || 3.0.261104-rc", "devDependencies"],
     ["^3.0.0", "devDependencies"],
     ["npm:nitro-nightly@latest", "dependencies"],
   ])("replaces nitro \"%s\" in %s, which Nuxt 4.7 cannot build with", async (nitro, section) => {

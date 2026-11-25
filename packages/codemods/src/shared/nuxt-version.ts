@@ -2,7 +2,7 @@ import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 
-import { intersects, lt, minVersion, parse, Range, subset, validRange } from "semver"
+import { intersects, lt, minVersion, parse, Range, satisfies, subset, validRange } from "semver"
 import { parseDocument } from "yaml"
 
 import { codemodError, codemodsErrorDiagnostics } from "../error-diagnostics.ts"
@@ -80,7 +80,10 @@ function fitsNitro3(version: string): boolean | undefined {
   if (alias && alias[1] !== "nitro") return false
   const range = validRange(alias?.[2] ?? version)
   if (!range) return
-  return subset(range, nitroRange, { includePrerelease: true })
+  return range.split("||").every((clause) => {
+    const exact = parse(clause.trim())
+    return exact ? satisfies(exact, nitroRange) : subset(clause, nitroRange)
+  })
 }
 
 /** False when package.json requires a Nuxt version before 5, directly or through a pnpm `catalog:`. */
