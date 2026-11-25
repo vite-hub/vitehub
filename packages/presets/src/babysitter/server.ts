@@ -1197,8 +1197,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
       schedulerEvent("babysitter.direct_merge.skipped", { ...owner, reason: decision.reason });
       return pending?.asynchronous ? await parkMerge(`Unconfirmed merge is waiting for ${decision.reason}.`) : "not-ready";
     }
-    const everyCheckGates = !pending && policy.status === "known" && !policy.required.length;
-    if (everyCheckGates && firstCheckWaitMs > 0 && headChecksUnreported(snapshot)) {
+    const everyCheckGates = policy.status === "known" && !policy.required.length;
+    if (!pending && everyCheckGates && firstCheckWaitMs > 0 && headChecksUnreported(snapshot)) {
       const saved = await pullRequestInbox.meta(firstCheckKey);
       const since = isRuntimeRecord(saved) && saved.head === decision.head && hasRuntimeType(saved.since, "number") ? saved.since : pullRequestInbox.now();
       if (!isRuntimeRecord(saved) || saved.head !== decision.head) await pullRequestInbox.setMeta(firstCheckKey, { head: decision.head, since });
@@ -1248,18 +1248,6 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           return await parkMerge(`Updated the branch with ${base} because ${base} requires up-to-date branches; waiting for checks on the new head.`);
         }
         return pending?.asynchronous ? await parkMerge(`Unconfirmed merge is waiting for ${current.reason}.`) : "not-ready";
-      }
-      if (everyCheckGates) {
-        const reported = await readHeadChecks((path, projection) => readRest(path, projection, signal), repository, decision.head, signal);
-        const fresh: Snapshot = { ...snapshot, ...reported };
-        const freshEvaluation = await checkEvaluation(fresh, policy, signal);
-        const freshDecision = readiness(fresh, freshEvaluation.state, freshEvaluation.inheritedCheckIds);
-        if (!freshDecision.ready) {
-          schedulerEvent("babysitter.direct_merge.skipped", { ...owner, reason: `GitHub reports checks the inbox lacks: ${freshDecision.reason}` });
-          if (await pullRequestInbox.hydrate(claim, reported)) return "not-ready";
-          await pullRequestInbox.release(claim);
-          return "blocked";
-        }
       }
       if (!pending && isRuntimeRecord(live) && isRuntimeRecord(live.head) && hasRuntimeType(live.head.sha, "string") && isRuntimeRecord(live.base) && hasRuntimeType(live.base.ref, "string")) {
         // Checks test the base of their moment. When the base changed a file this PR touches since
@@ -1321,6 +1309,20 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
         if (reason) {
           schedulerEvent("babysitter.direct_merge.skipped", { ...owner, reason });
           return pending?.asynchronous ? await parkMerge(`Unconfirmed fold is waiting: ${reason}.`) : "not-ready";
+        }
+      }
+      if (everyCheckGates) {
+        const reported = await readHeadChecks((path, projection) => readRest(path, projection, signal), repository, decision.head, signal);
+        const fresh: Snapshot = { ...snapshot, ...reported };
+        const freshEvaluation = await checkEvaluation(fresh, policy, signal);
+        const freshDecision = readiness(fresh, freshEvaluation.state, freshEvaluation.inheritedCheckIds);
+        if (!freshDecision.ready) {
+          schedulerEvent("babysitter.direct_merge.skipped", { ...owner, reason: `GitHub reports checks the inbox lacks: ${freshDecision.reason}` });
+          if (await pullRequestInbox.hydrate(claim, reported)) {
+            return pending ? await parkMerge(`Unconfirmed merge is waiting for ${freshDecision.reason}.`) : "not-ready";
+          }
+          await pullRequestInbox.release(claim);
+          return "blocked";
         }
       }
       // Revalidate the durable lease and revision after the live provider read and
