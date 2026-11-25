@@ -52,7 +52,7 @@ Both external operations receive keys derived from stable input. Preserve that i
 
 ViteHub discovers `server/workflows/<name>.ts`, folder workflows such as `server/workflows/onboard-user/index.ts`, and `src/<name>.workflow.ts`. The file or folder path is the Workflow name. `defineWorkflow()` takes one object and no name. Pass the name to the runtime helpers.
 
-The handler gets one object with `payload`, `id`, `name`, `provider`, `sleep`, and `steps`. Pass the payload type as the type argument of `defineWorkflow()`. ViteHub writes the names and payload types to `.vitehub/workflow.d.ts`, so `startWorkflow("onboard-user", payload)` checks both.
+The handler gets one object with `payload`, `id`, `name`, `provider`, `sleep`, `createSignal`, and `steps`. Pass the payload type as the type argument of `defineWorkflow()`. ViteHub writes the names and payload types to `.vitehub/workflow.d.ts`, so `startWorkflow("onboard-user", payload)` checks both.
 
 ## Call typed steps
 
@@ -222,7 +222,7 @@ const [error, run] = await startWorkflow("send-reminder", { email }, { delay: "3
 | --- | --- | --- |
 | OpenWorkflow | The run stays pending in storage until its start time (`availableAt`). | `queued` |
 | Cloudflare | The run sleeps with `step.sleepUntil()` before the handler. A waiting instance does not count toward the concurrency limit. | `running` |
-| Vercel `native` entry of a folder Workflow | The generated entry calls Workflow DevKit `sleep()` before the first step. | `running` |
+| Vercel, generated native entry for numbered steps without an index handler | The generated entry calls Workflow DevKit `sleep()` before the first step. | `running` |
 | Vercel `native` entry that you wrote | Not supported. `startWorkflow()` returns the error `WORKFLOW_OPERATION_UNSUPPORTED`. | |
 | Inline runs (`vite dev`, normal Vercel handlers) | A timer in the process. It is not durable: a restart loses the run. Outside `vite dev`, the first delayed run of each Workflow logs a warning. | `queued` |
 
@@ -299,7 +299,7 @@ export const timeout = "2 minutes";
 
 Cloudflare gets both in `step.do()`. OpenWorkflow gets `retries` as its `retryPolicy`, and a generated Vercel step gets `limit` as `maxRetries`. Vercel steps cannot set `delay` or `backoff`, so the build fails with `WORKFLOW_STEP_RETRY_DELAY_UNSUPPORTED`. Outside Cloudflare, ViteHub enforces `timeout` itself: it aborts the `signal` that the step function gets as its second argument and fails the attempt. Code that ignores the signal keeps running. An inline run does not retry. See [Retries and sleeps](https://vitehub.dev/docs/workflows/limits-and-errors#retries-and-sleeps).
 
-Throw `NonRetryableError` when another attempt cannot succeed. The run fails at once on every provider. `getWorkflowRun()` reports the error `message` and `name` in `metadata` for inline and OpenWorkflow runs, Cloudflare keeps the error in its status record in `metadata`, and a Vercel `native` run reports the message on the failed step in `steps`.
+Throw `NonRetryableError` when another attempt cannot succeed. The run fails at once on every provider. `getWorkflowRun()` reports the error `message` and `name` in `error` on every provider, and inline runs also keep `code`. OpenWorkflow also reports the original message on the failed step in `steps`. Native Vercel can report a generic step error if it cannot read the provider's step error message. Cloudflare also keeps the error in its status record in `metadata`.
 
 ```ts fragment
 import { NonRetryableError } from "@vite-hub/workflow";
@@ -373,8 +373,7 @@ A typed Workflow handle requires a payload when its handler requires one. Both `
 const welcome = createWorkflow<{ email: string }>("welcome", async ({ payload }) => {
   await sendWelcomeEmail(payload.email)
 })
-await welcome.start({ email: "ada@example.com" })
-// welcome.start() is a type error.
+const [error, run] = await welcome.start({ email: "ada@example.com" })
 ```
 
-This is a breaking type correction. Supply the required payload at each handle call. Named operational functions do not infer a handler from a string, and persisted run results remain unknown.
+For a Workflow created outside discovery, use its handle. For a discovered Workflow, use its discovered name with `startWorkflow()` or `deferWorkflow()`, even if its file exports a `createWorkflow()` handle with a different name. These functions read the payload type from `.vitehub/workflow.d.ts` when the default export has a typed handler. A handle export does not supply that handler type. Stored run results stay `unknown`.

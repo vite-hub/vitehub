@@ -1,4 +1,4 @@
-import type { DocsAppPage, DocsManifest, DocsPage, DocsSearchSection, DocsSection } from "./types.ts"
+import type { DocsAppPage, DocsLayout, DocsManifest, DocsPage, DocsSearchSection, DocsSection } from "./types.ts"
 
 /** A link that the site options add to the shell, such as a tutorials page or a community chat. */
 export interface DocsLink {
@@ -92,7 +92,7 @@ export function docsManifestPages<Page extends DocsAppPage = DocsPage>(manifest:
 
 /** A URL path without a trailing slash or `/index`, as the manifest stores it. */
 export function normalizeDocsPath(path: string): string {
-  return path.replace(/\/index$/, "").replace(/(.)\/+$/, "$1") || "/"
+  return path.replace(/\/+(?:index\/*)?$/, "") || "/"
 }
 
 /** A browser URL for an app-relative route or asset. Router links keep their app-relative paths. */
@@ -169,12 +169,14 @@ export function docsSectionHome(section: DocsSection<DocsAppPage>): string {
 export type DocsStart = { section: string, links?: Pick<DocsLink, "to">[] } | ""
 
 /**
- * The first start link that opens a docs page outside the docs base, such as an Introduction outside every section.
- * It leads the start section, so the links that open it begin there. `null` when no start link is a docs page.
+ * The first start link that opens a docs page to read outside the docs base, such as an Introduction outside every
+ * section. It leads the start section, so the links that open it begin there. A `home`, `playground` or `learn` page is
+ * not a page to read first. `null` when no start link is such a page.
  */
 export function docsStartPage(manifest: DocsManifest<DocsAppPage>, start?: DocsStart): string | null {
-  const pages = new Set(docsManifestPages(manifest).filter(page => page !== manifest.root && page.layout !== "home").map(page => page.path))
-  const link = start ? start.links?.find(candidate => pages.has(normalizeDocsPath(candidate.to))) : undefined
+  if (!start || !start.links?.length) return null
+  const pages = new Set(docsManifestPages(manifest).filter(page => page !== manifest.root && page.layout !== "home" && !isDocsWorkspaceLayout(page.layout)).map(page => page.path))
+  const link = start.links.find(candidate => pages.has(normalizeDocsPath(candidate.to)))
   return link ? normalizeDocsPath(link.to) : null
 }
 
@@ -253,7 +255,10 @@ export function docsRailEntries<Page extends DocsAppPage = DocsPage>(manifest: D
   const members = new Map<string, DocsSection<Page>[]>()
   for (const section of manifest.sections) {
     const title = docsSectionGroup(section, options.groups)
-    if (title !== null) members.set(title, [...members.get(title) ?? [], section])
+    if (title === null) continue
+    const group = members.get(title)
+    if (group) group.push(section)
+    else members.set(title, [section])
   }
   const placed = new Set<string>()
   return railGroups.map(sections => sections.flatMap((section): DocsRailEntry<Page>[] => {
@@ -327,7 +332,9 @@ function sidebarGroups<Page extends DocsAppPage = DocsPage>(pages: readonly Page
   for (const page of pages) {
     if (!page.navigation) continue
     const label = page.group?.trim() || null
-    groups.set(label, [...groups.get(label) ?? [], page])
+    const group = groups.get(label)
+    if (group) group.push(page)
+    else groups.set(label, [page])
   }
   // A group of one page needs no heading, and a group without a heading cannot fold.
   return [...groups].map(([label, groupPages]) => {
@@ -486,6 +493,14 @@ export function docsRawSectionLinks(manifest: DocsManifest, path: string, siteUr
  * that serves prerendered HTML reads it.
  */
 export const docsTutorialNavigationCookie = "vh-tutorial-navigation"
+
+/**
+ * Whether a layout fills the page with a workspace: `playground` and `learn`. Such a page renders in the docs shell
+ * wherever it lives, and fills the viewport under the header.
+ */
+export function isDocsWorkspaceLayout(layout: DocsLayout | undefined): layout is "playground" | "learn" {
+  return layout === "playground" || layout === "learn"
+}
 
 /** Whether a docs page starts with its sidebar collapsed: `sidebar: "collapsed"`, or a code panel tutorial that keeps it. */
 export function docsSidebarCollapses(page: Pick<DocsPage, "sidebar" | "codePanel">): boolean {

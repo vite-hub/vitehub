@@ -59,7 +59,7 @@ export interface ReportInput extends SessionKey {
   takeover: boolean
 }
 
-type Database = BlobDatabaseWorkspaceStoreTarget["database"]
+type Database = Extract<BlobDatabaseWorkspaceStoreTarget, { dialect: "sqlite" }>["database"]
 
 const selection = {
   collection: table.collection,

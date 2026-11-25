@@ -1,5 +1,5 @@
 import * as v from "valibot"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { defineOperation, operationSurfaceHeader } from "@vite-hub/internal/operations"
 
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
@@ -62,9 +62,42 @@ describe("project.get", () => {
     installConsoleSections("/work/app", ["kv"])
     expect((await project()).value).not.toHaveProperty("build")
 
-    const build = { commit: { author: "Ada", branch: "main", message: "feat: ship", sha: "4f9c2e1a7b3d5e6f8a9b0c1d2e3f4a5b6c7d8e9f" }, time: "2026-11-14T10:00:00.000Z" }
+    const build = {
+      commit: { author: "Ada", branch: "main", login: "ada", message: "feat: ship", sha: "4f9c2e1a7b3d5e6f8a9b0c1d2e3f4a5b6c7d8e9f" },
+      framework: { name: "nuxt" as const, version: "5.0.2" },
+      host: { name: "cloudflare" as const, preset: "cloudflare-module" },
+      time: "2026-11-14T10:00:00.000Z",
+    }
     installConsoleBuild(build)
     expect((await project()).value?.build).toEqual(build)
+  })
+
+  it("counts open threads from the installed Comments inbox for callers with read access", async () => {
+    const list = vi.fn(() => [{ status: "open" }, { status: "resolved" }, { status: "open" }])
+    installConsoleSections("/work/app", ["comments", "kv"])
+    expect((await project()).value).not.toHaveProperty("comments")
+    installConsoleOperations([{ operations: defineOperation({
+      description: "List the threads visible to this caller.",
+      input: v.strictObject({ limit: v.literal(500) }),
+      kind: "read",
+      name: "comments.list",
+      run: list,
+      section: "comments",
+    }) }])
+    installConsoleAccess({ authorize: () => ({ sections: ["comments:read"] }), mode: "open" })
+    expect((await project()).value?.comments).toEqual({ open: 2 })
+    expect(list).toHaveBeenCalledOnce()
+
+    installConsoleAccess({ authorize: () => ({ sections: ["kv"] }), mode: "open" })
+    expect((await project()).value).not.toHaveProperty("comments")
+    expect(list).toHaveBeenCalledOnce()
+    installConsoleAccess({ mode: "open" })
+    list.mockReturnValueOnce([])
+    expect((await project()).value?.comments).toEqual({ open: 0 })
+    list.mockImplementationOnce(() => { throw new Error("database down") })
+    const failedList = await project()
+    expect(failedList.status).toBe(200)
+    expect(failedList.value).not.toHaveProperty("comments")
   })
 
   it("lists only the sections and operations that authorize allows", async () => {

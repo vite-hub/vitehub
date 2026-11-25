@@ -1,16 +1,19 @@
 import { invariantError } from "@vite-hub/internal/invariant"
-import { sql, type SQL } from "drizzle-orm"
+import { is, sql, type SQL } from "drizzle-orm"
+import { PgAsyncDatabase } from "drizzle-orm/pg-core/async/db"
 import { SQLiteDialect } from "drizzle-orm/sqlite-core"
 import type { SQLiteAsyncRaw } from "drizzle-orm/sqlite-core"
 import { useDatabase } from "@vite-hub/database"
-import { trackD1Database, trackPostgresClient } from "@vite-hub/database/runtime/request-stats"
+import { trackD1Database } from "@vite-hub/database/runtime/request-stats"
 import { createD1AgentInvocationStore } from "./d1.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { cachedChatStreamSql, postgresChatStreamSql } from "../internal/chat-stream-sql.ts"
+import { agentInvocationPostgresClient } from "./postgres-clients.ts"
 import { createPostgresAgentInvocationStore } from "./postgres-store.ts"
 
 import type { AgentInvocationD1Database, AgentInvocationD1Statement, D1AgentInvocationStoreOptions } from "./d1.ts"
 import type { AgentInvocationStore } from "../invocations.ts"
-import type { AgentInvocationPostgresClient } from "./postgres-store.ts"
+import type { ChatStreamSql } from "../internal/chat-stream-sql.ts"
 
 /** `migrate` applies only to SQLite, libSQL, and D1. A Postgres Database gets its tables from its migrations. */
 export interface DatabaseAgentInvocationStoreOptions extends Omit<D1AgentInvocationStoreOptions, "database"> {
@@ -139,9 +142,33 @@ function invocationDatabase(database: RuntimeDatabase): InvocationDatabase {
   }
 }
 
-/** A postgres.js client, as the Drizzle database of a Postgres Database Definition holds it in `$client`. */
-function isPostgresClient(value: unknown): value is AgentInvocationPostgresClient {
-  return typeof value === "function" && typeof Reflect.get(value, "begin") === "function" && typeof Reflect.get(value, "unsafe") === "function"
+/**
+ * The journal client when the Database runs on Postgres. The dialect decides, not the shape of `$client`: a Postgres
+ * Database that the journal cannot use fails, so its Invocations never fall back to SQLite calls.
+ */
+function postgresClient(database: RuntimeDatabase, name: string) {
+  return is(database, PgAsyncDatabase) ? agentInvocationPostgresClient(database.$client, name) : undefined
+}
+
+function runtimeDatabase(name: string): RuntimeDatabase {
+  // SAFETY: Generated registry types restrict database names; the runtime lookup accepts any name and throws `DATABASE_NOT_FOUND` when it is absent.
+  return (useDatabase as (database: string) => { db: RuntimeDatabase })(name).db
+}
+
+/**
+ * The SQL connection that shared resumable chat streams use in a ViteHub Database. Postgres uses the journal client.
+ * SQLite, libSQL, and D1 run the statements through the Database driver.
+ */
+export function databaseChatStreamSql(name = "default"): ChatStreamSql {
+  const database = runtimeDatabase(name)
+  const postgres = postgresClient(database, name)
+  if (postgres) return cachedChatStreamSql(postgres, () => postgresChatStreamSql(postgres))
+  const client = database.$client
+  const all = database.all.bind(database)
+  return cachedChatStreamSql(isRecord(client) ? client : database, () => ({
+    dialect: "sqlite",
+    query: async (text, params = []) => statementResult(await all(statementSql(text, params))).results,
+  }))
 }
 
 /**
@@ -151,9 +178,7 @@ function isPostgresClient(value: unknown): value is AgentInvocationPostgresClien
 export function createDatabaseAgentInvocationStore(options: DatabaseAgentInvocationStoreOptions = {}): AgentInvocationStore {
   const { database: name = "default", ...storeOptions } = options
   const adapters = new WeakMap<object, InvocationDatabase>()
-  const trackedClients = new WeakMap<AgentInvocationPostgresClient, AgentInvocationPostgresClient>()
-  // SAFETY: Generated registry types restrict database names; the runtime lookup accepts any name and throws `DATABASE_NOT_FOUND` when it is absent.
-  const runtime = (): RuntimeDatabase => (useDatabase as (database: string) => { db: RuntimeDatabase })(name).db
+  const runtime = (): RuntimeDatabase => runtimeDatabase(name)
   const sqlite = createD1AgentInvocationStore({
     ...storeOptions,
     async database() {
@@ -177,20 +202,14 @@ export function createDatabaseAgentInvocationStore(options: DatabaseAgentInvocat
     ...postgresOptions,
     database: name,
     client() {
-      const client = runtime().$client
+      const client = postgresClient(runtime(), name)
       // Internal invariant: the driver was Postgres when this store was created.
-      if (!isPostgresClient(client)) throw invariantError(`Database "${name}" changed from Postgres to another driver.`)
-      // Count the journal's queries in the request's database stats. One tracked client per pool keeps the table check cached.
-      let tracked = trackedClients.get(client)
-      if (!tracked) {
-        tracked = trackPostgresClient(client)
-        trackedClients.set(client, tracked)
-      }
-      return tracked
+      if (!client) throw invariantError(`Database "${name}" changed from Postgres to another driver.`)
+      return client
     },
   })
   // A runtime proxy resolves its driver per request, so each operation picks the store for the current client.
-  const store = (): Required<Omit<AgentInvocationStore, "open">> => isPostgresClient(runtime().$client) ? postgresStore() : sqlite
+  const store = (): Required<Omit<AgentInvocationStore, "open">> => postgresClient(runtime(), name) ? postgresStore() : sqlite
   return {
     claim: async (...args) => await store().claim(...args),
     create: async input => await store().create(input),

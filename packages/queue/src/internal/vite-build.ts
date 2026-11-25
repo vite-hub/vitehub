@@ -6,7 +6,6 @@ import { dirname, resolve } from "node:path"
 
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vite-hub/internal/build/paths"
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
-import { argumentExpression, defaultExportExpression, findCalls, objectProperties, scanModule } from "@vite-hub/internal/build/scan-module"
 
 import { defaultLocalQueueBase, normalizeQueueOptions } from "../config.ts"
 import { isQueueMaxBatchSize } from "../definition.ts"
@@ -105,7 +104,7 @@ function createCloudflareQueueDefinitionNames(definitions: DiscoveredQueueDefini
  * so the build fails when it cannot prove the value: a spread or computed key in those options, a value that is not a
  * number literal, or the option on a `defineQueue()` call that is not the default export.
  */
-export function readQueueMaxBatchSize(file: string): number | undefined {
+export function readQueueMaxBatchSize(file: string, { argumentExpression, defaultExportExpression, findCalls, objectProperties, scanModule }: typeof import("@vite-hub/internal/build/scan-module")): number | undefined {
   const module = scanModule(readFileSync(file, "utf8"), file)
   const invalid = (): never => {
     throw queueErrorDiagnostics.QUEUE_MAX_BATCH_SIZE_INVALID({ where: file })
@@ -126,15 +125,16 @@ export function readQueueMaxBatchSize(file: string): number | undefined {
   return maxBatchSize
 }
 
-export function createCloudflareQueueBindings(definitions: DiscoveredQueueDefinition[], namePrefix = ""): CloudflareQueueBindings | undefined {
+export async function createCloudflareQueueBindings(definitions: DiscoveredQueueDefinition[], namePrefix = ""): Promise<CloudflareQueueBindings | undefined> {
   if (!definitions.length) {
     return undefined
   }
 
-  const names = createCloudflareQueueDefinitionNames(definitions, namePrefix)
+  createCloudflareQueueDefinitionNames(definitions, namePrefix)
+  const scanner = await import("@vite-hub/internal/build/scan-module")
   return {
     consumers: definitions.map((definition) => {
-      const maxBatchSize = readQueueMaxBatchSize(definition.handler)
+      const maxBatchSize = readQueueMaxBatchSize(definition.handler, scanner)
       return { ...(maxBatchSize === undefined ? {} : { max_batch_size: maxBatchSize }), queue: getCloudflareQueueName(definition.name, namePrefix) }
     }),
     producers: definitions.map(definition => ({

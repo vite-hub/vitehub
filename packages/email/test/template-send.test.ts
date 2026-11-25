@@ -11,7 +11,7 @@ import { hubEmail } from "../src/vite.ts"
 
 import type { EmailClient, EmailSendMessage } from "../src/types.ts"
 
-type ConfigHook = (config: Record<string, unknown>, env?: { command: "build" | "serve", mode: string }) => Promise<unknown>
+type ConfigHook = (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
 type ConfigResolvedHook = (config: { root: string }) => Promise<void>
 
 const tempDirs: string[] = []
@@ -21,6 +21,11 @@ afterEach(async () => {
   Reflect.deleteProperty(globalThis, Symbol.for("vitehub.email.devCapture"))
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
+
+type UntypedSend = (message: Record<string, unknown>) => ReturnType<EmailClient<EmailSendMessage>["send"]>
+
+// SAFETY: these tests send templates of their own temp project, which the typed registry of this package does not list.
+const untyped = (email: EmailClient<EmailSendMessage>) => email.send as UntypedSend
 
 const envelope = { from: "hello@example.com", subject: "Welcome", to: "ada@example.com" }
 
@@ -37,6 +42,8 @@ async function loadDevEmail(): Promise<{ email: EmailClient<EmailSendMessage>, e
     "::",
     "",
   ].join("\n"))
+  await writeFile(join(root, "server", "emails", "invite.md"), "---\nsubject: Join {{ data.team }}\n---\n\nHi {{ data.name }}, join {{ data.team }}.\n")
+  await writeFile(join(root, "server", "emails", "_layout.md"), "Layout {{ data.name }}\n")
   const plugin = hubEmail({ driver: "resend" })
   // SAFETY: the hooks are functions in hubEmail. The test calls them the way Vite does.
   await (plugin.config as ConfigHook)({ root }, { command: "serve", mode: "development" })
@@ -94,7 +101,7 @@ it("throws EMAIL_TEMPLATE_NOT_FOUND for a name that no template has", async () =
   // @ts-expect-error An untyped caller can pass any name.
   await expect(email.send({ ...envelope, template: "missing" })).rejects.toMatchObject({
     code: "EMAIL_TEMPLATE_NOT_FOUND",
-    message: expect.stringContaining("Templates: welcome."),
+    message: expect.stringContaining("Templates: invite, welcome."),
   })
 })
 
@@ -103,4 +110,48 @@ it("still sends a message with a body", async () => {
 
   await expect(email.send({ ...envelope, text: "Hello" })).resolves.toEqual([undefined, { driver: "outbox", id: "outbox-1" }])
   expect(getEmailOutboxMessage("outbox-1", emailOutboxRuntimeId)?.text).toBe("Hello")
+})
+
+it("uses the subject frontmatter of the template unless the message passes one", async () => {
+  const { email, emailOutboxRuntimeId } = await loadDevEmail()
+  const { subject: _subject, ...withoutSubject } = envelope
+
+  await untyped(email)({ ...withoutSubject, template: "invite", data: { name: "Ada", team: "Docs" } })
+  await untyped(email)({ ...envelope, template: "invite", data: { name: "Ada", team: "Docs" } })
+
+  expect(getEmailOutboxMessage("outbox-1", emailOutboxRuntimeId)).toMatchObject({ subject: "Join Docs", text: "Hi Ada, join Docs." })
+  expect(getEmailOutboxMessage("outbox-2", emailOutboxRuntimeId)?.subject).toBe("Welcome")
+})
+
+it("sends a data value that contains a binding as literal text, once", async () => {
+  const { email, emailOutboxRuntimeId } = await loadDevEmail()
+  const { subject: _subject, ...withoutSubject } = envelope
+
+  const [error] = await untyped(email)({ ...withoutSubject, template: "invite", data: { name: "{{ data.team }}", secret: "leak", team: "{{ data.secret }}" } })
+
+  expect(error).toBeUndefined()
+  const message = getEmailOutboxMessage("outbox-1", emailOutboxRuntimeId)
+  expect(message?.subject).toBe("Join {{ data.secret }}")
+  expect(message?.text).toBe("Hi {{ data.team }}, join {{ data.secret }}.")
+  expect(message?.html).toBe("<p>Hi {{ data.team }}, join {{ data.secret }}.</p>")
+  expect(JSON.stringify(message)).not.toContain("leak")
+})
+
+it("throws EMAIL_TEMPLATE_SUBJECT_REQUIRED when neither the template nor the message has a subject", async () => {
+  const { email, emailOutboxRuntimeId } = await loadDevEmail()
+  const { subject: _subject, ...withoutSubject } = envelope
+
+  await expect(untyped(email)({ ...withoutSubject, template: "welcome", data: { user: { name: "Ada" } } })).rejects.toMatchObject({
+    code: "EMAIL_TEMPLATE_SUBJECT_REQUIRED",
+  })
+  expect(listEmailOutbox(emailOutboxRuntimeId).messages).toEqual([])
+})
+
+it("leaves `_` files out of the templates that `send()` can name", async () => {
+  const { email } = await loadDevEmail()
+
+  // @ts-expect-error An untyped caller can pass any name.
+  await expect(email.send({ ...envelope, template: "_layout", data: { name: "Ada" } })).rejects.toMatchObject({
+    code: "EMAIL_TEMPLATE_NOT_FOUND",
+  })
 })

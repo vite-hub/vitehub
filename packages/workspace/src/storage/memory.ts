@@ -2,7 +2,7 @@ import { assertWorkspaceDigest, workspaceConflictError, workspaceError } from ".
 import { copyJsonFileMetadata } from "../core/file-metadata.ts"
 import { createWorkspaceGlobMatcher } from "../core/glob.ts"
 import { isExcludedWorkspacePath, isWorkspaceBytes, normalizeWorkspacePath, sha256 } from "../core/path.ts"
-import { workspaceStoreTarget } from "./target.ts"
+import { provideWorkspaceStoreTarget } from "./target.ts"
 
 import type {
   DiffOptions,
@@ -27,6 +27,7 @@ type MemoryNode = {
   mtime: number
   revision?: string
   digest?: string
+  size?: number
 }
 
 function now() {
@@ -34,8 +35,8 @@ function now() {
 }
 
 class MemoryWorkspaceStore implements WorkspaceStore {
-  [workspaceStoreTarget]() {
-    return { provider: "memory" }
+  constructor() {
+    provideWorkspaceStoreTarget(this, () => ({ provider: "memory" }))
   }
 
   #nodes = new Map<string, MemoryNode>([["", { type: "directory", mtime: now() }]])
@@ -188,11 +189,19 @@ class MemoryWorkspaceStore implements WorkspaceStore {
   }
 
   async getMeta(key: string): Promise<unknown> {
-    return this.#meta.get(key)
+    return structuredClone(this.#meta.get(key))
   }
 
   async setMeta(key: string, value: unknown): Promise<void> {
-    this.#meta.set(key, value)
+    try {
+      this.#meta.set(key, structuredClone(value))
+    }
+    catch (error) {
+      if (!(error instanceof DOMException && error.name === "DataCloneError")) throw error
+      const json = JSON.stringify(value)
+      if (json === undefined) this.#meta.delete(key)
+      else this.#meta.set(key, JSON.parse(json))
+    }
   }
 
   #writeFile(path: string, file: WorkspaceFile): void {
@@ -230,7 +239,7 @@ class MemoryWorkspaceStore implements WorkspaceStore {
 
   async #entry(path: string, node: MemoryNode): Promise<WorkspaceEntry> {
     const content = node.content || ""
-    const size = node.type === "file" ? (typeof content === "string" ? new TextEncoder().encode(content).byteLength : content.byteLength) : undefined
+    const size = node.type === "file" ? (node.size ??= typeof content === "string" ? new TextEncoder().encode(content).byteLength : content.byteLength) : undefined
     return {
       path,
       type: node.type,

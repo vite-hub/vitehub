@@ -21,11 +21,13 @@ describe("@vite-hub/email package contract", () => {
       "./drivers/cloudflare",
       "./drivers/log",
       "./drivers/resend",
+      "./drivers/smtp",
       "./markdown",
       "./package.json",
       "./runtime/console",
       "./test",
       "./vite",
+      "./vue",
     ])
   })
 })

@@ -15,7 +15,7 @@
 pnpm add @vite-hub/kv
 ```
 
-Add `@upstash/redis` when you use the Upstash driver. The `redis` driver uses `ioredis`, which KV installs.
+Add `@upstash/redis` when you use the Upstash driver. The `redis` driver uses `ioredis`, which KV installs, and needs Redis 6 or later.
 
 ## Minimal API
 
@@ -66,7 +66,7 @@ Several Node processes share keys only through a shared store. Without a `driver
 
 `{ driver: "upstash", url?, token?, base? }` uses the same `base` rule as `redis`: every key gets the prefix `vitehub:kv:<store>` unless `base` sets another one, so `kv.clear()` and `kv.list()` stay inside the store. Upstash takes whole seconds, so `set()` rounds a TTL up. Its listing cursor also holds its whole state, so the next page works in another serverless invocation.
 
-`{ driver: "database", database? }` keeps keys in the table `vitehub_kv` of the Database `database` (default `"default"`), with one `namespace` per store. The store creates the table when it is missing; on Postgres, an advisory lock lets several servers start at once. Every atomic operation is one SQL statement, and expiry uses the clock of the Database. Writes start background cleanup of at most 1000 expired rows in their namespace. A full batch lets the next write start another batch; once a batch is not full, cleanup waits a minute. Postgres sweeps skip rows locked by another process. It works on Postgres and libSQL, not on D1.
+`{ driver: "database", database? }` keeps keys in the table `vitehub_kv` of the Database `database` (default `"default"`), with one `namespace` per store. The store creates the table when it is missing; on Postgres, an advisory lock lets several servers start at once. Every atomic operation is one SQL statement, and expiry uses the clock of the Database. Writes start background cleanup of at most 1000 expired rows in their namespace. A full batch lets the next write start another batch; once a batch is not full, cleanup waits a minute. Postgres sweeps skip rows locked by another process. It works on Postgres, libSQL, and Cloudflare D1, by binding or over HTTP. On D1, one statement binds at most 100 values, so a large `setMany()` or `getMany()` uses more statements.
 
 The driver is selected at build time. Redis requires `kv: { driver: "redis" }`; every process must supply its URL, and a missing URL fails. An unrelated `REDIS_URL` never changes the selected driver. A build without a `driver` that has `REDIS_URL`, or a `KV_URL` that starts with `rediss://`, reports the hint `KV_REDIS_URL_UNUSED` in the build output and in `.vitehub/hints.json`, with the fix `kv: { driver: "redis" }`. On Vercel without Upstash variables, the same hint says that the inferred Upstash store fails at runtime. The `kv.list` operation (`vitehub kv list`, the Console) reports that driver.
 
@@ -98,7 +98,7 @@ With `vitehub()`, `cache: { driver: "kv" }` mounts the same driver at Nitro's `c
 
 ## Listing keys
 
-`kv.list({ prefix })` returns every key that starts with `prefix`. Add `limit` when the caller needs bounded work: `kv.list({ prefix, limit, cursor })` reads one page. `limit` must be a positive integer. A page returns `{ keys, cursor? }`; an omitted cursor means the listing is complete. `kv.clear({ prefix })` deletes the keys that `kv.list({ prefix })` lists.
+`kv.list({ prefix })` returns every key that starts with `prefix`. Add `limit` when the caller needs bounded work: `kv.list({ prefix, limit, cursor })` reads one page. `limit` must be a positive integer. A page returns `{ keys, cursor? }`; an omitted cursor means the listing is complete. On Cloudflare KV, each binding request returns at most 1,000 keys: with `limit` above 1,000, `kv.list()` caps the request at 1,000 keys and returns a `cursor` only when more keys remain; without `limit`, it reads every page and returns no cursor. `kv.clear({ prefix })` deletes the keys that `kv.list({ prefix })` lists.
 
 Prefixes match text, and use the same key normalization as reads and writes. For example, `users/al` matches the stored key `users:alice`, and `user` matches `users:alice` and `user-old:1`. A trailing separator, such as `users/` or `users:`, limits the prefix to children and does not match `users-other`.
 

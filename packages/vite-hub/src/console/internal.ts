@@ -58,6 +58,7 @@ export interface ConsoleState {
   invocations?: AgentInvocations
   /** The Setup endpoint route, installed only in development output. */
   setupRoute?: string
+  siteDatabase?: () => Promise<{ name: string, db: object } | undefined>
   documents?: ConsoleDocumentEditors
   env?: ServerEnvDescription
   projectName?: string
@@ -94,4 +95,3 @@ export function resolveConsoleSuppliedInvocations(): AgentInvocations | undefine
   const invocations = resolveConsoleInvocations()
   return invocations && Reflect.get(invocations, consoleSuppliedInvocationsKey) === true ? invocations : undefined
 }
-

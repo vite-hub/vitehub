@@ -2,9 +2,8 @@
 import type { Component } from "vue";
 import { computed, defineAsyncComponent, inject, nextTick, onMounted, reactive, ref, shallowReactive, watch, watchEffect } from "vue";
 
-import type { ConsoleAccountAppStatus, ConsoleAccountProject } from "../client/account";
+import type { ConsoleAccountAppStatus, ConsoleAccountCheck, ConsoleAccountProject } from "../client/account";
 import type { ConsoleAccountPage } from "../client/project-session";
-import type { ConsoleProjectBuild } from "../client/project-link";
 import { consoleAccountViewsKey } from "../client/account-views";
 import { checkConsoleAccountProject, earlyConsoleSignInState, earlyConsoleTeam } from "../client/account";
 import { useConsoleApp } from "../client/app-identity";
@@ -54,8 +53,7 @@ const apps = computed<ConsoleAccountProject[]>(() => account.value?.projects ?? 
 // Only owners and admins link apps, so only they see the controls for it.
 const manage = computed(() => account.value ? canManageConsoleProjects(account.value) : false);
 const status = reactive<Record<string, ConsoleAccountAppStatus>>({});
-// The build that each connected app reported in its check, for the Last deploy cell of Home.
-const builds = reactive<Record<string, ConsoleProjectBuild>>({});
+const checks = reactive<Record<string, ConsoleAccountCheck>>({});
 const busy = ref(false);
 const unlinking = ref(false);
 const app = useConsoleApp();
@@ -72,7 +70,7 @@ const title = computed(() => {
   if (page.value === "env") return "Env values";
   if (page.value === "settings") return "Account settings";
   if (page.value === "home") return "Apps";
-  if (gate.value.kind === "setup") return `Connect ${appName(gate.value.project)}`;
+  if (gate.value.kind === "setup") return gate.value.project.publicKey === null ? appName(gate.value.project) : `Connect ${appName(gate.value.project)}`;
   return projects.current.value ? appName(projects.current.value) : "App";
 });
 
@@ -124,11 +122,15 @@ function intent(target: LazyPage): void {
 // The server calls each app with its token. A linked app answers, and an app without the variable refuses it. The
 // device keeps each answer, so the names of the apps show in the first frame of the next visit.
 for (const app of apps.value) {
+  if (app.publicKey === null) {
+    status[app.id] = "site";
+    continue;
+  }
   status[app.id] = "checking";
   const check = useStoredData(consoleAppCheckKey(app.id), () => checkConsoleAccountProject(app.id));
   if (check.storedAt.value && check.data.value) {
     rememberConsoleProjectName(app.id, check.data.value.name);
-    if (check.data.value.build) builds[app.id] = check.data.value.build;
+    checks[app.id] = check.data.value;
   }
   // The read starts over when the page names its account, and only its last call answers here.
   watch(check.status, (state) => {
@@ -136,7 +138,7 @@ for (const app of apps.value) {
     if (state !== "success" || !check.data.value) return;
     status[app.id] = check.data.value.status;
     rememberConsoleProjectName(app.id, check.data.value.name);
-    if (check.data.value.build) builds[app.id] = check.data.value.build;
+    checks[app.id] = check.data.value;
   }, { immediate: true });
 }
 
@@ -228,8 +230,8 @@ async function retry(): Promise<void> {
         </UDashboardNavbar>
       </template>
       <template #body>
-        <main id="vitehub-account-main" tabindex="-1" class="vitehub-account-shell__page outline-none">
-          <ConsoleAccountHome v-if="page === 'home'" :status="status" :builds="builds" />
+        <main id="vitehub-account-main" tabindex="-1" class="vitehub-console-page outline-none">
+          <ConsoleAccountHome v-if="page === 'home'" :status="status" :checks="checks" />
           <component :is="ConsoleAccountTeam" v-else-if="page === 'team'" />
           <component :is="ConsoleAccountTeamSettings" v-else-if="page === 'team-settings'" />
           <component :is="ConsoleAccountEnv" v-else-if="page === 'env'" />
@@ -274,15 +276,6 @@ async function retry(): Promise<void> {
   width: 1.125rem;
 }
 
-.vitehub-account-shell__page {
-  padding: clamp(1.5rem, 5vw, 3rem) clamp(1rem, 4vw, 2.5rem) 4rem;
-}
-
-/* One reading column, centered in the panel, so a wide screen keeps the page in front of the person. */
-.vitehub-account-shell__page > * {
-  margin-inline: auto;
-}
-
 .vitehub-account-shell__dot {
   border-radius: 999px;
   flex-shrink: 0;
@@ -294,7 +287,8 @@ async function retry(): Promise<void> {
   box-shadow: inset 0 0 0 1px var(--muted-foreground);
 }
 
-.vitehub-account-shell__dot[data-status="connected"] {
+.vitehub-account-shell__dot[data-status="connected"],
+.vitehub-account-shell__dot[data-status="site"] {
   background: var(--ui-success);
 }
 

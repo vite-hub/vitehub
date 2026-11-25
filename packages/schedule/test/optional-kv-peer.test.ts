@@ -70,7 +70,7 @@ async function installConsumer(root: string, dependencies: Record<string, string
       `${JSON.stringify(
         {
           dependencies,
-          packageManager: "pnpm@12.16.1",
+          packageManager: "pnpm@12.21.0",
           private: true,
           type: "module",
         },

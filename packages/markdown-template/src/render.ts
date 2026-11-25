@@ -1,13 +1,12 @@
 import { parseMarkdown } from "comark"
 import { renderMarkdown } from "comark/render"
-import { escapeHtml } from "comark/utils"
 import type { ElementNode, Node } from "comark"
 import type { NodeHandler, NodeRenderData, State } from "comark/render"
 
 import { assertBindingRoot, resolveTemplateBinding, resolveScalarTemplateBinding, resolveScalarTemplateAttributes, snapshotTemplateData } from "./bindings.ts"
 import { matchesCondition } from "./condition.ts"
 import { markdownTemplateErrorDiagnostics as diagnostics } from "./error-diagnostics.ts"
-import { hasMarkdownHtmlChildren, htmlPlugins, parserOptions } from "./parser.ts"
+import { hasMarkdownHtmlChildren, htmlPlugins, templateParserOptions, templatePlugins } from "./parser.ts"
 import { prepareTemplate } from "./prepare.ts"
 import { safeLinkDestination } from "./links.ts"
 import type { RenderMarkdownTemplateInternalOptions, RenderMarkdownTemplateOptions } from "./types.ts"
@@ -46,8 +45,9 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
     throw diagnostics.MARKDOWN_TEMPLATE_R0014({ message: "[vitehub] Markdown template must be a string." })
   }
   const prepared = await prepareTemplate(template)
-  const parseOptions = { ...parserOptions, plugins: [...parserOptions.plugins, ...(options.plugins ?? [])] }
+  const parseOptions = templateParserOptions(options.plugins)
   const tree = await parseMarkdown(prepared.template, parseOptions)
+  const bindingPositions = new WeakMap<ElementNode, Map<ElementNode, number>>()
   const data = snapshotTemplateData(options.data ?? {})
   const renderData = (state: State): NodeRenderData => ({ ...state.renderData, data })
   const renderAuthoredHtml = async (node: ElementNode, state: State, parent: ElementNode | undefined, childPolicy: "preserve" | "markdown") => {
@@ -55,7 +55,7 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
     const props = resolveScalarTemplateAttributes(attrs, renderData(state))
     const sanitized = await sanitizeUrlAttributes(tag, props, attrs, state.context.svg === true)
     const escaped = Object.fromEntries(Object.entries(sanitized).map(([key, value]) =>
-      [key, typeof value === "string" ? escapeHtml(value) : value]))
+      [key, typeof value === "string" ? value.replaceAll("&", "&amp;") : value]))
     const content = childPolicy === "markdown" && hasMarkdownHtmlChildren(node)
       ? (await parseMarkdown(children.join(""), parseOptions)).nodes
       : rawBlockTags.has(tag) && attrs.$?.block === 1 && typeof children[0] === "string"
@@ -73,7 +73,7 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
     components: {
       Binding: async (node, state, parent) => {
         if (typeof node[1][":value"] === "string") assertBindingRoot(node[1][":value"])
-        rejectLinkDestinationBinding(node, parent)
+        rejectLinkDestinationBinding(node, parent, bindingPositions)
         return state.one(resolveScalarTemplateBinding(node[1], renderData(state)), state, parent, true)
       },
       If: async (node, state, parent) => {
@@ -97,7 +97,7 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
         if (typeof value !== "string") {
           throw diagnostics.MARKDOWN_TEMPLATE_R0020({ message: `[vitehub] Markdown template Insert markdown prop "${String(path ?? "markdown")}" must resolve to a string.` })
         }
-        const fragment = await parseMarkdown(value, { ...parseOptions, plugins: [...htmlPlugins, ...(options.plugins ?? [])] })
+        const fragment = await parseMarkdown(value, { ...parseOptions, plugins: templatePlugins(...htmlPlugins, ...(options.plugins ?? [])) })
         if (parent && (parent[0] === "p" || state.context.inline)) {
           if (!fragment.nodes.length) return ""
           if (fragment.nodes.length !== 1 || !Array.isArray(fragment.nodes[0]) || fragment.nodes[0][0] !== "p") {
@@ -134,16 +134,25 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
   })).trim())
 }
 
-function rejectLinkDestinationBinding(node: ElementNode, parent: ElementNode | undefined): void {
-  if (!parent) return
-  const siblings = parent.slice(2)
-  const index = siblings.indexOf(node)
-  const before = siblings[index - 1]
-  const after = siblings[index + 1]
-  if (index < 1 || typeof before !== "string" || typeof after !== "string") return
+function rejectLinkDestinationBinding(node: ElementNode, parent: ElementNode | undefined, positions: WeakMap<ElementNode, Map<ElementNode, number>>): void {
+  if (!parent || parent.length < 5) return
+  let indexes = positions.get(parent)
+  if (!indexes) {
+    indexes = new Map()
+    for (let index = 2; index < parent.length; index++) {
+      const child = parent[index]
+      if (Array.isArray(child) && child[0] !== null && !indexes.has(child)) indexes.set(child, index)
+    }
+    positions.set(parent, indexes)
+  }
+  const index = indexes.get(node)
+  if (index === undefined || index < 3) return
+  const before = parent[index - 1]
+  const after = parent[index + 1]
+  if (typeof before !== "string" || typeof after !== "string") return
   const destination = before.match(/\]\(\s*$/)
   if (!destination || !/^(?:\s+(?:"[\s\S]*"|'[\s\S]*'|\([\s\S]*\)))?\s*\)/.test(after)) return
-  const text = siblings.slice(0, index).map(sibling => typeof sibling === "string" ? sibling : "x").join("")
+  const text = parent.slice(2, index).map(sibling => typeof sibling === "string" ? sibling : "x").join("")
   const labelText = text.slice(0, text.length - destination[0].length + 1)
   const label = labelStart(labelText)
   if (label === undefined || text[label - 1] === "!") return
@@ -200,7 +209,7 @@ async function sanitizeUrlAttributes(tag: string, props: Record<string, unknown>
         && (svgUrlAttributes.has(tag.toLowerCase()) || tag.toLowerCase() === "img" && svgContext)
     if (typeof value !== "string" || !isUrl) continue
     const binding = source[`:${key}`]
-    sanitized[key] = await safeLinkDestination(value, String(binding ?? key), { decodeHtmlEntities: binding === undefined })
+    sanitized[key] = await safeLinkDestination(value, String(binding ?? key), { decoded: binding === undefined })
   }
   return sanitized
 }

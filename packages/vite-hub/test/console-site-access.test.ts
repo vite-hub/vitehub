@@ -205,6 +205,23 @@ describe("guests", () => {
   })
 })
 
+describe("an app whose Auth cannot sign a browser in", () => {
+  it.each([
+    ["a role field that users can set", { input: true }, "input: false"],
+    ["a role field hidden from sessions", { input: false, returned: false }, "returned: false"],
+  ])("refuses site.link and site.invite with %s before it makes a link", async (_case, field, fix) => {
+    app.database.sqlite.close()
+    app = await consoleEventsFixture({ plugins: [], user: { additionalFields: { role: { type: "string", required: false, ...field } } } })
+    state.app = { auth: app.auth, create: host => createAuthConsole(app.auth, {}, app.store, host as AuthConsoleHostOptions) }
+    for (const [name, input] of [["site.link", { qr: true }], ["site.invite", { name: "Ana", grants: ["comments-write"] }]] as const) {
+      const { status, body } = await call(name, input)
+      expect(status, JSON.stringify(body)).toBe(409)
+      expect(JSON.stringify(body)).toContain(fix)
+    }
+    expect((await call("site.invites")).value).toEqual({ invites: [] })
+  })
+})
+
 describe("GET /_vitehub", () => {
   async function enter(path = "/_vitehub", headers: Record<string, string> = {}): Promise<{ response: Response, location: URL, state: string, cookie: string }> {
     const response = await siteEntryRoute.fetch(new Request(`${origin}${path}`, { headers }))
@@ -381,13 +398,13 @@ describe("the account in the pill", () => {
     expect(await pageSession(nitroApp, cookie)).toEqual({ tools: [] })
   })
 
-  it("names a guest without the made-up email, and without the Console line", async () => {
+  it("names a guest without the made-up email, without the Console line, and as a guest", async () => {
     const nitroApp = pageApp()
     const { value } = await call("site.invite", { name: "Ana", grants: ["comments-write"] })
     const { cookie } = await open(String(Reflect.get(Object(value), "url")))
     const { tools, account } = await pageSession(nitroApp, cookie)
     expect(tools.map(tool => tool.id)).toEqual(["comments"])
-    expect(account).toEqual({ name: "Ana", signOut: "/api/auth/sign-out" })
+    expect(account).toEqual({ name: "Ana", signOut: "/api/auth/sign-out", guest: true })
   })
 
   it("never names anyone to an anonymous visitor", async () => {

@@ -342,6 +342,12 @@ function escapeRegExp(value: string): string {
 // `vite-hub` files that framework aliases point to. It never answers a relative import or a virtual module.
 const frameworkDependencyIds = [/^[^./\0]/, new RegExp(`^${escapeRegExp(fileURLToPath(frameworkPackageRoot))}`)]
 const blobImports = new RegExp(`^(?:${["vite-hub/blob", frameworkProviderImportAliases["vite-hub/blob"]].filter(id => id !== undefined).map(escapeRegExp).join("|")})$`)
+const disabledWorkspaceBlobId = "\0vite-hub/workspace-blob-disabled"
+const blobUnavailableMessage = "[vitehub] Blob is unavailable for this host. Configure an explicit Blob store before using Blob APIs or Agent Capabilities."
+
+function workspaceStoreEntry() {
+  return isPackageInstalled("@vite-hub/workspace") ? fileURLToPath(import.meta.resolve("@vite-hub/workspace/blob-database")).replace(/\\/g, "/") : undefined
+}
 
 // Generated server modules import Nitro and H3 by name. An app that lists only vite-hub cannot resolve them from its
 // root without hoisting, so these imports fall back to the Nitro that vite-hub installs, and to that Nitro's H3.
@@ -436,7 +442,8 @@ function frameworkDependencyResolver(
       filter: { id: frameworkDependencyIds },
       handler(id, importer, resolveOptions) {
         if (!blobEnabled && id === "@vite-hub/blob") {
-          throw viteHubErrorDiagnostics.VITE_HUB_R0075({ message: "[vitehub] Blob is unavailable for this host. Configure an explicit Blob store before using Blob APIs or Agent Capabilities." })
+          if (importer && importer === workspaceStoreEntry()) return disabledWorkspaceBlobId
+          throw viteHubErrorDiagnostics.VITE_HUB_R0075({ message: blobUnavailableMessage })
         }
         for (const specifier in providerImportAliases) {
           const frameworkFacade = frameworkProviderImportAliases[specifier]
@@ -457,6 +464,12 @@ function frameworkDependencyResolver(
         return fileURLToPath(import.meta.resolve(id))
       },
     },
+    load: {
+      filter: { id: /^\0vite-hub\/workspace-blob-disabled$/ },
+      handler() {
+        return `export const blob = undefined; throw Object.assign(new Error(${JSON.stringify(blobUnavailableMessage)}), { code: "VITE_HUB_R0075" })`
+      },
+    },
   }
 }
 
@@ -465,7 +478,8 @@ export interface AgentOptions extends AgentPluginOptions {
   /**
    * Invocation journal for Agent Definitions from `vite-hub/agent` that do not set `invocations`. The Console reads it.
    * Omit it, or pass `{ databaseUrl, observations, retention }`, for the default journal: local SQLite at
-   * `.vitehub/data/agent-invocations.sqlite`, or the D1 binding of the default Database in a Cloudflare production build.
+   * `.vitehub/data/agent-invocations.sqlite`, the D1 binding of the default Database in a Cloudflare production build,
+   * or the Postgres `default` Database in a Node production build.
    * `"database"` uses the app's ViteHub Database. `"memory"` keeps records in the server process. `false` records no journal.
    * Requires Nitro-hosted Agents. Netlify and `runtime: "deno"` require `false` and journals on each Agent Definition.
    */
@@ -537,10 +551,11 @@ export interface ViteHubOptions {
    */
   redirects?: RedirectsOptions
   /**
-   * Trust the `X-Forwarded-Proto` header of a proxy that ends TLS, such as Caddy or nginx. When its first value is
-   * `https` and the server sees `http:`, the request URL becomes `https:` before any middleware or route runs, so URLs
-   * built from the request start with `https://`. It never reads `X-Forwarded-Host`. Turn it on only when a proxy that
-   * you run sets the header. Default: `false`.
+   * Trust `X-Forwarded-Proto` from a proxy that ends TLS, such as Caddy or nginx. When
+   * the first `X-Forwarded-Proto` value is `https` and the server sees `http:`, the request URL becomes `https:` before
+   * any middleware or route runs, so URLs built from the request start with `https://`. On the Node host only, the client
+   * address becomes the last `X-Forwarded-For` value, which the proxy adds. It never reads `X-Forwarded-Host`.
+   * Turn it on only when a proxy that you run sets the trusted headers. Default: `false`.
    */
   trustProxy?: boolean
   /**
@@ -651,7 +666,8 @@ export interface ViteHubOptions {
    * Messages in the source language, translated per request: `{ i18n: { locales: ["en", "es"] } }`. The first locale is
    * the language of the code. Write ``t`Save` `` in templates, and import `t` from `vite-hub/i18n` in scripts and server
    * code. Translations are records in `locales/<locale>/`, and `vitehub i18n status` shows what is missing. Needs
-   * Nitro 3: Nuxt 5, or Vite with Nitro 3.
+   * Nitro 3: Nuxt 4.7 or newer with the `nitro` package, Nuxt 5, or Vite with Nitro 3. On Nuxt 4, use i18n without
+   * `i18n.workspace`.
    */
   i18n?: I18nOptions
   /**
@@ -1705,7 +1721,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
       const facade = frameworkProviderImportAliases[specifier]
       if (facade) databaseRuntimeImports.set(facade, specifier)
     }
-    plugins.push(databaseDisabledPlugin(databaseRuntimeImports, options.database === false))
+    plugins.push(databaseDisabledPlugin(databaseRuntimeImports, options.database === false, workspaceStoreEntry()))
   }
   plugins.push(unavailableServicesPlugin(plan, { browser: Boolean(options.browser), realtime: Boolean(options.realtime) }))
   if (plan.host === "cloudflare") plugins.push(cloudflareShSyntaxPlugin(), cloudflarePkceChallengePlugin(), cloudflareRedirectsFileVitePlugin())
@@ -1722,7 +1738,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
   if (!evlogRegistered || observabilityOptions.evlog?.enabled === false) plugins.push(errorLogVitePlugin())
   plugins.push(evlogBridgeVitePlugin())
   const security = resolveSecurityPolicy(options.security)
-  if (options.trustProxy || options.sameOriginWrites || security) plugins.push(requestPolicyVitePlugin(options, security))
+  if (options.trustProxy || options.sameOriginWrites || security) plugins.push(requestPolicyVitePlugin(host, options, security))
   if (options.health) {
     const resolvedKV = options.kv && kvVite ? kvVite.resolveKVViteConfig(configuredKV, { hosting: kvHosting }).kv : false
     plugins.push(healthVitePlugin(options.health === true ? {} : options.health, {
@@ -1759,6 +1775,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
     const invocationRootState = {}
     const consolePlugin = consoleVitePlugin({
       name: options.name,
+      host: { name: plan.host, preset: plan.host === "deno" ? "deno-server" : plan.nitroPreset },
       contentImportBase: "vite-hub/content",
       blobStores: blobStoreNames,
       console: configuredConsole || undefined,
@@ -1937,6 +1954,7 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
       rateLimit: "vite-hub/rate-limit",
       realtime: generatedModules.commentsRealtime,
       runtime: "vite-hub/comments/runtime",
+      webhooks: "vite-hub/webhooks",
     },
   })
   if (options.realtime) {
@@ -2062,7 +2080,6 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
   // Database. Inert without the preset.
   if (ownerModules.cmsVite) plugins.push(ownerModules.cmsVite.hubCms({
     imports: {
-      blob: "vite-hub/blob",
       blobDatabase: "vite-hub/workspace/blob-database",
       contentDatabase: "vite-hub/content/database",
       database: "@vite-hub/database/runtime/registry",

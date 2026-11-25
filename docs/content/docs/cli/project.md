@@ -21,12 +21,12 @@ pnpm dlx vite-hub init my-app --host vercel --features email --option email.driv
 - `--host`: `cloudflare`, `vercel`, `netlify`, `deno`, or `node`. It becomes `host`. An existing ViteHub stack with enabled features keeps its host; migrate its providers and Definitions by hand before changing the host.
 - `--features`: feature ids separated by commas, as `vitehub catalog` lists them. `init` plans them in one step with `vitehub add`, so a feature that the host does not support exits with `3` before any file is written.
 - `--option feature.key=value`: an option of a feature, such as `email.driver=resend`. Repeat it for more options.
-- `--framework vite|nuxt`: the default is `vite`. For `nuxt`, `init` runs the pinned `nuxi init` with a pinned starter and the `5x` nightly channel, checks that it declares a Nuxt 5 version, then adds the `vite-hub/nuxt` module. Existing Nuxt apps must also declare a known Nuxt 5 version before any installation or config edit. A tag or an unsupported version stops adoption and leaves existing files for manual setup.
+- `--framework vite|nuxt`: the default is `vite`. For `nuxt`, `init` runs the pinned `nuxi init` with a pinned starter and the `5x` nightly channel, then adds the `vite-hub/nuxt` module. A new or existing Nuxt app must declare a Nuxt range from 4.7 to 5, such as `^4.7.0`, `^5.0.0`, or a Nuxt 5 nightly, before any installation or config edit. When the range allows Nuxt 4.7, `init` adds `nitro@^3.0.261103-rc` if Nitro is missing from both `dependencies` and `devDependencies`. It keeps compatible declarations and stops before adoption if a declaration does not guarantee a compatible version. A Nuxt tag or an unsupported Nuxt version also stops adoption and leaves existing files for manual setup.
 - `--pm pnpm|npm|yarn|bun`: the package manager. The default is the one that the folder uses, else the one that runs the command, else pnpm.
 - `--no-install` skips the install. `nextSteps` gives the install command. `--dry-run` prints the plan and writes nothing.
 - `--yes` applies the plan. Without a terminal, a missing input fails and names the flag, for example `Pass --host (cloudflare, vercel, netlify, deno, node) when running without an interactive terminal.` The command exits with `2` and gives `missing` and `rerun`.
 
-`init` writes the command that creates the same stack into `README.md`, between `<!-- vitehub:stack -->` and `<!-- /vitehub:stack -->`. `vitehub status --json` returns it as `stack.command`. A second run of the same command changes nothing.
+Run `vitehub status --json` for the current `stack.command`. Before replaying it, read `stack.omits` for settings the command cannot reproduce, such as credentials or config expressions. Restore those settings separately. If `stack.command` is `null`, the CLI could not plan a fresh setup; use the reported omissions to see what needs attention.
 
 ### `SETUP_INIT_DIR_NOT_EMPTY`
 
@@ -42,22 +42,31 @@ The folder has files but no Vite or Nuxt app, so `init` cannot create or adopt a
 
 ### `SETUP_INIT_NUXT_VERSION`
 
-The Nuxt app does not declare a known Nuxt 5 version. ViteHub stops before adoption and package installation. If the command created a scaffold, those files remain. Set `nuxt` to a Nuxt 5 version and run `init` on the folder again. The command exits with `3`.
+The Nuxt app does not declare a supported Nuxt version. ViteHub needs Nitro 3, which runs on Nuxt 4.7 with the `nitro` package, or on Nuxt 5. ViteHub stops before adoption and package installation. If the command created a scaffold, those files remain. Run `pnpm add nuxt@^4.7.0 nitro`, or set `nuxt` to a Nuxt 5 version, then run `init` on the folder again. The command exits with `3`.
 
 ## Read a project without loading it
 
 Other commands load the project config the way `nuxt dev` does: in a Nuxt app, the `$development` overrides apply, so a command next to a running dev server resolves the same config and leaves its generated files alone. `--stage <name>` loads `$<name>` instead.
 
-`vitehub catalog` and `vitehub status` run before the CLI loads the project config. They work in an empty folder and on a config that throws, because they parse the config file and never run it.
+`vitehub catalog` and `vitehub status` run before the CLI loads the project config. `catalog` needs no project and works in an empty folder. `status` needs a project folder with `package.json`, `vite.config.*`, or `nuxt.config.*`. It parses the config file without running it, so it works on a config that throws. In an empty folder, `status` exits with `1` and `SETUP_NOT_A_PROJECT`.
+
+Without `vite-hub` installed, run both commands from the `vite-hub` package with `pnpm dlx`. There is no `vitehub` package on npm. Once `vite-hub` is installed in the project, run `pnpm vitehub`.
 
 ```bash [Terminal]
+# From any folder, without vite-hub installed
+pnpm dlx vite-hub catalog --json
+
+# From a project folder, without vite-hub installed
+pnpm dlx vite-hub status --json
+
+# From a project folder with vite-hub installed
 pnpm vitehub catalog --json
 pnpm vitehub status --json
 ```
 
-`catalog` lists every feature key of `vitehub({...})`, the packages that it needs, and how each host supports it: `native`, `explicit` (an option chooses the provider), or `unsupported`. It needs no project.
+`catalog` lists every feature key of `vitehub({...})`, the packages that it needs, and how each host supports it: `native`, `explicit` (an option chooses the provider), or `unsupported`.
 
-`status` reads `vite.config.*` or `nuxt.config.*` in the current folder and reports the items below. With `vitehub.lock`, it also lists each checkout folder with its local changes and conflicts, read by the installed Workspace package without calling the app; `--json` puts them in `checkouts`. See [Work on Workspace files in a local folder](/docs/cli/primitives#work-on-workspace-files-in-a-local-folder).
+`status` reads `package.json`, `vite.config.*`, or `nuxt.config.*` in the current folder and reports the items below. With `vitehub.lock`, it also lists each checkout folder with its local changes and conflicts, read by the installed Workspace package without calling the app; `--json` puts them in `checkouts`. See [Work on Workspace files in a local folder](/docs/cli/primitives#work-on-workspace-files-in-a-local-folder).
 
 `status` reports:
 
@@ -118,7 +127,7 @@ A starter Definition file exists and has other content, or another file already 
 
 ### `SETUP_SERVER_DIR_MANUAL`
 
-Nuxt's application server directory needs config evaluation, for example because `serverDir` is an expression or the app uses layers. Create the Definition in that directory and rerun without `--name`, or use literal directory options without layers.
+The CLI could not determine Nuxt's application server directory statically. For example, the app may use a dynamic `serverDir`, layers, directory overrides for a Nuxt environment, or a `.nuxtrc` file that sets directory or layer options or that the CLI cannot read or parse. Create the Definition in Nuxt's resolved server directory and rerun without `--name`.
 
 ### `SETUP_INSTALL_FAILED`
 
@@ -159,7 +168,7 @@ The command deletes the `vitehub()` key. A feature that is on without a key, suc
 
 `remove` deletes a file only when it is exactly a starter that `add` writes. It refuses with `3` while the app still uses the feature: an import of `vite-hub/<feature>` or of a package that only this feature needs, a changed or extra file in the Definition folder, such as `server/queues/`, or a discovered file, such as `server/comments.ts`. The error lists each file and line in `references`. It uninstalls a package only when no enabled feature declares it and no source file imports it.
 
-When Nuxt directories cannot be resolved without running the config, for example with `srcDir`, layers, or a dynamic `serverDir`, removing a feature with Definitions or discovered files exits with `3` and `SETUP_SERVER_DIR_MANUAL`. Use literal directory options without layers, or pass `--force` to turn it off while leaving those files in place.
+When the CLI cannot determine the Nuxt server directory statically, removing a feature with Definitions or discovered files exits with `3` and `SETUP_SERVER_DIR_MANUAL`. Pass `--force` to turn it off while leaving those files in place.
 
 `remove` never deletes host resources, such as a D1 database or a KV namespace, the local data in `.vitehub/data`, host credentials, or `.vitehub/link.json`. `nextSteps` names the host resources to delete by hand.
 
@@ -212,13 +221,13 @@ pnpm vitehub unlink
 
 - `--host`: `cloudflare`, `vercel`, `netlify`, or `deno`. The default is the host that `vitehub status` reports.
 - `--project`: the project name on the host. The default is the `name` of `vitehub({ name })`, else the package.json name, in the same form that the build uses.
-- `--account`: the Cloudflare account id, the Vercel team id, or the Netlify team slug.
-- `--create`: create the project when the host does not have it. Without it, a missing project exits with `3`.
+- `--account`: the Cloudflare account id, the Vercel team id, the Netlify team slug, or the Deno Deploy organization.
+- `--create`: create the project on Cloudflare, Vercel, or Netlify when the host does not have it. Without it, a missing project exits with `3`. Create Deno apps separately in Deno Deploy before linking them; a missing Deno app exits with `3` even with `--create`.
 - `--default`: make this host the target that `vitehub deploy` uses without `--host`. The first linked host is the default.
 
 The credentials come from environment variables first, then from the host CLI login: `CLOUDFLARE_API_TOKEN` or a Wrangler login, `VERCEL_TOKEN` and `VERCEL_TEAM_ID`, `NETLIFY_AUTH_TOKEN`. For Cloudflare, install Wrangler in the project (for example, `pnpm add -D wrangler`) and run `pnpm exec wrangler login`, or make `wrangler` available on `PATH`. A login made only through a cached `npx` or `pnpm dlx` invocation needs that installation before ViteHub can discover it. ViteHub never stores or prints a token.
 
-The command looks up the project through the host API: a Worker on Cloudflare, a project on Vercel, a site on Netlify. Deno has no lookup yet, so the link keeps the name with `verified: false`. The link is in `.vitehub/link.json`, with one target for each host:
+The command looks up the project through the host API: a Worker on Cloudflare, a project on Vercel, a site on Netlify. On Deno, the command runs `deno deploy apps get` when `DENO_DEPLOY_TOKEN` and the organization (`--account` or `DENO_DEPLOY_ORG`) are set, and saves the verified organization. Without them, the link keeps the name with `verified: false`. The link is in `.vitehub/link.json`, with one target for each host:
 
 ```json [.vitehub/link.json]
 {
@@ -269,7 +278,7 @@ The project name is not known, for example because `vitehub({ name })` is an exp
 
 ### `SETUP_LINK_PROJECT_NOT_FOUND`
 
-The host has no project with that name. Run the command in `rerun`, which adds `--create`, or pass `--project` with the name of a project that exists. The command exits with `3`.
+The host has no project with that name. Run the command in `rerun`, which adds `--create`, or pass `--project` with the name of a project that exists. On Deno, create the app in Deno Deploy first and then link it. The command exits with `3`.
 
 ## Deploy from your machine
 
@@ -306,7 +315,7 @@ The command runs each host CLI with an argument array and no shell. It runs only
 | Netlify | `netlify deploy --no-build --dir dist --prod`, with `--message` for the commit |
 | Deno | `node .output/deploy.mjs` with `DENO_DEPLOY_ORG` and `DENO_DEPLOY_APP` |
 
-The credentials are the ones that `vitehub link` reads, and the host CLIs read them from the environment. Vercel deploys also accept a saved `vercel login` session, checked with `vercel whoami`, without requiring `VERCEL_TOKEN`. Deno also needs `DENO_DEPLOY_ORG`, or a link with `--account <org>`.
+The credentials are the ones that `vitehub link` reads, and the host CLIs read them from the environment. Vercel deploys also accept a saved `vercel login` session, checked with `vercel whoami`, without requiring `VERCEL_TOKEN`. Deno uses the saved organization from the link, or `DENO_DEPLOY_ORG` if the link has none.
 
 For Cloudflare's read-only migration check, the API token needs at least the account's **D1 Read** permission (**D1 Write** also works). This applies even with `--no-provision` and an existing D1 database ID.
 
@@ -361,7 +370,7 @@ Cloudflare always uploads this stage's local values, including names already on 
 
 On Cloudflare, deploy does not run `wrangler secret put`, because that would roll the old code out with the new values. It writes the values to a temporary JSON file with mode 600 and passes it to `wrangler deploy --secrets-file`, or to `wrangler versions upload` for `--preview`, so the values arrive with the new version. The file is deleted when the deploy ends. It is JSON because Wrangler's dotenv mode expands `$VAR` and lets the shell override file values. On Vercel, Netlify, and Deno, deploy sets the values with the host env CLI just before the deploy.
 
-A first deploy has no link target for the host, so the host has no names yet and every required name needs a local value. If the project already exists on the host, run `vitehub link --host <host>` first. Cloudflare creates the Worker with the uploaded secrets. Vercel, Netlify, and Deno need the project before deploy can set values: run `vitehub link --host <host> --create` first, or the command exits with `SETUP_DEPLOY_ENV_NOT_LINKED`.
+A first deploy has no link target for the host, so the host has no names yet and every required name needs a local value. If the project already exists on the host, run `vitehub link --host <host>` first. Cloudflare creates the Worker with the uploaded secrets. On Vercel and Netlify, use `vitehub link --host <host> --create` for a new project. On Deno, create the app in Deno Deploy and run `vitehub link --host deno`. Without the required link, deploy exits with `SETUP_DEPLOY_ENV_NOT_LINKED`.
 
 When the build lists `VITEHUB_SECRET` as required and neither the host nor a local value has it, deploy asks to generate one. `--yes` generates it without the question. Deploy sets it on the host and prints only that it did.
 
@@ -608,7 +617,7 @@ A required env name is on neither the host nor a local value for the stage. Noth
 
 ### `SETUP_DEPLOY_ENV_NOT_LINKED`
 
-Deploy has values to set, but the Vercel, Netlify, or Deno project is not linked, so it cannot set them before the first deploy. Nothing was deployed. Run `vitehub link --host <host> --create`, then deploy again. The command exits with `2`.
+Deploy has values to set, but the Vercel, Netlify, or Deno project is not linked, so it cannot set them before the first deploy. Nothing was deployed. On Vercel and Netlify, run `vitehub link --host <host> --create`. On Deno, create the app in Deno Deploy if needed, then run `vitehub link --host deno`. Deploy again after linking. The command exits with `2`.
 
 ### `SETUP_DEPLOY_PUSH_FAILED`
 

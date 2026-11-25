@@ -2,12 +2,12 @@
 title: Email
 layout: landing
 navigation.title: Overview
-description: Send email from your server through Resend or Cloudflare, and write messages as Markdown templates.
+description: Send email from your server through Resend or Cloudflare, and write messages as Markdown or Vue templates.
 navigation.order: 1
 icon: i-lucide-mail
 ---
 
-::product-hero{tagline="Send email from your server through Resend or Cloudflare, and write messages as Markdown templates." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
+::product-hero{tagline="Send email from your server through Resend or Cloudflare, and write messages as Markdown or Vue templates." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
   :hero-figure{name="email"}
 ::
 
@@ -23,7 +23,6 @@ export default defineEventHandler(async () => {
     data: { user: { name: 'Ada' } },
     from: 'verified-sender@example.com',
     to: 'ada@example.com',
-    subject: 'Your workspace is ready',
   })
   if (error) throw error
   return sent
@@ -31,6 +30,10 @@ export default defineEventHandler(async () => {
 ```
 
 ```md [server/emails/welcome.md]
+---
+subject: Welcome, {{ data.user.name }}
+---
+
 # Welcome {{ data.user.name }}
 
 Your workspace is ready.
@@ -136,7 +139,7 @@ it('sends the welcome email', async () => {
   The server reads your API key from an environment variable when it sends.
   :::
 
-  :::product-feature-item{title="Write emails in Markdown" icon="i-lucide-files" to="/docs/email/server-api#send-a-template"}
+  :::product-feature-item{title="Write emails in Markdown or Vue" icon="i-lucide-files" to="/docs/email/server-api#send-a-template"}
   Files in `server/emails` become typed templates. `email.send({ template, data })` renders HTML and text.
   :::
 
@@ -154,7 +157,7 @@ it('sends the welcome email', async () => {
 ::
 
 ::agent-only{skill="email"}
-Use Email for outbound transactional messages. Email keeps delivery behind a provider-neutral driver and supports Markdown templates with a text fallback.
+Use Email for outbound transactional messages. Email keeps delivery behind a provider-neutral driver and supports Markdown and Vue templates with a text fallback.
 
 Keep recipients, sender identity, and delivery authorization in application policy. Use test capture or a local driver before sending to real recipients.
 

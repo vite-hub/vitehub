@@ -136,12 +136,14 @@ The `components` module exports a default map of Comark tags to Vue components. 
 | `credits` | None | Inline Markdown at the end of the page, such as `Icons from [Lucide](https://lucide.dev).` |
 | `keywords` | None | Words that find the page in search besides its own text: a list, or one string with commas. They rank below the page title and with headings. |
 | `icon` | `i-lucide-file-text` | Sidebar icon, as an Iconify name. |
-| `layout` | `article` | `article`, `tutorial`, `landing`, or `home`. |
-| `sidebar` | `true` | `false` hides the left navigation on this page. `collapsed` starts it as a narrow column that the reader opens. |
-| `toc` | `true`, `false` on `landing` | `false` hides the "On this page" outline. |
+| `layout` | `article` | `article`, `tutorial`, `landing`, `home`, `playground`, or `learn`. See [Workspace pages](#workspace-pages). |
+| `sidebar` | `true`, `collapsed` on `playground` and `learn` | `false` hides the left navigation on this page. `collapsed` starts it as a narrow column that the reader opens. |
+| `toc` | `true`, `false` on `landing`, `home`, `playground`, and `learn` | `false` hides the "On this page" outline. |
 | `codePanel` | `false` | Tutorials only. Shows the files of the current step beside the prose. |
 | `tutorial` | None | Tutorials only. `project` or `quickstart`, for your own tutorial catalog. |
 | `navigation` | Listed | `false` keeps the page out of the sidebar. Or `{ title, order, group, kind, panel }`. See [Panels](#panels). |
+| `examples`, `tabs`, `render`, `connect`, `port` | None | `layout: playground` only. See [Workspace pages](#workspace-pages). |
+| `fixture`, `guide`, `lesson`, `preview`, `port` | None | `layout: learn` only. See [Workspace pages](#workspace-pages). |
 | `seo` | None | `{ title, description, image, index }` for search results and shares when they must differ from the page. `image` is a path in `public/` or a URL, or `false` for no share image. `index: false` asks search engines not to index the page. See [Pages that search engines skip](#pages-that-search-engines-skip). |
 
 Dotted keys work too, such as `navigation.order: 2`. A wrong field stops the build with `DOCS_CONTENT_INVALID`. In development, the terminal shows the error and the site keeps the last valid pages until you fix the file.
@@ -184,6 +186,7 @@ navigation.panel: true
 - `article` is prose with the outline on the right.
 - `tutorial` numbers each `::tutorial-step` block. With `codePanel: true`, a sticky panel on wide screens shows the file tree and the file that the reader is on. Code blocks named `commands/...` or `output/...`, and shell blocks, stay in the prose.
 - `landing` is a wide Overview page without the outline. A section Overview ends with the catalog of every section.
+- `playground` and `learn` fill the page with a code workspace. See [Workspace pages](#workspace-pages).
 - `home` is a product home page under the site header, with no title, actions, sidebar, or outline. Your `components/content/` blocks, such as a `::product-hero`, take the full width. The Markdown between them, such as a heading, a list, or a code group, gets the prose styles and the width of a docs page. The page keeps its search entry, Markdown copy, and share image.
 
 The left navigation (the section rail and the page sidebar) and the right outline show on every docs page. Turn them off for one page with `sidebar: false` or `toc: false`. A page that needs the width, such as a playground, sets `sidebar: collapsed`: wide screens show a narrow column with the logo, a button that opens the navigation, search, and the site links, or the rail on a site that has one. An app page in the docs layout sets it with `definePageMeta({ layout: "docs", sidebar: "collapsed" })`. That page fills the viewport under the header and the window does not scroll: the root element of the page is exactly as tall as the viewport, so `height: 100%` inside it fills the screen, and content that is taller scrolls inside the page. A code panel tutorial starts collapsed too.
@@ -203,6 +206,106 @@ console.log("hello")
 ```
 ::
 ````
+
+### Workspace pages
+
+Two layouts fill the page with a code workspace: an editor, a file tree, a preview, and a terminal. The frontmatter of the page sets the workspace, so you add no app page and no config. On a phone or in a browser without WebContainer support, the page shows its own text instead.
+
+`layout: playground` opens the apps of `examples`. Each example is a folder of the app, relative to the app root. Without `render`, the examples run in a WebContainer: it runs `npm install`, then `npm run dev`, and the preview shows the server on `port`.
+
+```md [content/docs/try/playground.md]
+---
+title: Playground
+layout: playground
+examples:
+  - { id: hello, label: Hello, group: Servers, dir: examples/hello, open: message.txt }
+  - { id: clock, label: Clock, group: Servers, dir: examples/clock, open: server.mjs }
+tabs:
+  - { value: messages, label: Messages }
+---
+
+The text of the page shows when the workspace cannot run.
+```
+
+| Field | Default | Use |
+| --- | --- | --- |
+| `examples` | Required | `{ id, label, group, description, dir, open, preview, readonly }`, in menu order. `id` is the `?example=` value. `group` is the heading in the examples menu. `open` is the file that the editor opens first. `preview` is the path that the preview opens. `readonly` lists text files of `dir` that the reader cannot edit. With more than one example and no `?example=`, the page opens on a start screen. |
+| `tabs` | None | `{ value, label }`: more output tabs. The tab `messages` renders `app/components/playground/PlaygroundTabMessages.vue`, which reads the workspace with `useWorkspace()` from `@vite-hub/ui/workspace`. A missing component fails the build with `DOCS_WORKSPACE_TAB_MISSING`. |
+| `render` | None | A module relative to the app root, such as `app/playground/render.ts`. The page runs its default export on the files 200 ms after each edit, and shows the HTML in an Output tab. No WebContainer starts, so the page works on every device. |
+| `connect` | None | Accounts that the reader can connect in a Connect tab: `anthropic`, `github`, `netlify`, `openai`, or `vercel`. Each one takes a token in the tab. Any other name, such as `cloudflare`, which needs a relay, fails the build with `DOCS_CONTENT_INVALID`. A token stays in the browser tab, and the app gets it as an environment variable of the dev server, such as `GITHUB_TOKEN`. Not with `render`. |
+| `port` | `3000` | The port of the dev server. Not with `render`. |
+
+```ts [app/playground/render.ts]
+import type { DocsRenderFunction } from "@vite-hub/docs/runnable"
+
+const render: DocsRenderFunction = (files) => {
+  const html = files["index.html"]
+  if (html === undefined) return { html: "", issues: [{ message: "Create index.html." }] }
+  return { html }
+}
+
+export default render
+```
+
+#### Read-only files, binary files, and issues
+
+`readonly` marks files of an example that the reader can read but not edit, such as a model that a build trained. The editor refuses typing in them and shows "Read-only". `useWorkspace().setFile` in a tab component can still change them. A path that is not a text file of `dir` fails the build with `DOCS_WORKSPACE_READONLY_MISSING`.
+
+```md [content/docs/try/models.md]
+---
+title: Models
+layout: playground
+render: app/playground/render.ts
+examples:
+  - { id: recipes, label: Recipes, dir: examples/recipes, open: input.txt, readonly: [recipes.model.ts] }
+---
+```
+
+A file of `dir` that is not valid UTF-8, such as `weights.bin`, is a binary asset. It needs no frontmatter. The tree and the editor never show it. The page module carries it as base64 and turns it back into bytes when it loads. A `render` function reads it from `example.assets`, and a WebContainer example mounts it next to the files. An issue with `file` shows `file:line`, and a click opens that file.
+
+```ts [app/playground/render.ts]
+import type { DocsRenderFunction } from "@vite-hub/docs/runnable"
+
+const render: DocsRenderFunction = (files, { example }) => {
+  const weights = example.assets?.["weights.bin"]
+  if (!weights) return { html: "", issues: [{ message: "Train the model first.", file: "recipes.model.ts", line: 1 }] }
+  return { html: `<p>${files["input.txt"] ?? ""}: ${weights.byteLength} bytes of weights</p>` }
+}
+
+export default render
+```
+
+`layout: learn` and `#build/playground-templates.mjs` read the text files of a fixture only.
+
+`layout: learn` is a lesson. Its `::tutorial-step` blocks become the steps of the workspace, and the guide shows the text of the current step. `fixture` is a folder in the `runnable.fixtures` folder (`fixtures` by default) with the app after the last step, as for [runnable lessons](#runnable-lessons-and-examples). Each step loads the files of the fixture that its code blocks name. A file name in inline code, such as `` `greeting.mjs` ``, opens the file. A file code block gets "Show in editor", and a `curl` block gets "Run in workspace". `?step=2` opens step 2, and Solve writes the files of the step.
+
+````md [content/docs/try/first-server.md]
+---
+title: Your first server
+layout: learn
+fixture: first-server
+---
+
+::tutorial-step{title="Write a greeting"}
+## Write a greeting
+
+```js [greeting.mjs]
+export default () => "Hello."
+```
+::
+````
+
+| Field | Default | Use |
+| --- | --- | --- |
+| `fixture` | Required | The folder of the app after the last step. |
+| `guide` | `side` | `side` puts the step text in a column beside the code, `top` puts it over the code. |
+| `lesson` | This page | The URL of another docs page whose `::tutorial-step` blocks are the steps, such as a get started guide, so the prose has one source. The page then has a canonical link to that page. |
+| `preview` | `/` | The path that the preview opens. |
+| `port` | `3000` | The port of the dev server. |
+
+A WebContainer runs only in a cross-origin isolated page. The module lists every `learn` page and every `playground` page without `render`, and passes them to `vite-hub/nuxt` as `webContainer.routes`, in either module order. The app needs `vite-hub/nuxt` and `@vite-hub/web-container`; without them, the build fails with `DOCS_WORKSPACE_VITEHUB_MISSING`. A `render` page stays a plain page. A missing `dir`, `fixture`, or `render` file fails the build with `DOCS_WORKSPACE_DIR_MISSING` or `DOCS_WORKSPACE_RENDER_MISSING`, and a `readonly` path that is not a text file of its `dir` with `DOCS_WORKSPACE_READONLY_MISSING`. Each workspace page gets an id from its path, such as `learn-first-agent` for `/learn/first-agent`, and the id names its snapshots, its examples, and its zip. Two pages with one id, such as `/docs/a/b` and `/docs/a-b`, fail the build with `DOCS_WORKSPACE_ID_COLLISION`, and so does a page id that matches a `slug` in `runnable.lessons` or an `id` in `runnable.examples`.
+
+The frontmatter is the one source of truth for workspace pages. `runnable.lessons` and `runnable.examples` stay for app pages that read `#build/runnable-tutorials.mjs` and `#build/playground-templates.mjs`, such as a custom `/learn/[slug]` page. Both use one snapshot build: an example with the dependencies of a lesson mounts the snapshot of that lesson, and `nuxt build` writes the snapshots of workspace pages as it does for `runnable`. A `layout: tutorial` page with `codePanel` works as before.
 
 ### Runnable lessons and examples
 
@@ -232,11 +335,11 @@ The build writes three modules that app pages import, and does not add pages:
 
 - `#build/runnable-tutorials.mjs` exports `runnableTutorials`: the files before step 1 and the files of each step.
 - `#build/playground-templates.mjs` exports `playgroundTemplates`: the files of each example.
-- `#build/learn-facts.mjs` exports `learnFacts`: the step count and reading time of each `layout: tutorial` page, by URL.
+- `#build/learn-facts.mjs` exports `learnFacts`: the step count and reading time of each `layout: tutorial` and `layout: learn` page, by URL.
 
 Their types and the browser helpers, such as `tutorialStepFiles()`, come from `@vite-hub/docs/runnable`.
 
-`nuxt build` also writes a `node_modules` snapshot of each fixture to `/_tutorials/snapshots/<slug>.<hash>.<part>.bin` under the app base, so the workspace skips `npm install`. The snapshot holds the `dependencies` of the fixture, so the package that its `dev` script runs, such as `vite`, must be in `dependencies`. An example with the dependencies of a lesson uses the snapshot of that lesson. The npm lockfile `<fixture>.package-lock.json` beside each fixture pins the install. The build writes it when it is missing or no longer matches the dependencies: commit it. `nuxi prepare` never builds snapshots. `nuxt dev` reuses the last ones while the dependencies match, and builds them with `TUTORIAL_SNAPSHOTS=1`. `TUTORIAL_SNAPSHOTS=0` skips them in a build, and the workspace runs `npm install`. A page that boots a WebContainer needs cross-origin isolation: list its routes in `vitehub.webContainer.routes`.
+`nuxt build` also writes a `node_modules` snapshot of each fixture to `/_tutorials/snapshots/<slug>.<hash>.<part>.bin` under the app base, so the workspace skips `npm install`. The snapshot holds the `dependencies` of the fixture, so the package that its `dev` script runs, such as `vite`, must be in `dependencies`. An example with the dependencies of a lesson uses the snapshot of that lesson. The npm lockfile `<fixture>.package-lock.json` beside each fixture pins the install. The build writes it when it is missing or no longer matches the dependencies: commit it. `nuxi prepare` never builds snapshots. `nuxt dev` reuses the last ones while the dependencies match, and builds them with `TUTORIAL_SNAPSHOTS=1`. `TUTORIAL_SNAPSHOTS=0` skips them in a build, and the workspace runs `npm install`. An app page that boots a WebContainer needs cross-origin isolation: list its routes in `vitehub.webContainer.routes`. Workspace pages get theirs from the module.
 
 ## Customize
 
@@ -360,6 +463,8 @@ The design follows the comark-ui site on top of the ViteHub design system (`@vit
 - `app.config.ts` `ui` keys. Your values win over the design. The design wins over the Nuxt UI defaults, also when `@nuxt/ui` comes first in `modules`.
 - CSS variables in your stylesheet, such as `--vh-content-width` (prose width), `--vh-toc-width`, `--vh-panel-width`, `--vh-grain` (`none` turns the grain off), `--font-sans`, and the Nuxt UI `--ui-*` colors.
 
+If a font provider fails, the build reports the error and continues. The browser can use the fallback fonts. To fail the build instead, set `fonts.throwOnError: true` in `nuxt.config.ts`.
+
 In an app with its own `app.vue`, the theme stays on the docs pages:
 
 - The theme's CSS applies below the `vh-docs` class. The docs layouts put it on `<html>` on docs pages only.
@@ -410,14 +515,14 @@ The module sets the `comments` option of `vite-hub/nuxt`, which turns on the Dat
 - `@` suggests the users of ViteHub Auth when the app has Auth, else the people who wrote in the threads.
 - The Console's Comments section lists the threads.
 
-Turn it off with `docs: { comments: false }`. An object goes to the `comments` option of `vite-hub/nuxt`, such as `{ database: "docs" }` or `{ overlay: false }`. A site without `vite-hub/nuxt` has no Comments; `comments: true` there fails the build with `DOCS_COMMENTS_VITEHUB_MISSING`.
+Turn it off with `docs: { comments: false }`. The `comments` option of `vite-hub/nuxt` wins: when it turns Comments on, setup warns with `DOCS_COMMENTS_OFF_IGNORED`. An object goes to the `comments` option of `vite-hub/nuxt`, such as `{ database: "docs" }` or `{ overlay: false }`. A site without `vite-hub/nuxt` has no Comments; `comments: true` there fails the build with `DOCS_COMMENTS_VITEHUB_MISSING`.
 
 ## Docs assistant
 
 The docs assistant answers reader questions from your pages and links the pages that it used. It is a ViteHub Agent preset, `docsAssistant`. By default it runs on your ChatGPT plan, so you need no API key: with Codex on Node.js, and with a model-backed Driver in a Cloudflare Worker build.
 
 ```sh
-pnpm add vite-hub @vite-hub/agent @vite-hub/workflow @vite-hub/connections @vite-hub/database drizzle-orm@1.0.0-rc.5 @openai/codex
+pnpm add vite-hub @vite-hub/agent @vite-hub/workflow @vite-hub/connections @vite-hub/database drizzle-orm@1.0.0-rc.6 @openai/codex
 ```
 
 ```ts

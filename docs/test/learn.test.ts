@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { buildLearnCatalog, filterQuickstarts, learnMeta } from "../app/utils/learn-catalog";
 import { tutorialPageFacts } from "../../packages/docs/src/runnable/learn";
-import { runnableTutorials } from "../runnable";
+import { runnableLessons } from "./workspace-pages";
 import { createDocsRedirectRouteRules } from "../modules/vitehub-docs/redirects";
 
 import type { DocsPage, DocsSection } from "@vite-hub/docs";
@@ -30,7 +30,7 @@ describe("Learn", () => {
         section("Agents", [page("/docs/agents/chat", { tutorial: "project" }), page("/docs/agents/sandbox")]),
         section("Queue", [page("/docs/queue/get-started"), page("/docs/queue/hidden", { navigation: false })]),
       ],
-      runnable: [{ slug: "kv", page: "/docs/start/kv" }, { slug: "agent", page: "/docs/start/agent" }],
+      runnable: [{ path: "/learn/kv", lesson: "/docs/start/kv" }, { path: "/learn/agent", lesson: "/docs/start/agent" }],
       facts: { "/docs/start/kv": { steps: 3, minutes: 10 } },
     });
     // Browser tutorials keep the order of the runnable list and open on Learn.
@@ -55,7 +55,7 @@ describe("Learn", () => {
       expect(markdown, page).toMatch(/^layout:\s*tutorial\s*$/m);
       return tutorialPageFacts(markdown);
     };
-    for (const tutorial of runnableTutorials) expect((await facts(tutorial.page)).steps, tutorial.page).toBeGreaterThan(0);
+    for (const tutorial of await runnableLessons()) expect((await facts(tutorial.page)).steps, tutorial.page).toBeGreaterThan(0);
     expect((await facts("/docs/kv/get-started")).minutes).toBeGreaterThan(0);
   });
 

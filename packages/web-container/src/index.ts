@@ -285,8 +285,9 @@ function isCacheStorage(value: unknown): value is { open: (name: string) => Prom
 export interface FetchSnapshotOptions {
   /**
    * A Cache Storage name. Parts found there are not downloaded again, so later boots work from the cache. Give each
-   * snapshot version its own URLs, such as names with a content hash. Parts of other URLs in this cache are deleted.
-   * A part goes into the cache only after the whole snapshot inflates and matches `sha256`.
+   * snapshot version its own URLs, such as names with a content hash. After the whole snapshot inflates and matches
+   * `sha256`, its parts go into the cache. Parts of other URLs are deleted only after every part is stored, so a
+   * failed write keeps the previous version. A failed load keeps the cache as it was.
    */
   cache?: string
   /** The SHA-256 of the joined parts, in hex. A snapshot that differs is rejected, and none of its parts is cached. */
@@ -298,36 +299,86 @@ export interface FetchSnapshotOptions {
  * inflates the gzip stream. Pass the result, or the promise, to `bootWebContainer({ snapshot })`.
  */
 export async function fetchSnapshot(urls: readonly string[], options: FetchSnapshotOptions = {}): Promise<Uint8Array> {
+  const { cache: cacheName, sha256 } = options
   const storage: unknown = Reflect.get(globalThis, "caches")
-  const cache = options.cache && isCacheStorage(storage) ? await storage.open(options.cache).catch(() => undefined) : undefined
-  if (cache) {
-    const keep = new Set(urls.map(url => new Request(url).url))
-    for (const request of await cache.keys()) if (!keep.has(request.url)) void cache.delete(request)
-  }
+  const cache = cacheName && isCacheStorage(storage) ? await storage.open(cacheName).catch(() => undefined) : undefined
   const parts = await Promise.all(urls.map(async (url) => {
-    const cached = await cache?.match(url)
-    if (cached) return { url, blob: await cached.blob(), downloaded: false }
+    const cached = cache && await readCachedPart(cache, url).catch(() => undefined)
+    if (cached) return { url, blob: cached, downloaded: false }
     const response = await fetch(url)
     if (!response.ok) throw webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_PART_FAILED({ status: response.status, url })
     return { url, blob: await response.blob(), downloaded: true }
   }))
-  const joined = new Blob(parts.map(part => part.blob))
   let data: Uint8Array
   try {
-    if (options.sha256) {
-      const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", await joined.arrayBuffer()))
-      const hex = [...digest].map(byte => byte.toString(16).padStart(2, "0")).join("")
-      if (hex !== options.sha256.toLowerCase()) throw webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_DAMAGED({ detail: `The snapshot has SHA-256 ${hex}, not ${options.sha256}.`, url: urls[0]! })
-    }
-    data = new Uint8Array(await new Response(joined.stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer())
+    data = await inflateSnapshot(parts.map(part => part.blob), urls[0]!, sha256)
   }
   catch (cause) {
-    await Promise.all(urls.map(url => cache?.delete(new Request(url)).catch(() => false)))
+    const cacheHits = parts.filter(part => !part.downloaded)
+    if (cache && cacheName && cacheHits.length) {
+      await withSnapshotCacheLock(cacheName, async () => {
+        const current = await Promise.all(urls.map(url => readCachedPart(cache, url)))
+        if (current.every(part => part !== undefined) && await inflateSnapshot(current, urls[0]!, sha256).catch(() => undefined)) return
+        await Promise.all(cacheHits.map(async part => await cache.delete(new Request(part.url)).catch(() => false)))
+      })
+    }
     if (webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_DAMAGED.is(cause)) throw cause
     throw webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_DAMAGED({ cause, detail: cause instanceof Error ? cause.message : String(cause), url: urls[0]! })
   }
-  for (const part of parts) if (part.downloaded) await cache?.put(part.url, new Response(part.blob)).catch(() => {})
+  if (cache && cacheName) await replaceCachedPartsAfterLoad(cacheName, cache, parts)
   return data
+}
+
+async function inflateSnapshot(parts: Blob[], url: string, sha256?: string): Promise<Uint8Array> {
+  const joined = new Blob(parts)
+  if (sha256) {
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", await joined.arrayBuffer()))
+    const hex = [...digest].map(byte => byte.toString(16).padStart(2, "0")).join("")
+    if (hex !== sha256.toLowerCase()) throw webContainerErrorDiagnostics.WEB_CONTAINER_SNAPSHOT_DAMAGED({ detail: `The snapshot has SHA-256 ${hex}, not ${sha256}.`, url })
+  }
+  return new Uint8Array(await new Response(joined.stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer())
+}
+
+async function readCachedPart(cache: SnapshotCache, url: string): Promise<Blob | undefined> {
+  return await (await cache.match(url))?.blob()
+}
+
+async function hasCachedPart(cache: SnapshotCache, url: string): Promise<boolean> {
+  try {
+    return await cache.match(url) !== undefined
+  }
+  catch {
+    return false
+  }
+}
+
+async function replaceCachedPartsAfterLoad(name: string, cache: SnapshotCache, parts: ReadonlyArray<{ url: string, blob: Blob, downloaded: boolean }>): Promise<void> {
+  await withSnapshotCacheLock(name, async () => {
+    let stored = true
+    for (const part of parts) {
+      if (!part.downloaded && await hasCachedPart(cache, part.url)) continue
+      try {
+        await cache.put(part.url, new Response(part.blob))
+      }
+      catch {
+        stored = false
+      }
+    }
+    if (!stored) return
+    const keep = new Set(parts.map(part => new Request(part.url).url))
+    const stale = (await cache.keys()).filter(request => !keep.has(request.url))
+    await Promise.all(stale.map(async request => await cache.delete(request).catch(() => false)))
+  })
+}
+
+async function withSnapshotCacheLock(name: string, update: () => Promise<void>): Promise<void> {
+  const navigator: unknown = Reflect.get(globalThis, "navigator")
+  const locks: unknown = typeof navigator === "object" && navigator !== null ? Reflect.get(navigator, "locks") : undefined
+  await (isLockManager(locks) ? locks.request(`vitehub-web-container-snapshot:${name}`, update) : update()).catch(() => {})
+}
+
+function isLockManager(value: unknown): value is { request: (name: string, callback: () => Promise<void>) => Promise<void> } {
+  return typeof value === "object" && value !== null && "request" in value && typeof value.request === "function"
 }
 
 /**
@@ -348,16 +399,16 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
   let booted: StackBlitzWebContainer | undefined
   try {
     status.enter("booting")
-    const loading = Promise.resolve(options.snapshot)
-    loading.catch(() => {})
+    const loading = Promise.allSettled([options.snapshot])
     const { WebContainer } = await import("@webcontainer/api")
     booted = await WebContainer.boot({ coep: options.coep ?? "credentialless", workdirName: options.workdirName })
     if (options.previewScript) await booted.setPreviewScript(options.previewScript)
     if (options.snapshot || options.files) {
       status.enter("mounting")
-      const snapshot = await loading
-      if (snapshot) {
-        await booted.mount(snapshot)
+      const [loaded] = await loading
+      if (loaded.status === "rejected") throw loaded.reason
+      if (loaded.value) {
+        await booted.mount(loaded.value)
         await restoreSnapshotLinks(booted)
       }
       if (options.files) await booted.mount(toFileSystemTree(options.files))
@@ -373,17 +424,28 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
   const container = booted
 
   let server: WebContainerPreviewServer | undefined
-  let resolveReady!: (server: WebContainerPreviewServer) => void
-  let rejectReady!: (error: Error) => void
-  let readySettled = false
+  let readyResult: PromiseSettledResult<WebContainerPreviewServer> | undefined
+  let deliverReady: ((result: PromiseSettledResult<WebContainerPreviewServer>) => void) | undefined
+  let ready: Promise<WebContainerPreviewServer> | undefined
   let serverReadyCount = 0
   let devRunning = false
-  const ready = new Promise<WebContainerPreviewServer>((resolve, reject) => { resolveReady = resolve; rejectReady = reject })
-  void ready.catch(() => {})
+  function settleReady(result: PromiseSettledResult<WebContainerPreviewServer>) {
+    if (readyResult) return
+    readyResult = result
+    deliverReady?.(result)
+  }
+  function readiness() {
+    if (!ready) {
+      ready = new Promise<WebContainerPreviewServer>((resolve, reject) => {
+        deliverReady = result => result.status === "fulfilled" ? resolve(result.value) : reject(result.reason)
+        if (readyResult) deliverReady(readyResult)
+      })
+      void ready.catch(() => undefined)
+    }
+    return ready
+  }
   function rejectPendingReady(error: Error) {
-    if (readySettled) return
-    readySettled = true
-    rejectReady(error)
+    settleReady({ status: "rejected", reason: error })
   }
   function fail(error: Error) {
     rejectPendingReady(error)
@@ -395,10 +457,7 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
     if (!previewPorts.has(port)) return
     serverReadyCount++
     server = { port, url }
-    if (!readySettled) {
-      readySettled = true
-      resolveReady(server)
-    }
+    settleReady({ status: "fulfilled", value: server })
     if (status.current.stage === "starting") status.enter("ready")
   })
   container.on("error", ({ message }) => fail(new Error(message)))
@@ -408,7 +467,7 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
     preview: {
       get url() { return server?.url },
       get port() { return server?.port },
-      ready,
+      get ready() { return readiness() },
     },
     fs: container.fs,
     async run(command, runOptions = {}) {
@@ -445,12 +504,15 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
         void run.exit.then(async (code) => {
           if (code === 0) return status.finish("installing")
           fail(new Error(`npm install exited with code ${code}.\n${(await run.text()).slice(-2000)}`))
-        })
+        }, (cause: unknown) => fail(cause instanceof Error ? cause : new Error(String(cause))))
       }
       if (stage === "starting") {
         void run.exit.then((code) => {
           devRunning = false
           if (serverReadyCount === readyCountAtStart) fail(new Error(`The dev server exited with code ${code} before it was ready.`))
+        }, (cause: unknown) => {
+          devRunning = false
+          fail(cause instanceof Error ? cause : new Error(String(cause)))
         })
       }
       return run

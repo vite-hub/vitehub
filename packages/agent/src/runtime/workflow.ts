@@ -94,7 +94,7 @@ async function reconcileAgentWorkflowInvocation<TRuntimeConfig extends AgentRunt
       ...runtimeContext,
       run: { ...runtimeContext.run, runId: recovery.sourceRunId },
     },
-    { agentName: recovery.agentName, deferClaim: true, terminalTakeover: true },
+    { agentName: recovery.agentName, deferClaim: true, executionMode: "workflow", terminalTakeover: true },
   )
   if (!journal) return
   const { getWorkflowRun } = await loadAgentWorkflowModule()

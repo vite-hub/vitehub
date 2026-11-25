@@ -17,7 +17,7 @@ icon: i-lucide-code-2
 | `runWorkspaceInspectionCommand` from `vite-hub/shell/workspace` | Run a pre-checked, read-only Workspace inspection command. |
 | `cleanWorkspaceShellPath`, `cleanWorkspaceMutationPath` from `vite-hub/shell/workspace` | Normalize Workspace paths for shell use. |
 
-These entry points also export the Runtime, Session, Policy, Boundary, Observation, Driver, process, and Workspace filesystem types. With the `vite-hub` package, import the same APIs from `vite-hub/shell`, `vite-hub/shell/providers/*`, and `vite-hub/shell/workspace`.
+These entry points also export the Runtime, Session, Policy, Boundary, Observation, Driver, process, and Workspace filesystem types. Without `vite-hub`, import the same APIs from `@vite-hub/shell`, `@vite-hub/shell/providers/just-bash`, and `@vite-hub/shell/workspace`.
 
 Workspace filesystem rules:
 
@@ -28,7 +28,7 @@ Workspace filesystem rules:
 
 Custom drivers can return Shell Processes and Shell Observations as class instances. Sessions read the process ID, command, and working directory from the driver handle when inspected. These fields are readonly. A failed read does not block process cleanup. Sessions keep every declared observation field, also fields from getters.
 
-`runtime.boundary.execution` gives the execution model (`in_process`, `process`, or `provider_managed`) and `model` (`virtual`, `host`, or `unknown`). `runtime.boundary.resources.output` says whether the driver or the Shell runtime enforces output limits, or whether limits before buffering are unsupported.
+`runtime.boundary.execution` gives `isolation` (`in_process`, `process`, `provider_managed`, or `unknown`) and `model` (`virtual`, `host`, or `unknown`). `runtime.boundary.resources.output` says whether the driver or the Shell runtime enforces output limits, or whether limits before buffering are unsupported.
 
 ## Use Shell sessions
 

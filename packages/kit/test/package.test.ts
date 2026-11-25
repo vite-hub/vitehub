@@ -1,10 +1,10 @@
 import { readFileSync } from "node:fs";
 import postcss from "postcss";
 import type { AtRule, Container, Root } from "postcss";
+import type selectorParser from "postcss-selector-parser";
 import { describe, expect, it } from "vitest";
 
 import { parseSelectors } from "../scripts/styles.ts";
-import type { SelectorPart } from "../scripts/styles.ts";
 
 import { verifyBuiltPackageExports } from "../../internal/test-utils/built-package-exports.js";
 import { kitEntries, ownEntries, uiSdkEntries } from "./entries.ts";
@@ -76,10 +76,10 @@ describe("@vite-hub/kit package contract", () => {
   }, 60_000);
 });
 
-function onScopeRoot(selector: SelectorPart): boolean {
+function onScopeRoot(selector: selectorParser.Selector): boolean {
   let scoped = false;
   let inside = false;
-  for (const node of selector.nodes ?? []) {
+  for (const node of selector.nodes) {
     if (node.type === "combinator") {
       const value = node.value.trim();
       if (scoped && !inside && value !== "" && value !== ">") return false;

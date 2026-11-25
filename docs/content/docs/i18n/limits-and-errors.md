@@ -8,7 +8,7 @@ icon: i-lucide-circle-alert
 
 ## Limits
 
-- **Nitro 3 only.** i18n runs in Vite with Nitro 3 and in Nuxt 5. An unsupported host stops the build with [`I18N_UNSUPPORTED_HOST`](#i18n_unsupported_host).
+- **Nitro 3 only.** i18n runs in Vite with Nitro 3, in Nuxt 4.7 with the `nitro` package, and in Nuxt 5. An unsupported host stops the build with [`I18N_UNSUPPORTED_HOST`](#i18n_unsupported_host).
 - **Async context.** ViteHub turns on Nitro's `experimental.asyncContext`, so `t` finds the request that runs it.
 - **Translations at build time.** The build reads `locales/<locale>/segments/` when it starts. A translation that you add after the build shows after the next build. In development, a saved record shows after a reload.
 - **Messages from files on disk.** The build reads the messages of each module from its file, so a message that another Vite plugin generates is not collected. It still works on the server, but in the browser a production build shows its ID.
@@ -24,7 +24,9 @@ icon: i-lucide-circle-alert
 
 ## Errors
 
-A config error throws when the build starts. A runtime error comes back as `[error, undefined]`. Each error has a `code`, `why`, `fix`, and a `docs` link to its heading on this page.
+A config error throws when the build starts. A failed call that returns a result gives `[error, undefined]`. Each diagnostic has a `code`, `why`, `fix`, and a `docs` link to its page in [i18n diagnostics](/docs/i18n/diagnostics).
+
+If the live catalog is [invalid](/docs/i18n/diagnostics/i18n_live_catalog_invalid) or [unavailable](/docs/i18n/diagnostics/i18n_live_catalog_unavailable), the browser logs a warning instead of returning an error. `setLocale()` can still select the locale using the build catalog.
 
 ### I18N_INVALID_LOCALES
 
@@ -32,7 +34,7 @@ A config error throws when the build starts. A runtime error comes back as `[err
 
 ### I18N_UNSUPPORTED_HOST
 
-The app builds the server with an unsupported host. i18n needs Nitro 3, which runs each request in an async context. Use Nuxt 5, or use `vitehub()` with Nitro 3 in a Vite app.
+The app builds the server with an unsupported host. i18n needs Nitro 3, which runs each request in an async context. Use Nuxt 4.7 with the `nitro` package, Nuxt 5, or `vitehub()` with Nitro 3 in a Vite app.
 
 ### I18N_UNKNOWN_WORKSPACE
 

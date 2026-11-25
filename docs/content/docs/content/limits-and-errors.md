@@ -14,7 +14,7 @@ icon: i-lucide-circle-alert
 - Each of these throws an error with its own code: `collections` without `workspace` or `extends: cms`, `extends` with `workspace`, a collection not made by `documents()`, a collection named like a Source, a `route` other than `true` or `false` (`route: 'public'` names `access: 'public'` in its message), an `access` other than `'public'`, or a `github()` Source without `authorize` that `/api/content/**`, an SEO route other than `robots`, or `previews` would serve, unless `access` is `'public'`.
 - `documents()` paths are relative globs with `*`, `**`, and `?` that end in one extension, such as `posts/**/*.md`. `path` can be a list of globs with that extension. An empty list, a repeated glob, mixed extensions, or a glob without a wildcard throws an error. `content.resolve()` throws for a path that is not a string. Every field is a Standard Schema validator.
 - `defineContent()` needs `AsyncLocalStorage` from `node:async_hooks` in the runtime.
-- Generated Content HTTP routes require Nitro 3, including Nuxt 5. Routes expose `fetch(request)` with a Web `Request`; Markdown middleware reads `event.req`.
+- Generated Content HTTP routes require Nitro 3, which Nuxt 4.7 with the `nitro` package and Nuxt 5 run. Routes expose `fetch(request)` with a Web `Request`; Markdown middleware reads `event.req`.
 
 ## Sources
 
@@ -47,7 +47,7 @@ icon: i-lucide-circle-alert
 
 - `VITEHUB_CONTENT_KEY` signs preview tokens. Without it, preview works only when `NODE_ENV` is `development` or `test`, with a key that changes on restart.
 - A token lives 60 seconds to 24 hours (default one hour) and previews every collection. It is not bound to a user, and the server cannot revoke one token early. Rotating the key ends all of them.
-- Preview covers requests through Nitro 3, in Vite and in Nuxt 5. The preview plugin throws on an app without Nitro 3's fetch entry. Elsewhere, wrap reads in `content.preview.run(event, callback)`.
+- Preview covers requests through Nitro 3, in Vite, in Nuxt 4.7 with the `nitro` package, and in Nuxt 5. The preview plugin throws on an app without Nitro 3's fetch entry. Elsewhere, wrap reads in `content.preview.run(event, callback)`.
 - Nitro's response and function cache skips preview requests. A CDN cannot see the cookie, so make it skip its cache for preview requests. See [Caching](/docs/content/preview#caching).
 
 ## Sessions
@@ -73,7 +73,7 @@ icon: i-lucide-circle-alert
 | `CONTENT_R0009` | Bad `publish()` options, such as `ids` without `collection`, `expect` with `collection` or `ids`, an empty or repeated `expect` entry, or a bad digest. | Pass `collection` with `ids`, or `expect` alone with one entry per document, and `ifHead` as a revision id or `null`. |
 | `CONTENT_R0010` | `content.preview.enable()` has no signing key outside development and tests, or `VITEHUB_CONTENT_KEY` is not 32 bytes. | Set `VITEHUB_CONTENT_KEY` to `openssl rand -base64 32` on each instance. |
 | `CONTENT_R0011` | Bad `schedule()` options: `at` not in the future or without a time zone, a bad `expect`, every document already published as reviewed, or a document with a pending schedule. | Pass a future time with a zone, and `unschedule()` the old schedule first. See [Scheduling](/docs/content/scheduling). |
-| `CONTENT_R0012` | `content.sessions` cannot reach its table. The Workspace history Database has no `vitehub_content_sessions` table, or the Store has no Database (use the Blob + Database Store, or the GitHub Store with a `database`). | Use the `cms` preset, or add `contentSessionsSchema` from `vite-hub/content/database` next to `workspaceHistorySchema`, then run `vitehub database generate` and `vitehub database migrate`. |
+| `CONTENT_R0012` | `content.sessions` cannot reach its table. The Workspace history Database has no `vitehub_content_sessions` table, the Store has no Database (use the Blob + Database Store, or the GitHub Store with a `database`), or the history Database is Postgres, which sessions do not support. | Use the `cms` preset, or add `contentSessionsSchema` from `vite-hub/content/database` next to `workspaceHistorySchema`, then run `vitehub database generate` and `vitehub database migrate`. |
 | `CONTENT_R0013` | A writer other than `publish()`, such as a raw history commit, deleted a document from `published`. | `remove()` it from the draft, then publish the deletion with `content.publish()`. |
 | `CONTENT_R0014` | Bad [`vitehub content`](/docs/content/cli) arguments, such as a missing collection, `--id` without `--collection`, `schedule` without `--at`, or `edit` without `--file` or an interactive terminal. | Run the command with `--help`. |
 | `CONTENT_R0016` | `schedule()` ran on the GitHub store, which keeps no schedules. | Use `content.publish()`, or the Blob + Database store. See [GitHub store](/docs/cms/configure#github-store). |

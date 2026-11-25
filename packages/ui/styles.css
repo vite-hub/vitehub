@@ -8,6 +8,8 @@
 @import "./theme-focus-ring.css";
 /* Comment pins, areas, and highlights. The ViteHub pill and Drop's page frame load the same file without a framework. */
 @import "./comment-marks.css" layer(components);
+/* CommentSend, the Send segment of a comment pill. The ViteHub pill loads the same file in its toolbar. */
+@import "./comment-send.css" layer(components);
 
 /*
  * Theme tokens. Set `--vh-ui-*` on any element to change the parts inside it; the package sets none of them. The parts
@@ -2373,6 +2375,10 @@
     padding: 0.25rem 0 0;
   }
 
+  [data-slot="comment-thread"]:has([data-slot="comment-reply"][data-editing="true"]) > [data-slot="comment-composer"] {
+    display: none;
+  }
+
   [data-slot="comment-toolbar"] {
     align-items: center;
     background: var(--vh-bg);
@@ -3661,6 +3667,9 @@
   .vh-ws-breadcrumb > span { color: var(--vh-muted); flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .vh-ws-breadcrumb-separator { color: var(--vh-dimmed); flex: 0 1000 13px; height: 13px; min-width: 0; stroke-width: 1.5; width: 13px; }
   .vh-ws-breadcrumb b { color: var(--vh-highlighted); flex: 0 1 auto; font-weight: 500; margin-left: 3px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  /* A file that the example marks read-only. The mark stays whole, and the breadcrumb shrinks first. */
+  .vh-ws-readonly { align-items: center; color: var(--vh-muted); display: inline-flex; flex: none; font-size: 12px; gap: 4px; margin-left: 8px; white-space: nowrap; }
+  .vh-ws-readonly-icon { height: 12px; stroke-width: 1.5; width: 12px; }
   .vh-ws-wrap-button.vh-ws-wrap-button { border-radius: 4px; color: var(--vh-muted); flex: none; height: 24px; justify-content: center; min-height: 0; padding: 0; width: 24px; }
   .vh-ws-wrap-button svg { height: 15px; stroke-width: 1.5; width: 15px; }
   .vh-ws-wrap-button[aria-pressed="true"] { background: var(--vh-bg-elevated); color: var(--vh-highlighted); }
@@ -3896,6 +3905,9 @@
   .vh-ws-issues li + li { margin-top: 0.375rem; }
   .vh-ws-issues-empty { color: var(--vh-muted); }
   .vh-ws-issue-line { font-family: var(--vh-ws-font-mono); font-weight: 600; margin-inline-end: 0.5rem; }
+  /* The file of an issue opens it in the editor. It keeps the look of the line, with an underline as a link. */
+  .vh-ws-issue-file { background: none; border: 0; color: inherit; cursor: pointer; font-size: inherit; padding: 0; text-decoration: underline; text-underline-offset: 2px; }
+  @media (hover: hover) { .vh-ws-issue-file:hover { color: var(--vh-highlighted); } }
 }
 
 /* MarkdownEditor: the text takes the comark typeset. The editor has no frame, so its caret shows focus. */

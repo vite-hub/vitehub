@@ -110,6 +110,13 @@ describe("WorkspaceEditorHead", () => {
     expect(wrapper.get(".vh-ws-breadcrumb .vh-ws-file-icon").html()).toContain("·");
     expect(wrapper.get(".vh-ws-breadcrumb b").text()).toBe("notes.constructor");
   });
+
+  it("shows Read-only only for a locked file", async () => {
+    const wrapper = mount(WorkspaceEditorHead, { global, props: { path: "footer.html" } });
+    expect(wrapper.find(".vh-ws-readonly").exists()).toBe(false);
+    await wrapper.setProps({ readonly: true });
+    expect(wrapper.get(".vh-ws-readonly").text()).toBe("Read-only");
+  });
 });
 
 describe("WorkspaceFileTree", () => {

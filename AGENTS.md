@@ -11,7 +11,7 @@ Before you design, change, review, or document anything in this repository, read
 - Write short, plain English. Use ASD-STE100 language.
 - Keep the scope focused. Prefer the smallest change that makes the public contract better.
 - Use the existing Vite, Nuxt, Vue, TypeScript, and pnpm stack.
-- Build for Nuxt 5 and Nitro 3 only. Add no code, tests, or docs for Nuxt 4 or Nitro 2 (`nitropack`).
+- Build for Nitro 3 only: Nuxt 5, or Nuxt 4.7 and newer with the `nitro` package. Add no code, tests, or docs for Nitro 2 (`nitropack`) or for Nuxt before 4.7.
 - Prefer inferred types. Do not use `any`.
 - Put shared behavior in the package that owns it. Keep product workflows in consumers.
 - Preserve other people's changes. Inspect collisions before editing.
@@ -55,7 +55,7 @@ Use the web platform before JavaScript, and JavaScript before a dependency. A na
 
 ## Comments
 
-Write no comments. Name the code so it needs none. Record a non-obvious decision in the area's log in [adr/](adr/README.md), and file an issue for a workaround. The `vitehub/no-comments` lint rule (`scripts/lint/comments.mjs`) keeps only comments that a tool reads, such as `// SAFETY:` and `@ts-expect-error`, and JSDoc on exported API in `packages/*/src`. Existing comments are allowed up to the per-file count in `scripts/lint/comment-baseline/`. When the rule fails, or when you touch a file that has comments, use the [delete-comment skill](.agents/skills/delete-comment/SKILL.md).
+Write no comments. Name the code so it needs none, and file an issue for a workaround. The `vitehub/no-comments` lint rule (`scripts/lint/comments.mjs`) keeps only comments that a tool reads, such as `// SAFETY:` and `@ts-expect-error`, and JSDoc on exported API in `packages/*/src`. Existing comments are allowed up to the per-file count in `scripts/lint/comment-baseline/`. When the rule fails, or when you touch a file that has comments, use the [delete-comment skill](.agents/skills/delete-comment/SKILL.md).
 
 ## Diagnostic codes
 

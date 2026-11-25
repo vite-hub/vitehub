@@ -1,4 +1,4 @@
-import { readFile, rm } from "node:fs/promises"
+import { readFile, realpath, rm } from "node:fs/promises"
 import { watch as watchFs, type FSWatcher } from "node:fs"
 import { createRequire } from "node:module"
 import { dirname, relative, resolve, sep } from "node:path"
@@ -215,7 +215,6 @@ export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): Datab
             }
           }
           nuxtOptions.watch = [...new Set([...(nuxtOptions.watch ?? []), ...definitionDirectories, ...definitionFiles, ...contributionFiles])]
-          // Nuxt's builder ignores node_modules, so watch each resolved dependency directly.
           const installContributionWatcher = (watchedFile: string) => {
             if (closed || contributionWatchers.has(watchedFile)) return
             try {
@@ -446,8 +445,8 @@ function resolveDatabaseNuxtProvisionState(provisionState: ReturnType<typeof rea
 }
 
 async function collectWatchedModuleFiles(file: string, require: NodeRequire, files: Set<string>, seen = new Set<string>()) {
-  file = resolve(file)
-  if (seen.has(file)) return
+  file = await realpath(file)
+  if (seen.has(file) || file.split(sep).includes("node_modules")) return
   seen.add(file)
   files.add(file)
   const loaded = require.cache?.[file]

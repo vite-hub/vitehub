@@ -454,6 +454,17 @@ describe("Workspace with webContainer()", () => {
     shared.unmount();
   });
 
+  it("opens an example named after the start screen showed, as when a prerendered page gets its query", async () => {
+    const wrapper = mount(Workspace, { global, props: { examples: [kv, blob], runner: runner(), start: true } });
+    await flushPromises();
+    expect(wrapper.find(".vh-ws-start").exists()).toBe(true);
+    await wrapper.setProps({ example: "blob", start: false });
+    await flushPromises();
+    expect(wrapper.find(".vh-ws-start").exists()).toBe(false);
+    expect(wrapper.get(".vh-ws-breadcrumb").attributes("title")).toBe("server/api/note.get.ts");
+    wrapper.unmount();
+  });
+
   it("starts only the picked example when the first example's snapshot would still be downloading", async () => {
     const started: string[] = [];
     let live = 0;

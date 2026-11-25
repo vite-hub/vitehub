@@ -9,6 +9,7 @@ import type { BlobDriverAdapter, BlobDriverByteRange, BlobDriverMultipartUpload,
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 import { bareETag } from "../internal/etag.ts"
 import isBlob from "../internal/is-blob.ts"
+import { fromProviderListCursor, toProviderListCursor, unconsumedListCursor } from "../internal/provider-list-cursor.ts"
 import { assertValidPathname } from "../internal/pathname.ts"
 
 interface R2ObjectLike {
@@ -151,6 +152,8 @@ async function signRequest(options: ResolvedCloudflareR2BlobStoreConfig, pathnam
   }
 }
 
+const r2MaximumListLimit = 1000
+
 function assertListPageCursor(result: { cursor?: string, truncated?: boolean }) {
   if (typeof result.truncated !== "boolean" || (result.truncated && !result.cursor) || (!result.truncated && result.cursor)) {
     throw blobErrorDiagnostics.BLOB_R0033({ message: "Cloudflare R2 returned an invalid list page: `truncated` must be a boolean, and `cursor` is present only when `truncated` is true." })
@@ -225,19 +228,21 @@ export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): Blob
       return object ? mapObject(object) : null
     },
     async list(listOptions: BlobListOptions = {}): Promise<BlobListResult> {
+      const { cursor, limit = r2MaximumListLimit } = listOptions
       const result = await getBucket(options).list({
-        cursor: listOptions.cursor,
+        cursor: toProviderListCursor(cursor),
         delimiter: listOptions.folded ? "/" : undefined,
         include: ["customMetadata", "httpMetadata"],
-        limit: listOptions.limit ?? 1000,
+        limit: Math.min(Math.max(limit, 1), r2MaximumListLimit),
         prefix: listOptions.prefix,
       })
       assertListPageCursor(result)
+      const heldBlob = limit === 0 && result.objects.length > 0
       return {
-        blobs: result.objects.map(mapObject),
-        cursor: result.truncated ? result.cursor : undefined,
-        folders: listOptions.folded ? result.delimitedPrefixes?.sort((left, right) => left.localeCompare(right)) : undefined,
-        hasMore: Boolean(result.truncated || result.cursor),
+        blobs: limit === 0 ? [] : result.objects.map(mapObject),
+        cursor: heldBlob ? unconsumedListCursor(cursor) : fromProviderListCursor(result.cursor),
+        folders: listOptions.folded ? result.delimitedPrefixes?.sort() : undefined,
+        hasMore: heldBlob || Boolean(result.truncated),
       }
     },
     async put(pathname: string, body: BlobPutBody, putOptions: BlobPutOptions = {}) {

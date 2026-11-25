@@ -399,7 +399,7 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ option, min, max }: { option: string, min: number, max: number }) => `[vitehub] ${option} must be whole seconds from ${min} to ${max}.`,
     },
     CONTENT_PREVIEW_NITRO_REQUIRED: {
-      fix: "Use `defineContentPreviewPlugin()` in a Nitro 3 app, such as Vite with Nitro or Nuxt 5. Elsewhere, wrap reads in `content.preview.run(event, callback)`.",
+      fix: "Use `defineContentPreviewPlugin()` in a Nitro 3 app: Vite with Nitro, Nuxt 4.7 or newer with the `nitro` package, or Nuxt 5. Elsewhere, wrap reads in `content.preview.run(event, callback)`.",
       why: () => "[vitehub] defineContentPreviewPlugin() needs a Nitro 3 app.",
     },
     CONTENT_PREVIEW_PULL_INVALID: {

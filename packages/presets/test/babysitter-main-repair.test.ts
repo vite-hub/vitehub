@@ -13,15 +13,18 @@ const repository = "acme/app";
 const tip = "a".repeat(40);
 const older = "b".repeat(40);
 const prefix = "repair-main-";
+const repairAuthor = "repair-bot[bot]";
 const now = Date.parse("2026-11-13T12:00:00Z");
 
 interface Run { id: number; name: string; head_sha: string; status: string; conclusion: string | null; created_at: string; html_url: string }
 const run = (id: number, name: string, head: string, conclusion: string | null, created = "2026-11-13T11:00:00Z"): Run => ({
   id, name, head_sha: head, status: conclusion === null ? "in_progress" : "completed", conclusion, created_at: created, html_url: `https://github.com/${repository}/actions/runs/${id}`,
 });
-const pull = (number: number, ref: string, mergedAt?: string, owner = repository) => ({ number, merged_at: mergedAt ?? null, head: { ref, repo: { full_name: owner } } });
+const pull = (number: number, ref: string, mergedAt?: string, owner = repository) => ({
+  number, merged_at: mergedAt ?? null, head: { ref, repo: { full_name: owner } },
+  title: `fix: repair main after ${ref.slice(prefix.length)}`, user: { login: repairAuthor },
+});
 
-/** A GitHub with one default branch. Each list is what GitHub returns for the matching query. */
 function fakeGitHub(state: {
   runs?: Run[];
   jobs?: Record<number, { name: string; status: string; conclusion: string | null; started_at: string; html_url?: string }[]>;
@@ -29,7 +32,7 @@ function fakeGitHub(state: {
   closedPulls?: ReturnType<typeof pull>[];
   branches?: string[];
 }) {
-  const writes: { path: string; body?: Record<string, unknown> }[] = [];
+  const writes: { path: string; body?: Record<string, unknown>; method?: string }[] = [];
   const github: MainRepairGitHub = {
     async read(path, query = {}) {
       if (path === `repos/${repository}`) return { default_branch: "main" };
@@ -41,13 +44,18 @@ function fakeGitHub(state: {
       }
       const jobs = /actions\/runs\/(\d+)\/jobs$/.exec(path);
       if (jobs) return { jobs: state.jobs?.[Number(jobs[1])] ?? [] };
-      if (path === `repos/${repository}/pulls`) return query.state === "open" ? state.openPulls ?? [] : state.closedPulls ?? [];
+      if (path === `repos/${repository}/pulls`) {
+        const pulls = query.state === "open" ? state.openPulls ?? [] : state.closedPulls ?? [];
+        const perPage = Number(query.per_page ?? 30);
+        const start = (Number(query.page ?? 1) - 1) * perPage;
+        return pulls.slice(start, start + perPage);
+      }
       const ref = /git\/ref\/heads\/(.+)$/.exec(path);
       if (ref) return state.branches?.includes(ref[1]!) ? { ref: `refs/heads/${ref[1]}` } : undefined;
       throw new Error(`Unexpected read ${path}`);
     },
-    async write(path, body) {
-      writes.push({ path, body });
+    async write(path, body, method = "POST") {
+      writes.push({ path, body, ...method === "POST" ? {} : { method } });
       if (path.endsWith("/git/commits")) return { sha: "e".repeat(40) };
       if (path.endsWith("/git/refs")) return { ref: body?.ref };
       if (path.endsWith("/pulls")) return { number: 77 };
@@ -62,7 +70,7 @@ const mainRepair: BabysitterMainRepair = { workflows: ["ci", "pkg.pr.new"] };
 async function check(state: Parameters<typeof fakeGitHub>[0], options: Partial<BabysitterMainRepair> = {}) {
   const { github, writes } = fakeGitHub(state);
   const event = vi.fn();
-  const outcome = await repairBaseBranch(github, { repository, branchPrefix: prefix, mainRepair: { ...mainRepair, ...options }, now, event });
+  const outcome = await repairBaseBranch(github, { repository, branchPrefix: prefix, repairAuthor, mainRepair: { ...mainRepair, ...options }, now, event });
   return { outcome, writes, event };
 }
 
@@ -91,15 +99,45 @@ describe("Babysitter main repair", () => {
     expect(green.event).toHaveBeenCalledWith("babysitter.main_repair.green", { repository, head: tip });
   });
 
+  it("closes a repair PR that is still open once the default branch is green", async () => {
+    const { outcome, writes } = await check({
+      runs: [run(1, "ci", tip, "success"), run(2, "pkg.pr.new", tip, "success")],
+      openPulls: [
+        pull(40, `${prefix}bbbbbbbb`), pull(41, "feature"), pull(42, `${prefix}sidebar`),
+        { ...pull(43, `${prefix}12345678`), user: { login: "maintainer" } },
+        { ...pull(44, `${prefix}23456789`), title: "fix: update the sidebar" },
+      ],
+    });
+    expect(outcome).toEqual({ state: "green", head: tip, closed: [40] });
+    expect(writes).toEqual([
+      { path: `repos/${repository}/issues/40/comments`, body: { body: expect.stringContaining(`main is green at ${tip}`) } },
+      { path: `repos/${repository}/pulls/40`, body: { state: "closed" }, method: "PATCH" },
+    ]);
+  });
+
+  it("keeps the repair PR open until every watched workflow passes on the tip", async () => {
+    const { writes } = await check({
+      runs: [run(1, "ci", tip, "success"), run(2, "pkg.pr.new", older, "success", "2026-11-13T10:00:00Z")],
+      openPulls: [pull(40, `${prefix}bbbbbbbb`)],
+    });
+    expect(writes).toEqual([]);
+  });
+
+  it("keeps the repair PR open when the tip's watched run was cancelled", async () => {
+    const { outcome, writes } = await check({
+      runs: [run(1, "ci", tip, "cancelled"), run(2, "ci", older, "success", "2026-11-13T10:00:00Z")],
+      openPulls: [pull(40, `${prefix}bbbbbbbb`)],
+    });
+    expect(outcome).toEqual({ state: "green", head: tip });
+    expect(writes).toEqual([]);
+  });
+
   it("falls back to the newest finished run of each workflow after the last merged repair", async () => {
-    // The tip has no finished run, and the newest finished ci run on an older commit failed.
     const runs = [run(3, "ci", tip, null), run(2, "ci", older, "failure", "2026-11-13T10:00:00Z"), run(1, "ci", older, "success", "2026-11-13T09:00:00Z")];
     const opened = await check({ runs, closedPulls: [pull(5, `${prefix}cccccccc`, "2026-11-13T08:00:00Z")] });
     expect(opened.outcome).toMatchObject({ state: "opened", red: older, branch: `${prefix}bbbbbbbb` });
-    // A repair that merged after that failure means the failure is already fixed.
     const repaired = await check({ runs, closedPulls: [pull(5, `${prefix}cccccccc`, "2026-11-13T10:30:00Z")] });
     expect(repaired.outcome).toEqual({ state: "waiting", head: tip, reason: "ci-running" });
-    // A newer passing run clears the failure; a newer cancelled run does not.
     const passed = await check({ runs: [run(4, "ci", older, "success", "2026-11-13T10:30:00Z"), ...runs.slice(1)] });
     expect(passed.outcome).toEqual({ state: "waiting", head: tip, reason: "no-ci-run" });
     const cancelled = await check({ runs: [run(4, "ci", older, "cancelled", "2026-11-13T10:30:00Z"), ...runs.slice(1)] });
@@ -111,9 +149,12 @@ describe("Babysitter main repair", () => {
     const open = await check({ runs, openPulls: [pull(9, "feature"), pull(10, `${prefix}11111111`)] });
     expect(open.outcome).toEqual({ state: "repair-open", head: tip, pullRequest: 10 });
     expect(open.writes).toEqual([]);
-    // A fork's branch with the prefix is not a repair PR.
     const fork = await check({ runs, openPulls: [pull(11, `${prefix}11111111`, undefined, "someone/app")] });
     expect(fork.outcome).toMatchObject({ state: "opened" });
+    const features = Array.from({ length: 100 }, (_, index) => pull(100 + index, `feature-${index}`));
+    const later = await check({ runs, openPulls: [...features, pull(300, `${prefix}22222222`)] });
+    expect(later.outcome).toEqual({ state: "repair-open", head: tip, pullRequest: 300 });
+    expect(later.writes).toEqual([]);
     const attempted = await check({ runs, branches: [`${prefix}aaaaaaaa`], closedPulls: [pull(77, `${prefix}aaaaaaaa`)] });
     expect(attempted.outcome).toEqual({ state: "already-attempted", head: tip, red: tip, branch: `${prefix}aaaaaaaa` });
     expect(attempted.writes).toEqual([]);
@@ -186,33 +227,36 @@ describe("Babysitter main repair", () => {
 });
 
 describe("Babysitter main repair in the runtime", () => {
-  it("opens the repair PR from a reconcile, waits 10 minutes, and checks again after a failed run is delivered", async () => {
+  it("opens a repair on failure and closes it after CI passes", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-main-repair-"));
     try {
       let open = false;
+      let conclusion = "failure";
       const { provider, calls } = await githubForge(request => {
         const path = request.path;
         if (path === `/repos/${repository}`) return { full_name: repository, default_branch: "main" };
         if (path === `/repos/${repository}/branches/main`) return { name: "main", commit: { sha: tip, commit: { tree: { sha: "t".repeat(40) } } } };
-        if (path === `/repos/${repository}/actions/runs`) return { total_count: 1, workflow_runs: [run(1, "ci", tip, "failure")] };
+        if (path === `/repos/${repository}/actions/runs`) return { total_count: 1, workflow_runs: [run(1, "ci", tip, conclusion)] };
         if (path === `/repos/${repository}/actions/runs/1/jobs`) return { total_count: 1, jobs: [{ name: "test", status: "completed", conclusion: "failure", started_at: "2026-11-13T11:00:00Z" }] };
         if (path === `/repos/${repository}/pulls` && request.method === "GET") return open && request.url.searchParams.get("state") === "open" ? [pull(77, `${prefix}aaaaaaaa`)] : [];
         if (path.startsWith(`/repos/${repository}/git/ref/heads/`)) return undefined;
         if (path === `/repos/${repository}/git/commits`) return { sha: "e".repeat(40) };
         if (path === `/repos/${repository}/git/refs`) return { ref: `refs/heads/${prefix}aaaaaaaa`, object: { sha: "e".repeat(40) } };
         if (path === `/repos/${repository}/pulls`) { open = true; return { number: 77 }; }
+        if (path === `/repos/${repository}/issues/77/comments`) return { id: 88 };
+        if (path === `/repos/${repository}/pulls/77` && request.method === "PATCH") { open = false; return { number: 77, state: "closed" }; }
         return undefined;
       });
-      const github = { identity: () => "repair-bot", forge: async () => provider } as unknown as GitHubHost;
+      const github = { identity: () => repairAuthor, forge: async () => provider } as unknown as GitHubHost;
       const agent = defineAgent({
         name: "babysitter",
         extends: babysitter,
-        options: { filter: {}, merge: false, mainRepairBranchPrefix: prefix, mainRepair: { workflows: ["ci"], stuckJobMinutes: false } },
+        options: { filter: {}, merge: false, status: { comment: false, checkRun: false }, mainRepairBranchPrefix: prefix, mainRepair: { workflows: ["ci"], stuckJobMinutes: false } },
         driver: codexDriver({}),
       });
       const events = vi.fn();
       const errors = vi.fn();
-      const runtime = createBabysitterRuntime({ agent, github, inboxPath: join(root, "inbox.sqlite"), repositories: [repository], concurrency: 1, activityAuthors: [], event: events, error: errors });
+      const runtime = createBabysitterRuntime({ agent, github, inboxPath: join(root, "inbox.sqlite"), repositories: [repository], concurrency: 1, activityAuthors: [repairAuthor], event: events, error: errors });
       const reconcile = async () => {
         const tracked: Promise<unknown>[] = [];
         await runtime.reconcile("test", { track: (work: Promise<unknown>) => { tracked.push(work) } } as Parameters<typeof runtime.reconcile>[1]);
@@ -235,6 +279,12 @@ describe("Babysitter main repair in the runtime", () => {
       await reconcile();
       expect(events).toHaveBeenCalledWith("babysitter.main_repair.repair_open", expect.objectContaining({ repository, pull_request: 77 }));
       expect(writes()).toHaveLength(3);
+
+      conclusion = "success";
+      await runtime.inbox.setMeta(`main-repair-next:${repository}`, 0);
+      await reconcile();
+      expect(calls).toContainEqual(expect.objectContaining({ method: "PATCH", path: `/repos/${repository}/pulls/77`, body: { state: "closed" } }));
+      expect(events).toHaveBeenCalledWith("babysitter.main_repair.green", { repository, head: tip, closed: [77] });
       await runtime.inbox.close();
     } finally {
       await rm(root, { recursive: true, force: true });

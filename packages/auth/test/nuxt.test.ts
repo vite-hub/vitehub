@@ -9,14 +9,16 @@ import { compileRouter } from "rou3/compiler"
 import { describe, expect, it, vi } from "vitest"
 
 import { hubEnv } from "@vite-hub/env/vite"
+import type { NuxtVueImportContext } from "@vite-hub/internal/build/vite"
 
 import hubAuthNuxt from "../src/nuxt.ts"
 
 function createNuxt() {
-  const hooks: Array<((config: Record<string, unknown>) => Promise<void>) | (() => void)> = []
+  type Hook = ((config: Record<string, unknown>) => Promise<void>) | ((context: NuxtVueImportContext) => Promise<void>) | (() => void)
+  const hooks: Hook[] = []
   const hookNames: string[] = []
   return {
-    hook(name: "modules:done" | "nitro:config", handler: ((config: Record<string, unknown>) => Promise<void>) | (() => void)) {
+    hook(name: "modules:done" | "nitro:config" | "imports:context", handler: Hook) {
       hooks.push(handler)
       hookNames.push(name)
     },
@@ -24,9 +26,6 @@ function createNuxt() {
     hooks,
     options: {
       alias: { "#existing": "/tmp/existing.mjs" },
-      imports: {
-        imports: [{ from: "app/composables", name: "useSession" }],
-      },
       nitro: {
         alias: { "#nitro-existing": "/tmp/nitro-existing.mjs" },
         plugins: ["/tmp/existing-plugin.mjs"],
@@ -324,7 +323,7 @@ describe("Auth Nuxt integration", () => {
     expect(runtime).toContain("setAuthRuntimeEnvResolver(useServerEnv, definition)")
   })
 
-  it("installs Vue composables and the server Env runtime once", () => {
+  it("installs Vue composables and the server Env runtime once", async () => {
     const nuxt = createNuxt()
 
     hubAuthNuxt({ importsFrom: "vite-hub/auth/vue" }, nuxt)
@@ -333,8 +332,12 @@ describe("Auth Nuxt integration", () => {
       vite: { plugins: Array<{ name?: string }> }
     }).vite
 
-    expect(nuxt.options.imports.imports).toEqual([
-      { from: "app/composables", name: "useSession" },
+    const imports: Array<{ as?: string, from: string, name: string }> = []
+    const addons: ReturnType<NuxtVueImportContext["getInternalContext"]>["addons"] = []
+    await runHook(nuxt, "imports:context", { getImports: async () => imports, getInternalContext: () => ({ addons }) })
+    expect(addons).toHaveLength(1)
+    for (const addon of addons) addon.extendImports?.(imports)
+    expect(imports.map(({ from, name }) => ({ from, name }))).toEqual([
       { from: "vite-hub/auth/vue", name: "useAbility" },
       { from: "vite-hub/auth/vue", name: "useAuthClient" },
       { from: "vite-hub/auth/vue", name: "useUserSession" },
@@ -360,7 +363,7 @@ describe("Auth Nuxt integration", () => {
     ])
     // nitro:config, modules:done, prepare:types for the definePageMeta({ auth }) type, build:manifest, and pages:resolved
     // and nitro:init for the check of cached guarded pages. The app has no abilities, so no components:extend for <AuthPermission>.
-    expect(nuxt.hookNames.toSorted()).toEqual(["build:manifest", "modules:done", "nitro:config", "nitro:init", "pages:resolved", "prepare:types"])
+    expect(nuxt.hookNames.toSorted()).toEqual(["build:manifest", "imports:context", "modules:done", "nitro:config", "nitro:init", "pages:resolved", "prepare:types"])
   })
 
   /** Runs the module on a temporary app with an Auth Definition, and returns the components that it registers. */
@@ -482,14 +485,12 @@ describe("Auth Nuxt integration", () => {
 
     hubAuthNuxt({ env: false }, nuxt)
     const options = nuxt.options as typeof nuxt.options & {
-      imports: { imports: Array<{ from: string, name: string }> }
       vite: { plugins: Array<{ name?: string }> }
     }
 
     expect(options.vite.plugins).toContainEqual(
       expect.objectContaining({ name: "@vite-hub/auth/vite" }),
     )
-    expect(options.imports.imports).toHaveLength(3)
     expect(options).not.toHaveProperty("alias")
     expect(options).not.toHaveProperty("nitro")
   })

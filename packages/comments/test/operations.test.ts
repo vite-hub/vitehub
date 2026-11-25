@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 // Exercise the built Node transport without pulling its Vite helpers into Comments' DOM typecheck.
 import { createStandaloneOperationHandler } from "../../internal/dist/operations-dev.js"
-import { defineCommentSubject, defineComments } from "../src/index.ts"
+import { defaultPolicy, defineCommentSubject, defineComments } from "../src/index.ts"
 import { installComments } from "../src/install.ts"
 import { commentsOperations } from "../src/operations-core/operations.ts"
 import { createAuthUsers, installCommentsRuntime } from "../src/operations-core/server.ts"
@@ -267,6 +267,19 @@ it("explains that an identify app hides threads from Console calls until authori
   expect(threadsText(listed)).toBe("No open threads that this caller may read. `authorize` hid 2 threads from this caller. With `identify`, a Console call has no app user: allow Console callers in `authorize` with `({ console }) => console`.")
 })
 
+it("does not grant a production app user access through the documented policy based on Console admission", async () => {
+  const store = setup(defineComments())
+  const thread = await create()
+  const authorize = vi.fn<NonNullable<Comments["options"]["authorize"]>>(({ user, development, action }) => defaultPolicy(user, { development }, action) || user?.role === "admin")
+  const viewer = { id: "viewer", role: "viewer" }
+  const comments = defineComments({ identify: () => viewer, authorize })
+  installCommentsRuntime({ definition: comments.options, store, development: false, identify: async () => viewer })
+  const request = new Request("http://site.test/_vitehub/rpc")
+  const context = { access: { mode: "auth", sections: "all" }, surface: "console", user: member, request, event: new H3Event(request) } satisfies OperationContext
+  expect(await runOperation(registry, "comments.list", {}, context)).toEqual({ ok: true, value: [] })
+  expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ user: viewer, action: "read", console: true, development: false, thread: expect.objectContaining({ id: thread.id }) }))
+})
+
 it("passes custom user fields to policies without storing them in comments", async () => {
   const store = setup(defineComments({ authorize: ({ user, action }) => Boolean(user) && (action !== "delete" || user?.role === "admin") }))
   const thread = await create()
@@ -385,7 +398,7 @@ it("checks read access on the subject before creating a thread", async () => {
   const authorize = vi.fn(({ action }) => action !== "read")
   const store = setup(defineComments({ authorize }))
   expect(await call("comments.create", input)).toMatchObject({ ok: false, status: 403, code: "COMMENTS_R0009" })
-  expect(authorize).toHaveBeenCalledExactlyOnceWith({ action: "read", console: true, subject: page, user: member })
+  expect(authorize).toHaveBeenCalledExactlyOnceWith({ action: "read", console: true, development: false, subject: page, user: member })
   expect(await store.list({})).toEqual([])
 })
 

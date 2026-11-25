@@ -23,6 +23,7 @@ it.each([false, true])("sets up a path-mounted Nuxt consumer (Nuxt UI first: %s)
       overrides: {
         dev: false,
         app: { baseURL: "/portal/" },
+        ...uiFirst ? { fonts: { throwOnError: true } } : {},
         modules: [...uiFirst ? [fileURLToPath(import.meta.resolve("@nuxt/ui"))] : [], [docs, { base: "/docs/", site: { url: "https://docs.example.com" } }]],
       },
       ready: true,
@@ -51,10 +52,12 @@ it.each([false, true])("sets up a path-mounted Nuxt consumer (Nuxt UI first: %s)
     const styles = nuxt.options.build.templates.find(template => template.filename === "docs/docs.css")
     const theme = /@import "([^"]+\/theme\.css)"/.exec(String(await styles?.getContents?.({} as never)))?.[1]
     expect(theme && await readFile(theme, "utf8")).toContain(":focus-visible {\n  outline: 2px solid var(--vh-focus);")
-    expect((nuxt.options as { fonts?: { families?: unknown[] } }).fonts?.families).toEqual(expect.arrayContaining([
-      { name: "Geist", global: true },
-      { name: "Geist Mono", global: true },
-    ]))
+    expect(nuxt.options).toMatchObject({
+      fonts: {
+        throwOnError: uiFirst,
+        families: expect.arrayContaining([{ name: "Geist", global: true }, { name: "Geist Mono", global: true }]),
+      },
+    })
     // @nuxt/fonts 0.14, the version that Nuxt UI asks for, writes empty font files on a Nitro 3 build.
     const fontModules = nuxt.options._installedModules.filter(({ meta }) => meta.name === "@nuxt/fonts")
     expect(fontModules.map(({ meta }) => meta.version)).toEqual([expect.stringMatching(/^1\./)])

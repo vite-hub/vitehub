@@ -1,12 +1,14 @@
-import { operationInputJsonSchema } from "@vite-hub/internal/operations"
+import { operationInputJsonSchema, runOperation } from "@vite-hub/internal/operations"
+import * as v from "valibot"
 
-import { allowedConsoleSections, consoleOperationGranted } from "./access.ts"
+import { allowedConsoleSections, consoleOperationGranted, readConsoleOperationUser } from "./access.ts"
 import { consoleOperationRegistry } from "./operation-contributions.ts"
 import { consoleOperations } from "./operations.ts"
 import { getConsoleBuild, getConsoleProjectName, getConsoleSections } from "./sections.ts"
 import { consoleState } from "../../internal.ts"
 
-import type { AnyOperation, OperationKind } from "@vite-hub/internal/operations"
+import type { ViteHubHost } from "@vite-hub/internal/deployment"
+import type { AnyOperation, OperationContext, OperationKind } from "@vite-hub/internal/operations"
 import type { ConsoleAccess } from "./access.ts"
 import type { ConsoleSectionsResponse } from "./sections.get.ts"
 
@@ -20,6 +22,10 @@ declare global {
 export interface ConsoleProjectBuild {
   /** When the build ran, as an ISO time. */
   time: string
+  /** The host that the build targets, and the Nitro preset that ViteHub builds with for it. */
+  host?: { name: ViteHubHost, preset: string }
+  /** The framework that built the app, and its installed version. */
+  framework?: { name: "nitro" | "nuxt", version?: string }
   /** The Git commit of the build, from CI variables or `git`. A build without Git has none. */
   commit?: {
     sha: string
@@ -27,6 +33,7 @@ export interface ConsoleProjectBuild {
     message?: string
     /** The name of the commit author, without the email. */
     author?: string
+    login?: string
     branch?: string
     /** The github.com repository of the commit, as `owner/name`, so the Console can compare the commit with the default branch. */
     repository?: string
@@ -52,6 +59,8 @@ export interface ConsoleProject {
   vitehub: string
   /** The production build that serves this answer. */
   build?: ConsoleProjectBuild
+  /** The Comments of the app, when the caller may open the Comments section. */
+  comments?: { open: number }
   /** The installed Console sections that the caller may open. */
   sections: string[]
   /** The installed operations that the caller may call. Each call checks its section again. */
@@ -72,11 +81,13 @@ export interface ConsoleProject {
  * Describe the project for one Console access. `console.authorize` limits the sections and the operations. With
  * `navigation`, the answer also has the sections that the Console page shows.
  */
-export async function readConsoleProject(access: ConsoleAccess, options: { navigation?: boolean } = {}): Promise<ConsoleProject> {
+export async function readConsoleProject(context: OperationContext & { access: ConsoleAccess }, options: { navigation?: boolean } = {}): Promise<ConsoleProject> {
+  const { access } = context
   const installed = getConsoleSections()
   const sections = allowedConsoleSections(access, installed)
   const operationSections = import.meta.viteHubConsoleOperationSections ?? installed
-  const callable = consoleOperationRegistry().list()
+  const registry = consoleOperationRegistry()
+  const callable = registry.list()
     // Contributions are installed by registration, including sections without a page. Built-ins need their feature.
     .filter(operation => !consoleOperations.includes(operation) || typeof operation.section !== "string" || operationSections.includes(operation.section))
     .filter(operation => consoleOperationGranted(access, operation))
@@ -87,7 +98,18 @@ export async function readConsoleProject(access: ConsoleAccess, options: { navig
   const name = getConsoleProjectName()
   const build = getConsoleBuild()
   const navigation = options.navigation ? await (await import("./sections.get.ts")).listConsoleSections(access) : undefined
-  return { protocol: 1, ...(name ? { name } : {}), vitehub: consoleState().vitehub ?? "0.0.0", ...(build ? { build } : {}), sections, operations, ...(reference ? { reference } : {}), ...(navigation ? { navigation } : {}) }
+  const comments = sections.includes("comments") && operations.includes("comments.list")
+    ? await countOpenComments(registry, context)
+    : undefined
+  return { protocol: 1, ...(name ? { name } : {}), vitehub: consoleState().vitehub ?? "0.0.0", ...(build ? { build } : {}), ...(comments ? { comments } : {}), sections, operations, ...(reference ? { reference } : {}), ...(navigation ? { navigation } : {}) }
+}
+
+async function countOpenComments(registry: ReturnType<typeof consoleOperationRegistry>, context: OperationContext & { access: ConsoleAccess }): Promise<{ open: number } | undefined> {
+  const user = context.user ?? await readConsoleOperationUser(context.access) ?? null
+  const result = await runOperation(registry, "comments.list", { limit: 500 }, { ...context, user })
+  if (!result.ok) return undefined
+  const threads = v.safeParse(v.array(v.object({ status: v.string() })), result.value)
+  if (threads.success) return { open: threads.output.filter(thread => thread.status === "open").length }
 }
 
 function operationReference(operation: AnyOperation): ConsoleOperationReference {

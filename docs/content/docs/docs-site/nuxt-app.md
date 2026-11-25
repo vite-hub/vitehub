@@ -10,7 +10,7 @@ icon: i-lucide-square-plus
 
 Add docs to Acme, a Nuxt app that has a home page and a pricing page. At the end, `/docs` is a docs site with navigation, search, and Markdown copies for coding agents. `/` and `/pricing` are the same as before.
 
-You need a Nuxt 5 app with Nuxt UI 4.11 or newer and Tailwind CSS. For a site that is only docs, start with [Build your first docs site](/docs/docs-site/get-started).
+You need a Nuxt 4.7 app with the `nitro` package and ViteHub 0.5.1 or newer, or a Nuxt 5 app, with Nuxt UI 4.11 or newer and Tailwind CSS. See [Install the module](/docs/frameworks-hosts/nuxt#install-the-module). For a site that is only docs, start with [Build your first docs site](/docs/docs-site/get-started).
 
 ::tutorial-step{title="Install the module"}
 ## Install the module

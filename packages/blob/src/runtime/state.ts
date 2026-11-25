@@ -25,11 +25,6 @@ let runtimeConfigPromise: Promise<false | ResolvedBlobModuleOptions> | undefined
 let runtimeStorages = new Map<string, BlobStorage>()
 let pendingStorages = new Map<string, Promise<BlobStorage>>()
 
-export async function checkBlobStoreHealth(name: string): Promise<void> {
-  const runtime = await import("./storage.ts")
-  await runtime.checkBlobStoreHealth(name)
-}
-
 export {
   clearActiveCloudflareEnv,
   getActiveCloudflareBinding,

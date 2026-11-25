@@ -107,6 +107,8 @@ export interface ConsoleNitroPluginOptions {
   /** Write nothing when this returns `false`, such as after the dev server closed. */
   active?: () => boolean
   access?: ConsoleAccessBuild
+  /** The host and the framework of a production build, which `project.get` reports with its commit. */
+  target?: Pick<ConsoleProjectBuild, "framework" | "host">
   runtimeCapabilityImports?: Record<string, false | string>
   development?: boolean
   /**
@@ -164,6 +166,9 @@ function renderConsoleNitroPlugin(
   const agentsEnabled = sections.includes("agents")
   const blobEnabled = sections.includes("blob")
   const databaseEnabled = sections.includes("databases")
+  const databaseNames = catalog.content.databases?.kind === "definition-catalog" ? catalog.content.databases.definitions.map(definition => definition.name) : []
+  const siteDatabaseEnabled = !development && sections.includes("site") && configuredSections.includes("databases")
+  const firstDatabase = databaseNames.includes("default") ? "default" : [...databaseNames].sort((left, right) => left.localeCompare(right))[0]
   const mcpClientEnabled = sections.includes("mcp-client")
   const schedulesEnabled = sections.includes("schedules")
   const runnableSchedules = (invoke ? catalog.manualSchedules ?? [] : [])
@@ -200,13 +205,13 @@ function renderConsoleNitroPlugin(
     `installConsoleOperations([${[...(mcpClientEnabled ? ["{ operations: vitehubConsoleMcpClientOperations, plugin: \"vite-hub\" }"] : []), ...operations.map((operation, index) => `{ operations: vitehubConsoleOperations${index}, plugin: ${JSON.stringify(operation.plugin)} }`)].join(", ")}], { invoke: ${invoke} })`,
     ...(definitionsEnabled ? [`installConsoleDefinitions(${JSON.stringify(projectRoot)}, ${JSON.stringify(catalog.content)}, ${JSON.stringify(contributedSections)}${runtimeReaders.length ? `, { ${runtimeReaders.map((reader, index) => `${JSON.stringify(reader.section)}: vitehubConsoleRuntimeReader${index}`).join(", ")} }` : ""})`] : []),
     ...(schedulesEnabled ? [`installConsoleSchedules(${JSON.stringify(projectRoot)}, {${runnableSchedules}})`] : []),
-    ...(databaseEnabled ? [`installConsoleDatabase(${JSON.stringify(projectRoot)}, vitehubConsoleDatabases, ${JSON.stringify(catalog.content.databases?.kind === "definition-catalog" ? catalog.content.databases.definitions.map(definition => definition.name) : [])})`] : []),
+    ...(databaseEnabled ? [`installConsoleDatabase(${JSON.stringify(projectRoot)}, vitehubConsoleDatabases, ${JSON.stringify(databaseNames)})`] : []),
     ...(agentsEnabled
       ? [`installConsoleAgentDefinitions([${definitions}], { projectRoot: ${JSON.stringify(projectRoot)}${invoke ? ", invoke: true" : ""}${runtimeCapabilities ? `, ${runtimeCapabilities}` : ""} })`]
       : []),
   ]
   return [
-    `import { ${access ? "installConsoleAccess, " : ""}${build ? "installConsoleBuild, " : ""}installConsoleDevelopment, installConsoleProjectName, installConsoleRuntime, installConsoleSections, installConsoleVersion } from ${JSON.stringify(generatedModules.consoleSetup)}`,
+    `import { ${access ? "installConsoleAccess, " : ""}${build ? "installConsoleBuild, " : ""}installConsoleDevelopment, installConsoleProjectName, installConsoleRuntime, installConsoleSections, ${siteDatabaseEnabled ? "installConsoleSiteDatabase, " : ""}installConsoleVersion } from ${JSON.stringify(generatedModules.consoleSetup)}`,
     ...accessCode.imports,
     // The page tools wrap the app's `fetch` when the server starts, so this one loads at startup.
     ...(pageTool ? [`import { installConsolePageTool } from ${JSON.stringify(generatedModules.consolePageTool)}`] : []),
@@ -215,6 +220,7 @@ function renderConsoleNitroPlugin(
     `installConsoleDevelopment(${JSON.stringify(projectRoot)}, ${JSON.stringify(development)}${development && sections.includes("setup") ? `, ${JSON.stringify(setupDevRoute)}` : ""})`,
     ...accessCode.install,
     `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)}${navigationSections ? `, ${JSON.stringify(navigationSections)}` : ""})`,
+    ...(siteDatabaseEnabled ? [`installConsoleSiteDatabase(async () => (await import("@vite-hub/database/runtime/registry")).databases${firstDatabase === undefined ? "" : `, ${JSON.stringify(firstDatabase)}`})`] : []),
     // The first Console request or agent tool that needs the operations loads them, with every primitive they import.
     `installConsoleRuntime(async () => {`,
     `  const [${[...runtimeImports.map(entry => `{ ${entry.bindings} }`), ...agentModules.map(entry => entry.binding)].join(", ")}] = await Promise.all([${[...runtimeImports, ...agentModules].map(entry => `import(${JSON.stringify(entry.module)})`).join(", ")}])`,
@@ -241,7 +247,7 @@ function renderConsoleNitroPlugin(
 export async function writeConsoleNitroPlugin(options: ConsoleNitroPluginOptions): Promise<void> {
   const { file, active = () => true } = options
   if (!active()) return
-  const contents = renderConsoleNitroPlugin(options, options.development ? undefined : await consoleBuildOf(options.projectRoot))
+  const contents = renderConsoleNitroPlugin(options, options.development ? undefined : { ...await consoleBuildOf(options.projectRoot), ...options.target })
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
     await mkdir(resolve(file, ".."), { recursive: true })
     await writeFile(file, contents, "utf8")

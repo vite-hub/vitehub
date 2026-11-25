@@ -1,0 +1,267 @@
+/*
+ * CommentSend: the Send segment of a comment pill. The ViteHub pill loads this file in its toolbar's shadow root, and
+ * styles.css imports it for Vue apps, such as Drop's pill. It reads the pill's `--vitehub-pill-*` colors, and else the
+ * Nuxt UI tokens of the surface around it, so it is dark in a dark pill and light in a light toolbar. Sizes are px: a
+ * pill has a fixed 28px row on any page.
+ */
+[data-slot="comment-send"] {
+  --vh-comment-send-text: var(--vitehub-pill-text, var(--ui-text-toned, currentColor));
+  --vh-comment-send-strong: var(--vitehub-pill-strong, var(--ui-text-highlighted, currentColor));
+  --vh-comment-send-muted: var(--vitehub-pill-muted, var(--ui-text-muted, currentColor));
+  --vh-comment-send-hover: var(--vitehub-pill-hover, color-mix(in oklab, currentColor 8%, transparent));
+  --vh-comment-send-on: var(--vitehub-pill-on, var(--ui-bg-inverted, currentColor));
+  --vh-comment-send-on-text: var(--vitehub-pill-on-text, var(--ui-text-inverted, Canvas));
+  --vh-comment-send-error: var(--vitehub-pill-error, var(--ui-error, currentColor));
+  --vh-comment-send-warning: var(--vitehub-pill-warning, var(--ui-warning, currentColor));
+  --vh-comment-send-success: var(--vitehub-pill-success, var(--ui-success, currentColor));
+  align-items: center;
+  color: var(--vh-comment-send-text);
+  display: flex;
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+[data-slot="comment-send"][hidden] {
+  display: none;
+}
+
+[data-slot="comment-send-content"] {
+  align-items: center;
+  animation: vh-comment-send-in 180ms cubic-bezier(0.23, 1, 0.32, 1);
+  display: flex;
+  gap: 2px;
+}
+
+/* A button of the segment, as a button of the pill: a 28px row, 8px corners, and a light hover. */
+[data-slot="comment-send-action"] {
+  align-items: center;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  box-sizing: border-box;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  flex: none;
+  font: inherit;
+  gap: 4px;
+  height: 28px;
+  justify-content: center;
+  margin: 0;
+  min-width: 28px;
+  padding: 0 8px;
+  text-decoration: none;
+  touch-action: manipulation;
+  transition-duration: 150ms;
+  transition-property: background-color, color, scale;
+  transition-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
+  -webkit-tap-highlight-color: transparent;
+}
+
+[data-slot="comment-send-action"][data-icon] {
+  padding: 0;
+  width: 28px;
+}
+
+@media (hover: hover) {
+  [data-slot="comment-send-action"]:hover {
+    background: var(--vh-comment-send-hover);
+    color: var(--vh-comment-send-strong);
+  }
+}
+
+[data-slot="comment-send-action"]:active {
+  scale: 0.96;
+}
+
+/* Allow and send N is the one action that the pill inverts, as the pill's own Done. */
+[data-slot="comment-send-action"][data-variant="on"],
+[data-slot="comment-send-action"][data-variant="on"]:hover {
+  background: var(--vh-comment-send-on);
+  color: var(--vh-comment-send-on-text);
+}
+
+@media (any-pointer: coarse) {
+  [data-slot="comment-send-action"] {
+    height: 44px;
+    min-width: 44px;
+  }
+}
+
+[data-slot="comment-send-status"] {
+  align-items: center;
+  box-sizing: border-box;
+  cursor: default;
+  display: inline-flex;
+  flex: none;
+  gap: 4px;
+  height: 28px;
+  justify-content: center;
+  padding: 0 8px;
+}
+
+[data-slot="comment-send-status"][data-icon] {
+  padding: 0;
+  width: 28px;
+}
+
+[data-slot="comment-send-status"][data-tone="error"] {
+  color: var(--vh-comment-send-error);
+}
+
+[data-slot="comment-send-status"][data-tone="warning"] {
+  color: var(--vh-comment-send-warning);
+}
+
+/* Sending and a hidden copy of Send N share one cell, so Sending is as wide as the button it replaces. */
+[data-slot="comment-send-hold"] {
+  display: inline-grid;
+  flex: none;
+}
+
+[data-slot="comment-send-hold"] > * {
+  grid-area: 1 / 1;
+}
+
+[data-slot="comment-send-hold-copy"] {
+  align-items: center;
+  box-sizing: border-box;
+  display: inline-flex;
+  gap: 4px;
+  height: 28px;
+  padding: 0 8px;
+  visibility: hidden;
+}
+
+[data-slot="comment-send-message"] {
+  color: var(--vh-comment-send-muted);
+  font-weight: 400;
+}
+
+[data-slot="comment-send-message"] b {
+  color: var(--vh-comment-send-strong);
+  font-weight: 500;
+}
+
+@media (max-width: 600px) {
+  [data-slot="comment-send"]:is([data-state="pairing"], [data-state="confirm"]) {
+    flex-shrink: 1;
+    max-inline-size: calc(100vw - 64px);
+  }
+
+  [data-slot="comment-send"]:is([data-state="pairing"], [data-state="confirm"]) [data-slot="comment-send-content"],
+  [data-slot="comment-send-status"]:has([data-slot="comment-send-message"]) {
+    flex: 0 1 auto;
+    min-inline-size: 0;
+  }
+
+  [data-slot="comment-send-message"] {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  [data-slot="comment-send-message"] > [data-wide] {
+    display: none;
+  }
+}
+
+[data-slot="comment-send"] .vh-comment-send-icon {
+  flex: none;
+  height: 14px;
+  width: 14px;
+}
+
+[data-slot="comment-send-count"] {
+  background: var(--vh-comment-send-hover);
+  border-radius: 4px;
+  box-sizing: border-box;
+  font-size: 10px;
+  line-height: 17px;
+  min-width: 16px;
+  padding: 0 4px;
+  text-align: center;
+}
+
+[data-slot="comment-send-dot"] {
+  animation: vh-comment-send-pulse 1.4s ease-in-out infinite;
+  background: var(--vh-comment-send-success);
+  border-radius: 9999px;
+  flex: none;
+  height: 6px;
+  width: 6px;
+}
+
+[data-slot="comment-send"] .vh-comment-send-spin {
+  animation: vh-comment-send-spin 0.8s linear infinite;
+}
+
+/* Agent logos. Their colors are brand data: T3 Code's black tile, and Claude's orange. Codex takes the text color. */
+[data-slot="comment-send-logo"] {
+  display: inline-grid;
+  flex: none;
+  height: 14px;
+  place-items: center;
+  width: 14px;
+}
+
+[data-slot="comment-send-logo"] svg {
+  display: block;
+  height: 14px;
+  width: 14px;
+}
+
+[data-slot="comment-send-logo"][data-logo="t3"] {
+  background: #0a0a0a;
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 22%);
+  color: #fff;
+  height: 16px;
+  width: 16px;
+}
+
+[data-slot="comment-send-logo"][data-logo="t3"] svg {
+  height: auto;
+  width: 64%;
+}
+
+[data-slot="comment-send-logo"][data-logo="claude"] {
+  color: #d97757;
+}
+
+@keyframes vh-comment-send-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px) scale(0.97);
+  }
+}
+
+@keyframes vh-comment-send-spin {
+  to {
+    rotate: 360deg;
+  }
+}
+
+@keyframes vh-comment-send-pulse {
+  50% {
+    opacity: 0.4;
+    scale: 0.8;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-slot="comment-send-content"],
+  [data-slot="comment-send-dot"],
+  [data-slot="comment-send"] .vh-comment-send-spin {
+    animation: none;
+  }
+
+  [data-slot="comment-send-action"] {
+    transition-property: background-color, color;
+  }
+
+  [data-slot="comment-send-action"]:active {
+    scale: none;
+  }
+}

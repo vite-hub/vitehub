@@ -1,12 +1,15 @@
 import { AsyncLocalStorage } from "node:async_hooks"
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+import { runInNewContext } from "node:vm"
 
 import { createRecord, parseRecord } from "@diglot/core"
 import { writeRecord } from "@diglot/store"
 import { compileMessage } from "@lingui/message-utils/compileMessage"
+import { VITEHUB_GENERATED_ROOT } from "@vite-hub/internal/build/vite"
 import { toResponse } from "@vite-hub/runtime/internal/response"
+import { rolldown } from "vite/rolldown"
 import { describe, expect, it, vi } from "vitest"
 
 import { createLiveTranslations, readRevisionRecords } from "../src/live.ts"
@@ -15,8 +18,10 @@ import { messageSegment, recordPath } from "../src/record-format.ts"
 import { messageId, readRecords } from "../src/records.ts"
 import { configureI18n, getI18n, setLocale, translate } from "../src/runtime.ts"
 import { i18nCatalogResponse, installI18nServer, useTranslations } from "../src/server.ts"
+import { hubI18n } from "../src/vite.ts"
 
 import type { WritableTranslationsWorkspace } from "../src/live.ts"
+import type { SourceMessages } from "../src/manifest.ts"
 
 function memoryWorkspace() {
   const revisions = new Map<string, Record<string, string>>()
@@ -72,6 +77,113 @@ function deferred() {
 }
 
 describe("Workspace records", () => {
+  it("keeps the published browser catalog on a Vue cache hit and inventories Nitro-only messages", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-i18n-nitro-cache-"))
+    try {
+      const buildDir = join(root, ".nuxt")
+      const generatedRoot = join(buildDir, "vitehub")
+      const page = join(root, "app.ts")
+      const server = join(root, "server.ts")
+      const entry = join(root, "entry.ts")
+      const macro = (message: string) => `import { t } from 'vite-hub/i18n'\nexport const label = () => t\`${message}\`\n`
+      await writeFile(page, macro(deploy.message))
+      await writeFile(server, macro(note.message))
+      await writeFile(entry, `export { label } from './server'\nexport { clientIds, sources } from 'virtual:vite-hub/i18n/build-messages'\n`)
+      const setup = async () => {
+        const plugin = hubI18n({ locales: ["en", "es"], workspace: "translations" })
+        const configure = plugin.config as { handler: (config: object, env: { command: string }) => Promise<unknown> }
+        await configure.handler({ root, [VITEHUB_GENERATED_ROOT]: generatedRoot, nitro: {} }, { command: "build" })
+        return plugin
+      }
+
+      const vite = await setup()
+      const client = { environment: { name: "client", config: { consumer: "client" } }, getModuleIds: () => [page] }
+      const transform = vite.transform as { handler: (this: object, code: string, id: string) => Promise<unknown> }
+      const renderStart = vite.renderStart as (this: object) => void
+      const writeBundle = vite.writeBundle as (this: object) => Promise<void>
+      await transform.handler.call(client, macro(deploy.message), page)
+      renderStart.call(client)
+      await writeBundle.call(client)
+      const store = memoryWorkspace()
+      const revision = await store.workspace.history.commit({
+        ref: "published",
+        ifHead: null,
+        changes: { put: { [recordPath("es", deploy.hash)]: JSON.stringify(record(deploy.message, "Publica tu agente")) } },
+      })
+      const buildCatalog = async (plugin: Awaited<ReturnType<typeof setup>>) => {
+        const bundle = await rolldown({
+          input: entry,
+          external: ["@vite-hub/i18n/runtime"],
+          plugins: [{
+            name: plugin.name,
+            resolveId: plugin.resolveId,
+            load: plugin.load,
+            renderChunk: plugin.renderChunk,
+            transform(code, id, options) {
+              const handler = plugin.transform as { handler: (this: object, code: string, id: string, options: { ssr: boolean, moduleType: string }) => Promise<string | undefined> }
+              return handler.handler.call(this, code, id, { ...options, ssr: true })
+            },
+          }],
+        })
+        const exports = {} as { clientIds: string[], sources: SourceMessages }
+        try {
+          const { output } = await bundle.generate({ format: "cjs" })
+          runInNewContext(output[0]!.code, { exports, require: () => ({}) })
+        }
+        finally {
+          await bundle.close()
+        }
+        expect(exports.clientIds).toEqual([deploy.id])
+        installI18nServer({ hooks: { hook: () => undefined } }, {
+          config,
+          messages: {},
+          current: () => undefined,
+          workspace: { name: "translations", open: () => store.workspace, ...exports },
+        })
+        const [error, missing] = await useTranslations().missing("es")
+        expect(error).toBeUndefined()
+        expect(missing?.items).toMatchObject([{ id: note.id, source: note.message }])
+        return (await i18nCatalogResponse(new Request("http://app.test/_vitehub/i18n/es.json"))).json()
+      }
+
+      const cold = await buildCatalog(vite)
+      expect(cold).toEqual({ revision: revision.id, messages: { [deploy.id]: ["Publica tu agente"] } })
+      const cache = join(root, "vue-cache")
+      await cp(buildDir, cache, { recursive: true })
+      await rm(buildDir, { recursive: true, force: true })
+      await cp(cache, buildDir, { recursive: true })
+      expect(await buildCatalog(await setup())).toEqual(cold)
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("can list missing Spanish messages when another locale directory is unavailable", async () => {
+    const store = memoryWorkspace()
+    const open = store.workspace.history.open.bind(store.workspace.history)
+    vi.spyOn(store.workspace.history, "open").mockImplementation(async (id) => {
+      const view = await open(id)
+      return {
+        ...view,
+        list: async (path, options) => {
+          if (path === "fr/segments") throw new Error("French records are unavailable")
+          return view.list(path, options)
+        },
+      }
+    })
+    await store.workspace.history.commit({ ref: "published", ifHead: null, changes: {}, message: "Start translations" })
+    installI18nServer({ hooks: { hook: () => undefined } }, {
+      config: { ...config, locales: ["en", "es", "fr"] },
+      messages: {},
+      current: () => undefined,
+      workspace: { name: "translations", open: () => store.workspace, clientIds: null },
+    })
+    const [error, page] = await useTranslations().missing("es")
+    expect(error).toBeUndefined()
+    expect(page).toMatchObject({ items: [], total: 0 })
+  })
+
   it("skips invalid ICU without blocking valid translations in later revisions", async () => {
     const store = memoryWorkspace()
     const snapshot = { [note.id]: compileMessage("Nota del servidor") }
@@ -206,6 +318,21 @@ function setup(store = memoryWorkspace()) {
 }
 
 describe("translations in a Workspace", () => {
+  it.each(["draft", "published"])("checks the message identity of a record found on %s", async (ref) => {
+    const { store } = setup()
+    const existing = record("menu\u0000Open", "Abrir")
+    const target = messageSegment("Open", "menu")
+    expect(existing.hash).toBe(target.hash)
+    await store.workspace.history.commit({ ref, ifHead: null, changes: { put: { [recordPath("es", target.hash)]: JSON.stringify(existing) } } })
+
+    const translations = useTranslations()
+    const [error] = await translations.save({ locale: "es", source: "Open", context: "menu", translation: "", by: "ana" })
+    expect(error).toBeUndefined()
+    const [listError, records] = await translations.list("es", { ref: "draft" })
+    expect(listError).toBeUndefined()
+    expect(records?.[messageId("Open", "menu")]).toMatchObject({ source: "Open", salt: "menu", text: "Open", review: "rejected", by: "ana" })
+  })
+
   it.each(["verified", "rejected"] as const)("keeps machine provenance when marking unchanged text %s", async (review) => {
     setup()
     const translations = useTranslations()
@@ -411,6 +538,21 @@ describe("translations in a Workspace", () => {
     expect((await i18nCatalogResponse(new Request("http://app.test/_vitehub/i18n/fr.json"))).status).toBe(404)
   })
 
+  it("answers a catalog request with 304 for every If-None-Match form that names the revision", async () => {
+    setup()
+    const translations = useTranslations()
+    await translations.save({ locale: "es", source: "Deploy your agent", translation: "Publica tu agente" })
+    const { revision } = await translations.publish()
+    const status = async (ifNoneMatch: string) =>
+      (await i18nCatalogResponse(new Request("http://app.test/_vitehub/i18n/es.json", { headers: { "if-none-match": ifNoneMatch } }))).status
+
+    expect(await status(`W/"${revision}"`)).toBe(304)
+    expect(await status(`"old", "${revision}"`)).toBe(304)
+    expect(await status("*")).toBe(304)
+    expect(await status(`"old", W/"older"`)).toBe(200)
+    expect(await status(`${revision}`)).toBe(200)
+  })
+
   it("keeps its translations when the Workspace cannot be read", async () => {
     const { store, request } = setup()
     const translations = useTranslations()
@@ -610,6 +752,29 @@ describe("the browser with a Workspace", () => {
       vi.unstubAllGlobals()
     }
   })
+  it.each<[string, () => Promise<Response>, string]>([
+    ["a network failure", async () => { throw new TypeError("Failed to fetch") }, "I18N_LIVE_CATALOG_UNAVAILABLE"],
+    ["an error status", async () => new Response("Service Unavailable", { status: 503 }), "I18N_LIVE_CATALOG_UNAVAILABLE"],
+    ["a body that is not JSON", async () => new Response("<!doctype html>", { headers: { "content-type": "text/html" } }), "I18N_LIVE_CATALOG_INVALID"],
+  ])("keeps the build catalog and warns for %s", async (_name, answer, code) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    vi.stubGlobal("document", { cookie: "", documentElement: { lang: "en" } })
+    vi.stubGlobal("fetch", answer)
+    try {
+      configureI18n({
+        ...config,
+        live: "/_vitehub/i18n",
+        catalogs: { es: async () => ({ messages: { [deploy.id]: ["Despliega tu agente"] } }) },
+      })
+      expect(await setLocale("es")).toEqual([undefined, "es"])
+      expect(getI18n()._(deploy)).toBe("Despliega tu agente")
+      expect(warn).toHaveBeenCalledWith(expect.objectContaining({ code }))
+    }
+    finally {
+      warn.mockRestore()
+      vi.unstubAllGlobals()
+    }
+  })
 })
 
 describe("missing translations for Agents", () => {
@@ -720,6 +885,30 @@ describe("missing translations for Agents", () => {
     await translations.publish()
     expect(await translations.status()).toEqual([{ locale: "es", messages: 1, published: 0, drafted: 0, missing: 1 }])
     expect((await translations.missing("es"))[1]?.items).toEqual([{ id: deploy.id, source: deploy.message, origins: [] }])
+  })
+
+  it("pages missing translations after the cursor when the cursor message was translated between pages", async () => {
+    const store = memoryWorkspace()
+    const messages = ["Archive", "Build", "Cancel", "Delete", "Edit", "Find"]
+    const sources = Object.fromEntries(messages.map(message => [messageId(message), { message, hash: messageSegment(message).hash, origins: [] }]))
+    installI18nServer({ hooks: { hook: () => undefined } }, {
+      config,
+      messages: {},
+      current: () => undefined,
+      workspace: { name: "translations", open: () => store.workspace, clientIds: null, interval: 0, sources },
+    })
+    const translations = useTranslations()
+    const seen: string[] = []
+    let cursor: string | undefined
+    do {
+      const [, page] = await translations.missing("es", { limit: 2, ...(cursor ? { cursor } : {}) })
+      seen.push(...page!.items.map(item => item.source))
+      const last = page!.items.at(-1)
+      if (last) await translations.save({ locale: "es", source: last.source, translation: `es: ${last.source}` })
+      cursor = page!.cursor ?? undefined
+    } while (cursor && seen.length <= messages.length)
+
+    expect([...seen].sort()).toEqual([...messages].sort())
   })
 
   it("lists what a locale lacks, with the old translation of a changed message, and refuses broken translations", async () => {

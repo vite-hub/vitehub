@@ -3,6 +3,7 @@ import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origi
 /** The request options of `vitehub({ trustProxy, sameOriginWrites })` that the generated Nitro plugin passes. */
 export interface RequestPolicyOptions {
   trustProxy?: boolean
+  trustProxyAddress?: boolean
   /** Path prefixes that skip the same-origin check, or `false` for no check. */
   sameOriginWrites?: false | { exclude: string[] }
 }
@@ -33,6 +34,23 @@ export function trustForwardedProto(event: RequestEventLike): void {
   if (event.url.protocol !== "http:") return
   const protocol = event.req.headers.get("x-forwarded-proto")?.split(",", 1)[0]?.trim().toLowerCase()
   if (protocol === "https") event.url.protocol = "https:"
+}
+
+/**
+ * Behind a proxy, the server sees the proxy as the peer. A proxy adds the address of its own peer, the client, at the end
+ * of `X-Forwarded-For`, so this makes the last value the request's `ip`. Standard Context `runtime.clientAddress`, H3's
+ * `getRequestIP()`, and Auth's rate limiter and `session.ipAddress` read it. Earlier values come from the client, so
+ * they are never read.
+ */
+export function trustForwardedFor(event: RequestEventLike): void {
+  const address = event.req.headers.get("x-forwarded-for")?.split(",").map(value => value.trim()).findLast(Boolean)
+  if (address) Object.defineProperty(event.req, "ip", { configurable: true, enumerable: true, value: address })
+}
+
+/** The Node `request` hook of `trustProxy`: the protocol and client address the proxy sends. */
+export function trustProxyHeaders(event: RequestEventLike): void {
+  trustForwardedProto(event)
+  trustForwardedFor(event)
 }
 
 function excluded(pathname: string, exclude: readonly string[]): boolean {
@@ -73,9 +91,10 @@ function crossOriginWriteResponse(): Response {
  */
 export function installRequestPolicy(nitroApp: NitroAppLike, options: RequestPolicyOptions): void {
   if (options.trustProxy && nitroApp.hooks) {
+    const hook = options.trustProxyAddress ? trustProxyHeaders : trustForwardedProto
     const requestHooks = nitroApp.hooks._hooks?.request
-    if (Array.isArray(requestHooks)) requestHooks.unshift(trustForwardedProto)
-    else nitroApp.hooks.hook("request", trustForwardedProto)
+    if (Array.isArray(requestHooks)) requestHooks.unshift(hook)
+    else nitroApp.hooks.hook("request", hook)
   }
   const sameOriginWrites = options.sameOriginWrites
   const fetch = nitroApp.fetch

@@ -1224,7 +1224,7 @@ describe("hubDatabase", () => {
     await mkdir(join(rootDir, ".vitehub/data/database"), { recursive: true })
     for (const command of ["generate", "migrate"]) {
       await execFileAsync(process.execPath, [
-        join(import.meta.dirname, "../node_modules/drizzle-kit/bin.cjs"),
+        join(import.meta.dirname, "../node_modules/drizzle-kit/bin.js"),
         command,
         "--config",
         ".vitehub/database/drizzle.config.ts",
@@ -1272,7 +1272,7 @@ describe("hubDatabase", () => {
 
     await resolveConfigResolved(hubDatabase())({ root: rootDir })
     const generate = (config: string) => execFileAsync(process.execPath, [
-      join(import.meta.dirname, "../node_modules/drizzle-kit/bin.cjs"),
+      join(import.meta.dirname, "../node_modules/drizzle-kit/bin.js"),
       "generate",
       "--config",
       config,

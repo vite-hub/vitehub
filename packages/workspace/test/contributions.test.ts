@@ -17,10 +17,6 @@ import type { CollectedWorkspaceContribution, WorkspaceContributingPlugin } from
 import type { Nitro } from "nitro/types"
 import type { Plugin } from "vite"
 
-vi.mock("@vite-hub/internal/build/vercel-runtime-packages", () => ({
-  copyVercelFunctionRuntimePackages: vi.fn(async () => undefined),
-}))
-
 const tempDirs: string[] = []
 
 afterEach(async () => {

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import * as v from "valibot"
@@ -8,7 +8,7 @@ import { consoleBodySha256, createConsoleKeyPair, readConsolePublicKeys, verifyC
 import { type AnyOperation, createOperationRegistry, defineOperation, operationExpectedRootsHeader, operationRootHeader, projectRootHash, runOperation } from "@vite-hub/internal/operations"
 
 import { runViteHubCli } from "../src/index.ts"
-import { operationRpcRequest, operationRpcResponse } from "./operation-rpc.ts"
+import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 const cliPrivateKey = (await createConsoleKeyPair()).privateKey
 
@@ -436,6 +436,8 @@ describe("generated operation commands", () => {
 
   it("calls the dev server that wrote .vitehub/dev-server.json for this project", async () => {
     const root = await project()
+    await writeFile(join(root, "package.json"), "{}")
+    await writeFile(join(root, "server"), "not a directory")
     writeViteHubDevServerFile(root, { root, url: "http://localhost:5199/" })
     const fetch = server("http://localhost:5199")
     const result = await run(["reports", "list", "acme"], { env: { VITEHUB_DEV_SERVER_URL: "http://localhost:4000", VITEHUB_CONSOLE_PRIVATE_KEY_CI: cliPrivateKey }, fetch, root })
@@ -443,6 +445,17 @@ describe("generated operation commands", () => {
     expect(fetch).toHaveBeenCalledOnce()
     expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).get(operationExpectedRootsHeader)).toContain(projectRootHash(root))
     expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).has("x-vitehub-signature")).toBe(false)
+  })
+
+  it.skipIf(process.platform === "win32")("writes a JSON error when a project marker cannot be read", async () => {
+    const root = await project()
+    await symlink("server", join(root, "server"))
+
+    const result = await run(["reports", "list", "acme", "--json"], { root })
+
+    expect(result.code).toBe(1)
+    expect(JSON.parse(result.stdout).error.message).toContain("ELOOP")
+    expect(result.fetch).not.toHaveBeenCalled()
   })
 
   it("refuses a dev server that runs another project", async () => {

@@ -9,7 +9,7 @@ export {
   type ConnectProviderStatus,
 } from "./workspace/connect-panel.ts";
 export { useConnectStore, type ConnectStore, type UseConnectStoreOptions } from "./workspace/connect-store.ts";
-export { render, type RenderRunnerOptions, type WorkspaceRenderResult } from "./workspace/runners/render.ts";
+export { render, type RenderRunnerOptions, type WorkspaceRenderContext, type WorkspaceRenderResult } from "./workspace/runners/render.ts";
 export { webContainer, type WebContainerRunner, type WebContainerRunnerOptions, type WorkspaceSnapshot } from "./workspace/runners/web-container.ts";
 export {
   useWorkspace,

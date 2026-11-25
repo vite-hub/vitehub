@@ -110,7 +110,7 @@ This context can hold secrets or customer data from app code. Protect it like pr
 
 ## Which journal the Console reads
 
-The Console stores no invocations. It reads the app-wide journal of `@vite-hub/agent`, by default the [SQLite journal](/docs/agents/invocation-storage#use-the-default-journal) at `.vitehub/data/agent-invocations.sqlite`, which keeps invocation records and searchable text such as prompts, messages, final text, progress updates and session titles.
+The Console stores no invocations. It reads the app-wide journal of `@vite-hub/agent`, by default the [SQLite journal](/docs/agents/invocation-storage#use-the-default-journal) at `.vitehub/data/agent-invocations.sqlite`, or the Postgres `default` Database of a Node production build, which keeps invocation records and searchable text such as prompts, messages, final text, progress updates and session titles.
 
 A journal from `defineAgent({ invocations })` or [`agent.invocations`](/docs/agents/invocation-storage#use-one-journal-for-every-agent) replaces it. The Console reads one combined journal, so every discovered Agent must use the same one, or setup fails. With `invocations: false` an Agent records no sessions, and `agent: { invocations: false }` leaves the Console with none.
 

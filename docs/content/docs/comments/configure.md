@@ -79,9 +79,27 @@ Do not add the `comments()` plugin next to `vitehub()`. The dev server and the b
 
 [Docs sites](/docs/docs-site/configure#comments) on `vite-hub/nuxt` have Comments on by default. Turn it off with `docs: { comments: false }`.
 
+### Add Hosted Comments
+
+Hosted Comments works on any site that can load a script. The Console signs reviewers in and stores threads in its database. The embed runs entirely in the browser.
+
+1. In the Console, open **Apps** > **Link app**, select **Hosted Comments only**, and enter the site's URL. For a connected app, open **Settings** > **Connection** > **Hosted Comments**.
+2. Copy the script into the HTML at the registered URL and on the pages you want to review. The registered page completes sign-in for the review tab.
+
+```html
+<script type="module" src="https://console.vitehub.dev/hosted-comments.js"
+  data-vitehub-comments="PROJECT_ID"></script>
+```
+
+Use the project ID from the Console. If your site sets a Content Security Policy, allow the Console origin in `script-src` and `frame-src`, and allow inline styles in `style-src`: the embed adds its styles inside its shadow root.
+
+Open the site with `?vitehub` and choose **Comments** to sign in. Team members can start threads, reply, and resolve them. Hosted Comments starts with its own thread history. Confirming an unlink permanently deletes that project's hosted threads and replies.
+
+Owners and admins of the team use **Guest access** below the script to create a one-time invite. They can revoke an invite or a guest's access from the same menu.
+
 ## Decide who can comment
 
-`authorize` gets the user, the action, and the `thread`, or the `subject` of a new thread. Return `true` to allow. Any other value denies.
+`authorize` gets the user, the action, and the `thread`, or the `subject` of a new thread. It also gets `development: true` on the dev server and `console: true` for [Console callers](#use-your-own-login). Return `true` to allow. Any other value denies.
 
 ```ts [server/comments.ts]
 import { defineComments } from 'vite-hub/comments'
@@ -115,7 +133,17 @@ Without `authorize`, a production build lets in only people that a sign-in alrea
 | Anyone on the dev server | Everything. People not signed in comment as guests under a typed name. |
 | Not signed in, in a production build | Nothing. |
 
-The dev server follows Vite's serve/build command, never the server's `NODE_ENV`. `defaultPolicy(user, { development, console }, action)` from `vite-hub/comments` is this table as a function, for your policy to fall back to.
+The dev server follows Vite's serve/build command, never the server's `NODE_ENV`. To keep the default dev, GitHub, and Site access checks and also allow admins, pass `{ development }` to `defaultPolicy()`:
+
+```ts [server/comments.ts]
+import { defaultPolicy, defineComments } from 'vite-hub/comments'
+
+export const comments = defineComments({
+  authorize: ({ user, development, action }) => defaultPolicy(user, { development }, action) || user?.role === 'admin',
+})
+```
+
+This policy does not grant access based on Console admission alone. Do not pass the entire `authorize` context as the gate: `console: true` means the Console admitted the request, but with `identify` the built-in policy does not treat that as permission for the app user.
 
 On pages, the user comes from `identify` when the app has one (`null` is anonymous), else the first of: the ViteHub [Auth](/docs/auth) session, the [Site access](#roles-from-site-access) cookie of an app without Auth, or [Sign in with GitHub](#sign-in-with-github). Comment operations through the Console, the CLI, and MCP use `identify`, else the [Console caller](#comments-through-the-console).
 
@@ -127,7 +155,7 @@ The [runtime methods](/docs/comments/server-api#runtime-methods), such as `comme
 
 An app without its own sign-in can sign people in with a GitHub App. This is on when:
 
-- The app has neither ViteHub Auth nor the Console, and `server/comments.ts` has no `identify`.
+- The app has no ViteHub Auth, and `server/comments.ts` has no `identify`.
 - The server has `VITEHUB_GITHUB_CLIENT_ID` and `VITEHUB_GITHUB_CLIENT_SECRET`.
 
 A person who may not read sees **Sign in with GitHub** in the overlay. GitHub returns them to the page in comment mode, with their picture in the toolbar. Selecting it signs them out.
@@ -300,7 +328,7 @@ A write over the limit fails with [`COMMENTS_GUEST_RATE_LIMITED`](/docs/comments
 
 ### Roles from Site access
 
-[Site access](/docs/console/site-access#sign-browsers-in) in the Console signs members and invited guests in to the app, with roles of Better Auth's `admin()` plugin, or, in an app without Auth, roles in its sealed `vitehub_site` cookie: `comments-read`, `comments-write`, `comments-resolve`, and `comments-delete`. Any of the last three also lets the person read. Members get all four. A guest gets the ones the member picked, and comments under the name the member gave them.
+[Site access](/docs/console/site-access#sign-browsers-in) in the Console signs members and invited guests in to the app, with roles in the Better Auth `user.role`, or, in an app without Auth, roles in its sealed `vitehub_site` cookie: `comments-read`, `comments-write`, `comments-resolve`, and `comments-delete`. Any of the last three also lets the person read. Members get all four. A guest gets the ones the member picked, and comments under the name the member gave them.
 
 Without `authorize`, these roles decide. With `authorize`, your policy decides, so check the roles there with `commentsRoleAllows()` from `vite-hub/comments`:
 

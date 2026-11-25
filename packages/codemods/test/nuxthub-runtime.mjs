@@ -14,7 +14,7 @@ export async function serveMigratedRoute(code, directory) {
   const storage = createBlobStorage(createDriver({ driver: "fs", base: join(directory, "objects") }))
   const [error] = await storage.put("hello.txt", "hello", { contentType: "text/plain" })
   if (error) throw error
-  const handler = new Function("defineEventHandler", "blob", code.replace("export default", "return"))(defineEventHandler, storage)
+  const handler = new Function("defineEventHandler", "blob", code.replace(/^import .*\n/gm, "").replace("export default", "return"))(defineEventHandler, storage)
   const server = new H3().get("/**", handler)
   return {
     response: await server.request("http://localhost/hello.txt"),

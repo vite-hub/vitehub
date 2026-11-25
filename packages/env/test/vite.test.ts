@@ -456,9 +456,9 @@ describe("Vite plugin", () => {
     expect(serverLoaded).toContain("useServerEnv")
     expect(serverLoaded).toContain("runWithServerEnv")
 
-    const transformHook = hookHandler<(code: string) => string | undefined>(plugin.transform)
+    const transformHook = hookHandler<(code: string) => unknown>(plugin.transform)
     expect(transformHook('const envId = "#vitehub/env/server"; import(\n/* @vite-ignore */ /* @vitehub-env */ envId\n)'))
-      .toBe('const envId = "#vitehub/env/server"; import(\n"#vitehub/env/server"\n)')
+      .toMatchObject({ code: 'const envId = "#vitehub/env/server"; import(\n"#vitehub/env/server"\n)', map: { version: 3, mappings: expect.stringMatching(/\w/) } })
   })
 
   it("filters the resolveId, load, and transform hooks to the ids and code that they handle", () => {

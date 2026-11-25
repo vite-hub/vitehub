@@ -63,7 +63,8 @@ describe("AutoForm", () => {
     }
     const submit = async () => {
       element<HTMLFormElement>("form").dispatchEvent(new Event("submit", { cancelable: true }))
-      await new Promise(resolve => setTimeout(resolve, 10))
+      await nextTick()
+      expect(root.querySelector("button")?.getAttribute("aria-disabled")).toBe("true")
       await vi.waitFor(async () => {
         await nextTick()
         if (root.querySelector("button")?.getAttribute("aria-disabled") === "true") throw new Error("still sending")

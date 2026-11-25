@@ -23,19 +23,24 @@ const standIns: Record<string, string> = {
   "@nuxt/ui/runtime/vue/components/Icon.vue": "UIcon",
 };
 
-// The Lucide icons that the comment parts, the Prompt Input, and the image preview ask for by class name.
 const icons: Record<string, string> = Object.fromEntries([
   "arrow-left",
   "arrow-up",
+  "arrow-up-right",
   "check",
+  "circle-alert",
+  "copy",
   "external-link",
   "file",
+  "inbox",
   "list",
+  "loader-circle",
   "message-circle",
   "pencil",
   "plus",
   "refresh-cw",
   "rotate-ccw",
+  "send",
   "square",
   "square-pen",
   "trash-2",

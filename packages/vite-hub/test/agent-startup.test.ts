@@ -18,9 +18,9 @@ async function startupSources(file: string, seen = new Map<string, string>()): P
   return seen
 }
 
-/** The modules that Rolldown wrote into `sources`, from its `//#region <module>` comments. */
+/** The modules that Rolldown wrote into `sources`, from the `// <module>` line that starts each one. */
 function bundledModules(sources: Iterable<string>): string[] {
-  return [...sources].flatMap(source => [...source.matchAll(/^\/\/#region (.+)$/gm)].map(match => match[1]!))
+  return [...sources].flatMap(source => [...source.matchAll(/^\/\/ (\S+)$/gm)].map(match => match[1]!))
 }
 
 interface CloudflareAgentApp {
@@ -123,6 +123,37 @@ async function chat(worker: Miniflare): Promise<Response> {
 const definition = /\/server\/agents\/hello\.ts$/
 const routes = /\/\.vitehub\/agent\/chat-webhook-route\.ts$/
 const workspace = /workspace\/dist\//
+
+it("builds the Node Agent routes without mixed static and dynamic imports", async () => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-agent-node-"))
+  try {
+    await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
+    await writeFile(join(root, "package.json"), JSON.stringify({ private: true, type: "module" }))
+    await mkdir(join(root, "server/agents"), { recursive: true })
+    await writeFile(join(root, "server/agents/hello.ts"), 'import { defineAgent } from "vite-hub/agent"\nexport default defineAgent({ runtime: false, driver: { run: () => "hello" } })\n')
+    const warnings: string[] = []
+    const builder = await createBuilder({
+      logLevel: "silent",
+      nitro: {
+        rolldownConfig: {
+          onwarn(warning, warn) {
+            if (warning.code === "INEFFECTIVE_DYNAMIC_IMPORT" && /\.vitehub[/\\]agent[/\\][\w-]+\.ts is dynamically imported/.test(warning.message)) {
+              warnings.push(warning.message)
+            }
+            warn(warning)
+          },
+        },
+      },
+      plugins: [vitehub({ host: "node", agent: true })],
+      root,
+    })
+    await builder.buildApp()
+    expect(warnings).toEqual([])
+  }
+  finally {
+    await rm(root, { force: true, recursive: true, maxRetries: 3 })
+  }
+}, 180_000)
 
 it("loads the Agent routes and Agent Definitions on the first request, not at Worker startup", async () => {
   // An Agent that runs as a Workflow also loads through the Cloudflare Workflow classes. The next test covers them.

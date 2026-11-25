@@ -53,6 +53,12 @@ export interface CommentsAuthorizeContext {
    * `authorize: ({ console, user }) => console === true || user?.role === "editor"`.
    */
   console?: boolean
+  /**
+   * The app runs on the development server: Vite's serve command, which the generated plugin records. It never comes
+   * from `NODE_ENV`. Pass `{ development }` to `defaultPolicy()` for the dev, GitHub, and Site access checks.
+   * The full context is not the default gate: with `identify`, Console admission does not grant the app user access.
+   */
+  development?: boolean
 }
 
 /** Decides whether a person or an Agent may take an action. Return `true` to allow. */

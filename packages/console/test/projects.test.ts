@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest"
 import { readConsolePublicKeys, signConsoleRequest, verifyConsoleSignature } from "@vite-hub/internal/console-signature"
 
 import { createConsoleProjectStore, scopeConsoleProjectStore } from "../src/projects.ts"
-import { renameProject } from "../server/utils/console.ts"
+import { linkProject, renameProject } from "../server/utils/console.ts"
 
 import type { ConsoleTeamCaller } from "../server/utils/console.ts"
 
@@ -61,6 +61,21 @@ describe("project store", () => {
     const store = createConsoleProjectStore(db, secret, "team-1")
     await store.create({ createdBy: "u", url: "https://app.example.com" })
     await expect(store.create({ createdBy: "u", url: "https://app.example.com" })).resolves.toBeUndefined()
+  })
+
+  it("registers a static site for Hosted Comments without a signing key", async () => {
+    const { client, db } = await database()
+    const projects = createConsoleProjectStore(db, secret, "team-1")
+    const caller: ConsoleTeamCaller = { projects, roles: ["owner"], teamId: "team-1", user: { id: "u", name: "Ada" } }
+    const site = { kind: "site", url: "https://docs.example.com/handbook" }
+    const response = await linkProject(caller, site)
+    expect(response.status).toBe(201)
+    const [project] = await projects.list()
+    expect(project).toMatchObject({ url: site.url, keyVariable: null, publicKey: null })
+    await expect(projects.target(project!.id)).resolves.toBeUndefined()
+    expect((await client.execute("SELECT key_sealed, public_key FROM console_projects")).rows).toEqual([{ key_sealed: "", public_key: "" }])
+    expect((await linkProject(caller, site)).status).toBe(409)
+    expect((await linkProject({ ...caller, roles: ["member"] }, site)).status).toBe(403)
   })
 
   it("gives no key when the secret changed", async () => {

@@ -10,6 +10,7 @@ import config from "../nuxt.config";
 const docsRoot = resolve(import.meta.dirname, "..");
 const packageRoot = resolve(docsRoot, "../packages/docs");
 const trustPages = ["about", "contact", "privacy"];
+const workspacePages = ["learn/choices", "learn/first-agent", "learn/first-server-primitive", "playground"];
 
 describe("agent-ready HTTP contracts", () => {
   it("negotiates Markdown through nuxt-agent-discovery from @vite-hub/docs", async () => {
@@ -21,12 +22,10 @@ describe("agent-ready HTTP contracts", () => {
     const diagnostics = modules.indexOf("./modules/diagnostics");
     expect(diagnostics).toBeGreaterThanOrEqual(0);
     expect(modules.indexOf("@vite-hub/docs/nuxt")).toBeGreaterThan(diagnostics);
-    // The docs module installs nuxt-agent-discovery, so the site does not list it. Content serves llms.txt.
     expect(Object.keys(docsPackage.dependencies)).toEqual(expect.arrayContaining(["nuxt-agent-discovery"]));
-    // Local patch until nuxt-agent-discovery routes negotiated pages through the Cloudflare Worker.
     expect(workspace).toContain("nuxt-agent-discovery@0.8.2: patches/nuxt-agent-discovery@0.8.2.patch");
     const manifest = await createDocsManifest({ dir: resolve(docsRoot, "content"), base: "/docs" });
-    expect(manifest.pages.map(page => page.path).filter(path => path !== "/")).toEqual(trustPages.map(page => `/${page}`));
+    expect(manifest.pages.map(page => page.path).filter(path => path !== "/")).toEqual([...trustPages, ...workspacePages].sort().map(page => `/${page}`));
     expect(source).not.toContain("routeRules:");
     expect(source).toContain('{ href: "/openapi.json", rel: "service-desc", type: "application/vnd.oai.openapi+json"');
   });
@@ -35,7 +34,7 @@ describe("agent-ready HTTP contracts", () => {
     expect(config.docs?.site).toMatchObject({ name: "ViteHub", url: "https://vitehub.dev", logo: "/vitehub-mark.svg" });
     expect(config.docs?.github).toEqual({ repo: "vite-hub/vitehub", dir: "docs/content" });
     expect(config.docs?.mcp).toMatchObject({ name: "vitehub" });
-    expect(config.docs?.sitemap).toEqual(["/learn", "/playground", "/examples", "/projects", "/templates"]);
+    expect(config.docs?.sitemap).toEqual(["/learn", "/examples", "/projects", "/templates"]);
     expect(typeof config.docs?.rawMarkdown).toBe("function");
   });
 
@@ -67,7 +66,6 @@ describe("agent-ready HTTP contracts", () => {
     expect(links.length).toBeGreaterThan(0);
     for (const link of links.filter(link => !machineResources.includes(link))) {
       expect(link).toMatch(/^\/raw\/.+\.md$/);
-      // Each raw link names a page that the build writes a raw copy for.
       expect(findDocsPage(manifest, link.replace(/^\/raw/, "").replace(/\.md$/, "")), link).not.toBeNull();
     }
   });
@@ -84,15 +82,16 @@ describe("agent-ready HTTP contracts", () => {
     const lockfile = readFileSync(resolve(docsRoot, "../pnpm-lock.yaml"), "utf8");
     const workspace = readFileSync(resolve(docsRoot, "../pnpm-workspace.yaml"), "utf8");
     const cliPackage = JSON.parse(readFileSync(resolve(docsRoot, "../packages/cli/package.json"), "utf8"));
+    const docsPackage = JSON.parse(readFileSync(resolve(docsRoot, "../packages/docs/package.json"), "utf8"));
 
     expect(workspace).toMatch(/^ +nuxt: npm:nuxt-nightly@5\./m);
-    expect(workspace).toContain('nuxt: ">=5.0.0-0"');
     expect(lockfile).toMatch(/^ {2}nuxt-nightly@5\.[^:]+:$/m);
     expect(lockfile).toMatch(/^ {2}nitro@3\.[^:]+:$/m);
     expect(lockfile).toMatch(/^ {2}'@nuxt\/devtools@3\.[^']+':$/m);
     expect(config).toMatch(/devtools:\s*{\s*enabled:\s*false/);
-    expect(cliPackage.peerDependencies.nuxt).toBe("catalog:nuxt-compat");
+    expect(cliPackage.peerDependencies.nuxt).toBe("^4.7.0 || >=5.0.0-0");
     expect(cliPackage.peerDependenciesMeta.nuxt).toEqual({ optional: true });
+    expect(docsPackage.peerDependencies.nuxt).toBe("^4.7.0 || >=5.0.0-0");
   });
 });
 

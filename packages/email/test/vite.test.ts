@@ -6,8 +6,9 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { env } from "@vite-hub/env"
 import * as rolldown from "@vite-hub/internal/build/rolldown"
+import { VITEHUB_GENERATED_ROOT, VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { createServer } from "vite"
+import { build, createServer } from "vite"
 
 import { hubWorkflow } from "@vite-hub/workflow/vite"
 
@@ -21,6 +22,11 @@ function functionHook(hook: unknown, name: string): Function {
   const handler: unknown = hook instanceof Function ? hook : Reflect.get(Object(hook), "handler")
   if (!(handler instanceof Function)) throw new TypeError(`Expected ${name} to be a Vite hook`)
   return handler
+}
+
+function buildConfigHook(plugin: { config?: unknown }): (config: Record<string, unknown>) => Promise<unknown> {
+  const hook = functionHook(plugin.config, "config")
+  return async config => hook(config, { command: "build", mode: "production" })
 }
 
 async function createTempProject(): Promise<string> {
@@ -54,6 +60,37 @@ afterEach(async () => {
 })
 
 describe("hubEmail", () => {
+  it("builds template sends without an Email Definition import warning", async () => {
+    const root = await createTempProject()
+    const entry = join(root, "server.mjs")
+    const runtime = fileURLToPath(new URL("../dist/index.js", import.meta.url))
+    await mkdir(join(root, "server", "emails"), { recursive: true })
+    await writeFile(join(root, "server", "emails", "welcome.md"), "---\nsubject: Welcome\n---\n\nHello!\n")
+    await writeFile(entry, `export { email } from ${JSON.stringify(runtime)}\n`)
+    const warnings: string[] = []
+
+    await build({
+      configFile: false,
+      root,
+      logLevel: "silent",
+      plugins: [hubEmail({ driver: "log" })],
+      build: {
+        ssr: entry,
+        write: false,
+        rolldownOptions: {
+          onLog(level, log, handleLog) {
+            if (log.code === "INEFFECTIVE_DYNAMIC_IMPORT" && log.message.includes(EMAIL_DEFINITION_ID)) {
+              warnings.push(log.message)
+            }
+            handleLog(level, log)
+          },
+        },
+      },
+    })
+
+    expect(warnings).toEqual([])
+  })
+
   it("removes stale Email declarations when the integration is disabled", async () => {
     const root = await createTempProject()
     const declaration = join(root, ".vitehub", "types", "email.d.ts")
@@ -101,17 +138,17 @@ describe("hubEmail", () => {
     ])).toEqual(["#vitehub/email/definition", "#vitehub/emails/welcome", "#vitehub/emails/../secret"])
     expect(matches(idFilter(plugin.load), [
       "\0#vitehub/email/definition",
-      "/@fs/app/server/emails/welcome.md?markdown-template",
+      "/@fs/app/server/emails/welcome.md?email-template",
       "#vitehub/email/definition",
       "\0#vitehub/email/definition.mjs",
       "/app/server/emails/welcome.md",
-      "/app/server/emails/welcome.md?markdown-template&raw",
-    ])).toEqual(["\0#vitehub/email/definition", "/@fs/app/server/emails/welcome.md?markdown-template"])
+      "/app/server/emails/welcome.md?email-template&raw",
+    ])).toEqual(["\0#vitehub/email/definition", "/@fs/app/server/emails/welcome.md?email-template"])
   })
 
   it("owns generated template module paths", () => {
     expect(resolveEmailTemplateModulePath("/tmp/templates", "#vitehub/emails/monthly/detail"))
-      .toBe("/tmp/templates/monthly%2Fdetail.mjs")
+      .toBe("/tmp/templates/monthly~2Fdetail.mjs")
     expect(resolveEmailTemplateModulePath("/tmp/templates", "other/module")).toBeUndefined()
     expect(() => resolveEmailTemplateModulePath("/tmp/templates", "#vitehub/emails/../secret"))
       .toThrow("is not valid")
@@ -203,7 +240,7 @@ describe("hubEmail", () => {
         apiKey: env({ secret: true, source: env.source("RESEND_API_KEY") }),
       },
     })
-    const config = functionHook(plugin.config, "config")
+    const config = buildConfigHook(plugin)
 
     const cloudflareConfig = { nitro: {
       cloudflare: { wrangler: { compatibility_flags: ["custom"] } },
@@ -226,7 +263,7 @@ describe("hubEmail", () => {
   it("wires the Cloudflare Email driver to its Worker binding", async () => {
     const root = await createTempProject()
     const plugin = hubEmail({ driver: "cloudflare" })
-    const config = functionHook(plugin.config, "config")
+    const config = buildConfigHook(plugin)
     const cloudflareConfig = { nitro: { preset: "cloudflare-module" } }
 
     await config(cloudflareConfig)
@@ -254,7 +291,7 @@ describe("hubEmail", () => {
     const plugin = hubEmail({ driver: "cloudflare" })
     const compiled: Array<() => Promise<void>> = []
     plugin.nitro.setup({ hooks: { hook: (_name, callback) => compiled.push(callback) }, options: { output: { serverDir } } })
-    await functionHook(plugin.config, "config")({ nitro: { preset: "cloudflare-module" } })
+    await buildConfigHook(plugin)({ nitro: { preset: "cloudflare-module" } })
     const runCompiled = async () => {
       for (const callback of compiled) await callback()
       return JSON.parse(await readFile(configFile, "utf8")).send_email
@@ -278,7 +315,7 @@ describe("hubEmail", () => {
     const plugin = hubEmail({ driver: "cloudflare" })
     const compiled: Array<() => Promise<void>> = []
     plugin.nitro.setup({ hooks: { hook: (_name, callback) => compiled.push(callback) }, options: { output: { serverDir } } })
-    await functionHook(plugin.config, "config")({ nitro: { preset: "cloudflare-module", cloudflare: { wrangler: { send_email: [{ name: "EMAIL" }] } } } })
+    await buildConfigHook(plugin)({ nitro: { preset: "cloudflare-module", cloudflare: { wrangler: { send_email: [{ name: "EMAIL" }] } } } })
 
     const source = JSON.stringify({ send_email: [{ name: "EMAIL" }, { name: "EMAIL" }] })
     await writeFile(configFile, source)
@@ -286,9 +323,40 @@ describe("hubEmail", () => {
     expect(await readFile(configFile, "utf8")).toBe(source)
   })
 
+  it("rejects the smtp driver on Cloudflare hosts", async () => {
+    const plugin = hubEmail({ driver: "smtp", options: { host: "smtp.example.com" } })
+    const config = buildConfigHook(plugin)
+
+    await expect(config({ nitro: { preset: "cloudflare-module" } })).rejects.toThrow(expect.objectContaining({
+      code: "EMAIL_HOST_UNSUPPORTED",
+      why: "The \"smtp\" driver opens TCP connections with nodemailer, and Cloudflare Workers cannot run it.",
+    }))
+  })
+
+  it("fails the build of the smtp driver when nodemailer is not installed", async () => {
+    const root = await createTempProject()
+    const plugin = hubEmail({ driver: "smtp", options: { host: "smtp.example.com" } })
+    await buildConfigHook(plugin)({ root })
+
+    await expect(resolvePlugin(plugin, root)).rejects.toThrow(expect.objectContaining({ code: "EMAIL_SMTP_NODEMAILER_MISSING" }))
+  })
+
+  it("leaves nodemailer for the app build to resolve", async () => {
+    const root = await createTempProject()
+    await mkdir(join(root, "node_modules"), { recursive: true })
+    await symlink(fileURLToPath(new URL("../node_modules/nodemailer", import.meta.url)), join(root, "node_modules", "nodemailer"), "dir")
+    const plugin = hubEmail({ driver: "smtp", options: { host: env({ source: env.source("SMTP_HOST") }) } })
+    await buildConfigHook(plugin)({ root })
+    await resolvePlugin(plugin, root)
+
+    const source = await loadConfiguredDefinition(plugin)
+    expect(source).toMatch(/import\(["'`]nodemailer["'`]\)/)
+    expect(source).not.toContain("etherealWeb")
+  })
+
   it("rejects the Cloudflare Email driver on non-Cloudflare hosts", async () => {
     const plugin = hubEmail({ driver: "cloudflare" })
-    const config = functionHook(plugin.config, "config")
+    const config = buildConfigHook(plugin)
 
     await expect(config({ nitro: { preset: "vercel" } })).rejects.toThrow("The \"cloudflare\" driver needs a Cloudflare host.")
   })
@@ -304,8 +372,8 @@ describe("hubEmail", () => {
     await plugin.api.prepareTypes({ projectRoot: root })
     const load = functionHook(plugin.load, "load")
 
-    expect(await load(`${unrelated}?markdown-template`)).toBeUndefined()
-    expect(await load(`/@fs/${unrelated}?markdown-template`)).toBeUndefined()
+    expect(await load(`${unrelated}?email-template`)).toBeUndefined()
+    expect(await load(`/@fs/${unrelated}?email-template`)).toBeUndefined()
     const id = await functionHook(plugin.resolveId, "resolveId")("#vitehub/emails/welcome")
     expect(await load(id)).toContain("Hello {{ data.name }}")
   })
@@ -315,22 +383,27 @@ describe("hubEmail", () => {
     const template = join(root, "server", "emails", "monthly-recap.md")
     const nestedTemplate = join(root, "server", "emails", "monthly-recap", "index.mjs", "detail.md")
     await mkdir(join(root, "server", "emails", "monthly-recap", "index.mjs"), { recursive: true })
-    await writeFile(template, "Hello there")
+    await writeFile(template, '---\nsubject: \'Your recap for `{{ data.month }}` :insert{:markdown="data.ignored"}\'\n---\n\nHello there')
     await writeFile(nestedTemplate, "Nested detail")
+    await mkdir(join(root, "server", "emails", "_partials"), { recursive: true })
+    await writeFile(join(root, "server", "emails", "_layout.md"), "Layout")
+    await writeFile(join(root, "server", "emails", "_partials", "footer.md"), "Footer")
     const plugin = hubEmail({ driver: "cloudflare" })
 
     await resolvePlugin(plugin, root)
 
     expect(await functionHook(plugin.resolveId, "resolveId")("#vitehub/emails/monthly-recap"))
-      .toBe(`/@fs/${template}?markdown-template`)
+      .toBe(`/@fs/${template}?email-template`)
     expect(await readFile(join(root, ".vitehub", "types", "email.d.ts"), "utf8")).toBe([
       'declare module "#vitehub/emails/monthly-recap/index.mjs/detail" {',
-      "  const render: (data?: Record<string, never>) => Promise<string>",
+      "  const render: (data?: Record<string, never>) => Promise<{ html: string, text: string }>",
       "  export default render",
       "}",
       "",
       'declare module "#vitehub/emails/monthly-recap" {',
-      "  const render: (data?: Record<string, never>) => Promise<string>",
+      "  const render: (data: {",
+      '    "month": string | number | boolean',
+      "  }) => Promise<{ subject: string, html: string, text: string }>",
       "  export default render",
       "}",
       "",
@@ -340,23 +413,31 @@ describe("hubEmail", () => {
       "",
       'declare module "@vite-hub/email" {',
       "  interface EmailTemplateRegistry {",
-      '    "monthly-recap/index.mjs/detail": Record<string, never>',
-      '    "monthly-recap": Record<string, never>',
+      '    "monthly-recap/index.mjs/detail": {',
+      "      data: Record<string, never>",
+      "      subject: false",
+      "    }",
+      '    "monthly-recap": {',
+      "      data: {",
+      '        "month": string | number | boolean',
+      "      }",
+      "      subject: true",
+      "    }",
       "  }",
       "}",
       "",
     ].join("\n"))
     await expect(readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
       .rejects.toMatchObject({ code: "ENOENT" })
-    expect(await readFile(join(root, ".vitehub", "email", "preview.mjs"), "utf8")).toMatch(/export const renderEmailTemplate = async \(source, data\) => \(await import\(".+\/markdown\.ts"\)\)\.renderEmailMarkdown\(source, \{ data \}\)/)
+    expect(await readFile(join(root, ".vitehub", "email", "preview.mjs"), "utf8")).toMatch(/export const renderEmailTemplate = async \(source, data, name\) => Object\.hasOwn\(vueTemplates, name\)\n.+\n  : \(await import\(".+\/markdown\.ts"\)\)\.renderEmailMarkdown\(source, \{ data \}\)/)
     await expect(plugin.api.prepareTypes({ materialize: true, projectRoot: root }))
       .resolves.toEqual({
         "monthly-recap": join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"),
-        "monthly-recap/index.mjs/detail": join(root, ".vitehub", "email", "templates", "monthly-recap%2Findex.mjs%2Fdetail.mjs"),
+        "monthly-recap/index.mjs/detail": join(root, ".vitehub", "email", "templates", "monthly-recap~2Findex.mjs~2Fdetail.mjs"),
       })
     expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap.mjs"), "utf8"))
       .toContain("Hello there")
-    expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap%2Findex.mjs%2Fdetail.mjs"), "utf8"))
+    expect(await readFile(join(root, ".vitehub", "email", "templates", "monthly-recap~2Findex.mjs~2Fdetail.mjs"), "utf8"))
       .toContain("Nested detail")
     await rm(template)
     await rm(nestedTemplate)
@@ -395,6 +476,18 @@ describe("hubEmail", () => {
     expect(await readFile(join(root, ".vitehub", "types", "email-templates.d.ts"), "utf8")).toContain("\"repoPath\": string | number | boolean")
   })
 
+  it.each(["title: Hi", "subject: [Hi]"])("reports invalid template frontmatter: %s", async (frontmatter) => {
+    const root = await createTempProject()
+    const file = join(root, "server", "emails", "welcome.md")
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(file, `---\n${frontmatter}\n---\n\nHello there`)
+
+    await expect(hubEmail({ driver: "log" }).api.prepareTypes({ projectRoot: root })).rejects.toMatchObject({
+      code: "EMAIL_TEMPLATE_FRONTMATTER_INVALID",
+      message: expect.stringContaining("server/emails/welcome.md"),
+    })
+  })
+
   it("materializes templates before Cloudflare builds", async () => {
     const root = await createTempProject()
     await mkdir(join(root, "server", "emails"), { recursive: true })
@@ -404,7 +497,7 @@ describe("hubEmail", () => {
       driver: "cloudflare",
       hosting: "cloudflare-module",
     } as Parameters<typeof hubEmail>[0])
-    const config = functionHook(plugin.config, "config")
+    const config = buildConfigHook(plugin)
 
     expect(await config({ root })).toMatchObject({ resolve: { alias: [
       { find: EMAIL_DEFINITION_ID, replacement: join(root, ".vitehub", "email", "definition.mjs") },
@@ -434,7 +527,7 @@ describe("hubEmail", () => {
       driver: "resend",
       workflowDriver: "vercel",
     } as Parameters<typeof hubEmail>[0])
-    const config = functionHook(plugin.config, "config")
+    const config = buildConfigHook(plugin)
 
     expect(await config({ root })).toMatchObject({ resolve: { alias: [
       { find: EMAIL_DEFINITION_ID, replacement: join(root, ".vitehub", "email", "definition.mjs") },
@@ -495,14 +588,14 @@ describe("hubEmail", () => {
     })
     try {
       // SAFETY: Email template modules export a renderer with these explicit data inputs.
-      const development = await server.ssrLoadModule("#vitehub/emails/welcome") as { default: (data: { name: string, ready: boolean }) => Promise<string> }
-      await expect(development.default({ name: "*Draft*", ready: false })).resolves.toBe("Hello \\*Draft\\*\n\n@../shared/policy.md")
+      const development = await server.ssrLoadModule("#vitehub/emails/welcome") as { default: (data: { name: string, ready: boolean }) => Promise<{ html: string, text: string }> }
+      await expect(development.default({ name: "*Draft*", ready: false })).resolves.toEqual({ html: "<p>Hello *Draft*</p>\n<p>@../shared/policy.md</p>", text: "Hello \\*Draft\\*\n\n@../shared/policy.md" })
       await server.close()
       const paths = await plugin.api.prepareTypes({ materialize: true, projectRoot: root })
       await rm(join(root, "server"), { recursive: true })
       // SAFETY: prepareTypes materializes the same Email renderer contract for deployment.
       const deployed = await import(pathToFileURL(paths.welcome!).href) as typeof development
-      await expect(deployed.default({ name: "Team", ready: true })).resolves.toBe("Hello Team\n\n@../shared/policy.md")
+      await expect(deployed.default({ name: "Team", ready: true })).resolves.toMatchObject({ text: "Hello Team\n\n@../shared/policy.md" })
     }
     finally {
       await server.close()
@@ -520,15 +613,15 @@ describe("hubEmail", () => {
     const paths = await hubEmail({ driver: "resend" }).api.prepareTypes({ materialize: true, projectRoot: root })
 
     // SAFETY: prepareTypes materializes each template as a module that exports its renderer.
-    const template = await import(pathToFileURL(paths.welcome!).href) as { default: (data: { name: string }) => Promise<string> }
-    await expect(template.default({ name: "ViteHub" })).resolves.toBe("Hello ViteHub")
+    const template = await import(pathToFileURL(paths.welcome!).href) as { default: (data: { name: string }) => Promise<{ html: string, text: string }> }
+    await expect(template.default({ name: "ViteHub" })).resolves.toEqual({ html: "<p>Hello ViteHub</p>", text: "Hello ViteHub" })
   })
 
   it("bundles the Email definition before Nuxt writes the tsconfig files that the app tsconfig.json references", async () => {
     const root = await createTempProject()
     await writeFile(join(root, "tsconfig.json"), JSON.stringify({ files: [], references: [{ path: "./.nuxt/tsconfig.app.json" }, { path: "./.nuxt/tsconfig.server.json" }] }))
     const plugin = hubEmail({ driver: "cloudflare" })
-    await functionHook(plugin.config, "config")({ nitro: { preset: "cloudflare-module" } })
+    await buildConfigHook(plugin)({ nitro: { preset: "cloudflare-module" } })
 
     await resolvePlugin(plugin, root)
 
@@ -553,7 +646,7 @@ describe("hubEmail", () => {
       await mkdir(join(root, "server", "emails", "monthly"))
       await writeFile(nestedTemplate, "Nested detail")
       expect((await server.pluginContainer.resolveId("#vitehub/emails/monthly/detail"))?.id)
-        .toBe(`${posix.join("/@fs", nestedTemplate.replaceAll("\\", "/"))}?markdown-template`)
+        .toBe(`${posix.join("/@fs", nestedTemplate.replaceAll("\\", "/"))}?email-template`)
     }
     finally {
       await server.close()
@@ -627,7 +720,7 @@ describe("hubEmail", () => {
     await writeFile(join(secondServerDir, "emails", "first", "second.md"), "Second")
     const plugin = hubEmail({ driver: "resend" })
     await expect(plugin.api.prepareTypes({ materialize: true, projectRoot: root, serverDirs: [firstServerDir, secondServerDir] })).resolves.toEqual({
-      "first/second": join(root, ".vitehub", "email", "templates", "first%2Fsecond.mjs"),
+      "first/second": join(root, ".vitehub", "email", "templates", "first~2Fsecond.mjs"),
       first: join(root, ".vitehub", "email", "templates", "first.mjs"),
     })
   })
@@ -641,7 +734,7 @@ describe("hubEmail", () => {
     await writeFile(join(root, "server", "emails", "welcome.md"), "Welcome")
     // SAFETY: hosting is a test-only internal option accepted by hubEmail.
     const plugin = hubEmail({ driver: "resend", hosting: "vercel" } as Parameters<typeof hubEmail>[0])
-    const config = functionHook(plugin.config, "config")
+    const config = buildConfigHook(plugin)
     await expect(config({ root: appRoot })).resolves.toMatchObject({ resolve: { alias: [
       { find: EMAIL_DEFINITION_ID, replacement: join(root, ".vitehub", "email", "definition.mjs") },
       {
@@ -661,8 +754,8 @@ describe("hubEmail", () => {
 
     const handlers = new Map<string, (file: string) => void>()
     const modules = [
-      { id: `/@fs/${template}?markdown-template` },
-      { id: `${template}?markdown-template` },
+      { id: `/@fs/${template}?email-template` },
+      { id: `${template}?email-template` },
       { id: join(root, ".vitehub", "email", "preview.mjs") },
     ]
     const invalidateModule = vi.fn()
@@ -713,7 +806,7 @@ describe("hubEmail", () => {
       driver: "resend",
       hosting: "vercel",
     } as Parameters<typeof hubEmail>[0])
-    const config = functionHook(plugin.config, "config")
+    const config = buildConfigHook(plugin)
     await config({ root })
     await resolvePlugin(plugin, root)
 
@@ -785,7 +878,7 @@ describe("hubEmail", () => {
       driver: "resend",
       hosting: "cloudflare-module",
     } as Parameters<typeof hubEmail>[0])
-    const config = functionHook(plugin.config, "config")
+    const config = buildConfigHook(plugin)
 
     expect(await config({ nitro: { preset: "node-server" } })).not.toHaveProperty("nitro")
     await plugin.api.prepareTypes({ materialize: true, projectRoot: root })
@@ -863,7 +956,76 @@ describe("hubEmail", () => {
 
   it("rejects unknown built-in driver names", () => {
     // SAFETY: this deliberately bypasses the public union to cover runtime validation.
-    expect(() => hubEmail({ driver: "smtp" as "resend" })).toThrow('"resend", "cloudflare", or "log"')
+    expect(() => hubEmail({ driver: "postmark" as "resend" })).toThrow('"resend", "smtp", "cloudflare", "log", or the path of a driver module')
+  })
+
+  it("compiles a driver module with the app and passes it the resolved options", async () => {
+    const root = await createTempProject()
+    await mkdir(join(root, "server"), { recursive: true })
+    await writeFile(join(root, "server", "email-driver.mjs"), [
+      "export default options => ({",
+      "  name: 'custom',",
+      "  send: message => [undefined, { at: new Date(0), driver: 'custom', id: `${options.prefix}-${message.subject}` }],",
+      "})",
+      "",
+    ].join("\n"))
+    vi.stubEnv("CUSTOM_EMAIL_PREFIX", "custom-id")
+    const plugin = hubEmail({
+      driver: "./server/email-driver.mjs",
+      options: { prefix: env({ source: env.source("CUSTOM_EMAIL_PREFIX") }) },
+    })
+
+    await resolvePlugin(plugin, root)
+
+    const source = await loadConfiguredDefinition(plugin)
+    expect(source).toContain('"../../server/email-driver.mjs"')
+    expect(source).not.toContain("name:'custom'")
+    expect(source).not.toContain("custom-id")
+    const definition = plugin.api.getDefinition()!
+    // SAFETY: the generated definition default-exports `{ driver, canSend }`.
+    const module = await import(pathToFileURL(definition.handler).href) as { default: Parameters<typeof createEmail>[0] & { canSend: boolean } }
+    expect(module.default.canSend).toBe(true)
+    const [error, data] = await createEmail(module.default).send({ from: "app@example.com", subject: "hello", text: "Hi", to: "ada@example.com" })
+    expect(error).toBeUndefined()
+    expect(data).toEqual({ driver: "custom", id: "custom-id-hello" })
+  })
+
+  it("resolves an extensionless driver module path", async () => {
+    const root = await createTempProject()
+    await mkdir(join(root, "server"), { recursive: true })
+    await writeFile(join(root, "server", "email-driver.ts"), "export default () => ({ name: 'custom', send: () => [undefined, { at: new Date(), driver: 'custom', id: '1' }] })\n")
+    const plugin = hubEmail({ driver: "./server/email-driver" })
+
+    await resolvePlugin(plugin, root)
+
+    expect(await loadConfiguredDefinition(plugin)).toContain('"../../server/email-driver.ts"')
+  })
+
+  it("resolves a driver module from the framework project root instead of the Vite package root", async () => {
+    const root = await createTempProject()
+    const frontend = join(root, "frontend")
+    const driverPath = join(root, "server", "email-driver.ts")
+    await mkdir(frontend, { recursive: true })
+    await mkdir(dirname(driverPath), { recursive: true })
+    await writeFile(join(frontend, "package.json"), JSON.stringify({ private: true }))
+    await writeFile(driverPath, "export default () => ({ name: 'custom', send: () => {} })\n")
+    const plugin = hubEmail({ driver: "./server/email-driver.ts" })
+    const config = { root: frontend, [VITEHUB_PROJECT_ROOT]: root, [VITEHUB_GENERATED_ROOT]: join(root, ".vitehub") }
+
+    await buildConfigHook(plugin)(config)
+    await functionHook(plugin.configResolved, "configResolved")(config)
+
+    expect(await loadConfiguredDefinition(plugin)).toContain('"../../server/email-driver.ts"')
+  })
+
+  it("names the missing file of a driver module", async () => {
+    const root = await createTempProject()
+    const plugin = hubEmail({ driver: "./server/missing-driver.ts" })
+
+    await expect(resolvePlugin(plugin, root)).rejects.toMatchObject({
+      code: "EMAIL_DRIVER_MODULE_NOT_FOUND",
+      why: `\`email.driver\` is "./server/missing-driver.ts", but ${join(root, "server", "missing-driver.ts")} does not exist.`,
+    })
   })
 
   it("rejects secret defaults that would be included in build output", () => {
@@ -888,7 +1050,7 @@ describe("hubEmail", () => {
 
   it("marks the package as noExternal for server environments", async () => {
     const plugin = hubEmail({ driver: "resend" })
-    const config = functionHook(plugin.config, "config")
+    const config = buildConfigHook(plugin)
     const configEnvironment = functionHook(plugin.configEnvironment, "configEnvironment")
 
     expect(await config({})).toEqual({ ssr: { noExternal: ["@vite-hub/email"] } })
@@ -916,10 +1078,10 @@ describe("renamed Email drivers", () => {
 
   it("keeps the driver list for a name that was never a driver", () => {
     // SAFETY: An app config without types passes an unknown driver name.
-    expect(() => hubEmail({ driver: "smtp" } as never)).toThrow(expect.objectContaining({
+    expect(() => hubEmail({ driver: "postmark" } as never)).toThrow(expect.objectContaining({
       code: "EMAIL_UNKNOWN_DRIVER",
       fix: expect.stringContaining("driver: 'log'"),
-      why: "The Email `driver` is \"smtp\". It must be \"resend\", \"cloudflare\", or \"log\".",
+      why: "The Email `driver` is \"postmark\". It must be \"resend\", \"smtp\", \"cloudflare\", \"log\", or the path of a driver module that starts with \"./\" or \"../\".",
     }))
   })
 })

@@ -1,4 +1,4 @@
-import type { EmailDefinition } from "../types.ts"
+import type { EmailDefinition, RenderedEmail } from "../types.ts"
 
 const definition: (EmailDefinition & { canSend?: boolean }) | undefined = undefined
 
@@ -10,7 +10,7 @@ export const emailPreview: {
   templates: Array<{ file: string, name: string, source: string }>
 } = { roots: [], templates: [] }
 
-/** The configured plugin replaces this with the Markdown renderer when the application has templates. */
-export const renderEmailTemplate: ((source: string, data?: Record<string, unknown>) => Promise<{ html: string, text: string }>) | undefined = undefined
+/** The configured plugin replaces this with the template renderer when the application has templates. */
+export const renderEmailTemplate: ((source: string, data: Record<string, unknown> | undefined, name: string) => Promise<RenderedEmail>) | undefined = undefined
 
 export default definition

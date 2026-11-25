@@ -23,7 +23,7 @@ A user, Agent, or service gets only the permissions you grant for each key. Env 
 ### Install
 
 ```bash [Terminal]
-pnpm add vite-hub drizzle-orm@1.0.0-rc.5
+pnpm add vite-hub drizzle-orm@1.0.0-rc.6
 ```
 
 The SQLite adapter needs `drizzle-orm`. If you use the owner package, install `@vite-hub/env` and import from `@vite-hub/env/<subpath>`.
@@ -265,7 +265,7 @@ Admins read `bridge.activity(context, key, before?)`: up to 100 events per page,
 
 ## Export persisted events to evlog
 
-`emit` sends each saved event to your evlog drain. It does not retry. A failed export does not remove the record or undo the operation.
+`emit` sends each saved event to your evlog drain. It does not retry. A failed export logs a warning with the event ID. It does not remove the record or undo the operation.
 
 ```ts fragment
 import { createLogger } from 'evlog'

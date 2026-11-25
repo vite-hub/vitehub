@@ -80,7 +80,7 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ root }: { root?: unknown }) => `${String(root)} has no package.json, vite.config, or nuxt.config file.`,
     },
     SETUP_CONFIG_MANUAL: {
-      fix: ({ snippet }: { snippet?: unknown }) => `Add these keys to the vitehub() options by hand:\n${String(snippet)}`,
+      fix: ({ fix, snippet }: { fix?: string, snippet?: unknown }) => fix ?? `Add these keys to the vitehub() options by hand:\n${String(snippet)}`,
       why: ({ file, reason }: { file?: unknown, reason?: unknown }) => `ViteHub cannot edit the vitehub() options in ${String(file)} without running the config (${String(reason)}).`,
     },
     SETUP_FEATURE_UNSUPPORTED: {
@@ -95,12 +95,12 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     SETUP_SERVER_DIR_MANUAL: {
       fix: ({ command }: { command?: unknown }) => command === "remove"
-        ? "Use literal rootDir and serverDir options without layers, or pass --force to turn the features off without checking unresolved Definition files."
-        : "Create the Definition in your evaluated Nuxt server directory and rerun without --name, or use literal rootDir and serverDir options without layers.",
+        ? "Pass --force to turn the features off without checking unresolved Definition files, or use literal directory options without layers or directory overrides."
+        : "Create the Definition in your evaluated Nuxt server directory and rerun without --name, or use literal directory options without layers or directory overrides.",
       why: "ViteHub cannot determine the Nuxt application server directory without running the config.",
     },
     SETUP_INPUT_NEEDED: {
-      fix: "Run the `rerun` command, or pass the missing values with --option.",
+      fix: ({ fix }: { fix?: string }) => fix ?? "Run the `rerun` command, or pass the missing values with --option.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
     SETUP_INSTALL_FAILED: {
@@ -158,7 +158,9 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: () => "The project name is not known. vitehub() has no literal `name` and package.json has no name.",
     },
     SETUP_LINK_PROJECT_NOT_FOUND: {
-      fix: ({ rerun }: { host?: unknown, project?: unknown, account?: unknown, rerun?: unknown }) => `Run \`${String(rerun)}\` to create it, or pass --project with the name of a project that exists.`,
+      fix: ({ host, rerun }: { host?: unknown, project?: unknown, account?: unknown, rerun?: unknown }) => host === "deno"
+        ? "Create the app in Deno Deploy first, then run `vitehub link --host deno`, or pass --project with the name of an existing app."
+        : `Run \`${String(rerun)}\` to create it, or pass --project with the name of a project that exists.`,
       why: ({ host, project, account }: { host?: unknown, project?: unknown, account?: unknown, rerun?: unknown }) => `The ${String(host)} project ${JSON.stringify(String(project))} does not exist${account ? ` in account ${String(account)}` : ""}.`,
     },
     SETUP_INIT_DIR_NOT_EMPTY: {
@@ -173,9 +175,13 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Use the app's current host, or migrate its enabled features, providers and Definitions in the config before running init again.",
       why: ({ host }: { host?: unknown }) => `init cannot change an enabled ViteHub stack to the ${String(host)} host.`,
     },
+    SETUP_INIT_NITRO_VERSION: {
+      fix: ({ dir, range, scaffolded }: { dir?: unknown, range?: unknown, scaffolded?: unknown }) => `${scaffolded ? `The scaffold files remain in ${String(dir)}. ` : ""}Set nitro to \`${String(range)}\` in each section of package.json that declares it, then run init again.`,
+      why: ({ dir, range }: { dir?: unknown, range?: unknown }) => `${String(dir)} declares a Nitro version that init cannot verify against Nuxt 4.7's requirement (${String(range)}). ViteHub did not adopt it.`,
+    },
     SETUP_INIT_NUXT_VERSION: {
-      fix: ({ dir, scaffolded }: { dir?: unknown, scaffolded?: unknown }) => `${scaffolded ? `The scaffold files remain in ${String(dir)}. ` : ""}Set nuxt to a Nuxt 5 version, then run init on that folder again.`,
-      why: ({ dir }: { dir?: unknown }) => `${String(dir)} does not declare a known Nuxt 5 version. ViteHub did not adopt it.`,
+      fix: ({ dir, scaffolded }: { dir?: unknown, scaffolded?: unknown }) => `${scaffolded ? `The scaffold files remain in ${String(dir)}. ` : ""}Upgrade to Nuxt 4.7 with Nitro 3 (\`pnpm add nuxt@^4.7.0 nitro\`), or set nuxt to a Nuxt 5 version. Then run init on that folder again.`,
+      why: ({ dir }: { dir?: unknown }) => `${String(dir)} does not declare a supported Nuxt version. ViteHub needs Nitro 3, which runs on Nuxt 4.7 with the nitro package, or on Nuxt 5. ViteHub did not adopt it.`,
     },
     SETUP_DEPLOY_HOST_UNSUPPORTED: {
       fix: "Set `host` in vitehub() to cloudflare, vercel, netlify, or deno, or start the Node server from `.output` yourself.",
@@ -232,7 +238,9 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
         : `The app needs ${String(names)}, and neither ${String(host)} nor a local value for the ${String(stage)} stage has one. Nothing was deployed.`,
     },
     SETUP_DEPLOY_ENV_NOT_LINKED: {
-      fix: ({ host }: { host?: unknown, names?: unknown }) => `Run \`vitehub link --host ${String(host)} --create\` to create the project, then deploy again.`,
+      fix: ({ host }: { host?: unknown, names?: unknown }) => host === "deno"
+        ? "Create the app in Deno Deploy if needed, run `vitehub link --host deno`, then deploy again."
+        : `Run \`vitehub link --host ${String(host)} --create\` to create the project, then deploy again.`,
       why: ({ host, names }: { host?: unknown, names?: unknown }) => `The ${String(host)} project is not linked, so deploy cannot set ${String(names)} before the first deploy. Nothing was deployed.`,
     },
     SETUP_DEPLOY_ENV_STAGE_UNSAFE: {

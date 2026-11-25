@@ -4,6 +4,8 @@ import { join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
+import type { NuxtVueImportContext } from "@vite-hub/internal/build/vite"
+
 import hubAuthNuxt from "../src/nuxt.ts"
 import { createAuthNitroConfig, hubAuth } from "../src/vite.ts"
 
@@ -214,7 +216,9 @@ describe("Auth access routes with cache route rules", () => {
     const root = await createProject(["'/dashboard/**'"])
     const hooks: Array<(config: Record<string, unknown>) => Promise<void>> = []
     const nuxt = {
-      hook: (name: string, handler: (config: Record<string, unknown>) => Promise<void>) => { if (name === "nitro:config") hooks.push(handler) },
+      hook(...[name, handler]: ["nitro:config", (config: Record<string, unknown>) => Promise<void>] | ["imports:context", (context: NuxtVueImportContext) => Promise<void>]) {
+        if (name === "nitro:config") hooks.push(handler)
+      },
       options: { rootDir: root },
     }
     hubAuthNuxt({ env: false }, nuxt)

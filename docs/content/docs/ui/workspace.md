@@ -52,7 +52,7 @@ A WebContainer needs a cross-origin isolated page. A browser that cannot run it 
 
 ### Render the files in the page
 
-`render(fn)` runs your function 200 ms after the last edit. It returns `{ html, issues? }`, where an issue is `{ message, line? }`. The output has an Output tab with the HTML in a sandboxed frame, and an Issues tab. A thrown error shows as an issue, and a result for older files never replaces a newer one. Every device can run it.
+`render(fn)` runs your function 200 ms after the last edit, as `fn(files, { example })`. It returns `{ html, issues? }`, where an issue is `{ message, file?, line? }`. An issue with a `file` shows `file:line`, and a click on it opens that file. The output has an Output tab with the HTML in a sandboxed frame, and an Issues tab. A thrown error shows as an issue, and a result for older files never replaces a newer one. Every device can run it.
 
 ```vue
 <script setup lang="ts">
@@ -69,6 +69,28 @@ const runner = render(async files => ({ html: await marked.parse(files["content.
 <template>
   <Workspace :examples :runner name="markdown" class="h-[70vh]" />
 </template>
+```
+
+### Read-only and binary files
+
+List paths in `readonly` to lock them. The editor refuses typing in them and its head shows **Read-only**. `setFile` still writes them, so a lesson can change them. Put binary files in `assets`. The tree and the editor never show them. `webContainer()` mounts them next to the files, and `render()` gives them to your function through `example`.
+
+```ts
+import { render, type WorkspaceExample } from "vite-hub/ui/workspace";
+
+const examples: WorkspaceExample[] = [{
+  id: "model",
+  label: "Model",
+  files: { "index.html": "<h1>Model</h1>\n", "footer.html": "<footer>Shared footer</footer>" },
+  readonly: ["footer.html"],
+  assets: { "weights.bin": new Uint8Array([1, 2, 3]) },
+}];
+
+const runner = render(async (files, { example }) => {
+  const weights = example.assets?.["weights.bin"];
+  const issues = weights ? [] : [{ message: "weights.bin is missing.", file: "index.html", line: 1 }];
+  return { html: `${files["index.html"]}${files["footer.html"]}`, issues };
+});
 ```
 
 ### Lessons
@@ -129,7 +151,7 @@ The workspace is a region named by `label`. The bar, the editor, the tabs, and t
 
 | Prop | Type | Default | Description |
 | --- | --- | --- | --- |
-| `examples` | `WorkspaceExample[]` | Required | The examples, each `{ id, label, files, group?, description?, open?, preview? }`. More than one shows an examples menu. |
+| `examples` | `WorkspaceExample[]` | Required | The examples, each `{ id, label, files, group?, description?, open?, preview?, readonly?, assets? }`. `readonly` lists paths the editor locks. `assets` holds binary files by path. More than one shows an examples menu. |
 | `runner` | `WorkspaceRunner` | Required | Runs the files: `webContainer()` or `render()`. |
 | `example` | `string` | | The id of the open example, such as from `?example=`. Defaults to the first example. A change opens that example, and asks first when the reader edited files. Use `v-model:example`. |
 | `selected` | `string` | | The file in the editor. Use `v-model:selected`. |
@@ -182,7 +204,7 @@ The workspace is a region named by `label`. The bar, the editor, the tabs, and t
 
 | Option | Type | Description |
 | --- | --- | --- |
-| `fn` | `(files) => Promise<{ html, issues? }>` | Renders the files. |
+| `fn` | `(files, { example }) => Promise<{ html, issues? }>` | Renders the files. `example` is the open example, with its `assets`. An issue is `{ message, file?, line? }`. |
 | `document` | `(html, files) => string` | Wraps the HTML in the page of the output, with your stylesheets and theme. Defaults to a plain page. |
 
 ## Related

@@ -1,8 +1,5 @@
-import { existsSync } from "node:fs"
-
 import { resolveHostCredentials } from "@vite-hub/internal/host-credentials"
 import { createNetlifyApiClient, isProvisionRequestError } from "@vite-hub/internal/provision"
-import { join } from "pathe"
 
 import { cliErrorDiagnostics } from "../../error-diagnostics.ts"
 import { setupFailure, setupExitCodes } from "../envelope.ts"
@@ -25,7 +22,6 @@ export function netlifyAdapter(context: DeployContext): DeployAdapter {
   return {
     async deploy() {
       const args = ["deploy", "--no-build", "--dir", publishDir, "--json", ...(context.preview ? ["--context", "deploy-preview"] : ["--prod"])]
-      if (existsSync(join(context.outputDir, "functions", "server.mjs"))) args.push("--functions", join(context.outputDir, "functions"))
       args.push(...(site ? ["--site", site.id] : ["--site-name", context.projectName]))
       if (context.commit) args.push("--message", commitMessage(context.commit))
       const result = await context.run(netlify[0], [...netlify.slice(1), ...args], { cwd: context.root, env: context.env, show: true })

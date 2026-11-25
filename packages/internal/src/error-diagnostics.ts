@@ -142,6 +142,10 @@ export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ owner }: { owner: string }) => `[vitehub] ${owner} extends tuple requires [preset, options] with an options object.`,
       fix: "Set `extends` to a preset, or to a two-item tuple `[preset, { ...options }]` whose second item is a plain object.",
     },
+    INTERNAL_RUNTIME_PACKAGE_VERSION_CONFLICT: {
+      why: ({ first, name, second }: { first: string, name: string, second: string }) => `[vitehub] One server function needs ${name} from two installations: ${first} and ${second}.`,
+      fix: "Install one version of the package that the message names, for example with `pnpm dedupe` or an `overrides` entry in `package.json`, then build again.",
+    },
     INTERNAL_SECRET_PURPOSE_MISSING: {
       why: "[vitehub] A derived secret requires a purpose.",
       fix: "Pass a non-empty purpose to `deriveSecret()`, such as `deriveSecret(\"my-module:session\")`.",
@@ -149,6 +153,10 @@ export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     INTERNAL_SECRET_TOO_SHORT: {
       why: ({ minimum }: { minimum: number }) => `[vitehub] VITEHUB_SECRET must be at least ${minimum} characters. Generate one with \`openssl rand -base64 32\`.`,
       fix: "Set `VITEHUB_SECRET` to the output of `openssl rand -base64 32`, which has 44 characters.",
+    },
+    INTERNAL_SITE_TOKEN_TOO_LONG: {
+      why: ({ length, maximum }: { length: number, maximum: number }) => `The Site access token is ${length} characters, and an app accepts ${maximum}.`,
+      fix: "Open the app with a shorter path, or give the person and the project shorter names, so that the Site access token fits.",
     },
     INTERNAL_SQLITE_ARGUMENT_INVALID: {
       why: ({ value }: { value: "non-finite" | "undefined" }) => value === "undefined" ? "undefined cannot be passed as argument to the database" : "Only finite numbers (not Infinity or NaN) can be passed as arguments",

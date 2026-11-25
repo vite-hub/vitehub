@@ -1,5 +1,6 @@
-import { readFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises"
 import { resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import * as v from "valibot"
 
@@ -9,9 +10,13 @@ import { callOperationFromCli, table } from "@vite-hub/internal/operations"
 
 import { emailErrorDiagnostics } from "./error-diagnostics.ts"
 import { previewEmailTemplate } from "./preview.ts"
+import { compileEmailVueTemplates, emailTemplateFileName } from "./vue-compile.ts"
 
 import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliStreams } from "@vite-hub/internal/cli"
 import type { EmailOutboxDelivery, EmailOutboxList, EmailOutboxMessage } from "./runtime/console.ts"
+import type { EmailTemplate } from "./templates.ts"
+import type { RenderedEmail } from "./types.ts"
+import type { EmailVueBuildOptions } from "./vue-compile.ts"
 
 export type EmailCliContext = Pick<ViteHubCliContext, "cwd" | "env" | "fetch" | "rootDir"> & ViteHubCliStreams
 
@@ -21,6 +26,7 @@ export interface EmailCliOptions {
   fetch?: typeof fetch
   /** Directories that hold Email templates. The Vite plugin passes its `server/emails` roots. */
   templateRoots?: () => readonly string[]
+  vue?: (template: EmailTemplate) => EmailVueBuildOptions
 }
 
 type OutboxBodyFormat = "html" | "json" | "text"
@@ -351,7 +357,7 @@ function writePreviewUsage(stream: ViteHubCliStreams["stdout"]): void {
     "  --data <json|@file>  Template data as a JSON object, or @ and a JSON file path.",
     "  --html               Print only the rendered HTML.",
     "  --text               Print only the text body.",
-    "  --json               Print JSON with template, file, html, and text.",
+    "  --json               Print JSON with template, file, subject, html, and text.",
     "  -h, --help           Show this help.",
     "",
   ].join("\n"))
@@ -380,9 +386,23 @@ async function readPreviewData(value: string | undefined, cwd: string): Promise<
   return data
 }
 
+async function renderVueTemplate(rootDir: string, template: EmailTemplate, data: Record<string, unknown>, vue?: EmailVueBuildOptions): Promise<RenderedEmail> {
+  const parent = resolve(rootDir, ".vitehub", "email")
+  await mkdir(parent, { recursive: true })
+  const outputRoot = await mkdtemp(resolve(parent, "preview-"))
+  try {
+    await compileEmailVueTemplates([template], outputRoot, rootDir, vue)
+    const module: { default: (data: Record<string, unknown>) => Promise<RenderedEmail> } = await import(pathToFileURL(resolve(outputRoot, `${emailTemplateFileName(template.name)}.mjs`)).href)
+    return await module.default(data)
+  }
+  finally {
+    await rm(outputRoot, { force: true, recursive: true })
+  }
+}
+
 /**
- * Renders one Email template with `renderEmailMarkdown()` and prints it. The template name is the path under
- * `server/emails` without `.md`, the same name as the `#vitehub/emails/<name>` import.
+ * Renders one Email template and prints it. The template name is the path under `server/emails` without the
+ * extension, the same name as the `#vitehub/emails/<name>` import.
  */
 export async function runEmailPreviewCli(args: string[], context: EmailCliContext, options: EmailCliOptions = {}): Promise<number> {
   let parsed: ParsedPreviewArgs
@@ -401,11 +421,11 @@ export async function runEmailPreviewCli(args: string[], context: EmailCliContex
   const json = parsed.format === "json"
   const roots = options.templateRoots?.() ?? [resolve(context.rootDir, "server", "emails")]
   try {
-    const rendered = await previewEmailTemplate(roots, context.rootDir, parsed.template!, await readPreviewData(parsed.data, context.cwd))
+    const rendered = await previewEmailTemplate(roots, context.rootDir, parsed.template!, await readPreviewData(parsed.data, context.cwd), (template, data) => renderVueTemplate(context.rootDir, template, data, options.vue?.(template)))
     if (parsed.format === "html") context.stdout.write(`${rendered.html}\n`)
     else if (parsed.format === "text") context.stdout.write(`${rendered.text}\n`)
     else if (json) context.stdout.write(`${JSON.stringify(rendered, null, 2)}\n`)
-    else context.stdout.write([`Template: ${rendered.template}`, `File: ${rendered.file}`, "", "Text:", rendered.text, "", "HTML:", rendered.html, ""].join("\n"))
+    else context.stdout.write([`Template: ${rendered.template}`, `File: ${rendered.file}`, ...(rendered.subject === undefined ? [] : [`Subject: ${rendered.subject}`]), "", "Text:", rendered.text, "", "HTML:", rendered.html, ""].join("\n"))
     return 0
   }
   catch (error) {

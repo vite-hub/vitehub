@@ -235,6 +235,26 @@ describe("@vite-hub/shell workspace inspection", () => {
     })).resolves.toMatchObject({ exitCode: 0, stdout: "# Docs\n" })
   })
 
+  it.each([
+    { operator: "<<", indent: "" },
+    { operator: "<<-", indent: "\t" },
+  ])("requires a closing delimiter for $operator heredocs", async ({ operator, indent }) => {
+    const workspace = new MemoryWorkspace({})
+    const options = {
+      commands: ["cat"],
+      cwd: workspaceMountPoint,
+      fs: createReadonlyWorkspaceFs(workspace),
+    }
+
+    for (const body of ["", "body\n"]) {
+      const command = `cat ${operator}EOF\n${body ? indent + body : ""}`
+      await expect(runWorkspaceInspectionCommand(workspace, `${command}${indent}EOF`, options))
+        .resolves.toMatchObject({ exitCode: 0, stdout: body })
+      await expect(runWorkspaceInspectionCommand(workspace, command, options))
+        .resolves.toMatchObject({ event: "policy_denied", exitCode: 126 })
+    }
+  })
+
   it("removes backslash escapes from unquoted words before path checks", async () => {
     const workspace = new MemoryWorkspace({ "README.md": "# Docs\n" })
 
@@ -685,7 +705,7 @@ describe("@vite-hub/shell workspace inspection", () => {
       fs,
     })).resolves.toMatchObject({
       exitCode: 0,
-      stdout: "orders.sql:1:select * from orders\n",
+      stdout: "./orders.sql:1:select * from orders\n",
     })
 
     await expect(runWorkspaceInspectionCommand(workspace, "cd models; rg orders .", {
@@ -694,7 +714,7 @@ describe("@vite-hub/shell workspace inspection", () => {
       fs,
     })).resolves.toMatchObject({
       exitCode: 0,
-      stdout: "orders.sql:1:select * from orders\n",
+      stdout: "./orders.sql:1:select * from orders\n",
     })
 
     await expect(runWorkspaceInspectionCommand(workspace, "cd models\nrg orders .", {
@@ -703,7 +723,7 @@ describe("@vite-hub/shell workspace inspection", () => {
       fs,
     })).resolves.toMatchObject({
       exitCode: 0,
-      stdout: "orders.sql:1:select * from orders\n",
+      stdout: "./orders.sql:1:select * from orders\n",
     })
 
     await expect(runWorkspaceInspectionCommand(workspace, "cd models && find -name '*.sql'", {

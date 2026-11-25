@@ -49,7 +49,7 @@ function invalidMessage(message: unknown, driver: string): EmailProviderError | 
 }
 
 function sendError(error: unknown, driver: string): ResultError<EmailErrorCode> {
-  if (emailErrorDiagnostics.EMAIL_INVALID_DRIVER.is(error) || emailErrorDiagnostics.EMAIL_NOT_CONFIGURED.is(error)) throw error
+  if (emailErrorDiagnostics.EMAIL_INVALID_DRIVER.is(error) || emailErrorDiagnostics.EMAIL_NOT_CONFIGURED.is(error) || emailErrorDiagnostics.EMAIL_SMTP_NODEMAILER_MISSING.is(error)) throw error
   if (!isEmailProviderError(error)) return emailErrorDiagnostics.EMAIL_PROVIDER_FAILED({ cause: error, driver })
   if (error.code === "NOT_CONFIGURED") throw emailErrorDiagnostics.EMAIL_NOT_CONFIGURED({ cause: error, driver: error.driver })
   return emailErrorDiagnostics[errorCodes[error.code]]({ cause: error, driver: error.driver })

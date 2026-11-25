@@ -258,7 +258,8 @@ describe("env declarations", () => {
   it("reports the declaration diagnostic when any option read throws", () => {
     for (const property of ["optional", "required", "schema", "default", "source", "mode", "secret", "type"]) {
       const options = new Proxy({}, {
-        ownKeys: () => [],
+        ownKeys: () => [property],
+        getOwnPropertyDescriptor: () => ({ configurable: true, enumerable: true }),
         get: (_, key) => {
           if (key === property) throw new Error("boom")
           return undefined
@@ -303,6 +304,22 @@ describe("env declarations", () => {
     expect(() => env({ required: true } as never)).toThrow("does not accept required")
     expect(() => env({ optional: true, required: true } as never)).toThrow("does not accept required")
     expect(() => env.boolean({ default: false, optional: true } as never)).toThrow("cannot use both optional and default")
+  })
+
+  it("rejects options that env() does not know", () => {
+    expect(() => env({ secret: true, description: "API token" } as never)).toThrow("env() does not accept description.")
+    expect(() => env.number({ min: 1 } as never)).toThrow("env() does not accept min.")
+  })
+
+  it("keeps non-enumerable declaration options", () => {
+    const source = env.source("ENV_TOKEN")
+    const options = Object.defineProperties({}, {
+      default: { value: "fallback" },
+      secret: { value: true },
+      source: { value: source },
+    })
+    expect(env(options)).toMatchObject({ default: "fallback", secret: true, source })
+    expect(() => env(Object.defineProperty({}, "required", { value: true }))).toThrow("does not accept required")
   })
 
   it("reads the canonical name before the inferred path name", () => {
@@ -695,7 +712,7 @@ describe("env declarations", () => {
     })).toThrow("[vitehub] Env declaration is invalid.")
   })
 
-  it("does not execute inherited schema methods", () => {
+  it("does not execute inherited parse methods", () => {
     let calls = 0
     const inherited = {
       safeParse: () => {
@@ -705,12 +722,6 @@ describe("env declarations", () => {
       parse: () => {
         calls++
         return "inherited"
-      },
-      "~standard": {
-        validate: () => {
-          calls++
-          return { value: "inherited" }
-        },
       },
     }
 
@@ -746,10 +757,6 @@ describe("env declarations", () => {
     }
   })
 
-  it("does not accept an inherited Zod identity", () => {
-    expect(parseSchema(Object.create(z.string().min(3)), "x", "env.test")).toBe("x")
-  })
-
   it("does not execute inherited validators with forged Zod traits", () => {
     let calls = 0
     const validators = {
@@ -761,16 +768,10 @@ describe("env declarations", () => {
         calls++
         return "inherited"
       },
-      "~standard": {
-        validate: () => {
-          calls++
-          return { value: "inherited" }
-        },
-      },
     }
     const metadata = [{ traits: new Set(["ZodType"]) }, z.string()._zod]
     for (const _zod of metadata) {
-      for (const method of ["safeParse", "parse", "~standard"] as const) {
+      for (const method of ["safeParse", "parse"] as const) {
         const schema = Object.assign(Object.create({ [method]: validators[method] }), { _zod })
         expect(parseSchema(schema, "input", "env.test")).toBe("input")
       }

@@ -80,6 +80,7 @@ async function navigate(path: string, layout = "docs", isHydrating = false, owns
       if (id === "#docs/components") return { pageBlocks: [] }
       if (id === "#docs/navigation") return navigation
       if (id === "#docs/shell") return { ownsApp, articleLayout: ownsApp ? "default" : "docs-article" }
+      if (id === "#docs/workspaces") return { default: {} }
       throw new Error(`Unexpected component import: ${id}`)
     },
     useRoute: () => route,

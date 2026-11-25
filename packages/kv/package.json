@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/kv",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Vite-first key-value storage primitives and integration for ViteHub.",
   "keywords": [
     "cloudflare",
@@ -45,6 +45,11 @@
       "types": "./dist/durability.d.ts",
       "import": "./dist/durability.js",
       "default": "./dist/durability.js"
+    },
+    "./runtime/database": {
+      "types": "./dist/runtime/database.d.ts",
+      "import": "./dist/runtime/database.js",
+      "default": "./dist/runtime/database.js"
     },
     "./runtime/redis-driver": {
       "types": "./dist/runtime/redis-driver.d.ts",

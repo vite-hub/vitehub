@@ -63,6 +63,7 @@ export function webContainer(options: WebContainerRunnerOptions = {}): WebContai
     const { copy } = useCopy();
     const workspace = useWebContainer({
       files,
+      assets: booted.assets,
       immediate: false,
       port: options.port,
       previewScript: workspacePreviewScript,
@@ -133,6 +134,7 @@ export function webContainer(options: WebContainerRunnerOptions = {}): WebContai
       files: workspace.files,
       setFiles: (next, setOptions) => workspace.setFiles(next, setOptions),
       keeps: next => sameManifest
+        && next.assets === booted.assets
         && options.snapshot?.(next) === snapshot
         && workspace.files.value["package.json"] === opened.files?.["package.json"]
         && (snapshot !== undefined || next.files?.["package.json"] === bootManifest),

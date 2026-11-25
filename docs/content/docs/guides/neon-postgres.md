@@ -17,8 +17,8 @@ dashboard, with its TLS parameters.
 ## Install the Postgres dependencies
 
 ```bash [Terminal]
-pnpm add postgres drizzle-orm@1.0.0-rc.5
-pnpm add -D drizzle-kit@1.0.0-rc.5
+pnpm add @vite-hub/database postgres drizzle-orm@1.0.0-rc.6
+pnpm add -D drizzle-kit@1.0.0-rc.6
 ```
 
 Set `database: true` in your ViteHub options.

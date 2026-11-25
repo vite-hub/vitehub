@@ -1,6 +1,7 @@
 import type { EnvMode, EnvSchemaModuleReference, EnvSource, EnvSourceResolver, EnvTypedVariableOptions, EnvValueSchema, EnvVariableDeclaration, EnvVariableOptions } from "../types.ts"
 import { envErrorDiagnostics } from "../error-diagnostics.ts"
 import { isRuntimeRecord } from "../internal/runtime-type.ts"
+import { readStandardValidate } from "../schema.ts"
 import { envValueTypeName, listItemKinds, parseEnvValue, readJsonInput, stringValueSchema } from "./values.ts"
 
 type EnvListItem = boolean | number | string
@@ -255,30 +256,12 @@ function isSchemaModule(value: unknown): value is EnvSchemaModuleReference {
 }
 
 function isStandardSchemaLike(value: unknown): value is StandardSchemaLike {
-  try {
-    if ((typeof value !== "object" && typeof value !== "function") || value === null) return false
-    const standard: unknown = Reflect.get(value, "~standard")
-    return isRuntimeRecord(standard) && typeof standard.validate === "function"
-  }
-  catch {
-    return false
-  }
+  return readStandardValidate(value, "env.json()") !== undefined
 }
 
 function isDeclaration(value: unknown): value is EnvVariableDeclaration {
   try {
     return isRuntimeRecord(value) && value.kind === "env-variable"
-  }
-  catch {
-    return false
-  }
-}
-
-function isInspectableRecord(value: unknown): boolean {
-  try {
-    if (!isRuntimeRecord(value)) return false
-    Reflect.ownKeys(value)
-    return true
   }
   catch {
     return false
@@ -295,34 +278,44 @@ interface DeclarationOptions {
   type: string | undefined
 }
 
+const declarationOptionKeys: ReadonlySet<string> = new Set(["default", "mode", "optional", "schema", "secret", "source", "type"])
+
+function copyOptions(options: EnvVariableOptions): EnvVariableOptions | undefined {
+  if (!isRuntimeRecord(options)) return undefined
+  return Object.fromEntries(Object.getOwnPropertyNames(options).map(key => [key, options[key]]))
+}
+
 function readDeclarationOptions(options: EnvVariableOptions): DeclarationOptions {
-  if (!isInspectableRecord(options)) {
+  let snapshot: EnvVariableOptions | undefined
+  try {
+    snapshot = copyOptions(options)
+  }
+  catch (cause) {
+    throw envErrorDiagnostics.ENV_R0005({ message: "env() only accepts a single options object.", cause })
+  }
+  if (!snapshot) {
     throw envErrorDiagnostics.ENV_R0005({ message: "env() only accepts a single options object." })
   }
-  let snapshot: DeclarationOptions
-  let required: unknown
-  try {
-    required = Reflect.get(options, "required")
-    snapshot = {
-      default: options.default,
-      mode: options.mode,
-      optional: options.optional === true,
-      schema: options.schema,
-      secret: options.secret,
-      source: options.source,
-      type: options.type,
+  for (const key of Object.keys(snapshot)) {
+    if (key === "required") {
+      throw envErrorDiagnostics.ENV_R0006({ message: "env() does not accept required. A value is required by default. Use optional: true for a value that can be missing." })
+    }
+    if (!declarationOptionKeys.has(key)) {
+      throw envErrorDiagnostics.ENV_R0005({ message: `env() does not accept ${key}. Use default, mode, optional, schema, secret, source, or type.` })
     }
   }
-  catch {
-    throw envErrorDiagnostics.ENV_R0005({ message: "env() only accepts a single options object." })
-  }
-  if (required !== undefined) {
-    throw envErrorDiagnostics.ENV_R0006({ message: "env() does not accept required. A value is required by default. Use optional: true for a value that can be missing." })
-  }
-  if (snapshot.optional && snapshot.default !== undefined) {
+  if (snapshot.optional === true && snapshot.default !== undefined) {
     throw envErrorDiagnostics.ENV_R0006({ message: "env() cannot use both optional and default. A default makes the value always present." })
   }
-  return snapshot
+  return {
+    default: snapshot.default,
+    mode: snapshot.mode,
+    optional: snapshot.optional === true,
+    schema: snapshot.schema,
+    secret: snapshot.secret,
+    source: snapshot.source,
+    type: snapshot.type,
+  }
 }
 
 function createDeclaration(options: DeclarationOptions, schema: unknown, type: string | undefined): EnvVariableDeclaration {
@@ -377,17 +370,12 @@ export function runtimeValueSchema(declaration: EnvVariableDeclaration): EnvValu
   if (runtimeSchemas.get(declaration) === schema && isRuntimeValueSchema(schema)) {
     return runtimeSchemaParsers.get(schema.safeParse)
   }
-  try {
-    const declarationToken = Object.getOwnPropertyDescriptor(declaration, runtimeSchemaProperty)?.value
-    if (declarationToken !== runtimeSchemaToken || !isRuntimeRecord(schema)) return undefined
-    const schemaToken = Object.getOwnPropertyDescriptor(schema, runtimeSchemaProperty)?.value
-    if (schemaToken !== runtimeSchemaToken || !hasOnlyRuntimeSchemaKeys(schema)) return undefined
-    const safeParse = Object.getOwnPropertyDescriptor(schema, "safeParse")?.value
-    return typeof safeParse === "function" ? runtimeSchemaParsers.get(safeParse) : undefined
-  }
-  catch {
-    return undefined
-  }
+  const declarationToken = Object.getOwnPropertyDescriptor(declaration, runtimeSchemaProperty)?.value
+  if (declarationToken !== runtimeSchemaToken || !isRuntimeRecord(schema)) return undefined
+  const schemaToken = Object.getOwnPropertyDescriptor(schema, runtimeSchemaProperty)?.value
+  if (schemaToken !== runtimeSchemaToken || !hasOnlyRuntimeSchemaKeys(schema)) return undefined
+  const safeParse = Object.getOwnPropertyDescriptor(schema, "safeParse")?.value
+  return typeof safeParse === "function" ? runtimeSchemaParsers.get(safeParse) : undefined
 }
 
 function isRuntimeValueSchema(schema: unknown): schema is RuntimeValueSchema {

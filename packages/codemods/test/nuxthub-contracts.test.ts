@@ -30,6 +30,7 @@ it("executes a migrated Blob serving route with bytes and a missing object", asy
   })
   const run = await runCodemod("nuxthub", { cwd: directory, dryRun: true })
   const code = run.result.edits.find(edit => edit.path === file)?.after
+  expect(code).toContain("import { blob } from \"vite-hub/blob\"")
   expect(code).toContain("blob.serve(event.req,")
   const { response, missing } = await serveMigratedRoute(code!, directory)
   expect(response.status).toBe(200)
@@ -44,7 +45,7 @@ it("reports the Request and Response contracts when a Blob event cannot be ident
     [file]: "export function serve(input) { return blob.serve(input, 'x') }\n",
   })
   const run = await runCodemod("nuxthub", { cwd: directory, dryRun: true })
-  expect(run.result.edits.some(edit => edit.path === file)).toBe(false)
+  expect(run.result.edits.find(edit => edit.path === file)?.after).toBe(`import { blob } from 'vite-hub/blob'\n\nexport function serve(input) { return blob.serve(input, 'x') }\n`)
   expect(run.result.followUps).toContainEqual({ file, line: 1, message: expect.stringMatching(/returns a Response unchanged.*Pass a Request.*event.req/) })
 })
 
@@ -58,7 +59,7 @@ it("preserves computed Blob delete keys in statements, returns, and expressions"
   expect(code).not.toContain("[del]")
   expect(code?.match(/blob\['del'\]/g)).toHaveLength(4)
   const deleted: string[] = []
-  const remove = new Function("blob", code!.replace("export async function", "async function").replace("export const later", "const later") + "\nreturn remove")({ del: async (key: string) => { deleted.push(key); return [null, key] } }) as () => Promise<string>
+  const remove = new Function("blob", code!.replace(/^import .*\n/gm, "").replace("export async function", "async function").replace("export const later", "const later") + "\nreturn remove")({ del: async (key: string) => { deleted.push(key); return [null, key] } }) as () => Promise<string>
   expect(await remove()).toBe("c")
   expect(deleted).toEqual(["a", "b", "c"])
 })

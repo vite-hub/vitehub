@@ -46,15 +46,15 @@ describe("Add a primitive", () => {
 
   it("gives a command that `vitehub add` reads, and a prompt with the docs", () => {
     const rateLimits = consolePrimitives.find(entry => entry.id === "rate-limits")!
-    expect(consoleAddCommand(rateLimits)).toBe("npx vitehub add rate-limit")
-    expect(consoleAddCommand(consolePrimitives.find(entry => entry.id === "sandbox-tasks")!)).toBe("npx vitehub add sandbox-task")
+    expect(consoleAddCommand(rateLimits)).toBe("npx vite-hub add rate-limit")
+    expect(consoleAddCommand(consolePrimitives.find(entry => entry.id === "sandbox-tasks")!)).toBe("npx vite-hub add sandbox-task")
     // `readFeatureId` in `@vite-hub/cli` drops dashes and ignores case.
     for (const entry of consolePrimitives.filter(item => item.feature)) {
       const argument = consoleAddCommand(entry)!.split(" ").at(-1)!
       expect(argument.replaceAll("-", "")).toBe(entry.feature!.toLowerCase())
     }
 
-    expect(consoleAddPrompt(rateLimits)).toBe("Add the ViteHub Rate Limits primitive to this app. Run `npx vitehub add rate-limit --dry-run` to see the change, then run it again with `--yes` to apply it. Follow https://vitehub.dev/docs/rate-limit")
+    expect(consoleAddPrompt(rateLimits)).toBe("Add the ViteHub Rate Limits primitive to this app. Run `npx vite-hub add rate-limit --dry-run` to see the change, then run it again with `--yes` to apply it. Follow https://vitehub.dev/docs/rate-limit")
     const content = consolePrimitives.find(entry => entry.id === "content")!
     expect(consoleAddCommand(content)).toBeUndefined()
     expect(consoleAddPrompt(content)).toBe("Add the ViteHub Content primitive to this app. Follow https://vitehub.dev/docs/content")

@@ -4,26 +4,27 @@ import { computed, onMounted, ref, shallowRef, watch } from "vue";
 import type { DropdownMenuItem } from "@nuxt/ui";
 import { useCopy } from "@vite-hub/ui";
 
-import type { ConsoleAccountAppStatus, ConsoleAccountProject } from "../client/account";
-import type { ConsoleProjectBuild } from "../client/project-link";
+import type { ConsoleAccountAppStatus, ConsoleAccountCheck, ConsoleAccountProject } from "../client/account";
 import { accountAppStatusLabels, loadConsoleTeam } from "../client/account";
+import { consoleAppIdentity } from "../client/app-identity";
+import { consoleAuthorAvatarUrl, consoleCommentsSiteUrl } from "../client/project-link";
 import { accountProjectPath, canManageConsoleProjects, consoleProjectDisplayName, linkAccountProject, openAccountProject, showConsoleAccountPage, useConsoleProjects } from "../client/project-session";
-import { consoleProjectHost } from "../client/projects";
+import { consoleProjectHost, consoleProjectTarget } from "../client/projects";
 import ConsoleAccountRename from "./console-account-rename.vue";
 import { useConsoleToast } from "../client/toast";
 import ConsoleAccountSnippet from "./console-account-snippet.vue";
 import ConsoleAccountUnlink from "./console-account-unlink.vue";
+import ConsoleAppLogo from "./console-app-logo.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
 import Icon from "./console-icon.vue";
 
 /**
  * Home of an `account` Console. Until the team has a connected app, it is the setup checklist, and the first app is
- * linked here without a dialog. After that, it lists the apps.
+ * linked here without a dialog. After that, it is the table of apps.
  */
 const props = defineProps<{
   status: Record<string, ConsoleAccountAppStatus>;
-  /** The build that each connected app reported, by app id. */
-  builds?: Record<string, ConsoleProjectBuild>;
+  checks?: Record<string, ConsoleAccountCheck>;
 }>();
 
 const projects = useConsoleProjects();
@@ -32,12 +33,29 @@ const team = computed(() => account.value?.teams.find(item => item.id === accoun
 const teamName = computed(() => team.value?.name ?? "This team");
 const apps = computed(() => account.value?.projects ?? []);
 const manage = computed(() => account.value ? canManageConsoleProjects(account.value) : false);
-// Each app row with its Last deploy cell, from the build that the app reported in its check.
+const filter = ref("");
+const failedAvatars = ref(new Set<string>());
+function markAvatarFailed(url: string | undefined) {
+  if (url) failedAvatars.value.add(url);
+}
 const rows = computed(() => apps.value.map((app) => {
-  const build = props.builds?.[app.id];
-  const deploy = build && { author: build.commit?.author, message: build.commit?.message ?? "Deployed", sha: build.commit?.sha.slice(0, 7), time: build.time };
-  return { app, deploy };
+  const check = props.checks?.[app.id];
+  const build = check?.build;
+  const login = build?.commit?.login;
+  const deploy = build && { author: build.commit?.author ?? login, avatar: login && consoleAuthorAvatarUrl(login), message: build.commit?.message, sha: build.commit?.sha.slice(0, 7), time: build.time };
+  const site = `${consoleProjectTarget(app).url}/`;
+  return {
+    app,
+    identity: consoleAppIdentity(app, name(app)),
+    deploy,
+    site,
+    comments: check?.comments && { ...check.comments, url: consoleCommentsSiteUrl(site) },
+  };
 }));
+const shownRows = computed(() => {
+  const query = filter.value.trim().toLowerCase();
+  return query ? rows.value.filter(row => `${row.identity.name} ${row.identity.host}`.toLowerCase().includes(query)) : rows.value;
+});
 const firstName = computed(() => account.value?.user.name.split(/\s+/)[0] ?? "");
 const shared = ref(false);
 
@@ -69,7 +87,7 @@ function reportedName(app: ConsoleAccountProject): string {
  * the page tools. Anyone of the team can share it: it holds no secret.
  */
 function siteEntry(app: ConsoleAccountProject): string {
-  return `${app.url.replace(/\/+$/, "")}/_vitehub`;
+  return app.publicKey === null ? app.url : `${app.url.replace(/\/+$/, "")}/_vitehub`;
 }
 
 const toast = useConsoleToast();
@@ -82,16 +100,17 @@ async function copySiteEntry(app: ConsoleAccountProject): Promise<void> {
 }
 
 function appActions(app: ConsoleAccountProject): DropdownMenuItem[][] {
-  const copy: DropdownMenuItem = { icon: "i-lucide-copy", label: "Copy the /_vitehub link", onSelect: () => void copySiteEntry(app) };
+  const copy: DropdownMenuItem = { icon: "i-lucide-copy", label: app.publicKey === null ? "Copy site URL" : "Copy the /_vitehub link", onSelect: () => void copySiteEntry(app) };
   return [[copy], ...(manage.value ? [[{ icon: "i-lucide-pencil", label: "Rename app", onSelect: () => askRename(app) }], [{ icon: "i-lucide-unlink", label: "Unlink app", color: "error" as const, onSelect: () => askUnlink(app) }]] : [])];
 }
 
 const url = ref("");
+const commentsOnly = shallowRef(false);
 const busy = ref(false);
 const problem = ref<string>();
 
 const linked = computed(() => apps.value.length > 0);
-const connected = computed(() => apps.value.some(app => props.status[app.id] === "connected"));
+const connected = computed(() => apps.value.some(app => app.publicKey === null || props.status[app.id] === "connected"));
 const checking = computed(() => apps.value.some(app => props.status[app.id] === "checking"));
 // The app that step 3 opens: one that is not connected and not still being checked.
 const setupApp = computed(() => apps.value.find(app => ["setup", "unconfigured", "unreachable"].includes(props.status[app.id] ?? "checking")));
@@ -153,7 +172,7 @@ async function link(): Promise<void> {
   busy.value = true;
   problem.value = undefined;
   try {
-    await linkAccountProject(url.value);
+    await linkAccountProject(url.value, undefined, commentsOnly.value ? "site" : undefined);
   }
   catch (error) {
     problem.value = error instanceof Error ? error.message : "Try again.";
@@ -163,7 +182,7 @@ async function link(): Promise<void> {
 </script>
 
 <template>
-  <div class="grid max-w-2xl gap-10">
+  <div class="grid gap-10" :class="{ 'max-w-2xl': !setupDone }">
     <header v-if="!setupDone" class="grid gap-1">
       <div class="flex items-baseline justify-between gap-4">
         <h2 class="text-xl font-semibold text-balance text-highlighted">{{ firstName ? `Welcome, ${firstName}` : "Welcome" }}</h2>
@@ -176,39 +195,92 @@ async function link(): Promise<void> {
       </p>
     </header>
 
-    <section v-if="setupDone" class="grid gap-3" aria-labelledby="vitehub-home-apps">
-      <div class="flex items-center justify-between gap-2">
-        <h2 id="vitehub-home-apps" class="text-sm font-semibold text-highlighted">Apps</h2>
-        <UButton v-if="manage" size="sm" color="neutral" variant="ghost" icon="i-lucide-plus" label="Link an app" @click="projects.linkOpen.value = true" />
+    <section v-if="setupDone" class="grid grid-cols-1 gap-4" aria-labelledby="vitehub-account-title">
+      <div class="flex items-center gap-2">
+        <UInput v-model="filter" type="search" icon="i-lucide-search" placeholder="Filter apps" aria-label="Filter apps" class="min-w-0 flex-1 sm:w-64 sm:flex-none" />
+        <UButton v-if="manage" class="ms-auto" icon="i-lucide-plus" label="Link app" @click="projects.linkOpen.value = true" />
       </div>
-      <ul class="vitehub-account-list">
-        <li v-for="{ app, deploy } in rows" :key="app.id" class="vitehub-account-list__item">
-          <a :href="accountProjectPath(app.id)" class="vitehub-account-list__row" data-focus-inset @click="openApp($event, app.id)">
-            <span class="vitehub-account-shell__dot" :data-status="status[app.id] ?? 'checking'" aria-hidden="true" />
-            <span class="grid min-w-0 flex-1 text-start">
-              <span class="truncate text-sm font-medium text-highlighted">{{ name(app) }}</span>
-              <span v-if="name(app) !== consoleProjectHost(app)" class="truncate font-mono text-xs text-muted">{{ consoleProjectHost(app) }}</span>
-            </span>
-            <!-- The last deploy: when, which commit, and its message. A phone keeps the name and the status. -->
-            <span v-if="deploy" class="hidden min-w-0 flex-1 text-start sm:grid">
-              <span class="truncate text-xs text-toned">{{ deploy.message }}</span>
-              <span class="flex min-w-0 items-center gap-1.5 text-xs text-muted">
-                <span v-if="deploy.sha" class="shrink-0 font-mono">{{ deploy.sha }}</span>
-                <span class="shrink-0"><ConsoleRelativeTime :value="deploy.time" /></span>
-                <span v-if="deploy.author" class="truncate">by {{ deploy.author }}</span>
-              </span>
-            </span>
-            <span class="text-xs text-muted">{{ accountAppStatusLabels[status[app.id] ?? "checking"] }}</span>
-            <Icon name="i-lucide-chevron-right" class="vitehub-account-icon shrink-0 text-muted" aria-hidden="true" />
-          </a>
-          <UTooltip :text="`Open ${consoleProjectHost(app)} with your tools`">
-            <UButton class="shrink-0" icon="i-lucide-external-link" color="neutral" variant="ghost" size="sm" :href="siteEntry(app)" target="_blank" rel="noopener" :aria-label="`Open ${consoleProjectHost(app)} with your tools`" />
-          </UTooltip>
-          <UDropdownMenu :items="appActions(app)" :content="{ align: 'end' }">
-            <UButton class="me-2 shrink-0" icon="i-lucide-ellipsis" color="neutral" variant="ghost" size="sm" :aria-label="`More actions for ${name(app)}`" />
-          </UDropdownMenu>
-        </li>
-      </ul>
+      <div v-if="shownRows.length" class="overflow-x-auto rounded-lg border border-default">
+        <table class="vitehub-apps">
+          <thead>
+            <tr>
+              <th scope="col">App</th>
+              <th scope="col" class="max-sm:hidden">Last deploy</th>
+              <th scope="col">Status</th>
+              <th scope="col"><span class="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in shownRows" :key="row.app.id">
+              <td>
+                <!-- The link covers the row, and the actions sit above it. -->
+                <a :href="accountProjectPath(row.app.id)" class="vitehub-apps__open" data-focus-inset @click="openApp($event, row.app.id)">
+                  <ConsoleAppLogo :app="row.identity" class="vitehub-apps__logo" />
+                  <span class="grid min-w-0">
+                    <span class="truncate font-medium text-highlighted">{{ row.identity.name }}</span>
+                    <span v-if="row.identity.host !== row.identity.name" class="truncate font-mono text-xs text-muted">{{ row.identity.host }}</span>
+                  </span>
+                </a>
+              </td>
+              <td class="vitehub-apps__deploy max-sm:hidden">
+                <span v-if="row.deploy" class="flex min-w-0 items-center gap-2" :title="row.deploy.message">
+                  <img v-if="row.deploy.avatar && !failedAvatars.has(row.deploy.avatar)" :key="row.deploy.avatar" :src="row.deploy.avatar" alt="" width="18" height="18" class="vitehub-apps__avatar" :title="row.deploy.author" loading="lazy" referrerpolicy="no-referrer" @error="markAvatarFailed(row.deploy?.avatar)">
+                  <span v-else-if="row.deploy.author" class="vitehub-apps__avatar" :title="row.deploy.author" aria-hidden="true">{{ row.deploy.author.charAt(0).toUpperCase() }}</span>
+                  <ConsoleRelativeTime :value="row.deploy.time" class="shrink-0 text-default" />
+                  <template v-if="row.deploy.sha">
+                    <span class="shrink-0 text-dimmed" aria-hidden="true">·</span>
+                    <span class="shrink-0 font-mono text-xs text-muted">{{ row.deploy.sha }}</span>
+                  </template>
+                  <span v-if="row.deploy.message" class="truncate text-muted">{{ row.deploy.message }}</span>
+                  <span v-if="row.deploy.author" class="sr-only">by {{ row.deploy.author }}</span>
+                </span>
+                <span v-else class="text-dimmed">{{ status[row.app.id] === "connected" ? "No build recorded" : "" }}</span>
+              </td>
+              <td class="whitespace-nowrap">
+                <span class="inline-flex items-center gap-1.5 text-muted">
+                  <span class="vitehub-account-shell__dot" :data-status="status[row.app.id] ?? 'checking'" aria-hidden="true" />
+                  {{ accountAppStatusLabels[status[row.app.id] ?? "checking"] }}
+                </span>
+              </td>
+              <td>
+                <span class="vitehub-apps__actions">
+                  <span class="vitehub-apps__hover">
+                    <UTooltip :text="`Open ${row.identity.host} with your tools`">
+                      <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-external-link" label="Visit" :to="siteEntry(row.app)" target="_blank" rel="noopener" :aria-label="`Open ${row.identity.host} with your tools`" />
+                    </UTooltip>
+                    <UDropdownMenu :items="appActions(row.app)" :content="{ align: 'end' }">
+                      <UButton icon="i-lucide-ellipsis" color="neutral" variant="ghost" size="sm" :aria-label="`More actions for ${row.identity.name}`" />
+                    </UDropdownMenu>
+                  </span>
+                  <UButton
+                    v-if="row.comments && status[row.app.id] === 'connected'"
+                    size="sm"
+                    color="neutral"
+                    variant="outline"
+                    icon="i-lucide-message-square-plus"
+                    :to="row.comments.url"
+                    target="_blank"
+                    rel="noreferrer"
+                    :aria-label="row.comments.open === undefined ? `Comment on ${row.identity.name}` : `Comment on ${row.identity.name}, ${row.comments.open} open`"
+                  >
+                    <span class="max-sm:sr-only">Comment</span>
+                    <span v-if="row.comments.open" class="vitehub-apps__count">{{ row.comments.open }}</span>
+                  </UButton>
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <UEmpty
+        v-else
+        variant="naked"
+        class="py-16"
+        icon="i-lucide-search"
+        title="No matching apps"
+        :description="`No app name or address contains “${filter.trim()}”.`"
+        :actions="[{ label: 'Clear filter', color: 'neutral', variant: 'outline', onClick: () => { filter = ''; } }]"
+      />
       <ConsoleAccountUnlink v-if="unlinking" v-model:open="unlinkOpen" :project-id="unlinking.id" :name="name(unlinking)" />
       <ConsoleAccountRename v-if="renaming" v-model:open="renameOpen" :project-id="renaming.id" :label="renaming.label" :reported="reportedName(renaming)" />
     </section>
@@ -233,16 +305,17 @@ async function link(): Promise<void> {
           <div class="vitehub-account-step__body">
             <h3 class="vitehub-account-step__title"><span class="sr-only">{{ stepLabel(1, steps[1].done) }} </span>Link an app</h3>
             <p v-if="!steps[1].done" class="vitehub-account-step__text">
-              <template v-if="manage">Enable Console access, deploy your app, then enter its URL.</template>
+              <template v-if="manage">{{ commentsOnly ? "Enter the URL of the site you want to review." : "Enable Console access, deploy your app, then enter its URL." }}</template>
               <template v-else>Only owners and admins of {{ teamName }} link apps. Ask one of them to link yours.</template>
             </p>
             <template v-if="active === 'link' && manage">
-              <ConsoleAccountSnippet class="vitehub-account-step__wide" />
+              <ConsoleAccountSnippet v-if="!commentsOnly" class="vitehub-account-step__wide" />
               <form class="vitehub-account-step__wide grid gap-1.5" @submit.prevent="link">
                 <div class="flex flex-wrap gap-2">
                   <UInput v-model="url" type="url" inputmode="url" autocomplete="url" placeholder="https://app.example.com" aria-label="App URL" required :aria-invalid="problem ? true : undefined" :aria-describedby="problem ? 'vitehub-home-link-problem' : undefined" class="min-w-0 flex-1 basis-56" />
-                  <UButton type="submit" icon="i-lucide-link" label="Link app" class="justify-center max-sm:w-full" :loading="busy" />
+                  <UButton type="submit" icon="i-lucide-link" :label="commentsOnly ? 'Register site' : 'Link app'" class="justify-center max-sm:w-full" :loading="busy" />
                 </div>
+                <UCheckbox v-model="commentsOnly" label="Hosted Comments only" />
                 <p v-if="problem" id="vitehub-home-link-problem" role="alert" class="text-[13px] text-error">{{ problem }}</p>
               </form>
             </template>
@@ -391,7 +464,7 @@ async function link(): Promise<void> {
   font-weight: 500;
 }
 
-/* Rows, not a table: one bordered list, a hairline between rows. */
+/* Rows, not a table: one bordered list, a hairline between rows. Members and Settings use it too. */
 .vitehub-account-list {
   border: 1px solid var(--border);
   border-radius: 0.625rem;
@@ -423,5 +496,111 @@ a.vitehub-account-list__row:hover {
 
 .vitehub-account-list__item:hover {
   background: var(--muted);
+}
+
+/* The Apps table: one row per app. The link of the first cell covers the row, and the actions sit above it. */
+.vitehub-apps {
+  font-size: 0.8125rem;
+  text-align: start;
+  width: 100%;
+}
+
+.vitehub-apps th {
+  border-bottom: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 400;
+  height: 2rem;
+  padding-inline: 0.75rem;
+  text-align: start;
+  white-space: nowrap;
+}
+
+.vitehub-apps td {
+  height: 3.25rem;
+  padding-inline: 0.75rem;
+  vertical-align: middle;
+}
+
+.vitehub-apps tbody tr {
+  position: relative;
+}
+
+.vitehub-apps tbody tr + tr td {
+  border-top: 1px solid var(--border);
+}
+
+.vitehub-apps tbody tr:hover td {
+  background: var(--muted);
+}
+
+.vitehub-apps__open {
+  align-items: center;
+  display: flex;
+  gap: 0.625rem;
+  min-width: 9rem;
+}
+
+.vitehub-apps__open::after {
+  content: "";
+  inset: 0;
+  position: absolute;
+}
+
+.vitehub-apps .vitehub-apps__logo {
+  height: 1.5rem;
+  width: 1.5rem;
+}
+
+/* The Last deploy cell takes the free width and cuts the commit message. */
+.vitehub-apps__deploy {
+  max-width: 0;
+  width: 45%;
+}
+
+.vitehub-apps__avatar {
+  align-items: center;
+  background: var(--ui-bg-accented);
+  border-radius: 999px;
+  color: var(--foreground);
+  display: inline-flex;
+  flex: none;
+  font-size: 0.625rem;
+  font-weight: 600;
+  height: 1.125rem;
+  justify-content: center;
+  width: 1.125rem;
+}
+
+.vitehub-apps__actions {
+  align-items: center;
+  display: flex;
+  gap: 0.25rem;
+  justify-content: flex-end;
+  position: relative;
+  z-index: 1;
+}
+
+.vitehub-apps__count {
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Visit and the menu show on the row that the pointer or the focus is on. A touch screen always shows them. */
+@media (hover: hover) and (pointer: fine) {
+  .vitehub-apps__hover {
+    opacity: 0;
+  }
+
+  .vitehub-apps tbody tr:hover .vitehub-apps__hover,
+  .vitehub-apps__hover:focus-within,
+  .vitehub-apps__hover:has([data-state="open"]) {
+    opacity: 1;
+  }
+}
+
+.vitehub-apps__hover {
+  display: inline-flex;
+  gap: 0.25rem;
 }
 </style>

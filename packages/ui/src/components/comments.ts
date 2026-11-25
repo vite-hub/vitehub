@@ -5,3 +5,4 @@ export * from "./comment-panel.ts";
 export * from "./comment-pin.ts";
 export * from "./comment-thread.ts";
 export * from "./comment-selection-bar.ts";
+export * from "./comment-send.ts";

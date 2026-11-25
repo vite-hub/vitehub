@@ -4,7 +4,8 @@ import { resolve } from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
-import { devServerInDevDependencies, readManifest, readTutorialSnapshots, sortPackedManifest, tutorialLockfile, tutorialSnapshotInputs } from "../src/runnable/snapshots.ts"
+import { noWorkspaceVersions } from "../src/runnable/build.ts"
+import { buildTutorialSnapshots, devServerInDevDependencies, readManifest, readTutorialSnapshots, sortPackedManifest, tutorialLockfile, tutorialSnapshotInputs } from "../src/runnable/snapshots.ts"
 
 let dir: string
 beforeEach(async () => { dir = await mkdtemp(resolve(tmpdir(), "runnable-snapshots-")) })
@@ -111,6 +112,22 @@ describe("fixture manifests", () => {
     expect(devServerInDevDependencies(readManifest(JSON.stringify({ scripts: { dev: "vite --host" }, devDependencies: { vite: "^8.0.0" } })))).toBe("vite")
     expect(devServerInDevDependencies(readManifest(JSON.stringify({ scripts: { dev: "vite" }, dependencies: { vite: "^8.0.0" } })))).toBeUndefined()
     expect(devServerInDevDependencies(readManifest(JSON.stringify({ dependencies: { vite: "^8.0.0" } })))).toBeUndefined()
+  })
+})
+
+describe("building tutorial snapshots", () => {
+  it("builds no snapshot for a fixture without dependencies, which has no node_modules", async () => {
+    await mkdir(resolve(dir, "fixtures/first-server"), { recursive: true })
+    await writeFile(resolve(dir, "fixtures/first-server/package.json"), JSON.stringify({ type: "module", scripts: { dev: "node server.mjs" } }))
+    const snapshots = await buildTutorialSnapshots({
+      tutorials: [{ slug: "first-server", page: "/docs/try/first-server", fixture: "first-server" }],
+      fixturesDir: resolve(dir, "fixtures"),
+      versions: noWorkspaceVersions,
+      outDir: resolve(dir, "out"),
+      workDir: resolve(dir, "work"),
+    })
+    expect(snapshots).toEqual({})
+    expect(JSON.parse(await readFile(resolve(dir, "out/snapshots.json"), "utf8")).tutorials).toEqual({})
   })
 })
 

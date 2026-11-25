@@ -4,13 +4,17 @@ export const i18nErrorDiagnostics = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/i18n/diagnostics",
   codes: {
     // Config errors.
+    I18N_INVALID_BUILD_INVENTORY: {
+      why: ({ file }: { file: string }) => `Invalid Vue i18n message inventory at ${file}.`,
+      fix: "Clear the Nuxt build cache and generated build outputs, then rebuild the app so Vue regenerates the i18n message inventory before Nitro runs.",
+    },
     I18N_INVALID_LOCALES: {
       why: ({ problem }: { problem: string }) => problem,
       fix: "Set `i18n.locales` to a list of BCP 47 tags with the source language first, for example `{ i18n: { locales: [\"en\", \"es\"] } }`.",
     },
     I18N_UNSUPPORTED_HOST: {
-      why: "i18n needs Nitro 3, which runs each request in an async context. Nuxt 4 builds the server with Nitro 2.",
-      fix: "Upgrade to Nuxt 5, or use `vitehub()` with Nitro 3 in a Vite app.",
+      why: "i18n needs Nitro 3, which runs each request in an async context. This app builds the server with Nitro 2.",
+      fix: "Use Nuxt 4.7 or newer with the `nitro` package (`pnpm add nuxt@^4.7.0 nitro`), Nuxt 5, or `vitehub()` with Nitro 3 in a Vite app. On Nuxt 4, use i18n without `i18n.workspace`.",
     },
     I18N_UNKNOWN_WORKSPACE: {
       why: ({ workspace, workspaces }: { workspace: string, workspaces: readonly string[] | undefined }) => workspaces === undefined
@@ -30,6 +34,10 @@ export const i18nErrorDiagnostics = /*#__PURE__*/ defineErrors({
     I18N_LIVE_CATALOG_INVALID: {
       why: ({ locale, route }: { locale: string, route: string }) => `The live catalog \`${route}/${locale}.json\` answered with a body that is not \`{ revision, messages }\` with compiled messages, so the page uses the catalog of the build.`,
       fix: "ViteHub serves this route when `i18n.workspace` is set. Open the URL and check that no proxy, middleware, or route of the app answers the same path with another body.",
+    },
+    I18N_LIVE_CATALOG_UNAVAILABLE: {
+      why: ({ locale, route, status }: { locale: string, route: string, status?: number }) => `The live catalog \`${route}/${locale}.json\` ${status === undefined ? "did not answer" : `answered with status ${status}`}, so the page uses the catalog of the build.`,
+      fix: "ViteHub serves this route when `i18n.workspace` is set. Open the URL, and check the server log and the network. `error.cause` has the fetch error.",
     },
     // Runtime errors.
     I18N_INVALID_TRANSLATION: {

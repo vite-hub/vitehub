@@ -4,9 +4,15 @@ import type {
   AgentInvocationStore,
   AgentInvocationSummary,
 } from "../invocations.ts"
+import { getInstanceId } from "@vite-hub/runtime"
 import { emitRunFailed } from "@vite-hub/runtime/internal/run-failed"
 
 import { invocationDiagnostics } from "../invocation-diagnostics.ts"
+
+/** A claim id that starts with `getInstanceId()`, so the journal shows which instance holds an Invocation. */
+export function createInvocationClaimId(prefix = ""): string {
+  return `${getInstanceId().slice(0, 200)}/${prefix}${globalThis.crypto.randomUUID()}`
+}
 
 export async function failInterruptedAgentInvocations(
   store: AgentInvocationStore,
@@ -17,6 +23,9 @@ export async function failInterruptedAgentInvocations(
     message?: string
     agentName?: string
     recoveryTimeoutMs?: number
+    /** Waits `recoveryTimeoutMs` and retries Invocations that a claim blocked. The periodic sweep turns it off. */
+    waitForBlocked?: boolean
+    canRecover?: () => boolean
     recover: (invocation: AgentInvocationSummary) => boolean | Promise<boolean>
   },
 ): Promise<number> {
@@ -29,16 +38,20 @@ export async function failInterruptedAgentInvocations(
   const blocked: (AgentInvocationSummary & { blockedClaimToken: string })[] = []
   const seenCursors = new Set<string>()
   let paginationError: Error | undefined
+  const canRecover = options.canRecover ?? (() => true)
   const fail = async (invocation: AgentInvocationSummary, replaceClaimToken?: string): Promise<boolean> => {
-    const claimId = `recovery_${globalThis.crypto.randomUUID()}`
+    if (!canRecover()) return false
+    const claimId = createInvocationClaimId("recovery_")
     if (!await store.claim(invocation.id, claimId, claimLeaseMs,
       replaceClaimToken === undefined ? undefined : { replaceClaimToken })) return false
     const message = options.message || "The host stopped before this Agent Invocation finished."
     const timestamp = new Date().toISOString()
     let updated: Awaited<ReturnType<AgentInvocationStore["update"]>>
     try {
+      if (!canRecover()) return false
       const current = await store.getSummary(invocation.id)
-      if (current?.status !== "pending" && current?.status !== "running") return false
+      if (!canRecover() || (current?.status !== "pending" && current?.status !== "running")) return false
+      if (!await options.recover(current) || !canRecover()) return false
       updated = await store.update(invocation.id, { error: { message }, status: "failed", timestamp }, claimId)
     }
     finally {
@@ -49,6 +62,7 @@ export async function failInterruptedAgentInvocations(
     return true
   }
   do {
+    if (!canRecover()) return failed
     const records = await store.list({ cursor, limit, status: ["pending", "running"], ...(options.agentName ? { agentName: options.agentName } : {}) })
     if (records.cursor && seenCursors.has(records.cursor)) {
       paginationError = new Error("[vitehub] Agent Invocation listing returned a repeated pagination cursor.")
@@ -56,18 +70,20 @@ export async function failInterruptedAgentInvocations(
     }
     if (records.cursor) seenCursors.add(records.cursor)
     for (const invocation of records.invocations) {
+      if (!canRecover()) return failed
       const startedAt = Date.parse(invocation.startedAt || invocation.createdAt)
       if (!Number.isFinite(startedAt) || startedAt >= before) continue
-      if (!await options.recover(invocation)) continue
-      const blockedClaimToken = await store.getClaimToken(invocation.id)
+      if (!await options.recover(invocation) || !canRecover()) continue
+      const blockedClaimToken = options.waitForBlocked === false ? undefined : await store.getClaimToken(invocation.id)
       if (await fail(invocation)) failed += 1
-      else if (blockedClaimToken !== undefined) blocked.push({ ...invocation, blockedClaimToken })
+      else if (blockedClaimToken !== undefined && options.waitForBlocked !== false) blocked.push({ ...invocation, blockedClaimToken })
     }
     cursor = records.cursor
   } while (cursor)
   if (blocked.length > 0) {
     await new Promise(resolve => setTimeout(resolve, recoveryTimeoutMs))
     for (const invocation of blocked) {
+      if (!canRecover()) return failed
       const current = await store.get(invocation.id)
       if (current && (current.status === "pending" || current.status === "running")
         && await options.recover(current) && await fail(current, invocation.blockedClaimToken)) failed += 1

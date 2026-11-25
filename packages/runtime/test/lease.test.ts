@@ -10,6 +10,7 @@ import { createClient } from "@libsql/client"
 import postgres from "postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
+import { getInstanceId, instanceIdEnv } from "../src/instance.ts"
 import { createMemoryLeaseStore, createSqlLeaseStore, leaseTable } from "../src/lease.ts"
 
 import type { LeaseSqlClient, LeaseStore } from "../src/lease.ts"
@@ -87,7 +88,7 @@ describe.each(targets)("$name lease store", (target) => {
     expect(ok(await store.acquire("report:daily", { ttl: 30, owner: "instance-a" }))).toBeNull()
     expect(ok(await store.acquire("report:daily", { ttl: 30, owner: "instance-b" }))).toBeNull()
     expect(ok(await store.get("report:daily"))).toEqual({ key: "report:daily", id: lease!.id, owner: "instance-a", expiresAt: lease!.expiresAt })
-    expect(ok(await store.acquire("report:weekly", { ttl: 30 }))).toMatchObject({ key: "report:weekly" })
+    expect(ok(await store.acquire("report:weekly", { ttl: 30 }))).toMatchObject({ key: "report:weekly", owner: getInstanceId() })
   })
 
   it("frees the key on release", async () => {
@@ -305,5 +306,23 @@ describe("SQL lease store", () => {
     expect(insert.sql).toContain("values ($1, $2, $3, (extract(epoch from clock_timestamp()) * 1000)::bigint + cast($4 as bigint))")
     expect(insert.sql).not.toContain("?")
     expect(insert.params).toEqual(["job", lease.id, "a", 1500, 1500])
+  })
+})
+
+describe("getInstanceId", () => {
+  it("reads VITEHUB_INSTANCE_ID, else keeps one generated id for the process", () => {
+    const configured = process.env[instanceIdEnv]
+    try {
+      delete process.env[instanceIdEnv]
+      const generated = getInstanceId()
+      expect(generated).toMatch(new RegExp(`:${process.pid}:[0-9a-f]{8}$`))
+      expect(getInstanceId()).toBe(generated)
+      process.env[instanceIdEnv] = " web-1 "
+      expect(getInstanceId()).toBe("web-1")
+    }
+    finally {
+      if (configured === undefined) delete process.env[instanceIdEnv]
+      else process.env[instanceIdEnv] = configured
+    }
   })
 })

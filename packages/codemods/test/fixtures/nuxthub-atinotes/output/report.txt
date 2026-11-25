@@ -14,7 +14,7 @@ Manual follow-ups (3):
   3. Copy the local KV data for Node development without a Cloudflare binding: `mkdir -p '.vitehub/data/kv-cloudflare/KV' && cp -R .data/kv/. '.vitehub/data/kv-cloudflare/KV'/`. Binding-backed development (for example workerd) reads the binding instead; import the keys into that development namespace with Wrangler. Repeat the copy if you change vitehub.kv.binding.
 
 Notes:
-  - vite-hub/nuxt auto-imports kv, blob, db, and schema in server code for each enabled feature, as NuxtHub did.
+  - NuxtHub auto-imported kv, blob, db, and schema in server code. Nuxt 5 turns server auto-imports off, so the codemod imports them from vite-hub/* in each server file. Set experimental: { nitroAutoImports: true } in nuxt.config to auto-import them again.
   - Local data stays in .data/. ViteHub reads .vitehub/data/. The follow-ups list the commands that copy it.
 
 Next steps:

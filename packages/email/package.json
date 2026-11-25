@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/email",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Provider-neutral transactional email primitives and Vite integration for ViteHub.",
   "keywords": [
     "cloudflare",
@@ -54,6 +54,11 @@
       "import": "./dist/drivers/resend.js",
       "default": "./dist/drivers/resend.js"
     },
+    "./drivers/smtp": {
+      "types": "./dist/drivers/smtp.d.ts",
+      "import": "./dist/drivers/smtp.js",
+      "default": "./dist/drivers/smtp.js"
+    },
     "./markdown": {
       "types": "./dist/markdown.d.ts",
       "import": "./dist/markdown.js",
@@ -73,6 +78,11 @@
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js",
       "default": "./dist/vite.js"
+    },
+    "./vue": {
+      "types": "./dist/vue.d.ts",
+      "import": "./dist/vue.js",
+      "default": "./dist/vue.js"
     },
     "./package.json": "./package.json"
   },
@@ -96,18 +106,29 @@
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
+    "@vitejs/plugin-vue": "^6.0.10",
     "esbuild": "catalog:tooling",
+    "nodemailer": "10.6.0",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
-    "vitest": "catalog:tooling"
+    "vitest": "catalog:tooling",
+    "vue": "catalog:ui"
   },
   "peerDependencies": {
-    "vite": "catalog:vite-compat"
+    "nodemailer": "^10.0.0",
+    "vite": "catalog:vite-compat",
+    "vue": "catalog:vue-compat"
   },
   "peerDependenciesMeta": {
+    "nodemailer": {
+      "optional": true
+    },
     "vite": {
+      "optional": true
+    },
+    "vue": {
       "optional": true
     }
   },

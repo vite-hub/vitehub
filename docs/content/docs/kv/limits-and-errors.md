@@ -44,12 +44,15 @@ Configuration errors throw instead, such as an unknown store name or a missing `
 | `KV_INVALID_LIMIT` | `list()` | |
 | `KV_INVALID_TTL` | `increment()`, `lock()`, `set()`, `setMany()`, `setIfAbsent()` | |
 | `KV_INVALID_WAIT` | `lock()` | |
-| `KV_KEY_TOO_LONG` | `delete()`, `get()`, `has()`, `set()` | |
-| `KV_VALUE_TOO_LARGE` | `set()` | |
+| `KV_KEY_TOO_LONG` | `delete()`, `get()`, `getMany()`, `has()`, `set()`, `setMany()` | |
+| `KV_VALUE_TOO_LARGE` | `set()`, `setMany()` | |
 | `KV_OPERATION_FAILED` | Every method | |
 | `KV_UNSUPPORTED_OPERATION` | `deleteIfEquals()`, `getAndDelete()`, `increment()`, `lock()`, `setIfAbsent()` | |
-| `KV_DATABASE_UNAVAILABLE`, `KV_DENO_KV_UNAVAILABLE`, `KV_DISABLED`, `KV_MISSING_ENV`, `KV_STORE_NOT_FOUND` | | When an operation starts |
-| `KV_INVALID_CONFIG`, `KV_INVALID_DRIVER`, `KV_MISSING_DEFAULT_STORE` | | When Vite reads the config |
+| `KV_INVALID_STORE_MODE` | | When calling `kv.store()` |
+| `KV_DATABASE_UNAVAILABLE`, `KV_DENO_KV_UNAVAILABLE`, `KV_DISABLED`, `KV_INVALID_BATCH`, `KV_MISSING_ENV`, `KV_STORE_NOT_FOUND` | | When an operation starts |
+| `KV_INVALID_CONFIG`, `KV_INVALID_DRIVER`, `KV_INVALID_REMOTE`, `KV_MISSING_DEFAULT_STORE`, `KV_REMOTE_CONFLICT` | | When Vite reads the config |
+
+See [KV diagnostics](/docs/kv/diagnostics) for the complete list of codes, including validation errors for `clear()`, `set()`, `setIfAbsent()`, `deleteIfEquals()`, and store options.
 
 ## Limits
 
@@ -61,6 +64,8 @@ A store with the `cloudflare` driver checks the [Workers KV limits](https://deve
 | Value size, after ViteHub serializes the value | 25 MiB | `KV_VALUE_TOO_LARGE` |
 
 Cloudflare KV needs an expiration of at least 60 seconds. ViteHub raises a `ttl` below 60 seconds to 60, also in the local store of `vite dev`, so a short `ttl` does not fail.
+
+Each Cloudflare KV binding `list()` request returns at most 1,000 keys. With `limit`, `kv.list()` caps the binding request at 1,000 keys and returns a `cursor` only when more keys remain. Without `limit`, ViteHub reads the remaining pages and returns every matching key with no cursor.
 
 `fs-lite`, `deno-kv`, and `upstash` do not check these limits. Upstash [limits requests](https://upstash.com/docs/redis/troubleshooting/max_request_size_exceeded) to 10 MB on its Free and Pay as you go plans, and other plans differ. ViteHub does not know your plan, so a larger request fails with `KV_OPERATION_FAILED`.
 
@@ -86,7 +91,7 @@ The `cursor` of `kv.list()` expired, is in use, belongs to another store, or is 
 
 ### KV_INVALID_TTL
 
-The `ttl` of `kv.increment(key, ttl)`, `kv.set()`, `kv.setIfAbsent()`, and `kv.lock()` must be a positive duration, such as `'1h'`, or a positive number of seconds. Upstash rounds up to whole seconds.
+The `ttl` of `kv.increment(key, ttl)`, `kv.set()`, `kv.setMany()`, `kv.setIfAbsent()`, and `kv.lock()` must be a positive duration, such as `'1h'`, or a positive number of seconds. Upstash rounds up to whole seconds.
 
 ### KV_INVALID_WAIT
 
@@ -116,7 +121,7 @@ The serialized value is larger than 25 MiB, the Cloudflare KV limit. Store large
 
 ### KV_DATABASE_UNAVAILABLE
 
-A `database` store cannot reach its Database. The app has no Database with the name in `database` (default `"default"`), or the Database is on D1. The `database` driver works on Postgres and libSQL. Add a Database Definition, such as `server/database.ts` with `defineDatabase({ dialect: 'postgresql', schema: {} })`, or select another driver. On Cloudflare, use `cloudflare`.
+A `database` store cannot reach its Database. The app has no Database with the name in `database` (default `"default"`), or the Database is not on postgres.js, libSQL, or Cloudflare D1. Add a Database Definition, such as `server/database.ts` with `defineDatabase({ dialect: 'postgresql', schema: {} })`, or select another driver.
 
 ### KV_DENO_KV_UNAVAILABLE
 

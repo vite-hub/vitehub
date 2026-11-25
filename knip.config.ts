@@ -109,7 +109,6 @@ const packsWithPublint = ["forge", "gateways", "presets", "runtime", "shell"];
 const packageOverrides: Record<string, WorkspaceProjectConfig> = {
   agent: {
     entry: ["test/browser-smoke-cleanup.test.mjs"],
-    ignoreBinaries: ["ssh-keygen"],
     ignoreDependencies: ["unstorage"],
   },
   auth: { ignoreDependencies: ["@types/node"] },
@@ -124,7 +123,6 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
     entry: viteHubAppEntries,
     vite: false,
   },
-  database: { ignoreDependencies: ["drizzle-kit"] },
   docs: {
     entry: ["runtime/**/*.{ts,vue,css}"],
     ignoreDependencies: [
@@ -135,17 +133,19 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
       "@takumi-rs/core",
     ],
   },
+  email: { ignoreDependencies: ["@vitejs/plugin-vue"] },
   env: { ignoreDependencies: ["nuxt"] },
   i18n: { ignoreDependencies: ["@diglot/cli"] },
   internal: {
     ignoreDependencies: [
+      "rolldown",
       "sharp",
     ],
   },
   presets: { ignoreDependencies: ["@t3tools/provider-runtime"] },
   realtime: { ignoreDependencies: ["prosemirror-transform"] },
   sandbox: { ignoreDependencies: ["@cloudflare/sandbox"] },
-  schedule: { ignoreBinaries: ["plutil", "systemd-analyze"] },
+  schedule: { ignoreBinaries: ["systemd-analyze"] },
   ui: {
     ignoreBinaries: ["ffmpeg", "ffprobe"],
     ignoreUnresolved: ["/@uploads-today"],
@@ -158,6 +158,7 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
   },
   "vite-hub": {
     entry: ["src/console/runtime/client/shiki-wasm.ts"],
+    ignoreDependencies: ["pnp-peer"],
   },
 };
 
@@ -193,19 +194,19 @@ const packageWorkspaces = Object.fromEntries(
 const config: KnipConfiguration = {
   include: ["files", "dependencies", "unlisted", "unresolved", "binaries", "catalog"],
   exclude: ["optionalPeerDependencies"],
-  ignore: ["fixtures/**", "test/fixtures/**", "test/multi-instance/app/**", "packages/*/fixtures/**", "packages/*/test/fixtures/**", "playground/chatgpt/**"],
+  ignore: ["fixtures/**", "test/fixtures/**", "test/multi-instance/app/**", "packages/*/fixtures/**", "packages/*/test/fixtures/**", "playground/chatgpt/**", "packages/docs/playground/examples/**", "packages/docs/playground/fixtures/**", "scripts/console-weight/fixture/**"],
   compilers: {
     css: (text: string) => [...text.matchAll(/(?:@import\s+|url\(\s*)["']([^"']+)["']/g)]
       .filter(match => !/^(?:[a-z][a-z\d+.-]*:|\/|#)/i.test(match[1]!))
       .map(match => `import ${JSON.stringify(match[1])};`).join("\n"),
   },
-  ignoreDependencies: ["cloudflare"],
-  ignoreUnresolved: [/^#vitehub\//, /^#docs\//, "#app", "#console-page"],
+  ignoreUnresolved: [/^#vitehub\//, /^#docs\//, "#app", "#console-assets", "#console-outbound-fetch", "#console-page"],
   ignoreBinaries: ["crabbox"],
   workspaces: {
     ".": {
       entry: [
         "scripts/*.mjs",
+        "scripts/bench-vercel-runtime-packages/*.mjs",
         "scripts/lint/delete-comments.mjs",
         "scripts/lint/update-comment-baseline.mjs",
         ".github/scripts/claim-npm-packages.mjs",
@@ -256,6 +257,7 @@ const config: KnipConfiguration = {
         ...appEntries("packages/docs/playground"),
         "app/components/**/*.vue",
         "app/utils/*.ts",
+        "app/playground/*.ts",
         "scripts/*.mjs",
         "illustrations/*.mjs",
         ".claude/skills/illustration-isometric-mono/scripts/*.mjs",

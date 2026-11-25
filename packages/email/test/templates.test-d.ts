@@ -6,16 +6,25 @@ import type { EmailDefinition, EmailTemplateName } from "../src/index.ts"
 declare module "../src/index.ts" {
   interface EmailTemplateRegistry {
     "welcome": {
-      "user": {
-        "name": string | number | boolean
+      data: {
+        "user": {
+          "name": string | number | boolean
+        }
+        "trial"?: unknown
       }
-      "trial"?: unknown
+      subject: true
     }
-    "monthly/recap": Record<string, never>
+    "monthly/recap": {
+      data: Record<string, never>
+      subject: false
+    }
     "top-repository": {
-      "topRepository"?: {
-        "name"?: string | number | boolean | null
-      } | null
+      data: {
+        "topRepository"?: {
+          "name"?: string | number | boolean | null
+        } | null
+      }
+      subject: false
     }
   }
 }
@@ -44,6 +53,15 @@ it("types data from the template", () => {
   void email.send({ ...envelope, template: "welcome", data: { user: { name: "Maxi" }, usr: "typo" } })
   // @ts-expect-error The template renders the body, so `html` is not allowed.
   void email.send({ ...envelope, template: "monthly/recap", html: "<p>Hi</p>" })
+})
+
+it("requires a subject only when the template has none", () => {
+  const { subject: _subject, ...withoutSubject } = envelope
+  void email.send({ ...withoutSubject, template: "welcome", data: { user: { name: "Maxi" } } })
+  void email.send({ ...withoutSubject, subject: "Override", template: "welcome", data: { user: { name: "Maxi" } } })
+  void email.send({ ...envelope, template: "monthly/recap" })
+  // @ts-expect-error `monthly/recap` has no `subject:` frontmatter, so the message needs `subject`.
+  void email.send({ ...withoutSubject, template: "monthly/recap" })
 })
 
 it("still sends a message with a body", async () => {

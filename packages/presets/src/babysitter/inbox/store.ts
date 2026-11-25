@@ -135,6 +135,11 @@ export interface PullRequestInboxOptions {
    * approves its current head, or a head the host built on the approved one. Every other rule still applies.
    */
   admitApproved?: boolean
+  /**
+   * The time in Unix milliseconds, for tests. By default a shared `storage` inbox follows the clock of its database:
+   * it reads that clock at most every 30 seconds and counts elapsed time from there, so servers with different host
+   * clocks agree when a lease expires. A private `path` inbox has one host and uses `Date.now`.
+   */
   clock?: () => number
   activityAuthors?: readonly string[]
   activityAppId?: number
@@ -165,6 +170,8 @@ export function pullRequestFilterContext(repository: string, pr: GitHubPullReque
 }
 
 const stringValue = (value: unknown): string => isRuntimeString(value) ? value : String(value)
+const databaseNow = "CAST(ROUND((julianday('now') - 2440587.5) * 86400000) AS INTEGER)"
+const clockSampleIntervalMs = 30_000
 const ciEvidencePrefix = 'ci-evidence:v1:'
 const ciEvidenceAtPrefix = 'ci-evidence-at:v1:'
 const legacyRecordSchema = v.record(v.string(), v.unknown())
@@ -266,6 +273,8 @@ export class PullRequestInbox {
   private tables: { pullRequests: string; deliveries: string; meta: string; schemaVersion: string }
   private repositoryList: () => readonly string[]
   private clock: () => number
+  private usesDatabaseClock: boolean
+  private clockSample?: { time: number; sampledAt: number }
   private filter?: GitHubPullRequestFilter
   /** Whether a maintainer's approval admits an author the filter leaves out. */
   readonly admitApproved: boolean
@@ -277,7 +286,7 @@ export class PullRequestInbox {
   private claimStackChildren: boolean
   private invalidRow?: (row: InvalidInboxRow) => void
   private reportedRows = new Set<string>()
-  constructor({ path, storage, scope = '', repositories, filter, admitApproved = false, clock = Date.now, budgets = {}, activityAuthors = [], activityAppId, priorityLabels = [], mainRepairBranchPrefix, claimStackChildren = false, invalidRow }: PullRequestInboxOptions) {
+  constructor({ path, storage, scope = '', repositories, filter, admitApproved = false, clock, budgets = {}, activityAuthors = [], activityAppId, priorityLabels = [], mainRepairBranchPrefix, claimStackChildren = false, invalidRow }: PullRequestInboxOptions) {
     validateBudgets(budgets)
     if ((path === undefined) === (storage === undefined)) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_INBOX_STORAGE_MISSING()
     this.budgets = { ...budgets }
@@ -290,7 +299,11 @@ export class PullRequestInbox {
       const fixed = repositories.map(repository => repository.toLowerCase())
       this.repositoryList = () => fixed
     }
-    this.clock = clock
+    this.usesDatabaseClock = clock === undefined && storage !== undefined
+    this.clock = clock ?? (!this.usesDatabaseClock ? () => Date.now() : () => {
+      const sample = this.clockSample
+      return sample ? sample.time + Math.floor(performance.now() - sample.sampledAt) : Date.now()
+    })
     this.filter = filter
     this.admitApproved = admitApproved
     this.activityAuthors = new Set(activityAuthors.map(author => author.trim().toLowerCase()))
@@ -348,10 +361,22 @@ export class PullRequestInbox {
     })
     await this.ready
   }
+  /** The current time on the inbox clock. Compare lease ends from the inbox with it, not with `Date.now()`. */
+  now(): number {
+    return this.clock()
+  }
+  private async syncClock(tx: PullRequestInboxExecutor): Promise<void> {
+    if (!this.usesDatabaseClock || (this.clockSample && performance.now() - this.clockSample.sampledAt < clockSampleIntervalMs)) return
+    const [row] = await tx.execute(`SELECT ${databaseNow} AS now`)
+    const now = Number(row?.now)
+    if (!Number.isFinite(now)) return
+    this.clockSample = { time: now, sampledAt: performance.now() }
+  }
   private async transaction<T>(run: (tx: PullRequestInboxExecutor) => Promise<T>, signal?: AbortSignal): Promise<T> {
     await this.init()
     return await this.storage.transaction(async tx => {
       signal?.throwIfAborted()
+      await this.syncClock(tx)
       const result = await run(tx)
       signal?.throwIfAborted()
       return result
@@ -359,6 +384,7 @@ export class PullRequestInbox {
   }
   private async read(statement: string, args: unknown[] = []): Promise<PullRequestInboxRow[]> {
     await this.init()
+    await this.syncClock(this.storage)
     return await this.storage.execute(statement, args)
   }
   /** Parses one stored row. An invalid row is reported once and skipped by queue-wide reads. */
@@ -477,6 +503,7 @@ export class PullRequestInbox {
       s.pr?.state === undefined ? null : String(s.pr.state).toLowerCase(), head ?? null, s.pr?.head?.ref ?? null, s.pr?.base?.ref ?? null,
       s.wait?.headSha ?? null, leaseHeads ? JSON.stringify(leaseHeads) : null,
     ])
+    if (s.pr?.state === 'closed') await this.retireFoldIn(tx, s.repository, s.number)
     if (this.activityAuthors.size && (s.status === 'terminal' || reopened || resumed || readySuperseded)) {
       const target = statusTargetKey(s)
       const pending = v.safeParse(statusDeliverySchema, await this.metaIn(tx, `${statusOutboxPrefix}${target}`))
@@ -815,6 +842,19 @@ export class PullRequestInbox {
     if (!isRuntimeRecord(fold) || !isRuntimeNumber(fold.child)) return undefined
     const attempt = await this.metaIn(tx, this.directMergeKey(repository, fold.child))
     return isRuntimeRecord(attempt) && attempt.token === fold.token && attempt.foldInto === parent ? fold.child : undefined
+  }
+  /**
+   * A closed child's fold has a known outcome, and its pending-merge path never runs again to clear it.
+   * Retire the attempt with the parent's slot, so a reopened child must win the slot again before it folds.
+   */
+  private async retireFoldIn(tx: PullRequestInboxExecutor, repository: string, child: number): Promise<void> {
+    const key = this.directMergeKey(repository, child)
+    const attempt = await this.metaIn(tx, key)
+    if (!isRuntimeRecord(attempt) || !isRuntimeNumber(attempt.foldInto)) return
+    await tx.execute(`DELETE FROM ${this.tables.meta} WHERE scope=? AND key=?`, [this.scope, key])
+    const foldKey = this.stackFoldKey(repository, attempt.foldInto)
+    const fold = await this.metaIn(tx, foldKey)
+    if (isRuntimeRecord(fold) && fold.child === child && fold.token === attempt.token) await tx.execute(`DELETE FROM ${this.tables.meta} WHERE scope=? AND key=?`, [this.scope, foldKey])
   }
   async foldingChild(repository: string, parent: number): Promise<number | undefined> {
     await this.init()

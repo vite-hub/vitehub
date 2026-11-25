@@ -182,7 +182,7 @@ Without a `baseURL`, Auth uses `vitehub({ publicUrl })`. It uses the request ori
 
 ### Behind a proxy that ends TLS
 
-Behind Caddy, nginx, or Traefik, Node sees `http://` requests on an internal address, so `requestOrigin` and the default `baseURL` start with `http://`. When the proxy sends the client's `Host` header, set [`vitehub({ trustProxy: true })`](/docs/frameworks-hosts/node-self-hosted#run-behind-a-reverse-proxy): the request URL of every route, Auth included, becomes `https://`. Otherwise, set Better Auth's `advanced.trustedProxyHeaders` to read the origin from the first `X-Forwarded-Proto` and `X-Forwarded-Host` values. Without `X-Forwarded-Host`, the host comes from the request. `vitehub({ publicUrl })` still wins over both.
+Behind Caddy, nginx, or Traefik, Node sees `http://` requests on an internal address, so `requestOrigin` and the default `baseURL` start with `http://`. When the proxy sends the client's `Host` header, set [`vitehub({ trustProxy: true })`](/docs/frameworks-hosts/node-self-hosted#run-behind-a-reverse-proxy): the request URL of every route, Auth included, becomes `https://`. Otherwise, set Better Auth's `advanced.trustedProxyHeaders` to read the origin from the first `X-Forwarded-Proto` and `X-Forwarded-Host` values. Without `X-Forwarded-Host`, the host comes from the request. `vitehub({ publicUrl })` still wins over both. `advanced.trustedProxyHeaders` does not change the client IP: Auth reads it as [Rate limiting](#rate-limiting) says.
 
 ```ts [server/auth.ts]
 import { defineAuth } from 'vite-hub/auth'
@@ -464,7 +464,7 @@ Better Auth's own adapters still work. To use another database, return one from 
 Better Auth's limiter allows 100 requests per 10 seconds per client IP and path, 3 per 10 seconds for sign-in and sign-up, plus stricter plugin rules. Auth sets it up the same way on every host:
 
 - It is on outside a dev server. The Auth Vite plugin marks `vite dev` and a Nitro dev server, so a Cloudflare Worker, which has no `NODE_ENV`, still limits requests. Set `rateLimit.enabled` to choose yourself.
-- The client IP is the address the host reports: `cf-connecting-ip` on Cloudflare, the peer address on Node. Auth ignores `X-Forwarded-For`, which a client can set. With [`advanced.trustedProxyHeaders`](#behind-a-proxy-that-ends-tls), the peer is your proxy, so Auth reads `X-Forwarded-For` first. To read other headers, set `advanced.ipAddress.ipAddressHeaders`.
+- The client IP is the address the host reports: `cf-connecting-ip` on Cloudflare, `X-Forwarded-For` as Vercel sets it, `x-nf-client-connection-ip` on Netlify, and the peer address on Node, Bun, and Deno. On Deno Deploy the peer can be the edge server. Auth ignores a client's `X-Forwarded-For`. On the Node host behind your own proxy, set [`vitehub({ trustProxy: true })`](/docs/frameworks-hosts/node-self-hosted#run-behind-a-reverse-proxy) to use the last `X-Forwarded-For` value, which the proxy adds. To read other headers, set `advanced.ipAddress.ipAddressHeaders`.
 - With [`authDatabase()`](#keep-users-in-the-app-database), counters live in the `rate_limit` table, shared by every instance and every per-request Auth. With `secondaryStorage`, they live in that store. Otherwise they live in process memory. Set `rateLimit.storage` or `rateLimit.customStorage` to choose yourself.
 
 Auth passes the address in the `x-vitehub-client-address` header and removes any value a client sends. `auth.api` calls skip the limiter. An `auth.api` call with only `headers` has no client IP, so its sessions have an empty `session.ipAddress`.

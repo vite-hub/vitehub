@@ -118,7 +118,7 @@ function reportIndirectUses(context: FileContext): Set<string> {
       return
     }
     if (node.type === "ExportNamedDeclaration" && node.source && httpModules.has(node.source.value)) {
-      if (node.specifiers.some(specifier => specifier.type === "ExportNamespaceSpecifier" || (specifier.type === "ExportSpecifier" && specifier.local.name === "http"))) {
+      if (node.specifiers.some(specifier => specifier.type === "ExportNamespaceSpecifier" || (specifier.type === "ExportSpecifier" && (specifier.local.type === "Identifier" ? specifier.local.name : specifier.local.value) === "http"))) {
         followUp(context, node, manualHttp)
       }
       return
@@ -144,7 +144,7 @@ function reportIndirectUses(context: FileContext): Set<string> {
 }
 
 function isSimpleCall(call: CallExpression): boolean {
-  if (call.typeParameters || call.typeArguments) return false
+  if (call.typeArguments) return false
   const [options] = call.arguments
   if (!options) return true
   return call.arguments.length === 1 && options.type === "ObjectExpression" && options.properties.every(property =>
@@ -533,7 +533,7 @@ function moveImports(context: FileContext, changed: ReadonlySet<ImportDeclaratio
     if (node.type === "TSImportType" && node.qualifier) {
       let qualifier = node.qualifier
       while (qualifier.type === "TSQualifiedName") qualifier = qualifier.left
-      usage = nameUsage(qualifier.name)
+      usage = nameUsage(qualifier.type === "Identifier" ? qualifier.name : undefined)
     }
     else {
       usage = parent?.type === "AwaitExpression" && parent.argument === node

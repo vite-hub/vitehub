@@ -60,7 +60,7 @@ const cursor = ref<WorkspaceCursor>({ line: 1, column: 1 });
 
 ### Editor head
 
-`WorkspaceEditorHead` shows the folders of the path, then the icon and the name of the file. The wrap button at the end is pressed while lines wrap. The default slot goes before the button, for more actions.
+`WorkspaceEditorHead` shows the folders of the path, then the icon and the name of the file. With `readonly`, a **Read-only** label follows the name. The wrap button at the end is pressed while lines wrap. The default slot goes before the button, for more actions.
 
 ::example{name="WorkspaceEditorHeadExample" height=18}
 ::
@@ -105,6 +105,7 @@ const cursor = ref<WorkspaceCursor>({ line: 1, column: 1 });
 | Prop | Type | Default | Description |
 | --- | --- | --- | --- |
 | `path` | `string` | | The path of the open file. |
+| `readonly` | `boolean` | `false` | Shows **Read-only** when the editor locks the file. |
 | `wrap` | `boolean` | `false` | Whether lines wrap. Use `v-model:wrap`. |
 
 #### Events

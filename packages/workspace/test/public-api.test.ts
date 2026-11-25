@@ -10,8 +10,10 @@ import { custom, defineWorkspace, file, useWorkspace } from "../src/index.ts"
 import { registerWorkspace } from "../src/test.ts"
 import { resetWorkspaceRegistry, setWorkspaceRegistry } from "../src/core/registry.ts"
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
+import { createWorkspace } from "../src/core/workspace.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 import { resolveWorkspaceStoreTarget } from "../src/storage/target.ts"
+import { resolveWorkspaceRevisionMaterializer } from "../src/storage/materialization.ts"
 import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeAssetsRegistry, setWorkspaceRuntimeConfig, useWorkspace as useRuntimeWorkspace } from "../src/runtime/state.ts"
 import { listMaterializedWorkspaceEntries } from "../src/source-metadata.ts"
 
@@ -20,12 +22,12 @@ const tempDirs: string[] = []
 async function readBuiltSourceModule(sourcePath: string): Promise<string> {
   const distDir = new URL("../dist/", import.meta.url)
   const files = await readdir(distDir, { recursive: true })
-  const marker = `//#region ${sourcePath}`
+  const marker = `// ${sourcePath}`
   const modules = await Promise.all(
     files.filter(file => file.endsWith(".js"))
       .map(file => readFile(new URL(file, distDir), "utf8")),
   )
-  const matches = modules.filter(content => content.includes(marker))
+  const matches = modules.filter(content => content.split("\n").includes(marker))
 
   if (matches.length !== 1) {
     throw new Error(`Expected one built module for ${sourcePath}, found ${matches.length}`)
@@ -307,6 +309,22 @@ describe("workspace public API", () => {
 
   it("identifies memory workspace stores", async () => {
     await expect(resolveWorkspaceStoreTarget(createMemoryWorkspaceStore())).resolves.toEqual({ provider: "memory" })
+  })
+
+  it("ignores a Store target or revision materializer installed under a global symbol", async () => {
+    const forged = {
+      [Symbol.for("vitehub.workspace.storeTarget")]: () => ({ provider: "memory" }),
+      [Symbol.for("vitehub.workspace.revisionMaterializer")]: { currentRevision: vi.fn(), materializeRevision: vi.fn() },
+    }
+
+    await expect(resolveWorkspaceStoreTarget(forged)).resolves.toBeUndefined()
+    expect(resolveWorkspaceRevisionMaterializer(forged)).toBeUndefined()
+  })
+
+  it("keeps the Store target on the Workspace that wraps the Store", async () => {
+    const workspace = createWorkspace({ name: "store-target", store: createMemoryWorkspaceStore() })
+
+    await expect(resolveWorkspaceStoreTarget(workspace)).resolves.toEqual({ provider: "memory" })
   })
 
   it("does not let explicit Source Sync satisfy definition readiness", async () => {

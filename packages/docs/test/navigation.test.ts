@@ -81,8 +81,11 @@ describe("docs paths", () => {
   it("resolves trailing slashes and `/index` to the same page", () => {
     expect(normalizeDocsPath("/docs/kv/")).toBe("/docs/kv")
     expect(normalizeDocsPath("/docs/kv/index")).toBe("/docs/kv")
+    expect(normalizeDocsPath("/docs/kv/index/")).toBe("/docs/kv")
+    expect(normalizeDocsPath("/docs/kv//index")).toBe("/docs/kv")
+    expect(normalizeDocsPath("/index/")).toBe("/")
     expect(normalizeDocsPath("/")).toBe("/")
-    for (const path of ["/docs/kv", "/docs/kv/", "/docs/kv/index"]) {
+    for (const path of ["/docs/kv", "/docs/kv/", "/docs/kv/index", "/docs/kv/index/", "/docs/kv//index"]) {
       expect(findDocsPage(manifest, path)).toMatchObject({ page: { path: "/docs/kv" }, section: { id: "kv" } })
     }
   })
@@ -264,6 +267,10 @@ describe("docs home links", () => {
     expect(docsHomePath(manifest, { section: "guides", links: [] })).toBe("/docs")
     expect(docsStartPage(withIntro, { section: "guides", links: [{ to: "/docs" }, { to: "/docs/introduction" }] })).toBe("/docs/introduction")
     expect(docsStartPage(withIntro, "")).toBeNull()
+  })
+
+  it("skips a start link to a playground or a lesson, so the start section opens its own page", () => {
+    expect(docsStartPage(vitehub, { section: "getting-started", links: [{ to: "/learn/first-agent" }, { to: "/playground" }] })).toBeNull()
   })
 
   it("opens the first listed page of a section without an Overview", () => {

@@ -48,9 +48,13 @@ async function auth(request: Request, event?: unknown) {
   return await authConsole(request, isRequestEvent(event) ? event : undefined)
 }
 
-/** Without Auth, Site access needs the secret of its cookie and a shared store before it makes a link. */
+/**
+ * Site access refuses a link that cannot sign a browser in. With Auth, it needs the database and the `user.role` field
+ * that the redemption uses. Without Auth, it needs the secret of its cookie and a shared store.
+ */
 async function assertSiteAccess(request: Request, event?: unknown): Promise<void> {
-  if (await auth(request, event)) return
+  const api = await auth(request, event)
+  if (api) return await unwrap(api.checkHost())
   await requireConsoleSiteKey()
   await consoleSiteKV()
 }
@@ -228,8 +232,7 @@ export async function listSessions(context: SiteContext): Promise<{ sessions: Si
   if (!api) return { sessions: await listConsoleSiteSessions(known) }
   const rows = await unwrap(api.hostSessions([consoleGrant.id, guestRole]))
   return {
-    sessions: rows.map(({ id, user, roles, device, createdAt, updatedAt, expiresAt }) => {
-      const guest = roles.includes(guestRole)
+    sessions: rows.map(({ id, user, roles, guest, device, createdAt, updatedAt, expiresAt }) => {
       return {
         id,
         kind: guest ? "guest" : "member",
@@ -256,9 +259,7 @@ export async function revokeSession(context: SiteContext, id: string): Promise<{
     if (!revoked) throw consoleRequestError(404, "No browser has this session. It was revoked, or it expired.")
     return { revoked: true, removedUser: revoked.guest }
   }
-  const { userId, roles } = await unwrap(api.revokeHostSession(id))
-  const removedUser = roles.includes(guestRole)
-  if (removedUser) await unwrap(api.removeHostUser(userId))
+  const { removedUser } = await unwrap(api.revokeHostSession(id))
   return { revoked: true, removedUser }
 }
 

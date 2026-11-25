@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { activeAgentChannelDelivery, agentChannelDeliveryMessageIdentity, agentChannelDeliveryPayloadFingerprint, agentChannelDeliverySourceId, bindAgentChannelDeliveryMessage, bindAgentChannelDeliveryPayload, detachAgentChannelDelivery, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, resumeAgentChannelDeliveryMessage, resumeAgentChannelDeliveryPayload, resumeWorkflowAgentChannelDelivery, setAgentChannelDeliveryWorkflowResolver } from "../src/internal/channel-delivery.ts"
+import { activeAgentChannelDelivery, agentChannelDeliveryMessageIdentity, agentChannelDeliveryOwnershipVerifier, agentChannelDeliveryPayloadFingerprint, agentChannelDeliverySourceId, bindAgentChannelDeliveryMessage, bindAgentChannelDeliveryPayload, detachAgentChannelDelivery, openAgentChannelDelivery, readAgentChannelDeliveries, resumeAgentChannelDelivery, resumeAgentChannelDeliveryMessage, resumeAgentChannelDeliveryPayload, resumeWorkflowAgentChannelDelivery, setAgentChannelDeliveryWorkflowResolver, withAgentChannelDeliveryOwnershipVerifier } from "../src/internal/channel-delivery.ts"
 
 import type { Lock, StateAdapter } from "chat"
+import type { AgentRuntimeContext } from "../src/types.ts"
 
 describe("Agent Channel delivery source identity", () => {
   it("scopes top-level activity IDs to providers that define them", () => {
@@ -22,6 +23,29 @@ describe("Agent Channel delivery source identity", () => {
   it("fingerprints equivalent provider payloads independently of key order", async () => {
     await expect(agentChannelDeliveryPayloadFingerprint({ event: { id: 7, type: "message" }, team: "one" }))
       .resolves.toBe(await agentChannelDeliveryPayloadFingerprint({ team: "one", event: { type: "message", id: 7 } }))
+  })
+
+  it("fingerprints a payload the same on every host locale and keeps English fingerprints", async () => {
+    const slack = { event: { channel: "C1", text: "hi", ts: "1.2", type: "message", user: "U1" }, team_id: "T1", type: "event_callback" }
+    const teams = { channelData: { tenant: { id: "t" } }, channelId: "msteams", id: "1", localTimestamp: "2026-11-23T11:00:00.000+01:00", locale: "en-US", serviceUrl: "https://smba.trafficmanager.net/emea/", text: "hi", textFormat: "plain", type: "message" }
+    const fingerprintIn = async (locale: string, payload: unknown) => {
+      const collator = new Intl.Collator(locale)
+      const localeCompare = vi.spyOn(String.prototype, "localeCompare").mockImplementation(function (this: string, that: string) {
+        return collator.compare(this, that)
+      })
+      try {
+        return await agentChannelDeliveryPayloadFingerprint(payload)
+      }
+      finally {
+        localeCompare.mockRestore()
+      }
+    }
+    expect(await fingerprintIn("en", slack)).toBe("e7c0c61d03ca4194d549dd17dc989b45b5f183f2547ce69264f697c11d35259c")
+    expect(await fingerprintIn("en", teams)).toBe("a1f14ea58e09a8b403f7738ff409c890c95d17723cf19182be1594d550c15da0")
+    for (const locale of ["cs", "lt", "et"]) {
+      expect(await fingerprintIn(locale, slack)).toBe(await fingerprintIn("en", slack))
+      expect(await fingerprintIn(locale, teams)).toBe(await fingerprintIn("en", teams))
+    }
   })
 
   it("extracts Telegram message identity separately from provider event identity", () => {
@@ -786,11 +810,28 @@ describe("Agent Channel delivery journal", () => {
       scope: "channel:support:custom",
       sourceId: "provider-event-9",
     })
-    await bindAgentChannelDeliveryPayload(state, delivery, "custom", fingerprint!)
+    await bindAgentChannelDeliveryPayload(state, delivery, "custom", [fingerprint!])
 
-    const resumed = await resumeAgentChannelDeliveryPayload(state, "custom", (await agentChannelDeliveryPayloadFingerprint({ custom: { thread: 9, message: "opaque" } }))!)
+    const resumed = await resumeAgentChannelDeliveryPayload(state, "custom", [(await agentChannelDeliveryPayloadFingerprint({ custom: { thread: 9, message: "opaque" } }))!])
 
     expect(resumed?.delivery.id).toBe(delivery.delivery.id)
     info.mockRestore()
+  })
+})
+
+describe("Agent Channel delivery ownership verifier", () => {
+  it("ignores a verifier installed under a global symbol", () => {
+    const runtime = { [Symbol.for("vitehub.agent.channel-delivery-ownership-verifier")]: vi.fn() }
+
+    // SAFETY: This fixture forges only the verifier property of a runtime context.
+    expect(agentChannelDeliveryOwnershipVerifier(runtime as never)).toBeUndefined()
+  })
+
+  it("keeps the installed verifier when the runtime context is copied", () => {
+    const verify = vi.fn(async () => {})
+    const runtimeContext: AgentRuntimeContext = { memo: (_key, create) => create(), runtime: "unknown", waitUntil: vi.fn() }
+    const runtime = withAgentChannelDeliveryOwnershipVerifier(runtimeContext, verify)
+
+    expect(agentChannelDeliveryOwnershipVerifier({ ...runtime })).toBe(verify)
   })
 })

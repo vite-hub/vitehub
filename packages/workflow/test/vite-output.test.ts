@@ -604,6 +604,29 @@ it("preserves WDK optional externals while installing the Email definition", asy
   expect(combinedFlow).toMatch(/export\s*\{[^}]*\s+as\s+default/)
 })
 
+it("resolves app aliases in an Email driver bundled into the native Vercel flow", { timeout: buildOutputTestTimeout }, async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-email-alias-")
+  const workflowDir = join(rootDir, "server", "workflows", "welcome")
+  await mkdir(workflowDir, { recursive: true })
+  await writeFile(join(workflowDir, "01-step.ts"), "export default async function step(input) { return input }\n")
+  const emailDefinitionFile = join(rootDir, "email-definition.mjs")
+  const providerFile = join(rootDir, "provider.mjs")
+  await writeFile(emailDefinitionFile, "import driver from './email-driver.mjs'\nexport default { driver }\n")
+  await writeFile(join(rootDir, "email-driver.mjs"), "import { provider } from '@app/provider'\nexport default () => ({ name: provider })\n")
+  await writeFile(providerFile, "export const provider = 'aliased-email-provider'\n")
+
+  await generateWorkflowProviderOutputs({
+    clientOutDir: join(rootDir, "dist"),
+    importBase: "@vite-hub/workflow",
+    providerImportAliases: { "#vitehub/email/definition": emailDefinitionFile, "@app/provider": providerFile },
+    rootDir,
+    workflow: { driver: "vercel" },
+  })
+
+  const flowFile = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.mjs")
+  await expect(readFile(flowFile, "utf8")).resolves.toContain("aliased-email-provider")
+})
+
 it("installs the Email definition when the WDK flow has only named exports", async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-email-named-flow-")
   const flowFile = join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.mjs")
@@ -1639,7 +1662,7 @@ describe("Vite workflow provider outputs", () => {
     expect(registry).toContain(nativeExport)
     expect(registry).toContain(`workflow//./.vitehub/workflow/vercel-native//${nativeExport}`)
     expect(existsSync(join(rootDir, ".vercel", "output", "functions", "__workflow.func"))).toBe(false)
-    const startupPlugin = await readFile(join(rootDir, ".vitehub", "nitro", "workflow", "dev-plugin.mjs"), "utf8")
+    const startupPlugin = await readFile(join(rootDir, ".vitehub", "nitro", "workflow", "build-plugin.mjs"), "utf8")
     expect(startupPlugin).toContain("setWorkflowRuntimeRegistry(registry)")
     expect(startupPlugin).toContain("setVercelWorkflowRuntimeModules(workflowApi, workflowRuntime)")
     expect(existsSync(join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.mjs"))).toBe(true)

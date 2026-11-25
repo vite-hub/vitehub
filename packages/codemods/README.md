@@ -6,7 +6,7 @@
 
 `@vite-hub/codemods` moves an application to ViteHub. Each codemod edits the source files that it can change safely and ends with a report: the files it changed and a numbered list of manual follow-ups, with `file:line` where it applies.
 
-The package requires Node.js 24.15 or newer. Read the [Codemods docs](https://vitehub.dev/docs/codemods) for a tutorial and what each codemod changes.
+The package requires Node.js 22.12 or newer. The migrated app needs Node.js 24.15 or newer for `vite-hub`, and the report says so when the shell runs an older Node.js. Read the [Codemods docs](https://vitehub.dev/docs/codemods) for a tutorial and what each codemod changes.
 
 ## Migrate an app
 
@@ -28,7 +28,7 @@ The command exits with `0` when every codemod completes, also when they report f
 vitehub migrate [dir] [--dry-run]
 ```
 
-`vitehub migrate` runs the upgrade codemods, the ones that move an app from an older ViteHub API, in this order: `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, `channels`, `auth-accessors`, `workspace-repo`, `kv-list-prefix`, `cli-url-flag`, `cli-yes-flag`, `cms-roles`, `choices-package`, `cli-get-list`, and `cli-agent-tree`. Each one sees the edits of the ones before it, and the report is the same as above. Install `@vite-hub/codemods` as a development dependency first. The codemods that move an app from another module, such as `nuxthub`, do not run. The report ends with a reminder to run Vite Doctor: rule `VHUB0003` finds Result calls, such as `await email.send(...)`, whose error the code drops.
+`vitehub migrate` runs the upgrade codemods, the ones that move an app from an older ViteHub API, in this order: `vitehub-options`, `define-forms`, `runtime-contracts`, `root-accessors`, `one-entry-imports`, `queue-workflow-verbs`, `queue-durations`, `result-tuples`, `agent-surface`, `driver-key`, `renamed-apis`, `tsconfig-paths`, `shell-driver`, `access-spellings`, `auth-sign-in`, `channels`, `auth-accessors`, `workspace-repo`, `kv-list-prefix`, `cli-url-flag`, `cli-yes-flag`, `cms-roles`, `choices-package`, `cli-get-list`, `cli-agent-tree`, and `nuxt-server-imports`. Each one sees the edits of the ones before it, and the report is the same as above. Install `@vite-hub/codemods` as a development dependency first. The codemods that move an app from another module, such as `nuxthub`, do not run. The report ends with a reminder to run Vite Doctor: rule `VHUB0003` finds Result calls, such as `await email.send(...)`, whose error the code drops.
 
 ## Run one codemod
 
@@ -73,6 +73,7 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | `choices-package` | `@vite-hub/decisions` and `vite-hub/decisions` imports and the `vitehub decisions` command to `choices`. `vitehub migrate` runs it. |
 | `cli-get-list` | `vitehub` read commands in scripts and CI: `show` and `info` to `get`, `env inspect` and `env status` to `env list`, `schedule runs` to `runs list`. `vitehub migrate` runs it. |
 | `cli-agent-tree` | `vitehub` Agent calls in scripts and CI: `agents …`, `invocations …`, and `conversations export` move under `vitehub agent`. `vitehub migrate` runs it. |
+| `nuxt-server-imports` | ViteHub server helpers, such as `kv` and `sendQueue`, that Nuxt server files used as auto-imports, to explicit imports from `vite-hub/*`. `vitehub migrate` runs it last. |
 
 ## `runtime-contracts`
 
@@ -234,6 +235,7 @@ The codemod runs when `package.json` or `modules` lists `@nuxthub/core`, or when
 - Schema: moves `server/db/schema.ts`, `server/db/schema.<dialect>.ts`, or the `server/db/schema/` folder to `server/databases/default/`, and writes `server/databases/default/index.ts` with `defineDatabase({ schema })`. Like NuxtHub, it reads only the top-level files of the folder, and skips files for another dialect, such as `users.sqlite.ts` in a Postgres app. Static, dynamic, CommonJS, and type imports follow the moved files. An aggregate exports every schema file, including an existing index; the report asks you to check conflicting exports. Legacy `relations()` declarations and each `db.query` use become follow-ups: rewrite them with Drizzle 1.0's `defineRelations()`, pass them to the Database Definition, and update relational filters before running the app. A query with a `where` function gets its own follow-up, because Drizzle 1.0 reads `where` as an object.
 - Database options: for Postgres, the Definition reads `POSTGRES_URL`, then `POSTGRESQL_URL`, then `DATABASE_URL`, as NuxtHub did. `connection.hyperdriveId` becomes `cloudflare.hyperdriveId`. `driver: 'd1-http'` becomes `cloudflare: { databaseId, http: true }`, and the report lists the `NUXT_HUB_CLOUDFLARE_*` variables to rename. `casing` becomes a follow-up, because Drizzle 1.0 sets casing per table. Schema files in local layers (`layers/*` and relative `extends`) become follow-ups too.
 - Imports: `hub:db` and `@nuxthub/db` become `vite-hub/database`, which exports `db` and `schema`. `hub:kv` and `hub:blob` become `vite-hub/kv` and `vite-hub/blob`. `hub:db:schema` becomes a relative import of the moved schema.
+- Auto-imports: NuxtHub auto-imported `kv`, `blob`, `db`, and `schema` in server code, and Nuxt 5 does not. Each server file that uses one of them without an import gets an import from `vite-hub/*`. A name that the app gives from `server/utils/` stays as it is.
 - KV and Blob calls: tuple-returning methods such as `const x = await kv.get(k)` and `await blob.del(p)` get a tuple and `if (error) throw error`, also for returns in async functions. `blob.delete()` becomes `blob.del()`. `blob.serve()` returns a Response unchanged; in an H3 handler the event argument becomes `event.req`. An unknown event or an unsupported use of a tuple becomes a follow-up with `file:line`.
 - Wrangler config: the D1 `migrations_table: "_hub_migrations"` goes, because ViteHub must not reuse it. On Cloudflare, KV, cache, and Blob options keep the resource that matches the original binding or its `KV`, `CACHE`, or `BLOB` default. R2 options keep the bucket's jurisdiction too. Unrelated bindings stay in place. The report lists the matched entries to remove after checking the generated options, and the D1 options to set by hand.
 - Modules that expect NuxtHub: ViteHub does not emulate NuxtHub's module APIs, so the codemod reports them as follow-ups and changes nothing. It finds the `hub:db:schema:extend`, `hub:db:migrations:dirs`, and `hub:db:queries:paths` hooks in `nuxt.config`, in the `modules/` folder, and in local layers (`layers/*` and relative `extends` paths), and points to `vitehub.databases` contributions or a custom migration. It also reports `studio.media.external` of nuxt-studio, and each installed dependency whose `package.json` lists `@nuxthub/core` in `peerDependencies` or `dependencies`, such as `@evlog/nuxthub`.
@@ -245,7 +247,7 @@ The codemod does not move local data or baseline the database. The follow-ups li
 The codemod reads one of the two schema sources of the module:
 
 - `safeRuntimeConfig.envSchema` points at a `.env.example` with `@env-spec` annotations. The codemod replaces it with `envSchema(new URL("./.env.example", import.meta.url), { prefix: "NUXT_" })` from `@vite-hub/env/vite`. With the `NUXT_` prefix, `NUXT_PUBLIC_*` keys become Public Env and other `NUXT_*` keys become Server Env, with the same names and variables. Server `paths` stay the same. Public Env is flat, so a nested public path falls back to its flat name.
-- `safeRuntimeConfig.$schema` is a Valibot, Zod 3, Zod 4, or ArkType schema, inline or in a module. For Zod 4 before 4.2, the codemod calls `toJSONSchema()` from the app's own Zod. The codemod converts it to JSON Schema and writes `env()`, `env.number()`, `env.boolean()`, and `env.enum()` declarations under `vitehub.env`. Each declaration reads its `NUXT_*` variable with `env.source()`. A `process.env.NAME || fallback` value reads `NAME` with `env.source()` and keeps `fallback` as the default. Env treats an empty variable as unset, as `||` did. Literal `runtimeConfig` values, including empty strings, become defaults, and keys under `runtimeConfig.public` become Public Env with `mode: "build"`. Credential-like server names become `secret: true`.
+- `safeRuntimeConfig.$schema` is a Valibot, Zod 3, Zod 4, or ArkType schema, inline or in a module. For Zod 4 before 4.2, the codemod calls `toJSONSchema()` from the app's own Zod. The codemod converts it to JSON Schema and writes `env()`, `env.number()`, `env.boolean()`, and `env.enum()` declarations under `vitehub.env`. Each declaration reads its `NUXT_*` variable with `env.source()`. A `process.env.NAME || fallback` value reads `NAME` with `env.source()` and keeps `fallback` as the default. Env treats an empty variable as unset, as `||` did. Literal `runtimeConfig` values, including empty strings, become defaults. The codemod checks each default against its field schema, applying the source module’s input coercion for runtime validation. A rejected value, such as `""` for `v.minLength(16)`, is dropped when validation is fatal, so Env requires its variable. Nonfatal `onError` modes do not drop a default solely because validation rejects it. The checks follow the installed module version. Before 0.4.0, the module checked only at build unless `validateAtRuntime: true`. From 0.4.0, it also checks when the server starts unless `validateAtRuntime: false`, so `validateAtBuild: false` alone still rejects. When the codemod cannot read the version, it uses the 0.4.0 rules. Keys under `runtimeConfig.public` become Public Env with `mode: "build"`. Credential-like server names become `secret: true`.
 
 When `safeRuntimeConfig` declares neither and the app has no layers, the module validates nothing, so the codemod removes it from `modules`, `nuxt.config`, and `package.json`. It stops instead when code still calls `useSafeRuntimeConfig()`. Schema-free removal also stops when the config extends layers, uses a root spread, or has automatic `layers/` directories: inherited schemas and composable calls are unknown. Review those layers and remove the module by hand, or declare the schema in the app config before retrying.
 
@@ -557,6 +559,28 @@ Migrate old `invocations list` and `get` calls by hand. Check the new command's 
 ```sh
 npx @vite-hub/codemods cli-agent-tree [dir] [--dry-run]
 ```
+
+## `nuxt-server-imports`
+
+On Nuxt 5, `vite-hub/nuxt` auto-imports its server helpers only when the app sets `experimental.nitroAutoImports: true` or `nitroLegacy`. This codemod adds an explicit import to each Nuxt server file that uses a helper without one:
+
+```diff [server/api/welcome.post.ts]
+ import { defineEventHandler, readBody } from "nitro/h3"
++import { kv } from "vite-hub/kv"
++import { sendQueue } from "vite-hub/queue"
+
+ export default defineEventHandler(async (event) => {
+   const { email } = await readBody<{ email: string }>(event)
+   const [error] = await sendQueue("welcome", { email })
+```
+
+- It reads the server directory (`serverDir`) of the app and of each local layer, and the helper list of `vite-hub/nuxt`.
+- It joins a name with an existing value import of the same `vite-hub/*` entry. It leaves a name that the file declares or imports.
+- It preserves app-owned server auto-imports, including utility re-exports and names set in `nitro.imports`. The report lists the preserved names.
+- It leaves files alone when Nuxt still injects the ViteHub helpers. If it cannot resolve the effective config or an auto-import source statically, it reports what to check instead of guessing.
+- The report names the files that still use Nitro and H3 helpers, such as `defineEventHandler`, without an import. The Nuxt 5 build error lists their import paths.
+
+`vitehub migrate` runs it last, so it imports the names that the other codemods write, such as `useAuth` and `sendQueue`.
 
 ## Check real apps
 

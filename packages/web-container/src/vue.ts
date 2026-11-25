@@ -45,6 +45,12 @@ export interface UseWebContainerOptions {
   /** The files to mount. `reset()` goes back to them. */
   files: WebContainerFiles;
   /**
+   * Binary files, such as model weights, by path. Each boot mounts them next to `files`. Text files at an asset path,
+   * or at a path that would replace one with a folder or a file, are dropped, so edits, `modified`, `setFiles()`
+   * and `reset()` never touch them.
+   */
+  assets?: Readonly<Record<string, Uint8Array>>;
+  /**
    * A snapshot from `container.export()` or `fetchSnapshot()`, mounted before `files`. Use it to skip a cold install.
    * A function runs on each boot, while the WebContainer boots, so a page downloads the snapshot only when it boots.
    */
@@ -133,12 +139,31 @@ function parentDirectory(path: string): string | undefined {
   return index > 0 ? path.slice(0, index) : undefined;
 }
 
+function* ancestorPaths(path: string): Iterable<string> {
+  for (let index = path.indexOf("/"); index !== -1; index = path.indexOf("/", index + 1)) {
+    yield path.slice(0, index);
+  }
+}
+
 /**
  * Runs an app in a WebContainer and keeps its state in Vue refs, for the workspace components of `@vite-hub/ui/workspace`
  * or your own. Only one WebContainer runs per page.
  */
 export function useWebContainer(options: UseWebContainerOptions): UseWebContainerReturn {
-  const initial: WebContainerFiles = { ...options.files };
+  const assets = new Set(Object.keys(options.assets ?? {}));
+  const reserved = new Set(assets);
+  for (const asset of assets) {
+    for (const directory of ancestorPaths(asset)) reserved.add(directory);
+  }
+  function textFiles(next: Readonly<WebContainerFiles>): WebContainerFiles {
+    if (!assets.size) return { ...next };
+    return Object.fromEntries(Object.entries(next).filter(([path]) => {
+      if (reserved.has(path)) return false;
+      for (const directory of ancestorPaths(path)) if (assets.has(directory)) return false;
+      return true;
+    }));
+  }
+  const initial: WebContainerFiles = textFiles(options.files);
   const installCommand = options.install ?? "install";
   const startCommand = options.start ?? "dev";
 
@@ -266,15 +291,19 @@ export function useWebContainer(options: UseWebContainerOptions): UseWebContaine
       }
       devRun = run;
       pipe(run);
-      void run.exit.then((exitCode) => {
+      const stopped = (stop: WebContainerFailure) => {
         if (devRun !== run) return;
         devRun = undefined;
         serverActive = false;
         if (disposed) return;
         previewUrl.value = undefined;
-        failure.value = { kind: "server", exitCode, error: new Error(`The dev server exited with code ${exitCode}.`) };
+        failure.value = stop;
         status.value = "error";
-      });
+      };
+      void run.exit.then(
+        exitCode => stopped({ kind: "server", exitCode, error: new Error(`The dev server exited with code ${exitCode}.`) }),
+        (cause: unknown) => stopped({ kind: "server", error: toError(cause) }),
+      );
     }
     catch (cause) {
       serverActive = false;
@@ -317,7 +346,7 @@ export function useWebContainer(options: UseWebContainerOptions): UseWebContaine
       written = { ...files.value };
       try {
         const target = await bootWebContainer({
-          files: written,
+          files: { ...options.assets, ...written },
           snapshot: typeof options.snapshot === "function" ? options.snapshot() : options.snapshot,
           port: options.port,
           previewScript: options.previewScript,
@@ -393,7 +422,7 @@ export function useWebContainer(options: UseWebContainerOptions): UseWebContaine
   }
 
   async function setFiles(next: WebContainerFiles, setOptions: SetFilesOptions = {}) {
-    files.value = setOptions.mode === "replace" ? { ...next } : { ...files.value, ...next };
+    files.value = setOptions.mode === "replace" ? textFiles(next) : { ...files.value, ...textFiles(next) };
     await sync();
   }
 

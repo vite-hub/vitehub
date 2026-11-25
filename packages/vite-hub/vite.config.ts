@@ -170,7 +170,7 @@ const skillsSource = resolve(import.meta.dirname, "../../docs/skills");
 // The Console publishes the skills for apps that use ViteHub. The other skills in docs/skills are for ViteHub contributors.
 const consoleSkills = ["vitehub"];
 // Optional owner packages. The root declarations inline their option types, so an app without the package still type-checks.
-const configurationOwners = /^@vite-hub\/(?:agent|auth|blob|browser|channels|comments|connections|database|email|i18n|kv|mcp|queue|rate-limit|realtime|sandbox|schedule|workflow|workspace)(?:\/|$)/;
+const configurationOwners = /^@vite-hub\/(?:agent|auth|blob|browser|channels|comments|connections|database|email|i18n|kv|mcp|queue|rate-limit|realtime|sandbox|schedule|web-container|workflow|workspace)(?:\/|$)/;
 const agentDeclarationRoot = `${resolve(import.meta.dirname, "../agent/dist").replaceAll("\\", "/")}/`;
 
 export default defineConfig({
@@ -263,6 +263,10 @@ export default defineConfig({
         },
         {
           from: "src/console/runtime/components/console-account-setup.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-hosted-comments-embed.vue",
           to: "dist/console/runtime/components",
         },
         {
@@ -740,6 +744,17 @@ export default defineConfig({
       deps: { alwaysBundle: [/./], onlyBundle: false },
       dts: false,
       entry: { "console/runtime/page-tool/page-tool": "src/page/console.ts" },
+      minify: true,
+      outExtensions: () => ({ js: ".js" }),
+      platform: "browser",
+      target: browserTarget,
+      tsconfig: "tsconfig.build.json",
+    },
+    {
+      alias: motionCoreAlias,
+      deps: { alwaysBundle: [/./], onlyBundle: false },
+      dts: false,
+      entry: { "console/runtime/page-tool/account": "src/page/account.ts" },
       minify: true,
       outExtensions: () => ({ js: ".js" }),
       platform: "browser",

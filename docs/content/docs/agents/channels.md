@@ -23,6 +23,12 @@ A Channel is one connection in `server/channels/<name>.ts`, defined with `define
 
 ## Add a Channel
 
+Install the Channels package in the app. An Agent with a Channel needs it, also when the Channel is inline in the Agent file. Without it, the build stops with `VITE_HUB_R0136` and this command.
+
+```bash pm
+pnpm add @vite-hub/channels
+```
+
 Define the Channel in `server/channels`, with an adapter from `vite-hub/channels/adapters`. Then list its name in the Agent.
 
 ```ts [server/channels/portal.ts]
@@ -296,7 +302,7 @@ export default defineChannel({
     webhook: defineChannelTrigger({
       input: ticketEvent,
       tasks: { triage: { agent: () => import('../../agents/triage') } },
-      invoke: (context, event) => ({ task: 'triage', input: { prompt: `Triage ticket ${event.id}.` } }),
+      invoke: (context, { payload: event }) => ({ task: 'triage', input: { prompt: `Triage ticket ${event.id}.` } }),
     }),
   },
 })
@@ -664,13 +670,14 @@ pnpm vitehub channels replay --agent labeller --channel mailbox --folder archive
 Or call `replayChannel()` from trusted server code:
 
 ```ts [server/api/backfill.post.ts] fragment
+import { defineEventHandler, readBody } from 'h3'
 import { replayChannel } from 'vite-hub/agent/server'
 import { getRuntimeContext } from 'vite-hub/runtime'
 import labeller from '../agents/labeller'
 
 export default defineEventHandler(async (event) => {
   await requireAdmin(event)
-  const { cursor } = await readBody<{ cursor?: string }>(event)
+  const { cursor } = await readBody<{ cursor?: string }>(event) ?? {}
   return await replayChannel(labeller, 'mailbox', {
     cursor,
     limit: 50,
@@ -1158,9 +1165,9 @@ export default defineAgent({
 
 If the shared route does not fit your rules, write your own with [`streamAgentTrigger()`](/docs/agents/triggers#consume-a-capability-trigger).
 
-### Resume a web chat in one process
+### Resume a web chat
 
-A browser can reconnect to an active response. Set `resume: true` in `useChat()` and `resumable` with process scope on the route.
+A browser can reconnect to an active response. Set `resume: true` in `useChat()` and `resumable` on the route.
 
 ```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
@@ -1175,7 +1182,7 @@ export default defineAgent({
         },
         resumable: {
           owner: ({ auth }) => auth.user.id,
-          scope: 'process',
+          scope: 'shared',
           ttlMs: 10 * 60 * 1000,
         },
       },
@@ -1185,11 +1192,23 @@ export default defineAgent({
 })
 ```
 
-The route drops a repeated submission from the same owner, replays the buffered stream, follows the live response, and keeps a completed one for `ttlMs`.
+The route drops a repeated submission from the same owner, replays the stream from its first byte, follows the live response, and keeps a completed one for `ttlMs`.
 
-::warning
-`scope: 'process'` means one process. Active streams die with it, and other instances cannot find them. Use it only when a chat stays on one process. Otherwise, build durable execution, stream storage, and coordination behind your own route.
-::
+`scope` sets where the streams live:
+
+| Scope | Streams live in | Use it when |
+| --- | --- | --- |
+| `'shared'` | The database of the [Agent journal](/docs/agents/invocation-storage) | Requests can reach different instances, or completed replies need to survive a deploy. |
+| `'process'` | The memory of the process | The chat stays on one process. Active streams die with it, and other instances cannot find them. |
+
+With `'shared'`, the process that runs the Agent writes the stream to the journal database, and any instance reads it back. A client that reconnects to another instance gets the same bytes in the same order. If the writer exits mid-reply, another instance can replay committed bytes but cannot continue generation. The replay fails when the writer is detected as stale. A `DELETE` on any instance signals the owning run to stop within about two seconds, including before it starts sending a response.
+
+- The journal must keep its rows in a database: the default journal on SQLite, libSQL, or D1, or `invocations: 'database'`. A journal in memory or a custom store fails with `AGENT_RESUMABLE_CHAT_JOURNAL_UNSUPPORTED`.
+- A reader of a stream whose first request failed before it started gets `AGENT_RESUMABLE_CHAT_STREAM_FAILED`. A claim that loses to other requests three times fails with `AGENT_RESUMABLE_CHAT_CLAIM_CONFLICT`.
+- The streams are only as shared as the journal. The default journal file is on one host, so set `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` to a libSQL endpoint, or use D1 or a Postgres Database, when instances run on different hosts. The `agent-chat-streams` line of the boot Durability report shows the scope.
+- A reader polls the database every 100 ms, including while the Agent is idle.
+- With D1, use Workers Paid and only enable shared streams when both the writer and each resumed request fit within the [D1 query limit per invocation](https://developers.cloudflare.com/d1/platform/limits/). Workers Free is not supported for this mode: idle readers alone can use about 10 queries per second. Budget for one query per stored batch and a heartbeat every two seconds on the writer, plus setup, completion, and any other D1 queries made by the request. For long replies or high query volume, use libSQL or Postgres instead.
+- On SQLite, libSQL, and D1, the tables are created on first use. On Postgres, ViteHub adds `vitehub_agent_chat_streams` and `vitehub_agent_chat_stream_chunks` to the [journal tables](/docs/agents/invocation-storage#store-invocations-in-a-postgres-database). Run `vitehub database generate` and `vitehub database migrate`.
 
 ## Connect an adapter platform
 

@@ -333,4 +333,14 @@ describe("live smoke workflow reporting contract", () => {
     expect(workflow).toContain('--attempt-providers "$LIVE_SMOKE_ATTEMPT_PROVIDERS"')
     expect(workflow).toContain("github.event_name == 'workflow_dispatch' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)")
   })
+
+  it("runs every runtime check after a deploy, also when an earlier check failed", () => {
+    const runtime = workflow.slice(workflow.indexOf("- name: Enter runtime stage"), workflow.indexOf("- name: Tear down Cloudflare scratch resources"))
+    const checks = runtime.split("      - name: ").slice(1).filter(step => step.includes("Live E2E"))
+    expect(checks.length).toBeGreaterThanOrEqual(9)
+    for (const check of checks) {
+      expect(check, check.split("\n")[0]).toMatch(/\n {8}if: \$\{\{ !cancelled\(\) && steps\.resolve_url\.outcome == 'success'( && [^\n]+)? \}\}\n/)
+    }
+    expect(workflow).toMatch(/- name: Resolve deployment URL\n {8}id: resolve_url\n/)
+  })
 })
