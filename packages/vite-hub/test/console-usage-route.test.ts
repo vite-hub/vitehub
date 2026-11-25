@@ -6,14 +6,14 @@ import { usage } from "@vite-hub/agent/capabilities"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 import { consoleVitePlugin } from "../src/console/vite.ts"
 import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
-import { readConsoleUsage as usageHandlerRoute } from "../src/console/runtime/server/usage.get.ts"
+import { readConsoleUsage as usageHandlerRoute } from "../src/console/runtime/server/invocations.usage.ts"
 import { allowed } from "./support/console-access.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 import { consoleEvent } from "./console-event.ts"
 
 const usageHandler = allowed(usageHandlerRoute)
 
-it("registers one RPC handler when configuration is reapplied", async () => {
+it("registers one Console handler when configuration is reapplied", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-usage-route-"))
   try {
     const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, sections: ["agents", "usage"] })
@@ -22,7 +22,7 @@ it("registers one RPC handler when configuration is reapplied", async () => {
     const handler = "handler" in hook ? hook.handler : hook
     const config = { root, vitehubCliDiscovery: true, nitro: { handlers: [] as Array<{ handler: string, route: string, method?: string }> } }
     for (let pass = 0; pass < 2; pass++) await Reflect.apply(handler, plugin, [config, { command: "build", mode: "production" }])
-    expect(config.nitro.handlers.filter(handler => handler.route === "/_vitehub/rpc")).toHaveLength(1)
+    expect(config.nitro.handlers.filter(handler => handler.route === "/_vitehub/**")).toHaveLength(1)
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 

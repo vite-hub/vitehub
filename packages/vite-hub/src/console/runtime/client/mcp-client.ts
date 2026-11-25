@@ -1,11 +1,10 @@
-import { consoleProject } from "./project"
 import { requestConsoleOperation } from "./request"
 
 import type { ConsoleMcpAuth, ConsoleMcpCandidate, ConsoleMcpConnection, ConsoleMcpConnectResult, ConsoleMcpOutcome, ConsoleMcpOverview, ConsoleMcpPage, ConsoleMcpStatus } from "../mcp-client"
 
 type ConsoleMcpAnswer = ConsoleMcpOutcome & { connection: ConsoleMcpConnection }
 
-/** What each operation of the MCP section returns (`runtime/server/mcp-client.ts`). */
+/** What each operation of the MCP section returns. `@vite-hub/console` answers them. */
 export interface ConsoleMcpResults {
   "mcp-client.call": ConsoleMcpAnswer
   "mcp-client.complete": ConsoleMcpConnection
@@ -19,13 +18,12 @@ export interface ConsoleMcpResults {
 }
 
 /**
- * Call one operation of the MCP client section. A Console server, such as console.vitehub.dev, runs the MCP client
- * itself, so its calls go to `/p/<project>/mcp-client` on that server and not to the app.
+ * Call one operation of the MCP client section. The Console server, such as console.vitehub.dev, runs the MCP client,
+ * so the calls go to `/p/<project>/mcp-client` on that server and not to the app.
  */
 export async function requestConsoleMcp<Operation extends keyof ConsoleMcpResults>(operation: Operation, input: Record<string, unknown> = {}, signal?: AbortSignal): Promise<ConsoleMcpResults[Operation]> {
-  const path = consoleProject().remote ? { path: "/mcp-client" } : {}
-  // SAFETY: The server operation of this name returns this shape. The app and @vite-hub/console answer with the same types.
-  return await requestConsoleOperation(operation, input, { ...path, ...(signal ? { signal } : {}) }) as ConsoleMcpResults[Operation]
+  // SAFETY: The server operation of this name returns this shape. @vite-hub/console answers with these types.
+  return await requestConsoleOperation(operation, input, { path: "/mcp-client", ...(signal ? { signal } : {}) }) as ConsoleMcpResults[Operation]
 }
 
 /** Status words and colors. The word always comes with the color, so the status never depends on color alone. */

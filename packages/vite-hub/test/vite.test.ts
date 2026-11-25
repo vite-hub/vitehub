@@ -443,11 +443,11 @@ describe("vitehub", () => {
 
       expect(config.nitro).toMatchObject({
         handlers: expect.arrayContaining([
-          expect.objectContaining({ route: "/_vitehub/rpc" }),
+          expect.objectContaining({ route: "/_vitehub/**" }),
         ]),
       })
-      await expect(readFile(join(root, ".vitehub/nitro/console/plugin-dev.mjs"), "utf8")).resolves.toContain(
-        `installConsoleSections(${JSON.stringify(root)}, ["setup","env","agents","skills","usage","channels","site"])`,
+      await expect(readFile(join(root, ".vitehub/nitro/console/app-dev.mjs"), "utf8")).resolves.toContain(
+        `installConsoleSections(${JSON.stringify(root)}, ["setup","env","agents","skills","usage","channels"])`,
       )
     }
     finally {
@@ -496,7 +496,7 @@ describe("vitehub", () => {
         await callHook(inactive.config, [inactiveConfig, { command: "serve", mode: "development" }])
         await callHook(inactive.configResolved, [inactiveConfig])
 
-        const inactiveGenerated = await readFile(join(inactiveRoot, ".vitehub/nitro/console/plugin-dev.mjs"), "utf8")
+        const inactiveGenerated = await readFile(join(inactiveRoot, ".vitehub/nitro/console/app-dev.mjs"), "utf8")
         expect(inactiveGenerated).not.toContain('"kv"')
         expect(inactiveConfig.nitro).not.toMatchObject({
           handlers: expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/api/kv" })]),
@@ -510,14 +510,14 @@ describe("vitehub", () => {
       const namedConfig: Record<string, unknown> = { root }
       await callHook(named.config, [namedConfig, { command: "serve", mode: "development" }])
       expect(namedConfig.nitro).toMatchObject({
-        handlers: expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/rpc" })]),
+        handlers: expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/**" })]),
       })
       await callHook(named.configResolved, [namedConfig])
 
-      const generated = await readFile(join(root, ".vitehub/nitro/console/plugin-dev.mjs"), "utf8")
+      const generated = await readFile(join(root, ".vitehub/nitro/console/app-dev.mjs"), "utf8")
       expect(generated).toContain('"kv"')
       expect(namedConfig.nitro).toMatchObject({
-        handlers: expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/rpc" })]),
+        handlers: expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/**" })]),
       })
 
     }
@@ -538,7 +538,7 @@ describe("vitehub", () => {
       config[VITEHUB_FEATURES] = { blob: { stores: { archive: { driver: "memory" }, media: { driver: "memory" } } } }
       await callHook(plugin.configResolved, [config])
 
-      const generated = await readFile(join(root, ".vitehub/nitro/console/plugin-dev.mjs"), "utf8")
+      const generated = await readFile(join(root, ".vitehub/nitro/console/app-dev.mjs"), "utf8")
       expect(generated).toContain('installConsoleBlob(')
       expect(generated).toContain('["archive","media"]')
     }
@@ -556,7 +556,7 @@ describe("vitehub", () => {
         const config: Record<string, unknown> = { root, plugins }
         await callHook(plugin.config, [config, { command: "serve", mode: "development" }])
         await callHook(plugin.configResolved, [config])
-        const generated = await readFile(join(root, ".vitehub/nitro/console/plugin-dev.mjs"), "utf8")
+        const generated = await readFile(join(root, ".vitehub/nitro/console/app-dev.mjs"), "utf8")
         if (cache) {
           expect(generated).toMatch(/cacheOperations: vitehubConsoleOperations\d+ \}/)
           expect(generated).toMatch(/installConsoleSections\([^\n]+"cache"/)
@@ -588,7 +588,7 @@ describe("vitehub", () => {
       const config = { root, [VITEHUB_FEATURES]: { database: { connection: { url: "file::memory:" } } } }
       await callHook(plugin.config, [config, { command: "serve", mode: "development" }])
       await callHook(plugin.configResolved, [config])
-      const generated = await readFile(join(root, ".vitehub/nitro/console/plugin-dev.mjs"), "utf8")
+      const generated = await readFile(join(root, ".vitehub/nitro/console/app-dev.mjs"), "utf8")
       expect(generated).toContain(`installConsoleBlob(${JSON.stringify(root)}, vitehubConsoleBlob, ["default"])`)
       expect(generated).toContain(`installConsoleDatabase(${JSON.stringify(root)}, vitehubConsoleDatabases, ["default"])`)
       expect(generated).toContain(`installConsoleDocuments(${JSON.stringify(root)}, { "content":`)
@@ -616,7 +616,7 @@ describe("vitehub", () => {
     await callHook(plugin.config, [config, { command: "serve", mode: "development" }])
     expect(config.nitro.handlers).toEqual(expect.arrayContaining([
       expect.objectContaining({ route: "/_vitehub/api/kv" }),
-      expect.objectContaining({ route: "/_vitehub/rpc" }),
+      expect.objectContaining({ route: "/_vitehub/**" }),
     ]))
   })
 
@@ -632,7 +632,7 @@ describe("vitehub", () => {
 
       expect(integrationMocks.resolveAuthViteConfig).toHaveBeenCalledWith(undefined, root, { serverDirs: undefined })
       const routes = config.nitro?.handlers?.map(handler => handler.route)
-      expect(routes).toContain("/_vitehub/rpc")
+      expect(routes).toContain("/_vitehub/**")
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -657,7 +657,7 @@ describe("vitehub", () => {
       expect(implicitConfig).toMatchObject({
         nitro: {
           handlers: expect.arrayContaining([
-            expect.objectContaining({ route: "/_vitehub/rpc" }),
+            expect.objectContaining({ route: "/_vitehub/**" }),
           ]),
         },
       })
@@ -677,7 +677,7 @@ describe("vitehub", () => {
       expect(explicitConfig).toMatchObject({
         nitro: {
           handlers: expect.arrayContaining([
-            expect.objectContaining({ route: "/_vitehub/rpc" }),
+            expect.objectContaining({ route: "/_vitehub/**" }),
           ]),
         },
       })
@@ -866,7 +866,7 @@ describe("vitehub", () => {
         auth: "vite-hub/auth/agent",
         blob: "vite-hub/blob",
         connections: false,
-        console: false,
+        console: expect.stringMatching(/console\/runtime\/server\/agent-console\.(?:ts|js)$/),
         db: "@vite-hub/database/runtime/registry",
         email: "vite-hub/email",
         i18n: false,
@@ -938,12 +938,16 @@ describe("vitehub", () => {
     const workflowCallsBefore = integrationMocks.hubWorkflow.mock.calls.length
     vitehub({ agent: true, host: "node" })
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
+      runtimeCapabilityImports: expect.objectContaining({ console: expect.stringMatching(/console\/runtime\/server\/agent-console\.(?:ts|js)$/), db: false }),
+    }))
+    vitehub({ agent: true, console: false, host: "node" })
+    expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
       runtimeCapabilityImports: expect.objectContaining({ console: false, db: false }),
     }))
     expect(integrationMocks.hubWorkflow).toHaveBeenCalledTimes(workflowCallsBefore)
     vitehub({ agent: true, console: { auth: false }, host: "node" })
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
-      runtimeCapabilityImports: expect.objectContaining({ console: "vite-hub/console/server" }),
+      runtimeCapabilityImports: expect.objectContaining({ console: expect.stringMatching(/console\/runtime\/server\/agent-console\.(?:ts|js)$/) }),
     }))
     expect(integrationMocks.hubWorkspace).toHaveBeenLastCalledWith({
       assertGitHubStoreAvailable: expect.any(Function),
@@ -952,7 +956,7 @@ describe("vitehub", () => {
 
     vitehub({ agent: true, console: { auth: false }, host: "node" })
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
-      runtimeCapabilityImports: expect.objectContaining({ console: "vite-hub/console/server" }),
+      runtimeCapabilityImports: expect.objectContaining({ console: expect.stringMatching(/console\/runtime\/server\/agent-console\.(?:ts|js)$/) }),
     }))
 
     vitehub({
@@ -1050,13 +1054,6 @@ describe("vitehub", () => {
   it("checks the Database packages of Connections as the connections feature", () => {
     vitehub({ host: "node", connections: true })
     expect(assertFeaturePackages).toHaveBeenLastCalledWith(["connections"], {}, false)
-  })
-
-  it("checks the MCP SDK only when the Console MCP client is on", () => {
-    vitehub({ host: "node", console: { auth: false } })
-    expect(vi.mocked(assertFeaturePackages).mock.lastCall?.[0]).not.toContain("console mcp-client")
-    vitehub({ host: "node", console: { auth: false, mcpClient: true } })
-    expect(vi.mocked(assertFeaturePackages).mock.lastCall?.[0]).toContain("console mcp-client")
   })
 
   it.each([

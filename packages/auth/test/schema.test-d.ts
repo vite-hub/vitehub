@@ -28,10 +28,6 @@ describe("Auth table types", () => {
       image: string | null
       createdAt: Date
       updatedAt: Date
-      role: string | null
-      banned: boolean | null
-      banReason: string | null
-      banExpires: Date | null
     }>()
     expectTypeOf<typeof authPostgresSchema.member.$inferSelect>().toEqualTypeOf<{
       id: string
@@ -91,7 +87,10 @@ describe("Auth table types", () => {
   })
 
   it("types only guaranteed plugins and additional fields", () => {
-    const plugins = ["twoFactor", "username", "anonymous", "phoneNumber", "lastLoginMethod", "apiKey", "stripe"] as const
+    const plugins = ["admin", "twoFactor", "username", "anonymous", "phoneNumber", "lastLoginMethod", "apiKey", "stripe"] as const
+    const withAdmin = createAuthSqliteSchema({ plugins })
+    expectTypeOf<typeof withAdmin.user.$inferSelect>().toHaveProperty("role").toEqualTypeOf<string | null>()
+    expectTypeOf(createAuthSqliteSchema({}).user).not.toHaveProperty("role")
     expectTypeOf(createAuthSqliteSchema({ plugins })).toHaveProperty("twoFactor")
     expectTypeOf(createAuthPostgresSchema({ plugins })).toHaveProperty("apikey")
     expectTypeOf(createAuthPostgresSchema({ plugins })).toHaveProperty("subscription")

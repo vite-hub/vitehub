@@ -27,8 +27,6 @@ function resolveConsoleRuntimeRoot(): string {
   return root
 }
 export const consoleRuntimeRoot: string = resolveConsoleRuntimeRoot()
-/** The ViteHub skill and its well-known index, which the Console serves at `/_vitehub/.well-known/skills`. */
-export const consoleSkillsRoot: string = join(consoleRuntimeRoot, "public/skills")
 
 /**
  * The Console access policy that generated output installs. The Console route checks it.
@@ -89,9 +87,12 @@ function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports:
   return { imports, install: [`installConsoleAccess({ ${fields.join(", ")} })`] }
 }
 
-/** What the generated Console Nitro plugin installs. The Nuxt module and the Vite plugin both write it with these options. */
-export interface ConsoleNitroPluginOptions {
-  /** The generated plugin file. */
+/**
+ * What the generated Console app module installs. The Nuxt module and the Vite plugin both write it with these options.
+ * The Console routes import it as `#vitehub/console/app`, so it loads with the first Console request, not at startup.
+ */
+export interface ConsoleAppModuleOptions {
+  /** The generated module file. */
   file: string
   projectRoot: string
   /** The `name` option of `vitehub()`. `project.get` reports it, or the `package.json` name without it. */
@@ -111,26 +112,11 @@ export interface ConsoleNitroPluginOptions {
   target?: Pick<ConsoleProjectBuild, "framework" | "host">
   runtimeCapabilityImports?: Record<string, false | string>
   development?: boolean
-  /**
-   * Add the **Console** link to the page tools pill. `base` is the app base, such as `/portal/`. Leave it out for the
-   * development RPC without Console options.
-   */
-  pageTool?: { base: string }
+  /** Add the Site access section. The development RPC without Console options leaves it out. */
+  site?: boolean
 }
 
-/** The URL of the Console page tool script below the app base. Its version query changes when the script changes. */
-export const consolePageToolScript = "/_vitehub/console/assets/page-tool.js?v=2"
-
-function renderConsolePageTool(pageTool: ConsoleNitroPluginOptions["pageTool"], auth: boolean): string {
-  if (!pageTool) return "export default function viteHubConsolePlugin() {}"
-  // Without Auth, Site access signs browsers in with its own cookie, which the page tools read too.
-  const user = auth
-    ? `, user: async request => (await import(${JSON.stringify(generatedModules.consolePageAuth)})).consolePageAuthUser(request)`
-    : `, site: async request => (await import(${JSON.stringify(generatedModules.consoleSiteSession)})).readConsoleSiteVisitor(request)`
-  return `export default function viteHubConsolePlugin(nitroApp) { installConsolePageTool(nitroApp, { base: ${JSON.stringify(pageTool.base)}, script: ${JSON.stringify(consolePageToolScript)}${user} }) }`
-}
-
-function renderConsoleNitroPlugin(
+function renderConsoleAppModule(
   {
     projectRoot,
     name,
@@ -142,15 +128,14 @@ function renderConsoleNitroPlugin(
     access,
     runtimeCapabilityImports,
     development = false,
-    pageTool,
-  }: ConsoleNitroPluginOptions,
+    site = false,
+  }: ConsoleAppModuleOptions,
   build: ConsoleProjectBuild | undefined,
 ): string {
   const agents = catalog.agents
   const accessCode = renderConsoleAccess(access)
   const operations = catalog.operations ?? []
-  // The page tools pill comes with Site access: the Console signs members and guests in to the app.
-  const sections = withConsoleDocumentEditorSections(pageTool ? [...configuredSections, "site"] : configuredSections, catalog)
+  const sections = withConsoleDocumentEditorSections(site ? [...configuredSections, "site"] : configuredSections, catalog)
     .filter(section => !access?.hiddenSections?.includes(section))
   const documentEditors = describeConsoleDocumentEditors(sections, catalog.documents ?? {})
   const runtimeCapabilities = renderConsoleRuntimeCapabilities(runtimeCapabilityImports)
@@ -166,10 +151,6 @@ function renderConsoleNitroPlugin(
   const agentsEnabled = sections.includes("agents")
   const blobEnabled = sections.includes("blob")
   const databaseEnabled = sections.includes("databases")
-  const databaseNames = catalog.content.databases?.kind === "definition-catalog" ? catalog.content.databases.definitions.map(definition => definition.name) : []
-  const siteDatabaseEnabled = !development && sections.includes("site") && configuredSections.includes("databases")
-  const firstDatabase = databaseNames.includes("default") ? "default" : [...databaseNames].sort((left, right) => left.localeCompare(right))[0]
-  const mcpClientEnabled = sections.includes("mcp-client")
   const schedulesEnabled = sections.includes("schedules")
   const runnableSchedules = (invoke ? catalog.manualSchedules ?? [] : [])
     .map(schedule => ` [${JSON.stringify(schedule.name)}]: () => import(${JSON.stringify(pathToFileURL(schedule.handler).href)}),`)
@@ -186,8 +167,6 @@ function renderConsoleNitroPlugin(
   const runtimeImports = [
     { bindings: "installConsoleOperations", module: generatedModules.consoleOperations },
     ...operations.map((operation, index) => ({ bindings: `${operation.export}: vitehubConsoleOperations${index}`, module: operation.module })),
-    // The MCP client SDK loads only for apps that turn the section on.
-    ...(mcpClientEnabled ? [{ bindings: "consoleMcpClientOperations: vitehubConsoleMcpClientOperations", module: "vite-hub/console/mcp-client" }] : []),
     ...(blobEnabled ? [{ bindings: "installConsoleBlob", module: generatedModules.consoleBlob }, { bindings: "blob: vitehubConsoleBlob", module: "vite-hub/blob" }] : []),
     ...(definitionsEnabled ? [{ bindings: `installConsoleDefinitions${schedulesEnabled ? ", installConsoleSchedules" : ""}`, module: generatedModules.consoleDefinitions }] : []),
     ...(definitionsEnabled ? runtimeReaders.map((reader, index) => ({ bindings: `${reader.export}: vitehubConsoleRuntimeReader${index}`, module: reader.module })) : []),
@@ -202,25 +181,22 @@ function renderConsoleNitroPlugin(
   const runtimeInstall = [
     ...(blobEnabled ? [`installConsoleBlob(${JSON.stringify(projectRoot)}, vitehubConsoleBlob, ${JSON.stringify(blobStores)})`] : []),
     ...(sections.includes("env") ? [`installConsoleEnv(${JSON.stringify(projectRoot)}, describeServerEnv())`] : []),
-    `installConsoleOperations([${[...(mcpClientEnabled ? ["{ operations: vitehubConsoleMcpClientOperations, plugin: \"vite-hub\" }"] : []), ...operations.map((operation, index) => `{ operations: vitehubConsoleOperations${index}, plugin: ${JSON.stringify(operation.plugin)} }`)].join(", ")}], { invoke: ${invoke} })`,
+    `installConsoleOperations([${operations.map((operation, index) => `{ operations: vitehubConsoleOperations${index}, plugin: ${JSON.stringify(operation.plugin)} }`).join(", ")}], { invoke: ${invoke}, site: ${sections.includes("site")} })`,
     ...(definitionsEnabled ? [`installConsoleDefinitions(${JSON.stringify(projectRoot)}, ${JSON.stringify(catalog.content)}, ${JSON.stringify(contributedSections)}${runtimeReaders.length ? `, { ${runtimeReaders.map((reader, index) => `${JSON.stringify(reader.section)}: vitehubConsoleRuntimeReader${index}`).join(", ")} }` : ""})`] : []),
     ...(schedulesEnabled ? [`installConsoleSchedules(${JSON.stringify(projectRoot)}, {${runnableSchedules}})`] : []),
-    ...(databaseEnabled ? [`installConsoleDatabase(${JSON.stringify(projectRoot)}, vitehubConsoleDatabases, ${JSON.stringify(databaseNames)})`] : []),
+    ...(databaseEnabled ? [`installConsoleDatabase(${JSON.stringify(projectRoot)}, vitehubConsoleDatabases, ${JSON.stringify(catalog.content.databases?.kind === "definition-catalog" ? catalog.content.databases.definitions.map(definition => definition.name) : [])})`] : []),
     ...(agentsEnabled
       ? [`installConsoleAgentDefinitions([${definitions}], { projectRoot: ${JSON.stringify(projectRoot)}${invoke ? ", invoke: true" : ""}${runtimeCapabilities ? `, ${runtimeCapabilities}` : ""} })`]
       : []),
   ]
   return [
-    `import { ${access ? "installConsoleAccess, " : ""}${build ? "installConsoleBuild, " : ""}installConsoleDevelopment, installConsoleProjectName, installConsoleRuntime, installConsoleSections, ${siteDatabaseEnabled ? "installConsoleSiteDatabase, " : ""}installConsoleVersion } from ${JSON.stringify(generatedModules.consoleSetup)}`,
+    `import { ${access ? "installConsoleAccess, " : ""}${build ? "installConsoleBuild, " : ""}installConsoleDevelopment, installConsoleProjectName, installConsoleRuntime, installConsoleSections, installConsoleVersion } from ${JSON.stringify(generatedModules.consoleSetup)}`,
     ...accessCode.imports,
-    // The page tools wrap the app's `fetch` when the server starts, so this one loads at startup.
-    ...(pageTool ? [`import { installConsolePageTool } from ${JSON.stringify(generatedModules.consolePageTool)}`] : []),
     ...(documentEditors.length ? [`import { installConsoleDocuments } from ${JSON.stringify(generatedModules.consoleDocuments)}`] : []),
     ...documentEditors.map((editor, index) => `import { ${editor.export} as vitehubConsoleDocumentActions${index} } from ${JSON.stringify(editor.module)}`),
     `installConsoleDevelopment(${JSON.stringify(projectRoot)}, ${JSON.stringify(development)}${development && sections.includes("setup") ? `, ${JSON.stringify(setupDevRoute)}` : ""})`,
     ...accessCode.install,
     `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)}${navigationSections ? `, ${JSON.stringify(navigationSections)}` : ""})`,
-    ...(siteDatabaseEnabled ? [`installConsoleSiteDatabase(async () => (await import("@vite-hub/database/runtime/registry")).databases${firstDatabase === undefined ? "" : `, ${JSON.stringify(firstDatabase)}`})`] : []),
     // The first Console request or agent tool that needs the operations loads them, with every primitive they import.
     `installConsoleRuntime(async () => {`,
     `  const [${[...runtimeImports.map(entry => `{ ${entry.bindings} }`), ...agentModules.map(entry => entry.binding)].join(", ")}] = await Promise.all([${[...runtimeImports, ...agentModules].map(entry => `import(${JSON.stringify(entry.module)})`).join(", ")}])`,
@@ -237,17 +213,15 @@ function renderConsoleNitroPlugin(
     ...(documentEditors.length
       ? [`installConsoleDocuments(${JSON.stringify(projectRoot)}, { ${documentEditors.map((editor, index) => `${JSON.stringify(editor.section)}: { actions: vitehubConsoleDocumentActions${index}, load: () => import(${JSON.stringify(pathToFileURL(editor.entry).href)}) }`).join(", ")} })`]
       : []),
-    // The Auth reader of the Console page tool loads with the first page tools session.
-    renderConsolePageTool(pageTool, configuredSections.includes("auth")),
     "",
   ].join("\n")
 }
 
-/** Write the generated Console Nitro plugin. */
-export async function writeConsoleNitroPlugin(options: ConsoleNitroPluginOptions): Promise<void> {
+/** Write the generated Console app module. */
+export async function writeConsoleAppModule(options: ConsoleAppModuleOptions): Promise<void> {
   const { file, active = () => true } = options
   if (!active()) return
-  const contents = renderConsoleNitroPlugin(options, options.development ? undefined : { ...await consoleBuildOf(options.projectRoot), ...options.target })
+  const contents = renderConsoleAppModule(options, options.development ? undefined : { ...await consoleBuildOf(options.projectRoot), ...options.target })
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
     await mkdir(resolve(file, ".."), { recursive: true })
     await writeFile(file, contents, "utf8")

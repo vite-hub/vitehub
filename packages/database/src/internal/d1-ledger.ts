@@ -202,10 +202,8 @@ function readD1Rows(payload: unknown, write: boolean): unknown[] | undefined {
   const rows = Array.isArray(last.results)
     ? last.results
     : isRecord(last.results) && Array.isArray(last.results.rows) ? last.results.rows : undefined
-  if (!rows || !rows.every(row => Array.isArray(row) || isRecord(row))) return
-  const columns = isRecord(last.results) ? last.results.columns : undefined
-  if (!Array.isArray(columns) || !columns.length || !columns.every(column => typeof column === "string")) return rows
-  return rows.map(row => Array.isArray(row) && row.length === columns.length ? Object.fromEntries(columns.map((column, index) => [column, row[index]])) : row)
+  if (!rows) return
+  return rows.every(row => Array.isArray(row) || isRecord(row)) ? rows : undefined
 }
 
 function readRowValue(row: unknown, key: string, index: number): unknown {

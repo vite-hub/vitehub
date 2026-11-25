@@ -2,7 +2,7 @@ import { consoleRpcHeader } from "../src/console/runtime/rpc.ts";
 import { expect, it } from "vitest";
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server";
 import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts";
-import { readConsoleUsage as usageHandlerRoute } from "../src/console/runtime/server/usage.get.ts";
+import { readConsoleUsage as usageHandlerRoute } from "../src/console/runtime/server/invocations.usage.ts";
 import { allowed } from "./support/console-access.ts";
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts";
 import { consoleEvent } from "./console-event.ts";
@@ -10,7 +10,7 @@ import { operationRpcBody, operationRpcResponseResult } from "../../internal/tes
 
 const usageHandler = allowed(usageHandlerRoute);
 
-it("validates session history filters and keeps filtered responses separate in the cache", async () => {
+it("validates session history filters and answers each filter apart", async () => {
   const store = createMemoryAgentInvocationStore();
   const timestamp = new Date().toISOString();
   for (const [id, status, title] of [
@@ -64,7 +64,7 @@ it("validates session history filters and keeps filtered responses separate in t
     statusMessage: "Invalid usage status",
   });
   const rpcResponse = await handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc", {
-    body: operationRpcBody("usage.get", { status: "running" }),
+    body: operationRpcBody("invocations.usage", { status: "running" }),
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
     method: "POST",
   }));
@@ -104,7 +104,7 @@ it.each(["100%_", "%41", "雪% &+?#"])(
     // Direct HTTP callers paste the returned opaque token into the raw URL.
     expect(await request(`${new URLSearchParams(query)}&cursor=${cursor}`)).toMatchObject(expected);
     const response = await handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc", {
-      body: operationRpcBody("usage.get", { ...query, cursor }),
+      body: operationRpcBody("invocations.usage", { ...query, cursor }),
       headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
       method: "POST",
     }));
