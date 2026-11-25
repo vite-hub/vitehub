@@ -51,7 +51,6 @@ const resolveInstalledProviderExecutable = vi.hoisted(() => vi.fn<(provider: "cl
 
 vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime, createSqliteProviderRuntimeSessionStore }))
 vi.mock("../../agent/src/internal/provider-runtime-packages.ts", () => ({ resolveInstalledProviderExecutable }))
-// Launch failure tests expect one attempt. The retry test sets short delays.
 const providerLaunchRetry = vi.hoisted(() => ({ delaysMs: [] as number[] }))
 vi.mock("../../agent/src/internal/provider-launch-retry.ts", async importOriginal => ({
   ...await importOriginal<typeof import("../../agent/src/internal/provider-launch-retry.ts")>(),
@@ -63,10 +62,8 @@ import { chatgpt } from "@vite-hub/gateways"
 import { prepareGitHubPullRequestWorkspace } from "../src/github/checkout.ts"
 import { commitGitHubPullRequestWorkspace, prepareGitHubRepairBase } from "../src/github/repair.ts"
 
-/** The `developer_instructions` value of the last Codex launch, as Codex parses it. */
 function launchedCodexDeveloperInstructions(): string | undefined {
   const [, value] = /-c "developer_instructions=((?:[^"\\]|\\.)*)"/.exec(String(createProviderRuntime.mock.lastCall?.[0].settings?.launchArgs)) ?? []
-  // The runtime unescapes these characters inside a double-quoted argument. Codex parses the result as TOML.
   return value === undefined ? undefined : JSON.parse(value.replace(/\\(["\\$`])/g, "$1"))
 }
 
@@ -105,7 +102,6 @@ function runtime(threadId: string, events: unknown[], options: {
     startSession: vi.fn(async (input: { mcp?: typeof mcp }) => {
       mcp = input.mcp
       await options.onStartSession?.(input)
-      // Model the launcher's consumption of the private thread configuration.
       if (mcp?.endpoint === "http://127.0.0.1/vitehub-chatgpt-configuration") {
         const configuration = JSON.parse(mcp.authorizationHeader).mcp
         mcp = configuration ? { endpoint: configuration.url, authorizationHeader: configuration.http_headers.Authorization } : undefined
@@ -207,7 +203,8 @@ describe("Provider Agent Driver with a host-prepared GitHub checkout", () => {
       const threadId = `thread-launch-checkout-${provider}-${merge}`
       runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
         async onSendTurn() {
-          await writeFile(join(root, "file.txt"), merge ? "base edit\nrepaired\n" : "repaired\n")
+          const repaired = merge ? "base edit\nPR edit\nrepaired" : "repaired"
+          await writeFile(join(root, "file.txt"), `${repaired}\n`)
           const repairedHead = await commitGitHubPullRequestWorkspace(root, { message: "repair", paths: ["file.txt"] }, { expectedHead })
           expect(git(root, "rev-parse", `${repairedHead}^1`)).toBe(expectedHead)
           if (merge) expect(git(root, "rev-parse", `${repairedHead}^2`)).toBe(base)
@@ -215,7 +212,7 @@ describe("Provider Agent Driver with a host-prepared GitHub checkout", () => {
           expect(git(root, "show", "HEAD:AGENTS.md")).toBe("native instructions")
           expect(git(root, "show", "HEAD:CLAUDE.md")).toBe("native Claude instructions")
           expect(git(root, "ls-tree", "-r", "--name-only", "HEAD")).not.toContain("vitehub-system-prompt")
-          expect(git(root, "show", "HEAD:file.txt")).toBe(merge ? "base edit\nrepaired" : "repaired")
+          expect(git(root, "show", "HEAD:file.txt")).toBe(repaired)
         },
       })
       await createProviderAgentAdapter({

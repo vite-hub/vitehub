@@ -47,6 +47,14 @@ export const nitroConfigResolvedNames = new Set([
   "vite-hub/agent-invocations",
 ])
 
+/**
+ * Whether the Nitro replay runs the plugin's `configResolved` hook. The Database owner runs first, so consumers can read
+ * its Definitions. Env runs only when Nuxt builds Nitro without a Vite environment (`nitroOnly`).
+ */
+export function replaysNitroConfigResolved(name: string, nitroOnly: boolean): boolean {
+  return name === "@vite-hub/database/vite" || nitroConfigResolvedNames.has(name) || (nitroOnly && name === "@vite-hub/env/vite")
+}
+
 function pluginResolveIdHandler(plugin: Plugin): HookHandler<NonNullable<Plugin["resolveId"]>> | undefined {
   if (typeof plugin.resolveId === "function") return plugin.resolveId
   return plugin.resolveId?.handler
