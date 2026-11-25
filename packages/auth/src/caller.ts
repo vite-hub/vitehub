@@ -3,6 +3,7 @@ import { defineErrors } from "@vite-hub/runtime"
 import type { ResultError } from "@vite-hub/runtime"
 import type { User } from "better-auth"
 
+import type { McpTokenInvalidError } from "./mcp-token.ts"
 import type { AuthAuthorization } from "./types.ts"
 
 /** The Auth user of a caller, with the fields of the app's plugins, such as `role` of `admin()`. */
@@ -30,6 +31,14 @@ export type AuthCaller<TRegistry = ViteHub.AuthRegistry> =
 
 export type AuthCallerErrorCode = "AUTH_MCP_TOKEN_INVALID" | "AUTH_SIGNED_OUT"
 
+/** The error of `requireCaller()`. Check `code` to read the typed `data`, such as `data.reason` of `AUTH_MCP_TOKEN_INVALID`. */
+export type AuthCallerError = McpTokenInvalidError | ResultError<"AUTH_SIGNED_OUT", undefined>
+
+/** The `[error, caller]` tuple of `requireCaller()`. */
+export type AuthCallerResult<TRegistry = ViteHub.AuthRegistry> =
+  | [error: AuthCallerError, data: undefined]
+  | [error: undefined, data: AuthCaller<TRegistry>]
+
 // Keep published codes stable. The docs build writes a page for each code.
 const callerErrors = /*#__PURE__*/ defineErrors({
   docs: "https://vitehub.dev/docs/auth/diagnostics",
@@ -42,4 +51,4 @@ const callerErrors = /*#__PURE__*/ defineErrors({
   },
 })
 
-export const signedOutError = (): ResultError<"AUTH_SIGNED_OUT"> => callerErrors.AUTH_SIGNED_OUT()
+export const signedOutError = (): ResultError<"AUTH_SIGNED_OUT", undefined> => callerErrors.AUTH_SIGNED_OUT()
