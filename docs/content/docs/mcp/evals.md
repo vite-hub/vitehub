@@ -74,18 +74,68 @@ The model sees all tools. The eval runs only tools with `readOnlyHint: true`. Fo
 | `--dry-run` | Check the cases against the live tool list. Make no model call. |
 | `--max-tokens <n>` | Stop before the next model step or sample when the run used more than `n` tokens. |
 | `--out <dir>` | The output folder. The default is `.data/mcp-eval/<time>`. |
+| `--baseline <file>` | Compare with the `run.json` of an earlier run. See [Compare with a baseline](#compare-with-a-baseline). |
 
 ## Read the result
 
 Without `--samples`, each case runs 2 samples, and a 3rd sample when the first two do not agree. A sample with an error does not count in the pass rate, but its completed steps still count toward the token budget. A case fails when its pass rate is 0.5 or less. The script exits with code `1` when a case fails, has only errors, or does not finish within the token budget.
 
-The output folder has three files:
+The output folder has four files:
 
 - `results.jsonl`: one line for each sample, with each tool call, its arguments, the size of its result in characters, the checks, the final text, and the token usage with cache tokens.
 - `tools.json`: the raw `tools/list` result.
-- `summary.md`: the commit, the model, the tool count, the pass rate of each case, totals for each kind, and the tokens and tool calls.
+- `run.json`: the run in one small file, to commit as the baseline.
+- `summary.md`: the commit, the model, the tool count, the surface hash, the pass rate of each case, totals for each kind, and the tokens and tool calls.
 
 The summary flags each tool result of more than 50,000 characters. Claude Code moves a result of that size to a file, so the model does not read it in full.
+
+## Compare with a baseline
+
+`run.json` holds what the next run compares with:
+
+```json [evals/baseline.json]
+{
+  "version": 1,
+  "server": "https://docs.example.com/mcp",
+  "surface": "3f9c…",
+  "model": "sonnet",
+  "modelId": "claude-sonnet-4-6",
+  "commit": "a1b2c3d",
+  "date": "2026-11-25T12:00:00.000Z",
+  "cases": [
+    { "id": "queue-get-started", "kind": "bad", "hash": "8e1d…", "samples": 2, "passed": 2, "passRate": 1, "status": "pass" }
+  ],
+  "usage": { "input": 412000, "output": 3100, "cacheRead": 0 },
+  "toolCalls": 21
+}
+```
+
+- `surface` is the sha256 of the `tools` of `tools/list` and the server instructions. It changes when a tool name, description, schema, or annotation changes.
+- `hash` is the sha256 of the case's `id`, `kind`, `prompt`, `expect`, and `maxSteps`. `origin` and `notes` do not count.
+- `samples` counts the samples without an error, and `passed` counts the samples that passed.
+
+Copy `run.json` from a full run, without `--case`, to the file you commit. Then give that file to `--baseline`.
+
+In a model run, `summary.md` adds a `Baseline` and a `Delta` column next to `Pass rate`. The delta is in points. The summary only compares cases with the same ID and case hash. For a new or edited case, it shows `n/a` in both columns. An unchanged case is a regression when it passed every baseline sample and its pass rate is now 0.5 or less. The summary warns when the model key or ID differs. Compare runs of the same model. The baseline does not change the exit code of a model run.
+
+In a dry run, the eval compares the live surface and the cases with the baseline, with no model call. It reports differences alongside case validation errors. It exits with code `1` when the surface is different, when a case was added, removed, or changed, or when validation fails. It exits with code `0` when both match and validation passes.
+
+### Run it in CI
+
+A model run costs tokens, so run it on your machine and commit the result:
+
+```bash [Terminal]
+node evals/mcp.ts --model sonnet --out .data/mcp-eval/latest
+cp .data/mcp-eval/latest/run.json evals/baseline.json
+```
+
+On each pull request, CI runs the dry run. It uses no tokens and needs no API key:
+
+```bash [Terminal]
+node evals/mcp.ts --dry-run --baseline evals/baseline.json
+```
+
+When the dry run fails, the tools or the cases changed. Run the eval with a model again and commit the new `baseline.json`.
 
 ## Check the tool list
 
