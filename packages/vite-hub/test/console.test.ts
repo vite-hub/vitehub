@@ -42,7 +42,7 @@ import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-
 import { agentWithColocatedSkills, workspaceAgentWithSourceRoot } from "../../agent/dist/runtime/workflow.js"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
-import type { AgentInvocations, AgentRuntimeContext } from "@vite-hub/agent"
+import type { AgentInvocationRecord, AgentInvocations, AgentRuntimeContext } from "@vite-hub/agent"
 import type { ResolvedAuthViteConfig } from "@vite-hub/auth"
 import type { Plugin } from "vite"
 import type { ConsoleInvocationRootState } from "../src/console/vite.ts"
@@ -2803,7 +2803,7 @@ describe("Agent invocation console", () => {
       status: "completed" as const,
       traceId: "trace-raw-only-usage",
       updatedAt: "2026-08-27T10:00:00.000Z",
-    } satisfies Parameters<typeof invocationUsage>[0]
+    } satisfies AgentInvocationRecord
 
     const projected = invocationUsage(record)
     expect(projected).not.toHaveProperty("cost")

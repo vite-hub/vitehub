@@ -2,6 +2,7 @@ import { createClient } from "@libsql/client"
 import { drizzle } from "drizzle-orm/libsql"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 import { operationCliPath } from "@vite-hub/internal/operations"
 
 import { consoleState } from "../src/console/internal.ts"
@@ -9,6 +10,7 @@ import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import { installConsoleDatabase } from "../src/console/runtime/server/database.ts"
+import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import { consoleOperationModules } from "../src/console/operation-modules.ts"
 import { agentConsoleOperations } from "../src/agent/console/operations.ts"
 import { databaseConsoleOperations } from "../src/database/console/operations.ts"
@@ -134,6 +136,29 @@ describe("database operations", () => {
 })
 
 describe("usage operation", () => {
+  it("serves fresh journal usage through the Agent owner module", async () => {
+    const enabled = consoleOperationModules.filter(entry => entry.enabled({ documents: false, sections: ["agents", "usage"], site: false }))
+    installConsoleOperations([{ operations: (await Promise.all(enabled.map(entry => entry.load()))).flat(), plugin: "vite-hub" }])
+    const store = createMemoryAgentInvocationStore()
+    installConsoleInvocations("/project", defineAgentInvocations({ store }))
+    try {
+      await expect(operationRpcResponseResult(await call("invocations.usage"))).resolves.toMatchObject({ ok: true, value: { available: false } })
+      const timestamp = new Date().toISOString()
+      await store.create({
+        agentName: "bot",
+        completedAt: timestamp,
+        createdAt: timestamp,
+        id: "usage-run",
+        observations: [{ name: "agent.invocation.finish", attributes: { "usage.record": { usage: { totalTokens: 5 } } } }],
+        status: "completed",
+        updatedAt: timestamp,
+      })
+      await expect(operationRpcResponseResult(await call("invocations.usage"))).resolves.toMatchObject({ ok: true, value: { totals: { invocations: 1, totalTokens: 5 } } })
+    } finally {
+      delete consoleState().invocations
+    }
+  })
+
   it("reads the Usage section, and is `vitehub agent usage`", () => {
     const usage = agentConsoleOperations.find(operation => operation.name === "usage.get")
     expect(usage).toMatchObject({ kind: "read", section: "usage" })

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server";
+import type { AgentInvocationRecord } from "@vite-hub/agent";
 
 import { createUsageSummary, invocationUsage } from "../src/agent/console/usage.ts";
 
@@ -21,7 +22,7 @@ function invocationRecordFromUsageRecord(usageRecord: Record<string, unknown>) {
     status: "completed" as const,
     traceId: "usage-trace",
     updatedAt: "2026-08-27T10:00:00.000Z",
-  } satisfies Parameters<typeof invocationUsage>[0];
+  } satisfies AgentInvocationRecord;
 }
 
 function invocationRecord(usage: Record<string, unknown>) {
@@ -432,15 +433,14 @@ describe("Console session usage history with a custom store", () => {
 
   it("uses the final finish evidence and preserves decimal ordering", async () => {
     const record = invocationRecord({ totalTokens: 10 });
-    expect(
-      invocationUsage({
-        ...record,
-        observations: [
-          ...record.observations,
-          { ...record.observations[0]!, attributes: {}, sequence: 2 },
-        ],
-      }),
-    ).toBeUndefined();
+    const repeated: AgentInvocationRecord = {
+      ...record,
+      observations: [
+        ...record.observations,
+        { ...record.observations[0]!, attributes: {}, sequence: 2 },
+      ],
+    };
+    expect(invocationUsage(repeated)).toBeUndefined();
     const store = createMemoryAgentInvocationStore();
     for (const [id, usd] of [
       ["higher", "1.000000000000000002"],

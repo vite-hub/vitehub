@@ -164,7 +164,7 @@ describe("vitehub agent invocations wait-idle", () => {
     [["wait-idle", "--timeout", "soon"], "--timeout requires a duration"],
     [["wait-idle", "--stale-after", "0"], "--stale-after requires a positive duration"],
     [["list", "--stale-after", "2h"], "--stale-after is only supported for wait-idle."],
-    [["get", "ainv_1", "--agent", "support"], "--agent is only supported for list, wait-idle, export, and capabilities."],
+    [["get", "ainv_1", "--agent", "support"], "--agent is only supported for list, wait-idle, export, usage, and capabilities."],
   ])("rejects %j", async (args, message) => {
     const stderr = stream()
     const fetch = vi.fn()

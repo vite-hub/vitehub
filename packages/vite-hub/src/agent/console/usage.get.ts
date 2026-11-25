@@ -1,9 +1,9 @@
 import { getConsoleAgentDefinition, getConsoleAgents } from "../../console/runtime/server/agents.ts";
-import { getConsoleInvocations, getConsoleUsageIndex } from "../../console/runtime/server/invocations.ts";
+import { getConsoleInvocations, getConsoleUsageIndex, readConsoleJournalUsage } from "../../console/runtime/server/invocations.ts";
 import { withConsoleAccess, type ConsoleAccessRoute } from "../../console/runtime/server/access.ts";
 import { assertConsoleRequest, consoleRequestURL, consoleRoute } from "../../console/runtime/server/request.ts";
 import { consoleHttpError } from "../../console/runtime/server/http-error.ts";
-import { createUsageSummary, parseConsoleUsageStatus, parseConsoleUsageWindow } from "./usage.ts";
+import { createUsageSummary, parseConsoleUsageStatus, parseConsoleUsageWindow, usageQueryWindow } from "./usage.ts";
 
 import type { ConsoleRequestEvent, ConsoleRoute } from "../../console/runtime/server/request.ts";
 import type { AgentInvocations } from "@vite-hub/agent";
@@ -45,7 +45,17 @@ async function cached(
   }
 }
 
-const usageHandler = async (event: ConsoleRequestEvent): Promise<Record<string, unknown>> => {
+function pricedUsageAgents(names: readonly string[]): string[] {
+  return names.filter((name) => {
+    const capabilities = getConsoleAgentDefinition(name, "inspect")?.capabilities;
+    return (
+      Array.isArray(capabilities) &&
+      capabilities.some((capability) => capability?.id === "usage" && capability.metadata?.pricing === true)
+    );
+  });
+}
+
+function usageQuery(event: ConsoleRequestEvent) {
   assertConsoleRequest(event);
   const query = consoleRequestURL(event).searchParams;
   const agentName = query.get("agent")?.trim() || undefined;
@@ -67,40 +77,46 @@ const usageHandler = async (event: ConsoleRequestEvent): Promise<Record<string, 
     throw consoleHttpError(400, viteHubErrorDiagnostics.VITE_HUB_R0072({ message: "Invalid usage search" }));
   }
   const cursor = query.get("cursor") ?? undefined;
+  const costConfigured = pricedUsageAgents(agentName ? [agentName] : getConsoleAgents()).length > 0;
+  return { costConfigured, options: { agentName, cursor, window, status, search } };
+}
+
+const usageHandler = async (event: ConsoleRequestEvent): Promise<Record<string, unknown>> => {
+  const { costConfigured, options } = usageQuery(event);
   const invocations = getConsoleInvocations();
   return cached(
     invocations,
-    JSON.stringify([agentName ?? null, window, cursor, status, search]),
+    JSON.stringify([options.agentName ?? null, options.window, options.cursor, options.status, options.search]),
     async () => {
-      const costConfigured = (agentName ? [agentName] : getConsoleAgents()).some((name) => {
-        const capabilities = getConsoleAgentDefinition(name, "inspect")?.capabilities;
-        return (
-          Array.isArray(capabilities) &&
-          capabilities.some(
-            (capability) => capability?.id === "usage" && capability.metadata?.pricing === true,
-          )
-        );
-      });
       const index = getConsoleUsageIndex(invocations);
       if (index) {
         await invocations.list({ limit: 1 }); // Initialize the owning invocation store before projecting it.
-        const result = await index.query({ agentName, cursor, window, status, search });
+        const result = await index.query(options);
         return { ...result, costSupported: costConfigured || result.costSupported === true };
       }
-      const result = await createUsageSummary(invocations, {
-        agentName,
-        cursor,
-        window,
-        status,
-        search,
-      });
+      const result = await createUsageSummary(invocations, options);
       return { ...result, costSupported: costConfigured || result.costSupported === true };
     },
   );
 };
 
+const journalUsageHandler = async (event: ConsoleRequestEvent): Promise<Record<string, unknown>> => {
+  const { costConfigured, options } = usageQuery(event);
+  const invocations = getConsoleInvocations();
+  const result =
+    (await readConsoleJournalUsage(invocations, options, usageQueryWindow(options))) ??
+    (await createUsageSummary(invocations, options));
+  return { ...result, costSupported: costConfigured || result.costSupported };
+};
+
 /** The usage summary, for the `usage.get` operation. */
 export const readConsoleUsage: ConsoleAccessRoute<typeof usageHandler> = withConsoleAccess(usageHandler, { section: "usage" });
+
+/**
+ * The usage summary that the journal adds up at request time, for the `invocations.usage` operation. It has the same
+ * input and answer as `usage.get`, keeps no copy, and caches nothing.
+ */
+export const readConsoleJournalUsageRoute: ConsoleAccessRoute<typeof journalUsageHandler> = withConsoleAccess(journalUsageHandler, { section: "usage" });
 
 /** `GET <base>/_vitehub/console/usage` */
 const consoleUsageRoute: ConsoleRoute = consoleRoute(readConsoleUsage);
