@@ -24,9 +24,6 @@ import type { ConsoleStoredRead } from "./stored"
  */
 export type ConsoleProjectsMode = "embedded" | "account"
 
-/** What the switcher shows next to a linked project. */
-export type ConsoleProjectStatus = "checking" | "ready" | "sign-in" | "unreachable"
-
 /** The state of the boot gate, before the Console shows the project. */
 export type ConsoleProjectGate =
   | { kind: "opening" }
@@ -75,7 +72,6 @@ interface ConsoleProjectsState {
   info: ShallowRef<ConsoleProjectInfo | undefined>
   gate: ShallowRef<ConsoleProjectGate>
   projects: ShallowRef<ConsoleLinkedProject[]>
-  statuses: ShallowRef<Readonly<Record<string, ConsoleProjectStatus>>>
   /**
    * The name that each project reported, by project id: in `project.get`, or in the check of the team sidebar. The
    * device keeps those answers, so the next visit shows the names at once.
@@ -185,7 +181,6 @@ export function startConsoleProjects(options: {
     navigate: options.navigate,
     pageOrigin: options.pageOrigin,
     projects: shallowRef(projects),
-    statuses: shallowRef({}),
     store,
   }
   state = started
@@ -200,7 +195,6 @@ function open(info: ConsoleProjectInfo): void {
   projects.info.value = info
   const current = projects.current.value
   if (current?.id) {
-    projects.statuses.value = { ...projects.statuses.value, [current.id]: "ready" }
     rememberConsoleProjectName(current.id, info.name)
     if (projects.mode === "account") rememberAccountProject(projects.account.value?.teamId, current.id)
   }
@@ -345,24 +339,20 @@ export async function forgetConsoleProject(id: string): Promise<void> {
   reloadConsoleAccount()
 }
 
-/** Read `project.get` of every project of the team, for the status dots of the switcher. */
+/** Read `project.get` of every project of the team, so the switcher names the apps that have no label. */
 export async function checkConsoleProjects(): Promise<void> {
   const projects = useState()
   const list = projects.store.list()
   projects.projects.value = list
   // The open project answered at boot, so only the others need a request.
   const opened = projects.gate.value.kind === "ready" ? projects.current.value?.id : undefined
-  const pending = list.filter(project => project.id !== opened)
-  projects.statuses.value = { ...projects.statuses.value, ...Object.fromEntries(pending.map(project => [project.id, "checking" as const])) }
-  await Promise.all(pending.map(async (project) => {
+  await Promise.all(list.filter(project => project.id !== opened).map(async (project) => {
     const stored = projects.mode === "account" ? readProject(project.id) : undefined
     // The stored answer names the project while it answers again.
     if (stored?.stored?.kind === "ready") rememberConsoleProjectName(project.id, stored.stored.info.name)
     const answer = stored ? stored.answer() : probeConsoleProject(targetOf(projects, project))
     const probe = await answer.catch((): ConsoleProjectProbe => ({ kind: "unreachable" }))
     stored?.stop()
-    const status: ConsoleProjectStatus = probe.kind === "ready" ? "ready" : probe.kind === "signed" ? "sign-in" : "unreachable"
-    projects.statuses.value = { ...projects.statuses.value, [project.id]: status }
     if (probe.kind === "ready") rememberConsoleProjectName(project.id, probe.info.name)
   }))
 }
@@ -393,32 +383,45 @@ export function consoleOpenProjectName(reported?: string): string | undefined {
   return (projects.mode === "account" ? projects.current.value?.label : undefined) || reported || projects.info.value?.name
 }
 
+/** The Invite action of the app switcher sets it: the Members page opens with its invite field focused. */
+export const consoleInviteRequested: Ref<boolean> = ref(false)
+
 /** Only owners and admins of a team link and unlink its apps. */
 export function canManageConsoleProjects(account: Pick<ConsoleAccount, "roles">): boolean {
   return account.roles.includes("owner") || account.roles.includes("admin")
 }
 
-// The person picks it, so no answer of the server has it, and the device keeps only answers. It holds an id of the team,
-// which opens nothing for another account.
+// The person picks it, so no answer of the server has it, and the device keeps only answers. It holds ids of the team,
+// which open nothing for another account.
 const accountProjectKey = (teamId: string) => `vitehub-console:account-project:${teamId}`
+const recentProjectLimit = 5
 
-/** The project that an `account` Console opens next for a team, kept in this browser. */
+/** The apps of a team that this browser opened, the last one first. */
+export function recentAccountProjects(teamId: string | undefined): string[] {
+  if (!teamId) return []
+  try {
+    const value = globalThis.localStorage?.getItem(accountProjectKey(teamId))
+    if (!value) return []
+    const parsed: unknown = value.startsWith("[") ? JSON.parse(value) : [value]
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : []
+  }
+  catch {
+    return []
+  }
+}
+
+/** The project that an `account` Console opens next for a team, kept in this browser with the other recent apps. */
 export function rememberAccountProject(teamId: string | undefined, projectId: string): void {
   if (!teamId) return
+  const recent = [projectId, ...recentAccountProjects(teamId).filter(id => id !== projectId)].slice(0, recentProjectLimit)
   try {
-    globalThis.localStorage?.setItem(accountProjectKey(teamId), projectId)
+    globalThis.localStorage?.setItem(accountProjectKey(teamId), JSON.stringify(recent))
   }
   catch {}
 }
 
 function rememberedAccountProject(teamId: string | undefined): string | undefined {
-  if (!teamId) return undefined
-  try {
-    return globalThis.localStorage?.getItem(accountProjectKey(teamId)) ?? undefined
-  }
-  catch {
-    return undefined
-  }
+  return recentAccountProjects(teamId)[0]
 }
 
 /**

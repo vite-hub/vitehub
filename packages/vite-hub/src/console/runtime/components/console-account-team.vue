@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, ref, shallowRef } from "vue";
 
 import type { ConsoleTeamDetails, ConsoleTeamMember } from "../client/account";
 import { cancelConsoleInvitation, earlyConsoleTeam, inviteConsoleMember, loadConsoleTeam, removeConsoleMember } from "../client/account";
-import { canManageConsoleProjects, useConsoleProjects } from "../client/project-session";
+import { canManageConsoleProjects, consoleInviteRequested, useConsoleProjects } from "../client/project-session";
 import { useConsoleToast } from "../client/toast";
 import Icon from "./console-icon.vue";
 
@@ -42,7 +42,12 @@ async function load(answer = loadConsoleTeam()): Promise<void> {
 }
 
 // The link to this page starts the load when the pointer or the focus reaches it.
-onMounted(() => load(earlyConsoleTeam.take()));
+onMounted(() => {
+  void load(earlyConsoleTeam.take());
+  if (!consoleInviteRequested.value) return;
+  consoleInviteRequested.value = false;
+  setTimeout(() => document.getElementById("vitehub-team-invite-email")?.focus(), 50);
+});
 
 function initials(text: string): string {
   return text.split(/\s+/).filter(Boolean).slice(0, 2).map(word => word[0]).join("").toUpperCase();
@@ -119,7 +124,7 @@ async function copy(link: string): Promise<void> {
       <h2 id="vitehub-team-invite" class="text-sm font-semibold text-highlighted">Invite people</h2>
       <form class="grid gap-1.5" @submit.prevent="invite">
         <div class="flex flex-wrap gap-2">
-          <UInput v-model="email" type="email" autocomplete="off" placeholder="name@example.com" aria-label="Email" aria-describedby="vitehub-team-invite-help" required class="min-w-0 flex-1 basis-56" />
+          <UInput id="vitehub-team-invite-email" v-model="email" type="email" autocomplete="off" placeholder="name@example.com" aria-label="Email" aria-describedby="vitehub-team-invite-help" required class="min-w-0 flex-1 basis-56" />
           <USelect v-model="role" :items="[{ label: 'Member', value: 'member' }, { label: 'Admin', value: 'admin' }]" aria-label="Role" class="w-28" />
           <UButton type="submit" icon="i-lucide-user-plus" label="Create invite link" class="justify-center max-sm:flex-1" :loading="inviting" />
         </div>

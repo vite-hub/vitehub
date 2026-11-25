@@ -12,7 +12,6 @@ import { closeConsoleSidebarDrawer, consoleSidebarDrawer } from "../client/sideb
 import { useStoredData } from "@vite-hub/device/vue";
 import { consoleAppCheckKey } from "../client/stored";
 import ConsoleAccountHome from "./console-account-home.vue";
-import ConsoleAccountLink from "./console-account-link.vue";
 import ConsoleAccountMenu from "./console-account-menu.vue";
 import ConsoleAppLogo from "./console-app-logo.vue";
 import ConsoleAccountSetup from "./console-account-setup.vue";
@@ -162,9 +161,9 @@ async function retry(): Promise<void> {
 <template>
   <UDashboardGroup class="vitehub-console vitehub-account-shell" unit="rem" storage="local" storage-key="vitehub-console-account">
     <a href="#vitehub-account-main" class="vitehub-console__skip-link">Skip to content</a>
-    <ConsoleSidebar :home-href="pagePath('home')" home-label="ViteHub, all apps" :team="team?.name" :search="false" @home="follow($event, () => showConsoleAccountPage('home'))">
-      <template v-if="page === 'app' && projects.current.value" #app>
-        <ConsoleProjectSwitcher :app="app" />
+    <ConsoleSidebar :home-href="pagePath('home')" home-label="ViteHub, all apps" :search="false" @home="follow($event, () => showConsoleAccountPage('home'))">
+      <template #app>
+        <ConsoleProjectSwitcher :app="page === 'app' && projects.current.value ? app : undefined" />
       </template>
 
       <ConsoleSidebarItem
@@ -257,7 +256,6 @@ async function retry(): Promise<void> {
       </template>
     </UDashboardPanel>
 
-    <ConsoleAccountLink v-if="!(page === 'app' && projects.current.value)" v-model:open="projects.linkOpen.value" />
     <ConsoleToaster />
   </UDashboardGroup>
 </template>

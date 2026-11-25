@@ -179,3 +179,16 @@ export function memoryProjectStorage(): ConsoleProjectStorage {
     setItem: (key, value) => void values.set(key, value),
   }
 }
+
+const switcherFlatLimit = 7
+
+/**
+ * The apps of the app switcher: the apps in `recent` that still exist, in that order, then the other apps by name. A
+ * team with few apps gets one list by name, as a short list needs no Recent group.
+ */
+export function orderSwitcherProjects<T extends { id: string }>(projects: readonly T[], recent: readonly string[], name: (project: T) => string): { recent: T[], others: T[] } {
+  const byName = [...projects].sort((a, b) => name(a).localeCompare(name(b), undefined, { sensitivity: "base" }))
+  if (projects.length <= switcherFlatLimit) return { recent: [], others: byName }
+  const picked = recent.flatMap(id => projects.find(project => project.id === id) ?? [])
+  return { recent: picked, others: byName.filter(project => !picked.includes(project)) }
+}
