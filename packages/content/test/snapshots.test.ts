@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineSource, files } from "@vite-hub/source"
 import type { ContentFile, ContentPlugin } from "comark-content"
+import type { Plugin as RolldownPlugin } from "vite/rolldown"
 
 import { buildContentSnapshots, defineContent, registerContentSnapshots } from "../src/index.ts"
 import type { BuiltContentSnapshot, ContentSnapshot } from "../src/index.ts"
@@ -264,5 +265,36 @@ describe("Content snapshot build", () => {
     expect((await content.list("docs")).map((item: ContentFile) => item.meta.partial)).toEqual([false, false])
     expect(await content.get("/guide/install")).toEqual(await live.get("/guide/install"))
     expect(await content.navigation()).toEqual(await live.navigation())
+  })
+
+  it("ships the parsed Sources in a Nitro build outside Vite", { timeout: 30_000 }, async () => {
+    const project = await fixture(contentModule)
+    const plugin = hubContent({ importBase })
+    // SAFETY: The hook reads only the root, aliases, and plugin names.
+    Reflect.apply(plugin.configResolved as (config: object) => void, {}, [{ root: project, resolve: { alias: [] }, plugins: [] }])
+    const options = { dev: false, rollupConfig: { plugins: [] as RolldownPlugin[] } }
+    plugin.nitro.setup({ options })
+    const { rolldown } = await import("vite/rolldown")
+    const bundle = await rolldown({ input: join(project, "server/entry.ts"), cwd: project, platform: "node", external: [/^node:/], plugins: options.rollupConfig.plugins })
+    await bundle.write({ dir: join(project, "dist"), entryFileNames: "entry.mjs" })
+    await bundle.close()
+
+    const output = await readdir(join(project, "dist"), { recursive: true })
+    expect(output.filter(file => file.includes("vitehub-content-snapshot_"))).toEqual([expect.stringMatching(/vitehub-content-snapshot_docs-/), expect.stringMatching(/vitehub-content-snapshot_docs_0-/)])
+    const { default: content } = await import(pathToFileURL(join(project, "dist/entry.mjs")).href)
+    expect((await content.list("docs")).map((item: ContentFile) => item.meta.partial)).toEqual([false, false])
+  })
+
+  it("parses live in a Nitro dev build outside Vite", async () => {
+    const project = await fixture(contentModule)
+    const plugin = hubContent({ importBase })
+    Reflect.apply(plugin.configResolved as (config: object) => void, {}, [{ root: project, resolve: { alias: [] }, plugins: [] }])
+    const options = { dev: true, rollupConfig: { plugins: [] as RolldownPlugin[] } }
+    plugin.nitro.setup({ options })
+    const { rolldown } = await import("vite/rolldown")
+    const bundle = await rolldown({ input: join(project, "server/entry.ts"), cwd: project, platform: "node", external: [/^node:/], plugins: options.rollupConfig.plugins })
+    const { output } = await bundle.generate({})
+    await bundle.close()
+    expect(output.map(chunk => chunk.fileName).filter(file => file.includes("vitehub-content-snapshot_"))).toEqual([])
   })
 })

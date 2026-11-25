@@ -20,8 +20,11 @@ import type { parseAst, Plugin, UserConfig } from "vite"
 export const CONTENT_VITE_PLUGIN_NAME = "@vite-hub/content/vite"
 
 export type ContentVitePlugin = Plugin & {
-  /** Register KV in Nitro-owned builds, including prerender's separate compilation. */
-  nitro: { name: string, setup(nitro: { options: { rollupConfig?: { plugins?: unknown[] } } }): void }
+  /**
+   * Registers KV and ships the Source snapshots in a Nitro build outside Vite, such as Nuxt 4.7's, including prerender's
+   * separate compilation.
+   */
+  nitro: { name: string, setup(nitro: { options: { dev?: boolean, rollupConfig?: { plugins?: unknown[] } } }): void }
   /** The `vitehub content` commands, the Content operations, and the Content Definition inspector. */
   vitehub: { operations: OperationContributions } & ViteHubCliPluginMetadata & ViteHubInspectionPluginMetadata
 }
@@ -47,6 +50,10 @@ interface InternalContentOptions extends HubContentOptions {
  */
 const SNAPSHOT_ID = "\0vitehub-content-snapshot:"
 const SNAPSHOT_ID_PATTERN = /^\0vitehub-content-snapshot:/
+
+const CONTENT_ENTRY_FILTER = { include: /\/content\.[cm]?[jt]s(?:\?.*)?$/, exclude: /\/node_modules\// }
+
+const CONTENT_NITRO_PLUGIN_NAME = "@vite-hub/content/nitro"
 
 type BuiltSnapshots = { file: string, snapshots: Record<string, BuiltContentSnapshot> }
 
@@ -149,8 +156,8 @@ export function hubContent(options: HubContentOptions = {}): ContentVitePlugin {
   let alias: NonNullable<UserConfig["resolve"]>["alias"]
   let kvEnabled = false
   const discover = () => findContentEntry({ projectRoot: projectRoot ?? process.cwd(), serverDirs })
-  // One parse per build environment. A watch build parses again on each rebuild.
-  const snapshotsByEnvironment = new WeakMap<object, Promise<BuiltSnapshots | undefined>>()
+  // One parse per build: a Vite environment, or a Nitro build outside Vite. A watch build parses again on each rebuild.
+  const snapshotsByBuild = new WeakMap<object, Promise<BuiltSnapshots | undefined>>()
   // Each build gets new commit cache keys, because plugin options in closures do not change the parser hash.
   const build = randomUUID()
 
@@ -159,53 +166,84 @@ export function hubContent(options: HubContentOptions = {}): ContentVitePlugin {
     return `import { kv as __vitehubContentKV } from ${JSON.stringify((options as InternalContentOptions).kvImport ?? "@vite-hub/kv")}; import { registerContentKV as __vitehubRegisterContentKV } from ${JSON.stringify(options.importBase ?? "@vite-hub/content")}; __vitehubRegisterContentKV(__vitehubContentKV, ${JSON.stringify(build)});\n`
   }
 
+  async function registerSnapshots(key: object, code: string, id: string, warn: (message: string) => void): Promise<string> {
+    if (code.includes("__vitehubRegisterContentSnapshots")) return ""
+    let built = snapshotsByBuild.get(key)
+    if (!built) {
+      built = (async () => {
+        const file = await discover()
+        if (!file) return
+        const result = await buildContentSnapshotModules({ file, projectRoot: projectRoot ?? process.cwd(), importBase: options.importBase, alias })
+        for (const warning of result.warnings) warn(warning)
+        return { file, snapshots: result.snapshots }
+      })()
+      snapshotsByBuild.set(key, built)
+    }
+    const snapshots = await built
+    const names = snapshots && resolve(id.replace(/\?.*$/, "")) === snapshots.file ? Object.keys(snapshots.snapshots) : []
+    if (!names.length) return ""
+    const loaders = names.map(name => `${JSON.stringify(name)}: () => import(${JSON.stringify(SNAPSHOT_ID + name)}).then(module => module.default)`)
+    return `import { registerContentSnapshots as __vitehubRegisterContentSnapshots } from ${JSON.stringify(options.importBase ?? "@vite-hub/content")}; __vitehubRegisterContentSnapshots({ ${loaders.join(", ")} });\n`
+  }
+
+  async function loadSnapshot(key: object | undefined, id: string): Promise<string | undefined> {
+    const built = key ? await snapshotsByBuild.get(key) : undefined
+    const [name = "", shard] = id.slice(SNAPSHOT_ID.length).split(":")
+    const snapshot = built?.snapshots[name]
+    if (!snapshot) return
+    // Gzipped JSON in base64: a host compiles the module by its gzip size, and the server decodes it on first use.
+    const gzip = (text: string) => JSON.stringify(gzipSync(text, { level: 9 }).toString("base64"))
+    if (shard !== undefined) return `export default ${gzip(snapshot.shards[Number(shard)]!)}`
+    const shards = snapshot.shards.map((_, number) => `() => import(${JSON.stringify(`${SNAPSHOT_ID}${name}:${number}`)}).then(module => module.default)`)
+    return `export default { index: ${gzip(snapshot.index)}, shards: [${shards.join(", ")}] }`
+  }
+
   return {
     name: CONTENT_VITE_PLUGIN_NAME,
     enforce: "post",
     nitro: {
-      name: "@vite-hub/content/kv",
+      name: "@vite-hub/content",
       setup(nitro) {
         const config = nitro.options.rollupConfig ??= {}
         const plugins = config.plugins ??= []
-        if (!plugins.some(plugin => plugin && typeof plugin === "object" && Reflect.get(plugin, "name") === "@vite-hub/content/nitro-kv")) plugins.push({
-          name: "@vite-hub/content/nitro-kv",
-          async transform(code: string, id: string) {
-            const registration = await registerKV(code, id)
-            return registration ? { code: registration + code, map: null } : undefined
+        if (plugins.some(plugin => plugin && typeof plugin === "object" && Reflect.get(plugin, "name") === CONTENT_NITRO_PLUGIN_NAME)) return
+        const snapshots = !nitro.options.dev
+        let key = {}
+        plugins.push({
+          name: CONTENT_NITRO_PLUGIN_NAME,
+          buildStart() {
+            key = {}
+          },
+          transform: {
+            filter: { id: CONTENT_ENTRY_FILTER },
+            async handler(this: { warn(message: string): void }, code: string, id: string) {
+              let registration = await registerKV(code, id)
+              if (snapshots) registration += await registerSnapshots(key, code, id, message => this.warn(message))
+              return registration ? { code: registration + code, map: null } : undefined
+            },
+          },
+          resolveId: {
+            filter: { id: SNAPSHOT_ID_PATTERN },
+            handler: (id: string) => snapshots ? id : undefined,
+          },
+          load: {
+            filter: { id: SNAPSHOT_ID_PATTERN },
+            handler: (id: string) => snapshots ? loadSnapshot(key, id) : undefined,
           },
         })
       },
     },
     buildStart() {
-      if (this.environment) snapshotsByEnvironment.delete(this.environment)
+      if (this.environment) snapshotsByBuild.delete(this.environment)
     },
     transform: {
-      filter: { id: { include: /\/content\.[cm]?[jt]s(?:\?.*)?$/, exclude: /\/node_modules\// } },
+      filter: { id: CONTENT_ENTRY_FILTER },
       async handler(code, id) {
         const environment = this.environment
         if (!environment || environment.config.consumer !== "server") return
-        const importBase = JSON.stringify(options.importBase ?? "@vite-hub/content")
         // Apps without KV import none of its runtime.
         let registration = await registerKV(code, id)
-        if (environment.config.command === "build") {
-          let built = snapshotsByEnvironment.get(environment)
-          if (!built) {
-            built = (async () => {
-              const file = await discover()
-              if (!file) return
-              const result = await buildContentSnapshotModules({ file, projectRoot: projectRoot ?? process.cwd(), importBase: options.importBase, alias })
-              for (const warning of result.warnings) this.warn(warning)
-              return { file, snapshots: result.snapshots }
-            })()
-            snapshotsByEnvironment.set(environment, built)
-          }
-          const snapshots = await built
-          const names = snapshots && resolve(id.replace(/\?.*$/, "")) === snapshots.file ? Object.keys(snapshots.snapshots) : []
-          if (names.length) {
-            const loaders = names.map(name => `${JSON.stringify(name)}: () => import(${JSON.stringify(SNAPSHOT_ID + name)}).then(module => module.default)`)
-            registration += `import { registerContentSnapshots as __vitehubRegisterContentSnapshots } from ${importBase}; __vitehubRegisterContentSnapshots({ ${loaders.join(", ")} });\n`
-          }
-        }
+        if (environment.config.command === "build") registration += await registerSnapshots(environment, code, id, message => this.warn(message))
         // Lines before the module body, so `defineContent()` below receives them.
         return registration ? { code: registration + code, map: null } : undefined
       },
@@ -216,16 +254,8 @@ export function hubContent(options: HubContentOptions = {}): ContentVitePlugin {
     },
     load: {
       filter: { id: SNAPSHOT_ID_PATTERN },
-      async handler(id) {
-        const built = this.environment ? await snapshotsByEnvironment.get(this.environment) : undefined
-        const [name = "", shard] = id.slice(SNAPSHOT_ID.length).split(":")
-        const snapshot = built?.snapshots[name]
-        if (!snapshot) return
-        // Gzipped JSON in base64: a host compiles the module by its gzip size, and the server decodes it on first use.
-        const gzip = (text: string) => JSON.stringify(gzipSync(text, { level: 9 }).toString("base64"))
-        if (shard !== undefined) return `export default ${gzip(snapshot.shards[Number(shard)]!)}`
-        const shards = snapshot.shards.map((_, number) => `() => import(${JSON.stringify(`${SNAPSHOT_ID}${name}:${number}`)}).then(module => module.default)`)
-        return `export default { index: ${gzip(snapshot.index)}, shards: [${shards.join(", ")}] }`
+      handler(id) {
+        return loadSnapshot(this.environment, id)
       },
     },
     vitehub: {
