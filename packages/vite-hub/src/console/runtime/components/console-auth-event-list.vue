@@ -9,6 +9,7 @@ const labels: Record<AuthConsoleEvent["type"], string> = {
   "user.signed_out": "Signed out",
   "sign_in.failed": "Sign-in failed",
   "session.revoked": "Session revoked",
+  "session.expired": "Session expired",
   "user.banned": "User banned",
   "user.unbanned": "User unbanned",
   "user.role_changed": "Role changed",
