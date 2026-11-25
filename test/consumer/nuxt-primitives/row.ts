@@ -8,6 +8,7 @@ export type Target = "node" | "cloudflare"
 export interface ProbeContext {
   appDir: string
   mode: Mode
+  origin: string
   target: Target
   fetch: (path: string, init?: RequestInit) => Promise<Response>
 }
@@ -15,6 +16,7 @@ export interface ProbeContext {
 export interface PrepareContext {
   mode: Mode
   appDir: string
+  origin: string
   vitehub: (args: string[]) => Promise<void>
   wrangler: (args: string[]) => Promise<void>
 }
@@ -31,22 +33,11 @@ export interface PrimitiveRow {
   id: string
   packages: readonly `@vite-hub/${string}`[]
   dependencies?: Readonly<Record<string, string>>
-  vitehub?: (target: Target) => Record<string, unknown>
+  vitehub?: (target: Target, origin: string) => Record<string, unknown>
   files: Readonly<Record<string, string>>
   prepare?: (context: PrepareContext) => Promise<void>
   probe: (context: ProbeContext) => Promise<void>
   exempt?: Partial<Record<Mode, string>>
-}
-
-export interface PendingPrimitive {
-  id: string
-  pending: string
-}
-
-export type PrimitiveEntry = PrimitiveRow | PendingPrimitive
-
-export function pending(owner: string, ids: readonly string[]): PendingPrimitive[] {
-  return ids.map(id => ({ id, pending: `pending, owned by ${owner}` }))
 }
 
 export async function setServerEnv({ appDir, mode }: Pick<PrepareContext, "appDir" | "mode">, values: Record<string, string>) {
@@ -55,10 +46,6 @@ export async function setServerEnv({ appDir, mode }: Pick<PrepareContext, "appDi
   const file = join(appDir, ".output/server/.dev.vars")
   const current = await readFile(file, "utf8").catch(() => "")
   await writeFile(file, `${current}${Object.entries(values).map(([name, value]) => `${name}=${JSON.stringify(value)}\n`).join("")}`)
-}
-
-export function isRow(entry: PrimitiveEntry): entry is PrimitiveRow {
-  return "probe" in entry
 }
 
 export async function expectJson(response: Response, expected: unknown) {

@@ -33,6 +33,15 @@ describe("the user of a Comments request", () => {
     expect((await resolveCommentsIdentity(comments, request())).user).toEqual({ id: "console-ada", name: "Ada", role: "console,comments-write" })
   })
 
+  it("passes the signed Comments handoff through only for a Site access member", async () => {
+    const commentsAgent = { project: { id: "app-1", teamId: "team-1", url: "https://docs.example.com/portal" }, resolve: false }
+    const comments = defineComments({})
+    installViteHubSiteVisitor(async () => ({ ...ada, commentsAgent }))
+    expect((await resolveCommentsIdentity(comments, request())).commentsAgent).toEqual(commentsAgent)
+    installViteHubSiteVisitor(async () => ({ ...ada, commentsAgent, kind: "guest" }))
+    expect((await resolveCommentsIdentity(comments, request())).commentsAgent).toBeUndefined()
+  })
+
   it("prefers the Site access person to the Auth user of the app", async () => {
     installViteHubSiteVisitor(async () => ada)
     const comments = defineComments({})

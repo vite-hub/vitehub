@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
 import { syncTables } from "../../../packages/sync/src/database.ts"
-import { expectJson, type PrepareContext, type PrimitiveEntry } from "./row.ts"
+import { expectJson, type PrepareContext, type PrimitiveRow } from "./row.ts"
 
 const placeholderD1Id = "00000000-0000-0000-0000-000000000000"
 const placeholderKVId = "00000000000000000000000000000000"
@@ -39,7 +39,7 @@ function expectEqual(actual: unknown, expected: unknown, what: string) {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(`${what}: ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`)
 }
 
-export const storage: PrimitiveEntry[] = [
+export const storage: PrimitiveRow[] = [
   {
     id: "kv",
     packages: ["@vite-hub/kv"],

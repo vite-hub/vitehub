@@ -62,6 +62,12 @@ export type SiteTokenKind = "site" | "impersonate" | "preview"
 
 const kinds: readonly SiteTokenKind[] = ["site", "impersonate", "preview"]
 
+export interface SiteCommentsAgent {
+  projectId: string
+  teamId: string
+  resolve: boolean
+}
+
 /** The person and the roles that a token signs in. */
 export interface SiteTokenClaims {
   /** The URL of the app, its origin and base path without a trailing `/`, such as `https://app.example.com/portal`. */
@@ -76,6 +82,7 @@ export interface SiteTokenClaims {
   image?: string
   /** The roles of the person, such as `console` and `comments-write`. */
   roles: string[]
+  commentsAgent?: SiteCommentsAgent
   kind: SiteTokenKind
   /** The path of the app to open after the sign-in, such as `/docs`. */
   path: string
@@ -247,7 +254,7 @@ function failure(code: SiteTokenCode, message: string): SiteTokenFailure {
 
 function readClaims(value: unknown): SiteTokenClaims | undefined {
   if (!isRecord(value)) return undefined
-  const { aud, email, exp, iat, image, kind, name, path, roles, state, sub } = value
+  const { aud, commentsAgent, email, exp, iat, image, kind, name, path, roles, state, sub } = value
   const text = (field: unknown, maximum = 512): field is string => typeof field === "string" && field.length > 0 && field.length <= maximum
   const optional = (field: unknown) => field === undefined || text(field, 2_048)
   const time = (field: unknown): field is number => typeof field === "number" && Number.isSafeInteger(field)
@@ -260,6 +267,9 @@ function readClaims(value: unknown): SiteTokenClaims | undefined {
     ...(typeof email === "string" ? { email } : {}),
     ...(typeof image === "string" ? { image } : {}),
     roles: roles.filter(role => typeof role === "string"),
+    ...(isRecord(commentsAgent) && text(commentsAgent.projectId) && text(commentsAgent.teamId) && typeof commentsAgent.resolve === "boolean"
+      ? { commentsAgent: { projectId: commentsAgent.projectId, teamId: commentsAgent.teamId, resolve: commentsAgent.resolve } }
+      : {}),
     // SAFETY: verifySiteToken() checks the kind against the kinds that the app accepts.
     kind: kind as SiteTokenKind,
     path,

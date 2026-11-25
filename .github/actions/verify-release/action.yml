@@ -206,6 +206,10 @@ runs:
         VITEHUB_RELEASE_MANIFEST: ${{ github.workspace }}/.release/npm/release-manifest.json
       run: vp run test:contracts
 
+    - name: Install Chromium
+      shell: bash
+      run: pnpm exec playwright-core install --with-deps --only-shell chromium
+
     - name: Test no-hoist consumers against exact release tarballs
       shell: bash
       env:
