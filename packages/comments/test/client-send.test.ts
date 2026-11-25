@@ -367,6 +367,66 @@ describe("createCommentSend", () => {
     stop()
   })
 
+  it("pairs again on Retry after Pair another fails, without sending to the existing agent", async () => {
+    const server = fakeTransport({ count: 2, agent: t3 })
+    const send = createCommentSend(server.transport)
+    send.start()
+    await flush()
+    await send.pairAnother(async () => false)
+    expect(send.state).toMatchObject({ status: "failed", count: 2 })
+    await send.send(copy)
+    expect(server.calls.filter(call => call === "startPairing")).toHaveLength(2)
+    expect(server.calls).not.toContain("send")
+    expect(send.state).toMatchObject({ status: "pairing", count: 2 })
+  })
+
+  it("drops the code when Allow fails, and loads the status on Retry instead of sending to the old agent", async () => {
+    const server = fakeTransport({ count: 2, agent: { name: "Codex", logo: "codex" } }, { push: true })
+    const send = createCommentSend(server.transport)
+    send.start()
+    await flush()
+    await send.pairAnother(copy)
+    server.checks.push({ status: "paired", agent: t3 })
+    await vi.advanceTimersByTimeAsync(1500)
+    server.results.push({ status: "failed", reason: "The relay answered 502." })
+    await send.allow()
+    expect(send.state).toEqual({ status: "failed", count: 2, reason: "The relay answered 502." })
+    expect(server.cancelled).toEqual(["code-1"])
+    const status = server.transport.status
+    server.transport.status = async () => { throw new Error("Status returned 503.") }
+    await send.send(copy)
+    expect(send.state).toMatchObject({ status: "failed", count: 2 })
+    server.push({ type: "working", id: "old-send" })
+    expect(send.state).toMatchObject({ status: "failed", count: 2 })
+    server.transport.status = status
+    server.setStatus({ count: 1, agent: t3 })
+    await send.send(copy)
+    expect(send.state).toEqual({ status: "idle", count: 1, inbox: false, canPairAnother: true })
+    expect(server.calls).not.toContain("send")
+  })
+
+  it.each(["rejected", "changed"])("drops the old code when a superseded Allow is %s", async (outcome) => {
+    const server = fakeTransport({ count: 2 })
+    const delivery = deferred<CommentSendResult>()
+    server.transport.allow = () => delivery.promise
+    const send = createCommentSend(server.transport)
+    const stop = send.start()
+    await flush()
+    await send.send(copy)
+    server.checks.push({ status: "paired", agent: t3 })
+    await vi.advanceTimersByTimeAsync(1500)
+    const allowing = send.allow()
+    stop()
+    send.start()
+    await flush()
+    await send.send(copy)
+    if (outcome === "rejected") delivery.reject(new Error("Allow request failed."))
+    else delivery.resolve({ status: "changed", count: 3, selection: "new" })
+    await allowing
+    expect(server.cancelled).toEqual(["code-1"])
+    expect(send.state).toMatchObject({ status: "pairing", count: 2 })
+  })
+
   it("shows the agent's send on load, a limit on load, and an inbox", async () => {
     const working = createCommentSend(fakeTransport({ count: 0, agent: t3, working: { id: "send-1" } }).transport)
     working.start()
