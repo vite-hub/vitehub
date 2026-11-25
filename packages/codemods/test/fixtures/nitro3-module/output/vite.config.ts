@@ -5,7 +5,6 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
   plugins: [vitehub({
-    host: 'node',
     env: {
       server: {
         apiSecret: env({ schema: env.schemaFrom('./server/env.schema.ts', 'apiSecret'), secret: true, source: env.source('NITRO_API_SECRET') }),

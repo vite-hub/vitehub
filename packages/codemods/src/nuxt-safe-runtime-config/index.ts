@@ -17,7 +17,7 @@ import { rewriteCallSites } from "./call-sites.ts"
 import { editNuxtConfig } from "./config-edit.ts"
 import { planFromEnvFile, readEnvFileKeys } from "./env-file.ts"
 import { pathLabel } from "./fields.ts"
-import { assertNotNitro2, editNitroConfig, findNitroModuleEntry, isNitroApp, nitroModuleName, planNitroHost, readNitroConfig, readVitePreset, writeViteConfig } from "./nitro-config.ts"
+import { assertNotNitro2, checkNitroConfig, editNitroConfig, findNitroModuleEntry, isNitroApp, nitroModuleName, planNitroHost, readNitroConfig, readViteConfigPlan, writeViteConfig } from "./nitro-config.ts"
 import { loadSchemaModule, moduleName, readRuntimeConfig, readStaticOptions } from "./nuxt-config.ts"
 import { planFromJsonSchema, schemaIssues, schemaToJsonSchema } from "./schema.ts"
 import { planSchemaModule, renderSchemaModule } from "./schema-module.ts"
@@ -82,7 +82,6 @@ function validationChecks(options: Pick<StaticOptions, "validateAtBuild" | "vali
   return { validateAtBuild: options.validateAtBuild !== false, validateAtRuntime: options.validateAtRuntime ?? true }
 }
 
-/** Reads the module options statically, and runs the config only when an inline schema or a dynamic option needs it. */
 async function resolveOptions(staticOptions: StaticOptions, load: () => Promise<Record<string, unknown>>): Promise<ResolvedOptions> {
   if (!staticOptions.inlineSchema && !staticOptions.dynamic) {
     return staticOptions
@@ -105,7 +104,6 @@ async function resolveOptions(staticOptions: StaticOptions, load: () => Promise<
   }
 }
 
-/** Line of each object property in a schema module, by its dotted path of property keys. */
 function schemaLines(code: string): Map<string, number> {
   const lines = new Map<string, number>()
   let program: ReturnType<typeof parseProgram>
@@ -154,8 +152,6 @@ async function layerExtends(config: NuxtConfigFile): Promise<string[]> {
 async function findOutOfScopeConfigs(cwd: string, rootConfig: NuxtConfigFile): Promise<{ directories: string[], followUps: FollowUp[] }> {
   const files = await glob(["**/nuxt.config.{ts,mts,js,mjs,cjs}", "**/nitro.config.{ts,mts,js,mjs,cjs}"], { cwd, ignore: ["**/node_modules/**", "**/.nuxt/**", "**/.output/**"] })
   const nuxtDirectories = new Set(files.filter(file => posix.basename(file).startsWith("nuxt.config.")).map(file => posix.dirname(file)))
-  // Nuxt consumes immediate layers/ children automatically, and resolves each
-  // configured local extends path relative to the config that declares it.
   const layers = new Set([".", ...[...nuxtDirectories].filter(directory => posix.dirname(directory) === "layers")])
   const followUps: FollowUp[] = []
   for (const directory of layers) {
@@ -385,7 +381,6 @@ function secretType(field: EnvField): string {
   return field.schema ? "SecretEnv of the schema output" : "SecretEnv<string>"
 }
 
-/** Remove a schema-free module only when no layer can supply options or composable calls. */
 async function removeUnusedModule(cwd: string, config: NuxtConfigFile, safeProperty: ObjectProperty | undefined): Promise<CodemodResult> {
   const editor = new ConfigEditor(config)
   removeModuleEntry(editor, config, moduleName)
@@ -418,10 +413,17 @@ async function removeUnusedModule(cwd: string, config: NuxtConfigFile, safePrope
   }
 }
 
-const nitroScript = /\bnitro (dev|build)\b/g
+function migrateNitroScript(command: string): string {
+  const bare = /^(\s*(?:[A-Za-z_][\w]*=[\w./:-]+\s+)*)nitro\s+(dev|build)(\s*)$/
+  if (bare.test(command)) return command.replace(bare, "$1vite $2$3")
+  if (/\bnitro["']?\s+["']?(dev|build)\b/.test(command)) {
+    throw codemodError(`Cannot migrate the package.json script \`${command}\`. Convert it to the equivalent Vite command by hand, then run the codemod again.`)
+  }
+  return command
+}
 
 async function findNitroOutOfScopeConfigs(cwd: string, rootConfig: NuxtConfigFile): Promise<{ directories: string[], followUps: FollowUp[] }> {
-  const files = await glob(["**/nuxt.config.{ts,mts,js,mjs,cjs}", "**/nitro.config.{ts,mts,js,mjs,cjs}"], { cwd, ignore: ["**/node_modules/**", "**/.nitro/**", "**/.output/**"] })
+  const files = await glob(["**/nuxt.config.{ts,mts,js,mjs,cjs}", "**/nitro.config.{ts,mts,cts,js,mjs,cjs}"], { cwd, ignore: ["**/node_modules/**", "**/.nitro/**", "**/.output/**"] })
   const directories = new Set<string>()
   const followUps: FollowUp[] = []
   for (const file of files.sort()) {
@@ -438,6 +440,8 @@ async function findNitroOutOfScopeConfigs(cwd: string, rootConfig: NuxtConfigFil
 
 async function migrateNitro(cwd: string): Promise<CodemodResult> {
   const config = await readNitroConfig(cwd)
+  checkNitroConfig(config)
+  const vitePlan = await readViteConfigPlan(cwd)
   const moduleEntry = findNitroModuleEntry(config)
   const safeProperty = findProperty(config.root, "safeRuntimeConfig")
   if (!moduleEntry && !safeProperty) {
@@ -451,17 +455,22 @@ async function migrateNitro(cwd: string): Promise<CodemodResult> {
   const reasons = transformReason(transforms)
   if (moduleEntry) reasons.unshift(`${config.fileName} uses \`${nitroModuleName}\``)
   const migrated = new Set(fields.map(field => pathLabel(field)))
-  const hostPlan = planNitroHost(config, await readVitePreset(cwd))
+  const runtime = readRuntimeConfig(config)
+  const kept = [...runtime.values].flatMap(([path, { property }]) => {
+    if (migrated.has(path) || (property.value.type === "ObjectExpression" && property.value.properties.length)) return []
+    return [path]
+  })
+  const hostPlan = planNitroHost(config, vitePlan)
   const edited = editNitroConfig({ config, moduleEntry, migrated, preset: hostPlan.preset })
-  const vite = await writeViteConfig({ cwd, nitroConfig: config, env: { kind: "fields", fields }, host: hostPlan.host, schemaModule, removePreset: hostPlan.removeVitePreset })
+  const vite = writeViteConfig({ nitroConfig: config, env: { kind: "fields", fields }, host: hostPlan.host, schemaModule, removePresets: hostPlan.vitePresets }, vitePlan)
   const viteFile = vite.edit.path
   const outOfScope = await findNitroOutOfScopeConfigs(cwd, config)
-  const calls = await rewriteCallSites({ cwd, fields, unmigrated, excludedDirectories: outOfScope.directories, framework: "nitro" })
+  const calls = await rewriteCallSites({ cwd, fields, unmigrated: [...unmigrated, ...kept], excludedDirectories: outOfScope.directories, framework: "nitro" })
   const packageResult = await editPackageJson(cwd, packageJson.version, {
     remove: [moduleName],
     add: ["vite-hub"],
     within: { vite: "^8.0.0" },
-    scripts: command => command.replace(nitroScript, "vite $1"),
+    scripts: migrateNitroScript,
   })
 
   const envLine = (field: EnvField) => vite.lineOf(["env", field.section, ...field.envPath])
