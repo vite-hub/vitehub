@@ -122,7 +122,31 @@ function utcTimestamp(value: string): string {
     ELSE ${format(`upper(${value})`, "'+0 seconds'")} END`
 }
 
-export function agentUsageStatement(table: string, options: AgentUsageQuery, period: AgentUsagePeriod, ids?: readonly string[], mode?: "candidates" | "exact"): { sql: string, args: Array<string | number> } {
+export function usageIdBindings(ids: readonly string[]): string[] | undefined {
+  const maxBytes = 1_000_000
+  const maxBindings = 90
+  const encoder = new TextEncoder()
+  const bindings: string[] = []
+  let chunk: string[] = []
+  let bytes = 2
+  for (const id of ids) {
+    const entry = JSON.stringify(id)
+    const size = encoder.encode(entry).byteLength
+    if (size + 2 > maxBytes) return undefined
+    if (bytes + size + Number(chunk.length > 0) > maxBytes) {
+      bindings.push(`[${chunk.join(",")}]`)
+      if (bindings.length === maxBindings) return undefined
+      chunk = []
+      bytes = 2
+    }
+    bytes += size + Number(chunk.length > 0)
+    chunk.push(entry)
+  }
+  bindings.push(`[${chunk.join(",")}]`)
+  return bindings
+}
+
+export function agentUsageStatement(table: string, options: AgentUsageQuery, period: AgentUsagePeriod, idBindings?: readonly string[], mode?: "candidates" | "exact"): { sql: string, args: Array<string | number> } {
   const args: Array<string | number> = []
   const arg = (value: string | number) => {
     args.push(value)
@@ -137,7 +161,7 @@ export function agentUsageStatement(table: string, options: AgentUsageQuery, per
   ]
   const status = options.status ? ` AND s.status = ${arg(options.status)}` : ""
   const earliestLocalDay = new Date(Date.parse(period.from) - 86_400_000).toISOString().slice(0, 10)
-  const matchingIds = ids ? ` AND s.id IN (SELECT value FROM json_each(${arg(JSON.stringify(ids))}))` : ""
+  const matchingIds = idBindings ? ` AND s.id IN (${idBindings.map(binding => `SELECT value FROM json_each(${arg(binding)})`).join(" UNION ALL ")})` : ""
   const costPart = (part: string) => `CASE costSource WHEN 'own' THEN own${part} WHEN 'calls' THEN calls${part} WHEN 'recorded' THEN recorded${part} END AS cost${part}`
   const head = `source AS MATERIALIZED (
   ${[`>= ${arg(earliestLocalDay)} AND (s.updated_at >= ${from} OR ${utcTimestamp("s.updated_at")} >= ${from})`, "= ''"].map(range => `SELECT s.id

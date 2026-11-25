@@ -58,7 +58,6 @@ export interface ConsoleState {
   invocations?: AgentInvocations
   /** The Setup endpoint route, installed only in development output. */
   setupRoute?: string
-  siteDatabase?: () => Promise<{ name: string, db: object } | undefined>
   documents?: ConsoleDocumentEditors
   env?: ServerEnvDescription
   projectName?: string

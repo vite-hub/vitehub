@@ -2,7 +2,7 @@ import { handleChannelReplayRequest } from "@vite-hub/agent/server/internal"
 import { createExecutionContext } from "@vite-hub/runtime"
 import { createRuntimeWaitUntilController } from "@vite-hub/runtime/internal/context"
 
-import { agentConsole } from "../../server.ts"
+import { agentConsole } from "./agent-console.ts"
 import { getConsoleAgentCapabilities, getConsoleAgentDefinition } from "./agents.ts"
 import { consoleAccessInvoker, readConsoleAccessUser, type ConsoleAccess } from "./access.ts"
 import { consoleRequestError } from "./request.ts"

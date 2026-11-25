@@ -2,8 +2,8 @@ import { installOperationRegistryLoader } from "@vite-hub/internal/operation-reg
 
 /**
  * The Console runtime installs the operations, Definitions, Schedules, Database, Blob, and Env of the Console. It
- * imports every primitive's operations, so the generated plugin loads it on the first Console request or agent tool
- * that needs it, not when the server starts.
+ * imports every primitive's operations, so the generated Console app module loads it on the first Console request or
+ * agent tool that needs it.
  */
 interface ConsoleRuntimeState {
   load: () => Promise<() => void>
@@ -14,7 +14,7 @@ const runtimeKey: unique symbol = Symbol.for("vitehub.console.runtime")
 // SAFETY: This module owns the process slot shared by separately bundled generated plugins and Console routes.
 const scope = globalThis as typeof globalThis & { [runtimeKey]?: ConsoleRuntimeState }
 
-/** The generated plugin calls this at startup. `load` imports the runtime and returns its synchronous installer. */
+/** The generated Console app module calls this when it loads. `load` imports the runtime and returns its synchronous installer. */
 export function installConsoleRuntime(load: () => Promise<() => void>): void {
   scope[runtimeKey] = { load }
   installOperationRegistryLoader(loadConsoleRuntime)

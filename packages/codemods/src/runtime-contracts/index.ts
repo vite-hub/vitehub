@@ -104,6 +104,7 @@ function moves(): Move[] {
     { from: "vite-hub/auth/runtime/server", privatePath: `\`vite-hub/auth/runtime/server\` is no longer public. ${authPrivate}` },
     { from: "vite-hub/auth/console", privatePath: `\`vite-hub/auth/console\` is no longer public. ${authPrivate}` },
     { from: "vite-hub/auth/console-runtime", privatePath: "`vite-hub/auth/console-runtime` is no longer public. Read users and sessions with `getAuthConsoleForRequest(request)` from `vite-hub/auth/server`." },
+    { from: "vite-hub/console/mcp-client", privatePath: "`vite-hub/console/mcp-client` was removed. The MCP client section of the ViteHub Console connects to MCP servers from the Console server. Remove the import, and remove `@modelcontextprotocol/sdk` when nothing else imports it." },
     { from: "vite-hub/runtime", removed: runtimeRemoved },
     { from: "@vite-hub/runtime", removed: runtimeRemoved },
     { from: "vite-hub/realtime/server", to: "vite-hub/realtime", names: realtimeRootNames, removed: realtimeRemoved },

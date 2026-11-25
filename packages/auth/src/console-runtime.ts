@@ -1,7 +1,4 @@
 import type { AuthContext, BetterAuthOptions, DBAdapter, User, Where } from "better-auth";
-import { createAuthEndpoint } from "better-auth/api";
-import { setSessionCookie } from "better-auth/cookies";
-import { getAuthTables } from "better-auth/db";
 import { defineErrors, type Result, type ResultError } from "@vite-hub/runtime";
 import { defineGrant } from "@vite-hub/runtime/internal/grant";
 import { userAgentDevice } from "@vite-hub/internal/runtime/user-agent";
@@ -33,8 +30,6 @@ import type {
   AuthConsolePolicy,
   AuthConsoleQuery,
   AuthConsoleRoles,
-  AuthConsoleHostSession,
-  AuthConsoleHostUserInput,
   AuthConsoleSession,
   AuthConsoleSessionUser,
   AuthConsoleUser,
@@ -83,32 +78,8 @@ export interface AuthConsole {
   saveVerification(identifier: string, value: string, expiresAt: Date): Promise<Result<void, AuthConsoleErrorCode>>;
   /** Take a value that `saveVerification()` kept. Of two calls at the same time, one gets it. `null` when it is gone or expired. */
   consumeVerification(identifier: string): Promise<Result<string | null, AuthConsoleErrorCode>>;
-  /** The live values whose identifier starts with `prefix`, at most 1,000. Hosts use it for values that a person lists, such as Console invites. */
-  listVerifications(prefix: string): Promise<Result<{ identifier: string; value: string; expiresAt: Date }[], AuthConsoleErrorCode>>;
-  /** Delete a kept value. Deleting a value that is gone does nothing. */
-  deleteVerification(identifier: string): Promise<Result<void, AuthConsoleErrorCode>>;
-  /**
-   * The user that a host signs in without a password, such as a Console member or a guest that a member invited, with
-   * `roles` added to the comma-separated `user.role`. With `email`, an existing user with that verified email keeps
-   * their account and gets the roles, and an unverified one is refused; without it, a new user gets a placeholder email.
-   * Needs a database and a `user.role` field that users cannot set: `authDatabase()` and `admin()` add one. Better Auth
-   * runs the app's `databaseHooks.user.create` for a new user.
-   */
-  hostUser(input: AuthConsoleHostUserInput): Promise<Result<{ id: string; roles: string[] }, AuthConsoleErrorCode>>;
-  /**
-   * Check the Auth configuration without writing: a database and a `user.role` field that users cannot set and that
-   * sessions return. `hostUser()` and `hostSession()` still check the account and session when the link is redeemed.
-   */
-  checkHost(): Promise<Result<void, AuthConsoleErrorCode>>;
-  /** Start a Better Auth session for a user, and return the `Set-Cookie` headers that sign the browser in. */
-  hostSession(userId: string, request: Request): Promise<Result<Headers, AuthConsoleErrorCode>>;
-  /** Live sessions matching `roles`, newest first. `guest` matches only users created as guests by the host. */
-  hostSessions(roles: readonly string[]): Promise<Result<AuthConsoleHostSession[], AuthConsoleErrorCode>>;
-  /** End one session and delete its user only if the host created it as a guest. */
-  revokeHostSession(id: string): Promise<Result<{ removedUser: boolean }, AuthConsoleErrorCode>>;
 }
 
-const hostGuestProvider = "vitehub-site-guest";
 type ConsoleAdapter = Pick<DBAdapter, "findMany" | "findOne" | "count">;
 
 type Row = Record<string, unknown>;
@@ -211,8 +182,8 @@ const errors = defineErrors({
       fix: "Refresh the list and check the Auth Definition's plugins.",
     },
     AUTH_CONSOLE_UNAVAILABLE: {
-      why: ({ detail }: { detail?: string }) => detail ?? "Auth does not have the database, the `user.role` field, or the Better Auth plugin API that this operation needs.",
-      fix: "Set `database: authDatabase()` from `vite-hub/auth/database`, which also adds the `user.role` field that Site access needs. With your own adapter and schema, add a nullable `role` text column to the `user` table, apply the migration, and declare the field with `user: { additionalFields: { role: { type: \"string\", required: false, input: false } } }`. For a plugin operation, add the plugin. With a custom schema, add the plugin fields to your schema and apply the database migration before using the plugin. The default `admin()` fields are `user.role`, `user.banned`, `user.banReason`, `user.banExpires`, and `session.impersonatedBy`.",
+      why: ({ detail }: { detail?: string }) => detail ?? "Auth does not have the database or plugin API needed for this operation.",
+      fix: "Configure a database adapter and the required Better Auth plugin.",
     },
     AUTH_CONSOLE_PROVIDER_FAILED: {
       why: "Better Auth or an app column reader could not complete the operation.",
@@ -444,24 +415,6 @@ export function createAuthConsole(
       throw authConsoleError(409, "The Auth provider cannot resolve the acting app session.");
     const rows: unknown = await ctx.internalAdapter.listSessions(userId);
     return Array.isArray(rows) ? rows.map(record) : [];
-  }
-  async function hostSessionById(id: string): Promise<Row | null> {
-    const ctx = await context();
-    if (!ctx.options.secondaryStorage)
-      return await find("session", equality("id", id));
-    // Secondary storage is indexed by token and user, not public session ID. Resolve the
-    // ID through Better Auth without returning a token to the Console browser.
-    const limit = 100;
-    for (let offset = 0; ; offset += limit) {
-      const users = await ctx.adapter.findMany<Row>({
-        model: "user", offset, limit, sortBy: { field: "id", direction: "asc" },
-      });
-      for (const user of users) {
-        const session = (await storedSessions(string(user.id))).find((row) => string(row.id) === id);
-        if (session) return session;
-      }
-      if (users.length < limit) return null;
-    }
   }
   /**
    * The acting request for a check that only reads, such as whether the actor may impersonate a user. Without an app
@@ -1226,102 +1179,6 @@ export function createAuthConsole(
       throw authConsoleError(409, "One-time values need a Better Auth database adapter that every instance of the app shares.");
     return ctx.internalAdapter;
   }
-  /** The Better Auth context for host users and sessions: the `user.role` field keeps the roles, a database keeps the rest. */
-  async function hostContext() {
-    const ctx = await context();
-    if (!ctx.options.database || !ctx.internalAdapter || !ctx.authCookies || !ctx.secret || !ctx.sessionConfig)
-      throw authConsoleError(409, "Signing a browser in from the Console needs a Better Auth database.");
-    const role = getAuthTables(ctx.options).user?.fields.role;
-    if (!role)
-      throw authConsoleError(409, "Site access keeps permissions as roles in the `role` field of the Better Auth user, and your user table has no such field. Use `authDatabase()`, which adds it. With your own schema, add a nullable `role` text column to the `user` table, apply the migration, and declare the field in `defineAuth()`: `user: { additionalFields: { role: { type: \"string\", required: false, input: false } } }`.");
-    if (role.input !== false)
-      throw authConsoleError(409, "Site access keeps permissions as roles in `user.role`, and your `role` field lets users set it when they sign up or update their profile. Set `input: false` on the `role` field of `user.additionalFields` in `defineAuth()`.");
-    if (role.returned === false)
-      throw authConsoleError(409, "Site access needs `user.role` in the session so page tools can read its grants. Remove `returned: false` from your `role` field.");
-    return { ...ctx, internalAdapter: ctx.internalAdapter, authCookies: ctx.authCookies, secret: ctx.secret, sessionConfig: ctx.sessionConfig };
-  }
-  async function isHostGuest(userId: string): Promise<boolean> {
-    return Boolean(await find("account", [
-      { field: "providerId", value: hostGuestProvider },
-      { field: "accountId", value: userId },
-      { field: "userId", value: userId },
-    ]));
-  }
-  async function hostUser(input: AuthConsoleHostUserInput): Promise<{ id: string; roles: string[] }> {
-    const ctx = await hostContext();
-    const email = input.email?.trim().toLowerCase();
-    const existing = email ? await find("user", equality("email", email)) : null;
-    // Anyone can sign up with an email they do not own. Only a verified address proves that the account is this person's.
-    if (existing && existing.emailVerified !== true)
-      throw authConsoleError(403, `The app has an account with ${email}, and its email is not verified. Verify the email of that account, or delete the account, then open the site again.`);
-    if (existing) {
-      const owned = new Set(input.owned ?? []);
-      const kept = roleList(existing.role || string(adminPlugin(ctx.options).settings.defaultRole) || "user").filter((role) => !owned.has(role));
-      const roles = [...new Set([...kept, ...input.roles])];
-      await ctx.internalAdapter.updateUser(string(existing.id), { role: roles.join(",") });
-      return { id: string(existing.id), roles };
-    }
-    const roles = [...new Set(input.roles)];
-    const user = await ctx.internalAdapter.createUser(
-      {
-        email: email || `guest-${crypto.randomUUID()}@guests.invalid`,
-        // The host vouches for the email of its member, so the next sign-in from the host adopts this account.
-        emailVerified: Boolean(email),
-        name: input.name,
-        ...(input.image ? { image: input.image } : {}),
-        role: roles.join(","),
-      },
-      { method: "admin" },
-    );
-    if (!email && !await ctx.internalAdapter.createAccount({ providerId: hostGuestProvider, accountId: user.id, userId: user.id }))
-      throw authConsoleError(409, "Better Auth did not store the Site access guest account.");
-    return { id: user.id, roles };
-  }
-  async function hostSession(userId: string, request: Request): Promise<Headers> {
-    const ctx = await hostContext();
-    // In an endpoint context, Better Auth writes the cookies of a normal sign-in: the name prefix, the attributes, and
-    // the cookie cache with its chunks. It also reads the address and the user agent of the session from the request.
-    const signIn = createAuthEndpoint.serverOnly({ method: "POST" }, async (endpoint) => {
-      const user = await endpoint.context.internalAdapter.findUserById(userId);
-      if (!user) throw authConsoleError(404, "User not found.");
-      const session = await endpoint.context.internalAdapter.createSession(userId);
-      await setSessionCookie(endpoint, { session, user }, false);
-    });
-    const { headers } = await signIn({ context: ctx, headers: request.headers, returnHeaders: true });
-    return new Headers(headers.getSetCookie().map((cookie) => ["set-cookie", cookie]));
-  }
-  async function hostSessions(roles: readonly string[]): Promise<AuthConsoleHostSession[]> {
-    const ctx = await hostContext();
-    const holders = await ctx.adapter.findMany<Row>({
-      model: "user",
-      where: roles.map((role) => ({ field: "role", operator: "contains", value: role, connector: "OR" })),
-      limit: 1000,
-    });
-    const now = Date.now();
-    const rows = await Promise.all(
-      holders
-        .filter((user) => roleList(user.role).some((role) => roles.includes(role)))
-        .map(async (user) => {
-          const userId = string(user.id);
-          const userRoles = roleList(user.role);
-          const guest = await isHostGuest(userId);
-          if (!userRoles.some((role) => roles.includes(role) && (role !== "guest" || guest))) return [];
-          return (await storedSessions(userId))
-            .filter((session) => new Date(date(session.expiresAt)).getTime() > now)
-            .map((session) => ({
-              id: string(session.id),
-              user: userSummary(user),
-              roles: userRoles,
-              guest,
-              device: userAgentDevice(string(session.userAgent)),
-              createdAt: date(session.createdAt),
-              updatedAt: date(session.updatedAt),
-              expiresAt: date(session.expiresAt),
-            }));
-        }),
-    );
-    return rows.flat().sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
-  }
   async function stopImpersonating(request: Request): Promise<Response> {
     if (host.bearer)
       throw authConsoleError(403, "Impersonation needs the browser's app session.");
@@ -1378,45 +1235,6 @@ export function createAuthConsole(
       }),
     consumeVerification: (identifier) =>
       result(async () => (await (await verifications()).consumeVerificationValue(identifier))?.value ?? null),
-    listVerifications: (prefix) =>
-      result(async () => {
-        await verifications();
-        const rows = await (await context()).adapter.findMany<{ identifier: string; value: string; expiresAt: Date | string }>({
-          model: "verification",
-          where: [{ field: "identifier", operator: "starts_with", value: prefix }],
-          limit: 1000,
-        });
-        const now = Date.now();
-        return rows
-          .map((row) => ({ identifier: row.identifier, value: row.value, expiresAt: new Date(row.expiresAt) }))
-          .filter((row) => row.expiresAt.getTime() > now);
-      }),
-    deleteVerification: (identifier) =>
-      result(async () => {
-        await (await verifications()).deleteVerificationByIdentifier(identifier);
-      }),
-    hostUser: (input) => result(() => hostUser(input)),
-    checkHost: () =>
-      result(async () => {
-        await hostContext();
-      }),
-    hostSession: (userId, request) => result(() => hostSession(userId, request)),
-    hostSessions: (roles) => result(() => hostSessions(roles)),
-    revokeHostSession: (id) =>
-      result(async () => {
-        const ctx = await hostContext();
-        const session = await hostSessionById(id);
-        if (!session) throw authConsoleError(404, "No session has this id. It ended, or someone revoked it.");
-        const userId = string(session.userId);
-        const guest = await isHostGuest(userId);
-        await ctx.internalAdapter.deleteSession(string(session.token));
-        if (guest) {
-          await ctx.internalAdapter.deleteUserSessions(userId);
-          await ctx.internalAdapter.deleteAccounts(userId);
-          await ctx.internalAdapter.deleteUser(userId);
-        }
-        return { removedUser: guest };
-      }),
   };
 }
 
@@ -1426,9 +1244,4 @@ async function signedSessionToken(secret: string, token: string): Promise<string
   const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const signature = new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(token)));
   return encodeURIComponent(`${token}.${btoa(String.fromCharCode(...signature))}`);
-}
-
-/** The roles of `admin()`'s comma-separated `user.role`. */
-function roleList(value: unknown): string[] {
-  return string(value).split(",").map((role) => role.trim()).filter(Boolean);
 }

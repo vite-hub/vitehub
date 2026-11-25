@@ -128,4 +128,5 @@ export {
 export type { ViteHubContext, ViteHubRuntime, ViteHubStandardProps } from "./standard-context.ts"
 export { getRuntimeContext, getStandardContext, type RequestRuntimeContext, type RuntimeContextOptions, type RuntimeName } from "./request-context.ts"
 export { toResponse, type SerializedResponse } from "./response.ts"
-export { detectHost, getHostBinding, type HostBindingErrorCode, type ViteHubHost } from "./host.ts"
+export { detectHost } from "./internal/detect-host.ts"
+export { getHostBinding, type HostBindingErrorCode, type ViteHubHost } from "./host.ts"

@@ -36,7 +36,7 @@ function logSetupFailure(code: ConsoleSignatureCode, message: string): void {
 }
 
 /** The host environment of this request: the Cloudflare `env`, then `process.env` for the names it does not set. */
-function requestEnv(event: ConsoleRequestEvent): Record<string, unknown> {
+export function consoleRequestEnv(event: Request | ConsoleRequestEvent): Record<string, unknown> {
   return { ...globalThis.process?.env, ...getStandardContext(event).runtime?.cloudflare?.env }
 }
 
@@ -45,7 +45,7 @@ function requestEnv(event: ConsoleRequestEvent): Record<string, unknown> {
  * malformed key counts as a key: the check then answers `CONSOLE_KEY_MALFORMED`.
  */
 export function consoleKeysMissing(event: ConsoleRequestEvent): boolean {
-  const keys = readConsolePublicKeys(requestEnv(event))
+  const keys = readConsolePublicKeys(consoleRequestEnv(event))
   return !(keys instanceof Map) && keys.code === "CONSOLE_KEY_NOT_CONFIGURED"
 }
 
@@ -68,7 +68,7 @@ export function isConsoleRpcPath(pathname: string): boolean {
  * Signed requests reach only `POST /_vitehub/rpc`.
  */
 export async function checkConsoleSignature(request: Request, event: ConsoleRequestEvent): Promise<ConsoleSignatureCheck> {
-  const keys = readConsolePublicKeys(requestEnv(event))
+  const keys = readConsolePublicKeys(consoleRequestEnv(event))
   if (!(keys instanceof Map)) {
     logSetupFailure(keys.code, keys.message)
     return { ok: false, response: consoleSignatureRejection(keys.status, keys.code, keys.message) }

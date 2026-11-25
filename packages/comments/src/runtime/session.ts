@@ -22,7 +22,7 @@ export interface CommentsIdentity {
 }
 
 /**
- * The person that Site access in the Console signed in to an app without Auth, with their roles in `role`, as
+ * The person that Site access in the ViteHub Console signed in to the app, with their roles in `role`, as
  * `commentsRoleAllows()` reads them. A Console member has `comments-*` roles, a guest the roles of the invite.
  */
 async function siteUser(event: CommentsRequestEvent): Promise<CommentsUser | null> {
@@ -30,15 +30,14 @@ async function siteUser(event: CommentsRequestEvent): Promise<CommentsUser | nul
   if (!read) return null
   const visitor = await read(getStandardContext(event).req).catch(() => undefined)
   if (!visitor) return null
-  const { roles, ...person } = visitor
-  return { ...person, role: roles.join(",") }
+  return { id: visitor.id, name: visitor.name, ...(visitor.email ? { email: visitor.email } : {}), ...(visitor.image ? { image: visitor.image } : {}), role: visitor.roles.join(",") }
 }
 
 /**
  * The user of a request, shared by the overlay API, Realtime presence, the MCP tools, and the comment operations.
  * With `identify`, the app decides: `identify` names the user, `null` is anonymous, and `authorize` decides what they may do. Without
- * `identify`, it is the user of `session`, the ViteHub Auth user. Then, when there is none, the person of the Site
- * access cookie, and last the person signed in with GitHub.
+ * `identify`, it is the person of the Site access cookie. Then, when there is none, the user of `session`, the ViteHub
+ * Auth user, and last the person signed in with GitHub.
  */
 export async function resolveCommentsIdentity(comments: Comments, event: CommentsRequestEvent, options: CommentsSessionOptions = {}): Promise<CommentsIdentity> {
   if (comments.options.identify) {
@@ -46,8 +45,8 @@ export async function resolveCommentsIdentity(comments: Comments, event: Comment
     getStandardContext(event)
     return { user: await comments.options.identify({ event }) ?? null, gate: {} }
   }
-  const user = await options.session?.(event).catch(() => null)
-    ?? await siteUser(event)
+  const user = await siteUser(event)
+    ?? await options.session?.(event).catch(() => null)
     ?? await options.githubLogin?.user(event).catch(() => null)
   return { user: user ?? null, gate: {} }
 }

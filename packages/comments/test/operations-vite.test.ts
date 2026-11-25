@@ -167,6 +167,20 @@ describe("hubComments", () => {
     expect(await readFile(file, "utf8")).toContain("overlay: false")
   })
 
+  it("imports and calls the pill segments of other packages only while the overlay is on", async () => {
+    const root = await project(true)
+    const file = join(root, ".vitehub/nitro/comments/plugin.mjs")
+    const pillSegments = [{ module: "vite-hub/console/pill", export: "installConsolePill", options: { version: "1.2.3" } }]
+    await configHook(hubComments({ pillSegments }))({ nitro: { plugins: [] }, root })
+    const on = await readFile(file, "utf8")
+    expect(on).toContain('import { installConsolePill as pillSegment0 } from "vite-hub/console/pill"')
+    expect(on).toContain('pillSegments: [(nitroApp, context) => pillSegment0(nitroApp, { ...context, ...{"version":"1.2.3"} })]')
+    await configHook(hubComments({ overlay: false, pillSegments }))({ nitro: { plugins: [] }, root })
+    const off = await readFile(file, "utf8")
+    expect(off).not.toContain("installConsolePill")
+    expect(off).not.toContain("pillSegments")
+  })
+
   it("passes checkRateLimit to the runtime only when Rate Limit counts in a shared store", async () => {
     const root = await project(true)
     const file = join(root, ".vitehub/nitro/comments/plugin.mjs")
