@@ -197,7 +197,7 @@ function loadNativePackageModule(id: string): string | undefined {
 
 function reexportNativeModule(file: string): string {
   const url = JSON.stringify(pathToFileURL(realpathSync(file)).href)
-  const hasDefault = /\bexport default\b|\bas default\b/.test(readFileSync(file, "utf8"))
+  const hasDefault = /^export\s+default\b|^export\s*\{[^}]*\bdefault\s*[,}]/m.test(readFileSync(file, "utf8"))
   // Vite's module runner gives a `data:` import to Node unchanged, and Node resolves its absolute `file:` import.
   const native = JSON.stringify(`data:text/javascript,${encodeURIComponent(`export * from ${url}${hasDefault ? `\nexport { default } from ${url}` : ""}`)}`)
   return `export * from ${native}\n${hasDefault ? `export { default } from ${native}\n` : ""}`
