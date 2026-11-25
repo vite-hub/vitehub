@@ -8,7 +8,7 @@ import type { ConsoleProject } from "../../../src/projects.ts"
 
 export default defineMcpTool({
   title: "Link an app",
-  description: "Link a deployed ViteHub app to your team. Only owners and admins of the team may link. Linking a URL that the team already linked returns that link again, with the same key. The answer has the variable line with the public key of the link: add it to the app's environment, set console: true in its vitehub config, deploy, then call check_app. With kind: \"site\", it registers a site for Hosted Comments instead, and the answer has the script tag to add to the site's pages.",
+  description: "Link a deployed ViteHub app to your team. Only owners and admins of the team may link. If the team linked the same URL as an app and the Console can open its signing key, the answer returns the same link and key. The answer has the variable line with the public key of the link: add it to the app's environment, set console: true in its vitehub config, deploy, then call check_app. With kind: \"site\", it registers a site for Hosted Comments or returns the existing site link, and the answer has the script tag to add to the site's pages.",
   input: z.object({
     url: z.string().describe("The https:// URL of the app, with its base path if it has one, such as https://app.example.com"),
     label: z.string().optional().describe("A name for the app in the Console"),
