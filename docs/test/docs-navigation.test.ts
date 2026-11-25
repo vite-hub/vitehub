@@ -261,6 +261,9 @@ describe("docs product navigation", () => {
     for (const [from, rule] of landings) {
       expect(findDocsPage(docsManifest, rule.redirect.to), from).not.toBeNull();
       expect(routeRules[rule.redirect.to], from).toBeUndefined();
+      const markdownTarget = `/raw${rule.redirect.to}.md`;
+      expect(routeRules[`${from}.md`], from).toEqual({ redirect: { status: 301, to: markdownTarget } });
+      expect(routeRules[markdownTarget], from).toBeUndefined();
     }
   });
 });
