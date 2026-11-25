@@ -214,7 +214,7 @@ interface SummaryInput {
   findings: McpEvalFinding[]
   results: McpEvalCaseResult[]
   stopped?: string
-  baseline?: { path: string, run: McpEvalRun, regressions: string[], warnings: string[] }
+  baseline?: { path: string, run: McpEvalRun, matches: Map<string, McpEvalRunCase>, regressions: string[], warnings: string[] }
 }
 
 function points(rate: number | undefined, before: number | undefined): string {
@@ -231,11 +231,10 @@ function summarize(input: SummaryInput): string {
   const readOnly = input.toolList.tools.filter(tool => tool.annotations?.readOnlyHint === true).length
   const percent = (rate: number | undefined) => rate === undefined ? "n/a" : `${Math.round(rate * 100)}%`
   const baseline = input.baseline
-  const before = new Map(baseline?.run.cases.map(testCase => [testCase.id, testCase]))
   const caseRow = (result: McpEvalCaseResult) => {
     const status = baseline?.regressions.includes(result.id) ? `${result.status}, regression` : result.status
     if (!baseline) return `| ${result.id} | ${result.kind} | ${result.samples.length} | ${percent(result.passRate)} | ${status} |`
-    const old = before.get(result.id)
+    const old = baseline.matches.get(result.id)
     return `| ${result.id} | ${result.kind} | ${result.samples.length} | ${percent(result.passRate)} | ${percent(old?.passRate)} | ${points(result.passRate, old?.passRate)} | ${status} |`
   }
   const lines = [
@@ -341,30 +340,34 @@ export async function runMcpEval<MODELS extends Record<string, LanguageModel>>(o
     console.log(`${url}: ${count(toolList.tools.length, "tool")}, ${count(cases.length, "case")}${client.instructions ? ", server instructions" : ""}, surface ${surface.slice(0, 12)}.`)
     printList("Tool list findings", report.findings.map(formatFinding))
     printList("Problems", report.problems)
-    if (report.problems.length) return done(1)
-
     const base = baseline && "run" in baseline ? { path: flags.baseline ?? "", run: baseline.run } : undefined
     const surfaceChanged = base !== undefined && base.run.surface !== surface
-    if (flags.dryRun) {
-      if (!base) return done(0)
+    if (flags.dryRun && base) {
       const stale = [
         ...(surfaceChanged ? [`The tool list or the server instructions changed: surface ${surface.slice(0, 12)}, the baseline has ${base.run.surface.slice(0, 12)}.`] : []),
         ...staleCases(loaded.cases, base.run),
       ]
       report.baseline = { stale, regressions: [], warnings: [] }
-      if (!stale.length) {
-        console.log(`\nThe baseline ${base.path} matches the tool list and the cases.`)
-        return done(0)
+      if (stale.length) {
+        printList(`The baseline ${base.path} is stale. Run the eval with a model and commit the new run.json`, stale)
+        return done(1)
       }
-      printList(`The baseline ${base.path} is stale. Run the eval with a model and commit the new run.json`, stale)
-      return done(1)
+      if (!report.problems.length) {
+        console.log(`\nThe baseline ${base.path} matches the tool list and the cases.`)
+      }
     }
+    if (report.problems.length) return done(1)
+    if (flags.dryRun) return done(0)
     if (!model || modelKey === undefined) return done(1)
 
+    const modelId = typeof model === "string" ? model : model.modelId
     const warnings = [
       ...(base && base.run.model !== modelKey ? [`The baseline used the model "${base.run.model}", and this run uses "${modelKey}". Compare runs of the same model.`] : []),
       ...(surfaceChanged ? ["The tool list or the server instructions changed since the baseline."] : []),
     ]
+    if (base?.run.model === modelKey && base.run.modelId !== undefined && base.run.modelId !== modelId) {
+      warnings.unshift(`The model "${modelKey}" used ID "${base.run.modelId}" in the baseline and uses "${modelId}" now. Compare runs of the same model.`)
+    }
     printList("Baseline warnings", warnings)
 
     const readOnly = new Set(toolList.tools.filter(tool => tool.annotations?.readOnlyHint === true).map(tool => tool.name))
@@ -463,7 +466,15 @@ export async function runMcpEval<MODELS extends Record<string, LanguageModel>>(o
     }
 
     const commit = gitCommit()
-    const regressions = base ? runCases.filter(result => isRegression(base.run.cases.find(old => old.id === result.id), result.passRate)).map(result => result.id) : []
+    const previous = new Map(base?.run.cases.map(testCase => [testCase.id, testCase]))
+    const matches = new Map<string, McpEvalRunCase>()
+    const regressions: string[] = []
+    for (const result of runCases) {
+      const old = previous.get(result.id)
+      if (old?.hash !== result.hash) continue
+      matches.set(result.id, old)
+      if (isRegression(old, result.passRate)) regressions.push(result.id)
+    }
     if (base) report.baseline = { stale: [], regressions, warnings }
     const samples = report.cases.flatMap(result => result.samples)
     const run: McpEvalRun = {
@@ -471,7 +482,7 @@ export async function runMcpEval<MODELS extends Record<string, LanguageModel>>(o
       server: url,
       surface,
       model: modelKey,
-      ...(typeof model === "string" ? { modelId: model } : { modelId: model.modelId }),
+      modelId,
       ...(commit ? { commit } : {}),
       date: new Date().toISOString(),
       cases: runCases,
@@ -490,7 +501,7 @@ export async function runMcpEval<MODELS extends Record<string, LanguageModel>>(o
       findings: report.findings,
       results: report.cases,
       stopped,
-      ...(base ? { baseline: { ...base, regressions, warnings } } : {}),
+      ...(base ? { baseline: { ...base, matches, regressions, warnings } } : {}),
     })
     await writeFile(join(outDir, "summary.md"), summary)
     console.log(`\n${summary}\nWrote ${outDir}`)

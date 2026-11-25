@@ -38,10 +38,10 @@ const handler = createMcpHandler({
   },
 })
 
-async function serve(input: string | URL | Request, init?: RequestInit): Promise<Response> {
+async function serve(input: string | URL | Request, init?: RequestInit, handle = handler): Promise<Response> {
   const req = new Request(input, init)
   // SAFETY: The handler reads only `req` and `url` and passes the event to the tools.
-  return await handler({ req, url: new URL(req.url) } as unknown as H3Event)
+  return await handle({ req, url: new URL(req.url) } as unknown as H3Event)
 }
 
 const usage = { inputTokens: { total: 100, noCache: 80, cacheRead: 20, cacheWrite: undefined }, outputTokens: { total: 10, text: 10, reasoning: undefined } }
@@ -280,12 +280,35 @@ describe("runMcpEval with a baseline", () => {
     expect(report.baseline).toEqual({ stale: [], regressions: ["say-hello"], warnings: [] })
   })
 
+  it("does not compare an edited case with the baseline case of the same ID", async () => {
+    const baseline = await baselineRun()
+    const edited = cases.map(testCase => testCase.id === "queue-retries"
+      ? { ...testCase, expect: { ...testCase.expect, finalTextMust: ["/docs/queue#retries"] } }
+      : testCase)
+    const report = await runMcpEval({ server: { url: "https://docs.example.com/mcp" }, cases: edited, models: { mock: docsModel() }, argv: ["--out", out, "--baseline", baseline] })
+
+    expect(report.baseline?.regressions).toEqual([])
+    expect(await readFile(join(out, "summary.md"), "utf8")).toContain("| queue-retries | bad | 2 | 0% | n/a | n/a | fail |")
+    expect(report.exitCode).toBe(1)
+  })
+
   it("warns when the baseline used a different model", async () => {
     const baseline = await baselineRun((run) => {
       run.model = "haiku"
     })
     const report = await runMcpEval({ server: { url: "https://docs.example.com/mcp" }, cases, models: { mock: docsModel() }, argv: ["--out", out, "--baseline", baseline] })
     const warning = "The baseline used the model \"haiku\", and this run uses \"mock\". Compare runs of the same model."
+
+    expect(report.baseline?.warnings).toEqual([warning])
+    expect(await readFile(join(out, "summary.md"), "utf8")).toContain(`> [!WARNING]\n> ${warning}`)
+  })
+
+  it("warns when the model ID changed under the same key", async () => {
+    const baseline = await baselineRun((run) => {
+      run.modelId = "older-model-id"
+    })
+    const report = await runMcpEval({ server: { url: "https://docs.example.com/mcp" }, cases, models: { mock: docsModel() }, argv: ["--out", out, "--baseline", baseline] })
+    const warning = 'The model "mock" used ID "older-model-id" in the baseline and uses "mock-model-id" now. Compare runs of the same model.'
 
     expect(report.baseline?.warnings).toEqual([warning])
     expect(await readFile(join(out, "summary.md"), "utf8")).toContain(`> [!WARNING]\n> ${warning}`)
@@ -319,5 +342,23 @@ describe("runMcpEval with a baseline", () => {
     ])
     expect(report.exitCode).toBe(1)
     expect(process.exitCode).toBe(1)
+  })
+
+  it("reports dry-run drift even when a removed tool invalidates a case", async () => {
+    const baseline = await baselineRun()
+    const withoutTools = createMcpHandler({ name: "docs", route: "/mcp", instructions: "Search the docs before you answer.", tools: {} })
+    vi.stubGlobal("fetch", (input: string | URL | Request, init?: RequestInit) => serve(input, init, withoutTools))
+    const added = [...cases, { ...cases[1]!, id: "new-case" }]
+    const model = docsModel()
+    const report = await runMcpEval({ server: { url: "https://docs.example.com/mcp" }, cases: added, models: { mock: model }, argv: ["--dry-run", "--baseline", baseline] })
+
+    expect(report.problems).toEqual([expect.stringContaining("search-docs")])
+    expect(report.baseline?.stale).toEqual([
+      expect.stringContaining("The tool list or the server instructions changed"),
+      "new-case: the case is not in the baseline.",
+    ])
+    for (const reason of report.baseline?.stale ?? []) expect(console.log).toHaveBeenCalledWith(`  - ${reason}`)
+    expect(model.doGenerateCalls).toHaveLength(0)
+    expect(report.exitCode).toBe(1)
   })
 })

@@ -116,9 +116,9 @@ The summary flags each tool result of more than 50,000 characters. Claude Code m
 
 Copy `run.json` from a full run, without `--case`, to the file you commit. Then give that file to `--baseline`.
 
-In a model run, `summary.md` adds a `Baseline` and a `Delta` column next to `Pass rate`. The delta is in points. A case is a regression when it passed every baseline sample and its pass rate is now 0.5 or less. The summary warns when the baseline used a different model key. Compare runs of the same model. The baseline does not change the exit code of a model run.
+In a model run, `summary.md` adds a `Baseline` and a `Delta` column next to `Pass rate`. The delta is in points. The summary only compares cases with the same ID and case hash. For a new or edited case, it shows `n/a` in both columns. An unchanged case is a regression when it passed every baseline sample and its pass rate is now 0.5 or less. The summary warns when the model key or ID differs. Compare runs of the same model. The baseline does not change the exit code of a model run.
 
-In a dry run, the eval compares the live surface and the cases with the baseline, with no model call. It exits with code `1` when the surface is different, or when a case was added, removed, or changed. It exits with code `0` when both match.
+In a dry run, the eval compares the live surface and the cases with the baseline, with no model call. It reports differences alongside case validation errors. It exits with code `1` when the surface is different, when a case was added, removed, or changed, or when validation fails. It exits with code `0` when both match and validation passes.
 
 ### Run it in CI
 
