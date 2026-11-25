@@ -4,11 +4,12 @@ import { isAbsolute, join, posix, relative, resolve } from "node:path"
 
 import { findProperty, keyName, line, parseProgram, walk } from "@vite-hub/internal/ast"
 import { isRecord } from "@vite-hub/internal/object"
+import { subset, validRange } from "semver"
 import { glob } from "tinyglobby"
 
 import packageJson from "../../package.json" with { type: "json" }
 import { ConfigEditor, removeModuleEntry } from "../shared/config-editor.ts"
-import { detectNuxtModule } from "../shared/detect.ts"
+import { detectNuxtModule, readDependencies } from "../shared/detect.ts"
 import { findModuleEntry, literalValue, loadNuxtConfig, readNuxtConfig } from "../shared/nuxt-config.ts"
 import { editPackageJson } from "../shared/package-json.ts"
 import { codemodError } from "../error-diagnostics.ts"
@@ -26,7 +27,7 @@ import type { EnvSource } from "./config-edit.ts"
 import type { EnvField, PlannedFollowUp } from "./fields.ts"
 import type { StaticOptions } from "./nuxt-config.ts"
 
-interface ResolvedOptions {
+interface ResolvedOptions extends Pick<StaticOptions, "onError" | "validateAtBuild" | "validateAtRuntime"> {
   envSchema?: { file: string, paths: Record<string, string> }
   schemaPath?: string
   schema?: unknown
@@ -36,6 +37,9 @@ function mergeStatic(top: StaticOptions, inline: StaticOptions): StaticOptions {
   return {
     envSchema: inline.envSchema ?? top.envSchema,
     schemaPath: inline.schemaPath ?? (inline.inlineSchema ? undefined : top.schemaPath),
+    onError: inline.onError ?? top.onError,
+    validateAtBuild: inline.validateAtBuild ?? top.validateAtBuild,
+    validateAtRuntime: inline.validateAtRuntime ?? top.validateAtRuntime,
     inlineSchema: inline.inlineSchema || (!inline.schemaPath && top.inlineSchema),
     dynamic: inline.dynamic || top.dynamic,
   }
@@ -48,10 +52,38 @@ function evaluatedEnvSchema(value: unknown): ResolvedOptions["envSchema"] {
   return { file: value.file, paths }
 }
 
+async function moduleVersion(cwd: string): Promise<string | undefined> {
+  const installed = join(cwd, "node_modules", moduleName, "package.json")
+  const manifest: unknown = existsSync(installed) ? parseJson(await readFile(installed, "utf8")) : undefined
+  if (isRecord(manifest) && typeof manifest.version === "string") return manifest.version
+  return (await readDependencies(cwd)).get(moduleName)
+}
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text)
+  }
+  catch {
+    return undefined
+  }
+}
+
+function before040(version: string | undefined): boolean {
+  return version !== undefined && validRange(version) !== null && subset(version, "<0.4.0")
+}
+
+function validationChecks(options: Pick<StaticOptions, "validateAtBuild" | "validateAtRuntime">, version: string | undefined): { validateAtBuild: boolean, validateAtRuntime: boolean } {
+  if (before040(version)) {
+    const validateAtRuntime = options.validateAtRuntime ?? false
+    return { validateAtBuild: options.validateAtBuild ?? !validateAtRuntime, validateAtRuntime }
+  }
+  return { validateAtBuild: options.validateAtBuild !== false, validateAtRuntime: options.validateAtRuntime ?? true }
+}
+
 /** Reads the module options statically, and runs nuxt.config only when an inline schema or a dynamic option needs it. */
 async function resolveOptions(config: NuxtConfigFile, staticOptions: StaticOptions): Promise<ResolvedOptions> {
   if (!staticOptions.inlineSchema && !staticOptions.dynamic) {
-    return { envSchema: staticOptions.envSchema, schemaPath: staticOptions.schemaPath }
+    return staticOptions
   }
   const evaluated = await loadNuxtConfig(config.path)
   const modules = Array.isArray(evaluated.modules) ? evaluated.modules : []
@@ -65,6 +97,9 @@ async function resolveOptions(config: NuxtConfigFile, staticOptions: StaticOptio
     envSchema: evaluatedEnvSchema(options.envSchema) ?? staticOptions.envSchema,
     schemaPath: typeof schema === "string" ? schema : undefined,
     schema: typeof schema === "string" ? undefined : schema,
+    onError: typeof options.onError === "string" ? options.onError : undefined,
+    validateAtBuild: typeof options.validateAtBuild === "boolean" ? options.validateAtBuild : undefined,
+    validateAtRuntime: typeof options.validateAtRuntime === "boolean" ? options.validateAtRuntime : undefined,
   }
 }
 
@@ -201,7 +236,14 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     if (runtimeProperty && !runtime.object) {
       planned.push({ message: "runtimeConfig is not an object literal, so the codemod kept its values and removed no keys. Move the migrated values to Env defaults by hand." })
     }
-    const plan = planFromJsonSchema({ jsonSchema: await schemaToJsonSchema(schema, cwd), issues: schemaIssues(schema), runtimeConfig: runtime.values })
+    const plan = await planFromJsonSchema({
+      schema,
+      jsonSchema: await schemaToJsonSchema(schema, cwd),
+      issues: schemaIssues(schema),
+      runtimeConfig: runtime.values,
+      ...validationChecks(options, await moduleVersion(cwd)),
+      rejectInvalidDefaults: (options.onError ?? "throw") === "throw",
+    })
     fields = plan.fields
     unmigrated = plan.unmigrated
     planned.push(...plan.followUps)
@@ -264,6 +306,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   return {
     summary: `migrated ${fields.length} Env declaration${fields.length === 1 ? "" : "s"} (${publicCount} public, ${fields.length - publicCount} server) from ${sourceLabel} to vite-hub/nuxt.`,
     edits,
+    requiresNitro3: true,
     followUps: [...configFollowUps, ...calls.followUps, ...secretFollowUps, ...eslint, ...outOfScope.followUps],
     notes,
     nextSteps: [

@@ -1,0 +1,10 @@
+{
+  "name": "valibot-schema-module-app",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "nuxt": "^5.0.0",
+    "valibot": "^1.5.0",
+    "vite-hub": "^<version>"
+  }
+}

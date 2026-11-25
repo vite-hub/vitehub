@@ -18,7 +18,7 @@
     "@nuxtjs/mdc": "^0.19.1",
     "@nuxtjs/plausible": "^2.0.1",
     "@vite-hub/kv": "^<version>",
-    "nuxt": "^4.2.2",
+    "nuxt": "npm:nuxt-nightly@5x",
     "nuxt-auth-utils": "^0.5.26",
     "nuxt-og-image": "5.1.12",
     "pathe": "^2.0.3",

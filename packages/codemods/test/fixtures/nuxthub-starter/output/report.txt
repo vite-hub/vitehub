@@ -41,6 +41,6 @@ Notes:
   - Cached handlers come from Nitro and use the cache store of cache: true. In Nitro 3, import defineCachedHandler() (formerly cachedEventHandler()) and defineCachedFunction() from nitro/cache.
 
 Next steps:
-  - Run `pnpm install` to install vite-hub, @vite-hub/database, @vite-hub/kv, and @vite-hub/blob and remove @nuxthub/core.
+  - Run `pnpm install` to install vite-hub, @vite-hub/database, @vite-hub/kv, @vite-hub/blob, drizzle-orm, and drizzle-kit and remove @nuxthub/core.
   - Run `npx nuxi prepare`, then type-check the app.
   - Run `pnpm nuxt build` and `pnpm vitehub inspect output --json` to check the resources and bindings.
