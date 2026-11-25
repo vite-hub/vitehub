@@ -25,7 +25,6 @@
   "packages/codemods/src/nuxt-cron/index.ts": 7,
   "packages/codemods/src/nuxt-safe-runtime-config/call-sites.ts": 9,
   "packages/codemods/src/nuxt-safe-runtime-config/env-file.ts": 2,
-  "packages/codemods/src/nuxt-safe-runtime-config/nuxt-config.ts": 1,
   "packages/codemods/src/nuxt-safe-runtime-config/schema.ts": 7,
   "packages/codemods/src/nuxthub/config.ts": 10,
   "packages/codemods/src/nuxthub/database.ts": 11,

@@ -405,29 +405,13 @@ VITEHUB_API_TOKEN=
 
 This example gives `usePublicEnv().appName`, `useServerEnv().retries`, `useServerEnv().dryRun`, and a `SecretEnv<string>` at `useServerEnv().apiToken`. Public fields resolve at build time. Private fields resolve at server runtime, so prepare and build do not need a deployment-only secret.
 
-It uses the limited `env-spec-v1` profile from the [Nuxt module](https://nuxt-safe-runtime-config.onmax.me), with [@env-spec comment syntax](https://varlock.dev/env-spec/reference/). ViteHub uses its own reader and parsers. It does not load your `.env` files, fetch secrets, run Varlock, or evaluate dynamic expressions. To move an app from that module, run the [`nuxt-safe-runtime-config` codemod](/docs/codemods/nuxt-modules#nuxt-safe-runtime-config).
+It reads the [`env-spec-v1` profile](/docs/env/env-spec) of the [@env-spec comment syntax](https://varlock.dev/env-spec/reference/). ViteHub uses its own reader and parsers. It does not load your `.env` files, fetch secrets, run Varlock, or evaluate dynamic expressions. To move an app from the `nuxt-safe-runtime-config` module, run the [`nuxt-safe-runtime-config` codemod](/docs/codemods/nuxt-modules#nuxt-safe-runtime-config).
 
 The [schema lab](https://github.com/vite-hub/vitehub/tree/main/packages/env/examples/schema-lab) builds a browser bundle and a Node server from one schema. Its production test checks types, startup failures, redaction, browser output, and server values that change between restarts. Public Env values are fixed at build.
 
 ### Review defaults before opting in
 
-Unlike a usual example file, a placeholder here becomes a real default. `KEY=` has no default. `KEY=""` declares an empty string. `@example="sample"` documents a value without a default.
-
-Every field is required and sensitive unless an annotation changes that. `@optional` reverses `@required`, and `@public` reverses `@sensitive`. A field without a type is a string, and keeps leading zeroes.
-
-| Type annotation | Result |
-| --- | --- |
-| `@type=string(minLength=1, maxLength=80)` | String with inclusive length limits. |
-| `@type=number(min=0, max=100, isInt=true)` | Finite decimal number with bounds and an optional safe-integer check. |
-| `@type=boolean` | Boolean parsed from `true`, `false`, `1`, or `0`. |
-| `@type=enum(draft, send)` | String union. Mark it non-sensitive, because the choices appear in metadata. |
-| `@type=array(string)` | JSON array with typed items. |
-| `@type=object(enabled=boolean, retries=number)` | Exact JSON object shape with required properties. |
-| `@type=url` | Absolute URL checked with the platform `URL` constructor. The output is a string. |
-
-- An empty input, such as `VITEHUB_LABEL=` on the host, is missing. The default applies. Without a default, a required field fails and an optional field is `undefined`.
-- An invalid value fails. It does not fall back to the default.
-- Defaults get the same checks.
+Unlike a usual example file, a value after `=` becomes a real default. `KEY=` has no default. Put sample values in `@example="sample"`, which never becomes a default. Every field is required and sensitive unless an annotation changes that. The [`env-spec-v1` profile](/docs/env/env-spec) lists each annotation, type, and default rule.
 
 ### Control names and exposure
 
