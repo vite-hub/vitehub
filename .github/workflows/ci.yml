@@ -570,7 +570,7 @@ jobs:
             echo "run=true" >> "$GITHUB_OUTPUT"
           elif git diff --quiet "$BASE_REF...HEAD" -- \
             test/consumer/nuxt-primitives test/consumer/nuxt-primitives.test.ts test/consumer/packed-app.ts test/consumer/vitest.config.ts \
-            packages/internal/test-utils/published-types.ts packages/internal/src/workspace-inventory.ts packages/internal/src/features.ts \
+            test/layers.ts test/utils/release-artifacts.ts packages/internal packages/ui/src \
             packages/agent packages/auth packages/blob packages/bundle packages/channels packages/choices packages/cli packages/connections \
             packages/database packages/env packages/forms packages/gateways packages/kv packages/markdown-template packages/mcp packages/queue \
             packages/rate-limit packages/realtime packages/runtime packages/sandbox packages/schedule packages/source packages/sync \

@@ -335,15 +335,23 @@ fi
     expect(workflow.jobs[name]?.if).toBe("${{ needs.consumer-select.outputs.run == 'true' }}")
   })
 
-  it("selects consumer contracts for the Nuxt primitives harness and every package that its rows pack", async () => {
+  it("selects consumer contracts for harness files, shared build inputs, and every packed package", async () => {
     const command = workflow.jobs["consumer-select"]?.steps.find(step => step.name === "Select the check")?.run
     if (!command) throw new Error("consumer-select must select the consumer contracts")
     const paths = new Set(command.split(/\s+/))
     const repoRoot = fileURLToPath(new URL("..", import.meta.url))
     const rows = [...storage, ...jobs, ...agents, ...content, ...access, ...ops].filter(isRow)
     const packed = await packedWorkspacePackages(repoRoot, ["vite-hub", ...rows.flatMap(row => row.packages.map(name => name.slice("@vite-hub/".length)))])
-    const harness = ["test/consumer/nuxt-primitives", "test/consumer/nuxt-primitives.test.ts", "test/consumer/packed-app.ts"]
-    expect([...harness, ...packed.map(name => `packages/${name}`)].filter(path => !paths.has(path))).toEqual([])
+    const harness = [
+      "test/consumer/nuxt-primitives",
+      "test/consumer/nuxt-primitives.test.ts",
+      "test/consumer/packed-app.ts",
+      "test/consumer/vitest.config.ts",
+      "test/layers.ts",
+      "test/utils/release-artifacts.ts",
+    ]
+    const buildInputs = ["packages/internal", "packages/ui/src"]
+    expect([...harness, ...buildInputs, ...packed.map(name => `packages/${name}`)].filter(path => !paths.has(path))).toEqual([])
     expect(command).toContain('if [ "$FULL_SUITE" = "true" ]; then')
   })
 

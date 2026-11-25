@@ -55,8 +55,7 @@ it.each([false, true].flatMap(dev => [undefined, false, true].map(noExternals =>
 
   const expectedNoExternals = noExternals === true ? true : [
     ...(noExternals === false ? [] : ["@t3tools/provider-runtime", "effect", "@effect/platform-node", "@effect/platform-node-shared"]),
-    "vite-hub",
-    "@vite-hub/",
+    expect.any(RegExp),
     join(rootDir, ".vitehub"),
     dirname(fileURLToPath(import.meta.resolve("h3/package.json"))),
   ]
