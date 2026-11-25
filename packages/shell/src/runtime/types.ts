@@ -42,6 +42,7 @@ export interface ShellObservation {
 
 export interface ShellAnalyzeOptions {
   maxInputBytes?: number
+  /** Limits the parse. The first call also loads the WebAssembly parser, which this limit does not include. Defaults to 100. */
   timeoutMs?: number
 }
 

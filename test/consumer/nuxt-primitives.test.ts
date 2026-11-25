@@ -11,7 +11,7 @@ import { access } from "./nuxt-primitives/access.ts"
 import { content } from "./nuxt-primitives/content.ts"
 import { jobs } from "./nuxt-primitives/jobs.ts"
 import { ops } from "./nuxt-primitives/ops.ts"
-import { isRow, modes, type Mode, type PrimitiveRow, type Target } from "./nuxt-primitives/row.ts"
+import { ConfigSource, isRow, modes, type Mode, type PrimitiveRow, type Target } from "./nuxt-primitives/row.ts"
 import { storage } from "./nuxt-primitives/storage.ts"
 import {
   availablePort,
@@ -32,6 +32,7 @@ const nuxtVersion = process.env.VITEHUB_CONSUMER_NUXT === "4.7" ? "Nuxt 4.7" : "
 const featurePackages: Record<string, string> = { rateLimit: "rate-limit", sandboxTask: "sandbox" }
 const notPrimitives: Record<string, string> = {
   cli: "The `vitehub` command, which the Database row runs.",
+  docs: "A Nuxt module of its own, `vite-hub/docs/nuxt`, that `vite-hub/nuxt` does not install. It adds Nuxt UI and owns `/sitemap.xml`, `/mcp`, and the trailing-slash rule of the site, so it cannot share the primitives app. packages/docs/test/nuxt-consumer.test.ts builds it in a Nuxt app.",
   codemods: "Rewrites app source before it moves to ViteHub. It adds nothing to a Nuxt app.",
   presets: "Agent presets built from the other primitives.",
   runtime: "The shared error and request contracts of every primitive.",
@@ -51,7 +52,14 @@ function nuxtConfig(target: Target, active: PrimitiveRow[]) {
   const nitro = target === "cloudflare"
     ? { cloudflare: { deployConfig: true }, preset: "cloudflare_module" }
     : { preset: "node-server" }
-  return `export default defineNuxtConfig(${JSON.stringify({ compatibilityDate: "2026-10-01", modules: ["vite-hub/nuxt"], nitro, vitehub }, null, 2)})\n`
+  const imports = new Set<string>()
+  const sources: string[] = []
+  const config = JSON.stringify({ compatibilityDate: "2026-10-01", modules: ["vite-hub/nuxt"], nitro, vitehub }, (_key, value: unknown) => {
+    if (!(value instanceof ConfigSource)) return value
+    for (const line of value.imports) imports.add(line)
+    return `\0${sources.push(value.source) - 1}`
+  }, 2).replace(/"\\u0000(\d+)"/g, (_match, index: string) => sources[Number(index)]!)
+  return `${[...imports].map(line => `${line}\n`).join("")}export default defineNuxtConfig(${config})\n`
 }
 
 async function writeAppFiles(appDir: string, files: Record<string, string>) {
@@ -213,7 +221,7 @@ describe("Nuxt primitives", () => {
       await serve(mode, async (origin) => {
         for (const row of active) {
           try {
-            await row.probe({ fetch: (path, init) => fetch(`${origin}${path}`, { ...init, signal: AbortSignal.timeout(60_000) }), mode, target })
+            await row.probe({ appDir, fetch: (path, init) => fetch(`${origin}${path}`, { ...init, signal: AbortSignal.timeout(60_000) }), mode, target })
           }
           catch (error) {
             failures.push(`${row.id}: ${error instanceof Error ? error.message : String(error)}`)

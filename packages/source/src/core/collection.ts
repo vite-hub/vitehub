@@ -498,6 +498,9 @@ export function defineCollection<
         if (!result || !Array.isArray(result.items) || (result.nextCursor !== null && !isProviderCursor(result.nextCursor))) {
           throw sourceErrorDiagnostics.SOURCE_R0009({ message: "[vitehub] Provider Collection load() must return items and nextCursor." })
         }
+        if (result.items.length > limit) {
+          throw sourceErrorDiagnostics.SOURCE_R0009({ message: "[vitehub] Provider Collection load() returned more items than the requested limit." })
+        }
         const transformedItems = definition.transform ? await Promise.all(result.items.map(definition.transform)) : result.items
         request.signal?.throwIfAborted()
         // SAFETY: Without transform the overload fixes TItem to TSourceItem; otherwise each item was transformed.

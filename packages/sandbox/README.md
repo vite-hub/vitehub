@@ -446,6 +446,7 @@ The Definition entrypoint does not import `@vite-hub/sandbox/task`. ViteHub call
 - Set `cpu` (vCPUs) and `memory` (MiB) next to `driver`, such as `hubSandboxTask({ driver: "cloudflare", cpu: 1, memory: 4096 })`. They are minimums, and ViteHub picks the smallest driver size that fits both. Vercel gets `resources.vcpus`: 1 or an even number up to 32, with 2048 MiB for each vCPU. Cloudflare gets the smallest instance type from `lite` to `standard-4`, and the default is `standard-1` (1/2 vCPU, 4096 MiB). On Cloudflare the size belongs to the Container class, so it applies to every task of the app. ViteHub keeps the `instance_type` of your own `containers` entry and fails the build when it is smaller than `cpu` or `memory`. `maxInstances` sets the Cloudflare Container limit (default 12).
 - Driver selection belongs to application or host configuration, not to a Definition. `hubSandboxTask({ driver: "vercel" })` and `hubSandboxTask({ driver: "cloudflare" })` are the direct-package forms. The `vite-hub` distribution infers the driver from its Vercel and Cloudflare hosts, and takes the same options in `vitehub({ sandboxTask: { ... } })`.
 - `vitehub.sandboxTask.timeout` must be a positive integer no greater than `2_147_483_647`. Without it, a run stops after 5 minutes on every driver. It bounds one execution attempt after driver startup, including package preparation, staging, and execution. Queueing, Sandbox startup, and retry delays can make the complete `runSandboxTask()` call take longer. An elapsed attempt timeout sends an internal abort signal to cancellable driver operations and returns `SANDBOX_TASK_RUN_FAILED` with `error.data.code` set to `SANDBOX_TASK_TIMEOUT` and status 504. On Vercel, the Sandbox session gets the task timeout plus 30 seconds, because its clock starts before Sandbox setup. ViteHub then ends the run at the task timeout, not the VM.
+- `vitehub.sandboxTask.transfer` accepts the same transfer limits as `defineSandboxTask()`.
 - Pass `signal` to `runSandboxTask()` when it belongs to a request or Agent Invocation. ViteHub forwards it to Sandbox startup and execution, cancels queued Cloudflare runs and retry backoff, and preserves the caller's abort reason. A Definition timeout remains the independent bound for each execution attempt.
 - A failed run returns `SANDBOX_TASK_RUN_FAILED`. `error.cause` keeps the failure's code, message, and every detail for server logs. `toResponse(error)` from `@vite-hub/runtime` sends only `code`, `why`, and `fix`, so no stack or process output reaches the client. `resolveSandboxTaskRunner(name).run()` throws the same failure.
 - Vercel Sandbox sessions are closed in a `finally` block after success or failure. Cloudflare also creates and closes a unique Sandbox for each run unless you configure `sandboxId` or pass one to `runSandboxTask()`. Session cleanup failures return an error, even after a successful handler. So do Cloudflare invocation-file cleanup failures in a Sandbox that stays open after the run. A Sandbox that ViteHub closes after the run loses its files when it closes, so ViteHub does not delete them separately.
@@ -470,6 +471,25 @@ console.log(runner.executionAuthority);
 The descriptor reports the provider's complete `ExecutionAuthority`, including dimensions it cannot establish as `unknown`. Set `networkPolicy` in the `vercel` or `cloudflare` provider options to limit outbound traffic, keep secrets in server environment or provider configuration, and do not treat container execution alone as authorization for untrusted code.
 
 Payloads, context, and results must be JSON-serializable. Nested `Blob` and `Uint8Array` values cross the Sandbox boundary through invocation-local binary files, and Node.js `Buffer` values retain their type.
+
+ViteHub limits what one run can send across the Sandbox boundary. The payload and context JSON can have at most 4 MiB of UTF-8 text, and so can the result JSON. Each direction can also have at most 64 binary files, 64 MiB of binary data, and 32 levels of nested arrays and objects. Set `transfer` on a Definition to change these limits:
+
+```ts
+import { defineSandboxTask } from "@vite-hub/sandbox/task";
+
+export default defineSandboxTask({
+  transfer: {
+    maxInputBytes: 2_097_152,
+    maxOutputBytes: 8_388_608,
+    maxDepth: 24,
+    maxSidecars: 16,
+    maxSidecarBytes: 16_777_216,
+  },
+  handler: async (payload: { image: Blob }) => payload,
+});
+```
+
+Each limit is a whole number from 1 to 1073741824. A run that exceeds a limit fails with `SANDBOX_TASK_TRANSFER_LIMIT`. For input, the run fails before the handler starts and before ViteHub writes a binary file. For output, the run fails before ViteHub parses the result or reads a binary file. The byte limits count the UTF-8 JSON and the bytes of the binary values. The provider still sets its own execution and timeout limits.
 
 ### Package projects
 

@@ -15,8 +15,12 @@ it("keeps the NuxtHub migration entry points and renamed bookmarks", () => {
 
   const fragments: Record<string, Record<string, string>> = docsLegacyFragmentRedirects;
   expect(fragments[comparison]).toEqual({
-    "where-nuxthub-is-stronger": `${comparison}#what-nuxthub-has-that-vitehub-does-not`,
+    "where-nuxthub-is-stronger": `${comparison}#compare-the-features`,
+    "what-nuxthub-has-that-vitehub-does-not": `${comparison}#compare-the-features`,
     "move-a-nuxt-app-from-nuxthub": `${comparison}#migrate-from-nuxthub`,
+    "keep-a-turso-or-libsql-connection": "/docs/database/configure",
+    "keep-the-cache": "/docs/guides/cache-server-results",
+    "baseline-an-existing-cloudflare-d1-database": "/docs/database/configure#keep-an-existing-migrations-table",
     "related-guides": `${comparison}#next-steps`,
   });
   expect(guide).toContain("## Compare the features\n");

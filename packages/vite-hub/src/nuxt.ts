@@ -712,11 +712,19 @@ function linkedViteHubPackageRoots(projectRoot: string): string[] {
   return links.filter(existsSync).map(link => realpathSync(link)).filter(root => !root.split(sep).includes("node_modules"))
 }
 
-/** Add packages that Nitro must bundle, unless Nitro already bundles every package. */
-function addNoExternals(config: Record<string, unknown>, entries: string[]): void {
+const viteHubPackages = /(?:^|[\\/]node_modules[\\/])(?:vite-hub|@vite-hub[\\/][^\\/]+)(?:[\\/](?!(?:.*[\\/])?node_modules[\\/])|$)/
+const viteHubPackageStrings = /^(?:vite-hub|@vite-hub\/[^/]*)$/
+
+/**
+ * Nitro reads a string entry as an unanchored path pattern, so `"vite-hub"` (which Nuxt also adds from `build.transpile`)
+ * matches a project folder such as `~/vite-hub-shop`. Nitro then bundles every dependency of that app, and native packages
+ * such as libSQL fail to load. Replace those strings with a pattern for the installed ViteHub packages only.
+ */
+function addNoExternals(config: Record<string, unknown>, entries: Array<string | RegExp>): void {
   if (config.noExternals === true) return
   const current: unknown[] = Array.isArray(config.noExternals) ? config.noExternals : []
-  config.noExternals = [...new Set([...current, ...entries])]
+  const kept = current.filter(entry => typeof entry !== "string" || !viteHubPackageStrings.test(entry))
+  config.noExternals = [...new Set([...kept, viteHubPackages, ...entries])]
 }
 
 async function applyNitroConfig(
@@ -1543,7 +1551,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     Object.assign(config, mergeGeneratedSourceNitroConfig(config, generatedSourceHandlers))
     // Facade exports, owner runtimes, and generated `.vitehub` modules must resolve generated aliases and virtual modules
     // inside Nitro. Node, which loads external modules, cannot read those aliases.
-    addNoExternals(config, ["vite-hub", "@vite-hub/", join(projectRoot, ".vitehub"), h3RuntimeRoot, ...linkedViteHubPackageRoots(projectRoot)])
+    addNoExternals(config, [join(projectRoot, ".vitehub"), h3RuntimeRoot, ...linkedViteHubPackageRoots(projectRoot)])
     if (incomingNoExternals === false && Array.isArray(config.noExternals)) nitro3ExternalLists.set(config, config.noExternals)
     else nitro3ExternalLists.delete(config)
     // When Nuxt builds Nitro in a Vite environment, the ViteHub plugins already run there.

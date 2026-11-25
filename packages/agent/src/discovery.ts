@@ -1,6 +1,5 @@
 import { readdirSync, readFileSync } from "node:fs"
-import { basename, dirname, relative, resolve } from "node:path"
-
+import { basename, dirname, extname, isAbsolute, relative, resolve } from "node:path"
 import { transformWithOxc } from "vite"
 
 import {
@@ -13,7 +12,7 @@ import {
 } from "@vite-hub/internal/definition-catalog"
 import { argumentExpression, exportNames, findProperty, moduleTokens, scanModule, staticValue, unwrapExpression, walk } from "@vite-hub/internal/build/scan-module"
 
-import type { CallExpression, Expression, Node, ObjectExpression, ScannedModule } from "@vite-hub/internal/build/scan-module"
+import type { CallExpression, Expression, Node, ObjectExpression, Program, ScannedModule } from "@vite-hub/internal/build/scan-module"
 
 import type { DiscoveredAgentDefinition } from "./types.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
@@ -86,39 +85,137 @@ export function tokenizeAgentSource(source: string, file?: string): { tokens: st
   return moduleTokens(scanModule(source, file))
 }
 
-// Decode ESM string literals without executing the source module.
-function moduleSpecifier(token: string | undefined): string {
-  if (!token) return ""
-  const body = token.slice(1, -1)
-  // Legacy octal and decimal escapes are invalid in strict-mode modules.
-  if (/\\(?:[89]|[1-7][0-7]?|0[0-7]|0(?=[0-9]))/.test(body)) return ""
-  const escapes: Record<string, string> = { b: "\b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v", "0": "\0" }
-  return body.replace(/\\(?:u\{([\da-fA-F]+)\}|u([\da-fA-F]{4})|x([\da-fA-F]{2})|(\r\n|[\n\r\u2028\u2029])|([\s\S]))/g,
-    (_match, codePoint: string | undefined, unicode: string | undefined, hex: string | undefined, continuation: string | undefined, escaped: string | undefined) => {
-      const code = codePoint ?? unicode ?? hex
-      if (code !== undefined) return String.fromCodePoint(Number.parseInt(code, 16))
-      if (continuation !== undefined) return ""
-      return escapes[escaped!] ?? escaped!
-    })
-}
-
-/** Whether an Agent module statically imports a package subpath that declares the `processHost` trait. */
-export function usesProcessHostPreset(source: string, file: string): boolean {
-  const { tokens } = tokenizeAgentSource(source)
-  for (let index = 0; index < tokens.length; index++) {
-    if (tokens[index] !== "import" || tokens[index + 1] === "(") continue
-    for (let next = index + 1; next < tokens.length && tokens[next] !== ";" && tokens[next] !== "import"; next++) {
-      if (!/^['"`]/.test(tokens[next] ?? "")) continue
-      if (hasAgentModuleTrait(moduleSpecifier(tokens[next]), file, "processHost")) return true
-      break
+/** The specifiers of the static imports and re-exports that load a value. Type-only ones are left out. */
+function valueModuleSpecifiers(source: string, file: string): string[] {
+  const specifiers: string[] = []
+  for (const statement of scanModule(source, file).program.body) {
+    if (statement.type === "ImportDeclaration") {
+      if (statement.importKind === "type") continue
+      if (statement.specifiers.length && statement.specifiers.every(specifier => specifier.type === "ImportSpecifier" && specifier.importKind === "type")) continue
+      specifiers.push(statement.source.value)
+    }
+    else if (statement.type === "ExportAllDeclaration") {
+      if (statement.exportKind !== "type") specifiers.push(statement.source.value)
+    }
+    else if (statement.type === "ExportNamedDeclaration" && statement.source) {
+      if (statement.exportKind === "type") continue
+      if (statement.specifiers.length && statement.specifiers.every(specifier => specifier.exportKind === "type")) continue
+      specifiers.push(statement.source.value)
     }
   }
-  return false
+  return specifiers
 }
 
-/** Discovered Agents whose definitions use a process host preset, by discovered name. */
-export function discoverProcessHostAgentNames(definitions: readonly DiscoveredAgentDefinition[]): string[] {
-  return definitions.filter(definition => usesProcessHostPreset(readFileSync(definition.handler, "utf8"), definition.handler)).map(definition => definition.name).sort()
+/** Whether an Agent module statically imports a value from a package subpath that declares the `processHost` trait. */
+export function usesProcessHostPreset(source: string, file: string): boolean {
+  return valueModuleSpecifiers(source, file).some(specifier => hasAgentModuleTrait(specifier, file, "processHost"))
+}
+
+type PresetEdge = { source: string, name: string | undefined }
+type PresetValue = PresetEdge | Node
+type RelativeModuleResolver = (specifier: string, importer: string) => Promise<string | undefined>
+
+function processHostBindings(program: Program) {
+  const imports: PresetEdge[] = []
+  const locals = new Map<string, PresetValue>()
+  const exports = new Map<string, PresetValue>()
+  const stars: string[] = []
+  for (const statement of program.body) {
+    if (statement.type === "ImportDeclaration" && statement.importKind !== "type") {
+      const source = statement.source.value
+      if (!statement.specifiers.length) imports.push({ source, name: undefined })
+      for (const specifier of statement.specifiers) {
+        if (specifier.type === "ImportSpecifier" && specifier.importKind === "type") continue
+        const name = specifier.type === "ImportSpecifier" ? exportName(specifier.imported)
+          : specifier.type === "ImportDefaultSpecifier" ? "default" : undefined
+        const edge = { source, name }
+        locals.set(specifier.local.name, edge)
+        imports.push(edge)
+      }
+    }
+    if (statement.type === "ExportAllDeclaration" && statement.exportKind !== "type") {
+      const name = statement.exported && exportName(statement.exported)
+      if (name) exports.set(name, { source: statement.source.value, name: undefined })
+      else stars.push(statement.source.value)
+    }
+    if (statement.type === "ExportDefaultDeclaration") exports.set("default", statement.declaration)
+    if (statement.type === "ExportNamedDeclaration" && statement.exportKind !== "type") {
+      for (const specifier of statement.specifiers) {
+        const name = exportName(specifier.exported)
+        if (name === undefined || specifier.exportKind === "type") continue
+        exports.set(name, statement.source
+          ? { source: statement.source.value, name: exportName(specifier.local) } : specifier.local)
+      }
+    }
+    const declaration = statement.type === "ExportNamedDeclaration" ? statement.declaration : statement
+    if (declaration?.type !== "VariableDeclaration" || declaration.declare) continue
+    for (const binding of declaration.declarations) {
+      if (binding.id.type !== "Identifier" || !binding.init) continue
+      locals.set(binding.id.name, binding.init)
+      if (statement.type === "ExportNamedDeclaration") exports.set(binding.id.name, binding.init)
+    }
+  }
+  return { imports, locals, exports, stars }
+}
+
+export async function discoverProcessHostAgentNames(definitions: readonly DiscoveredAgentDefinition[], resolveRelative: RelativeModuleResolver): Promise<string[]> {
+  const modules = new Map<string, ReturnType<typeof processHostBindings>>()
+  function readModule(file: string) {
+    const cached = modules.get(file)
+    if (cached) return cached
+    const bindings = processHostBindings(scanModule(readFileSync(file, "utf8"), file).program)
+    modules.set(file, bindings)
+    return bindings
+  }
+  async function usesPreset(file: string) {
+    const seen = new Set<string>()
+    async function follow(file: string, edge: PresetEdge): Promise<boolean> {
+      if (/[?#]/.test(edge.source)) return false
+      if (hasAgentModuleTrait(edge.source, file, "processHost")) return true
+      if (!edge.source.startsWith("./") && !edge.source.startsWith("../")) return false
+      const dependency = await resolveRelative(edge.source, file)
+      return dependency !== undefined && isAbsolute(dependency) && !/[?#]/.test(dependency)
+        && /^\.(?:[cm]?[jt]s|[jt]sx)$/.test(extname(dependency)) && fromExport(dependency, edge.name)
+    }
+    async function fromExport(file: string, name: string | undefined): Promise<boolean> {
+      const key = JSON.stringify([file, name])
+      if (seen.has(key)) return false
+      seen.add(key)
+      const bindings = readModule(file)
+      const value = name === undefined ? undefined : bindings.exports.get(name)
+      if (value) return fromValue(file, value, new Set())
+      if (name === "default") return false
+      if (name === undefined) for (const value of bindings.exports.values()) {
+        if (await fromValue(file, value, new Set())) return true
+      }
+      for (const source of bindings.stars) if (await follow(file, { source, name })) return true
+      return false
+    }
+    async function fromValue(file: string, value: PresetValue, seenLocals: Set<string>): Promise<boolean> {
+      if (!("type" in value)) return follow(file, value)
+      const identifiers = new Set<string>()
+      walk(value, (node, parent) => {
+        if (node.type === "TSTypeAnnotation" || node.type === "TSTypeReference") return false
+        if (node.type !== "Identifier") return
+        if (parent?.type === "MemberExpression" && parent.property === node && !parent.computed) return
+        if (parent?.type === "Property" && parent.key === node && !parent.computed && !parent.shorthand) return
+        identifiers.add(node.name)
+      })
+      const { locals } = readModule(file)
+      for (const identifier of identifiers) {
+        if (seenLocals.has(identifier)) continue
+        seenLocals.add(identifier)
+        const local = locals.get(identifier)
+        if (local && await fromValue(file, local, seenLocals)) return true
+      }
+      return false
+    }
+    for (const edge of readModule(file).imports) if (await follow(file, edge)) return true
+    return fromExport(file, "default")
+  }
+  const names: string[] = []
+  for (const definition of definitions) if (await usesPreset(definition.handler)) names.push(definition.name)
+  return names.sort()
 }
 
 const agentEntries = new Set(["@vite-hub/agent", "vite-hub/agent"])

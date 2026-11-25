@@ -43,9 +43,14 @@ it("gives each Sandbox Task definition code a fix and its own docs page", () => 
 it("lists the accepted options in the fix of an unknown option", () => {
   expect(() => defineSandboxTask({ handler: async () => {}, retries: 3 } as never)).toThrow(expect.objectContaining({
     code: "SANDBOX_TASK_C0012",
-    fix: expect.stringContaining("`handler`, `timeout`, `env`, and `project`"),
-    message: "[vitehub] `defineSandboxTask()` supports only portable Sandbox options (handler, timeout, env, project). Unsupported keys: retries.",
+    fix: expect.stringContaining("`handler`, `timeout`, `env`, `transfer`, and `project`"),
+    message: "[vitehub] `defineSandboxTask()` supports only portable Sandbox options (handler, timeout, env, transfer, project). Unsupported keys: retries.",
   }))
+})
+
+it("keeps the transfer option of a Definition", () => {
+  const transfer = { maxInputBytes: 2_097_152, maxSidecars: 8 }
+  expect(defineSandboxTask({ handler: async () => {}, transfer }).options).toEqual({ transfer })
 })
 
 it("names handler in the fix of a missing handler function", () => {

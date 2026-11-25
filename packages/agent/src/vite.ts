@@ -87,7 +87,7 @@ export type { AgentChannelEnv } from "./channel-env-discovery.ts"
 export { normalizeRetention } from "./internal/retention-policy.ts"
 export type { NormalizedRetention, RetentionSizeLimit } from "./internal/retention-policy.ts"
 
-import type { Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
+import type { ConfigEnv, Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
 import type { ProviderDeploymentOutputWriter, ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { OperationContributions } from "@vite-hub/internal/operations"
@@ -2140,10 +2140,29 @@ function usesDatabaseLeases(options: { libsqlState?: GeneratedLibsqlAgentStateOp
     && options.runtimeCapabilities?.some(capability => capability.name === "db" && capability.packageName !== false))
 }
 
+function processHostModuleResolver(config: Pick<UserConfig, "root" | "resolve" | "ssr" | "environments">, environment: ConfigEnv) {
+  let resolver: Promise<ReturnType<ResolvedConfig["createResolver"]>> | undefined
+  return async (specifier: string, importer: string) => {
+    resolver ??= import("vite").then(async ({ resolveConfig }) => {
+      const resolved = await resolveConfig({
+        configFile: false,
+        envDir: false,
+        root: config.root,
+        resolve: config.resolve,
+        ssr: config.ssr,
+        environments: { ssr: config.environments?.ssr ?? {} },
+      }, environment.command, environment.mode)
+      return resolved.createResolver()
+    })
+    return (await resolver)(specifier, importer, false, true)
+  }
+}
+
 async function writeAgentWebhookRouteHandler(
   root: string,
-  options: { webhookAliases?: ResolvedAgentModuleOptions["routes"]["aliases"], preparation?: AgentOptions["preparation"], cloudflareState?: boolean, inspectionRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, processDiscordGateway?: boolean, runtime?: "vite", explicitWebhookAliasPaths?: readonly string[], shutdown?: ResolvedAgentModuleOptions["shutdown"], standaloneChannels?: readonly StandaloneChannel[], webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
-  serverDirs = [join(root, "server")],
+  options: { webhookAliases?: ResolvedAgentModuleOptions["routes"]["aliases"], preparation?: AgentOptions["preparation"], cloudflareState?: boolean, inspectionRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, processDiscordGateway?: boolean, runtime?: "vite", explicitWebhookAliasPaths?: readonly string[], shutdown?: ResolvedAgentModuleOptions["shutdown"], standaloneChannels?: readonly StandaloneChannel[], webhookRoute?: false | string } & AgentGeneratedImportOptions,
+  serverDirs: string[],
+  resolveProcessHostModule: ReturnType<typeof processHostModuleResolver>,
 ): Promise<void> {
   const handlerPath = join(root, generatedAgentWebhookRouteHandler)
   const definitions = discoverAgentDefinitions({
@@ -2239,7 +2258,7 @@ async function writeAgentWebhookRouteHandler(
   else {
     await rm(gatewayPluginPath, { force: true })
   }
-  const processHosts = options.libsqlState && !options.cloudflareState ? discoverProcessHostAgentNames(definitions) : []
+  const processHosts = options.libsqlState && !options.cloudflareState ? await discoverProcessHostAgentNames(definitions, resolveProcessHostModule) : []
   const processHostFiles = [generatedAgentProcessHosts, generatedAgentProcessHostsPlugin, generatedAgentProcessHostsDrain, generatedAgentProcessHostsHealth].map(file => join(root, file))
   if (processHosts.length) {
     const routeModule = `./${generatedAgentWebhookRouteHandler.split("/").at(-1)!.replace(/\.ts$/, "")}`
@@ -3005,7 +3024,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
           workflowModules: getWorkflowModules(agent, frameworkOptions),
           workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
           webhookRoute: normalized.routes.webhooks,
-        }, definitionServerDirs)
+        }, definitionServerDirs, processHostModuleResolver(config, config))
         if (normalized.routes.discordGateway && !processDiscordGateway) {
           await writeAgentDiscordGatewayRouteHandler(generatedRoot, {
             discordGatewayRoute: normalized.routes.discordGateway,
@@ -3304,7 +3323,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
         }
       },
     },
-    config(config, environment) {
+    async config(config, environment) {
       const resolved = normalizeAgentOptions(agent)
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
       const root = resolve(config.root || process.cwd())
@@ -3360,7 +3379,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       )
       const installPreparation = Boolean(resolved && hasHostedAgents && !denoOutput && resolved.preparation)
       const processHostAgents = resolved && hasHostedAgents
-        ? discoverProcessHostAgentNames(discoverAgentDefinitions({ mode: "server-agents", scanDirs: serverDirs ?? [join(root, "server")] }))
+        ? await discoverProcessHostAgentNames(discoverAgentDefinitions({ mode: "server-agents", scanDirs: serverDirs ?? [join(root, "server")] }), processHostModuleResolver(config, environment))
         : []
       processHostDurability = processHostAgents.length ? { lease: Boolean(recoveryDurability?.sweep) } : undefined
       if (processHostAgents.length) {

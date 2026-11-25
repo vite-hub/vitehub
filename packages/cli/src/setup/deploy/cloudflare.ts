@@ -140,6 +140,32 @@ async function readWranglerOutput(file: string): Promise<WranglerOutputEntry[]> 
   })
 }
 
+/**
+ * Wrangler 4.157 writes the `workers.dev` target as an `https://` URL, a custom domain as a bare host, such as
+ * `example.com (custom domain)`, and a route as its pattern. A route with one host and the path `/*` serves every path
+ * of that host. A wildcard host, a narrower path, triggers, and a custom domain with `production: disabled` have no
+ * URL to request.
+ */
+export function wranglerTargetUrl(targets: unknown): string | undefined {
+  const texts = Array.isArray(targets) ? targets.filter(target => typeof target === "string") : []
+  return [...texts.map(directTargetUrl), ...texts.map(routeTargetUrl)].find(url => url !== undefined && URL.canParse(url))
+}
+
+const workersDevTarget = /^https:\/\/[^\s*/]+\.workers\.dev\/?$/u
+const customDomainTarget = /^([^\s*/:]+) \(custom domain[ )]/u
+const catchAllRouteTarget = /^(?:https:\/\/)?([^\s*/:]+)\/\*(?: \(zone (?:id|name): [^)]+\))?$/u
+
+function directTargetUrl(target: string): string | undefined {
+  if (workersDevTarget.test(target)) return target
+  const domain = customDomainTarget.exec(target)?.[1]
+  return domain && !target.includes("production: disabled") ? `https://${domain}` : undefined
+}
+
+function routeTargetUrl(target: string): string | undefined {
+  const host = catchAllRouteTarget.exec(target)?.[1]
+  return host ? `https://${host}` : undefined
+}
+
 const durationUnits: Record<string, number> = { second: 1_000, minute: 60_000, hour: 3_600_000, day: 86_400_000 }
 
 function claimExpiry(text: string): string | undefined {
@@ -214,18 +240,19 @@ export async function cloudflareAdapter(context: DeployContext): Promise<DeployA
             args.push("--secrets-file", secretsFile)
           }
           const result = await run(args, { env: { ...env, WRANGLER_OUTPUT_FILE_PATH: outputFile }, show: true, signal })
-          if (result.exitCode !== 0) throw hostCliFailed(context.preview ? "wrangler versions upload" : "wrangler deploy", result, context.secrets)
+          const step = context.preview ? "wrangler versions upload" : "wrangler deploy"
+          if (result.exitCode !== 0) throw hostCliFailed(step, result, context.secrets)
           const entry = (await readWranglerOutput(outputFile)).findLast(item => item.type === (context.preview ? "version-upload" : "deploy"))
           const text = `${result.stdout}\n${result.stderr}`
-          const targets = Array.isArray(entry?.targets) ? entry.targets.filter(target => typeof target === "string") : []
-          const url = (context.preview ? optionalString(entry?.preview_url) : targets[0]) ?? findUrl(text, /\.workers\.dev$/u)
-          if (!url) throw hostCliFailed("wrangler deploy printed no URL", result, context.secrets)
+          const fromTargets = entry && !context.preview
+          const url = fromTargets ? wranglerTargetUrl(entry.targets) : optionalString(entry?.preview_url) ?? findUrl(text, /\.workers\.dev$/u)
+          if (!url && !fromTargets) throw hostCliFailed(`${step} printed no URL`, result, context.secrets)
           const version = optionalString(entry?.version_id)
           const claimUrl = /Claim URL:\s*(https:\/\/\S+)/u.exec(text)?.[1]
           const expiresAt = claimExpiry(text)
           const name = optionalString(entry?.worker_name)
           return {
-            url,
+            ...(url ? { url } : {}),
             ...(version ? { version } : {}),
             ...(claimUrl ? { claim: { url: claimUrl, ...(expiresAt ? { expiresAt } : {}) } } : {}),
             ...(name ? { project: { name, ...(accountId ? { accountId } : {}) } } : {}),

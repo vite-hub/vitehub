@@ -3,9 +3,11 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createConsoleKeyPair } from "@vite-hub/internal/console-signature"
 import { refreshWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
+import * as v from "valibot"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { channelReplayQuery, channelReplayQueryHelp, parseChannelReplayArgs, runAgentChannelReplayCli } from "../src/internal/channel-replay-cli.ts"
+import { agentToolJsonSchema } from "../src/tool-schema.ts"
 import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 const querySchema = {
@@ -64,6 +66,43 @@ describe("vitehub channels replay", () => {
     ])
     expect(parsed).toMatchObject({ agent: "labeller", channel: "mailbox", cursor: "abc", dryRun: true, force: true, limit: 25, label: "round-one" })
     expect(channelReplayQuery(parsed, querySchema)).toEqual({ folder: "inbox", label: ["work", "home"] })
+  })
+
+  it.each([
+    ["typed", ["--query", "label=work"]],
+    ["filter", ["--filter", "label=work"]],
+  ] as const)("sends a single %s array value as an array", (_mode, args) => {
+    expect(channelReplayQuery(parseChannelReplayArgs([...args, "--folder", "inbox"]), querySchema)).toEqual({ folder: "inbox", label: ["work"] })
+  })
+
+  it("wraps nullable arrays but keeps single values scalar when the query also accepts a string", () => {
+    const nullableArray = v.nullable(v.array(v.string()))
+    const historyQuery = v.object({ label: nullableArray, folder: v.union([nullableArray, v.string()]) })
+    const schema = agentToolJsonSchema(historyQuery, "input")
+    const parsed = parseChannelReplayArgs(["--filter", "label=work", "--folder", "inbox"])
+
+    const query = channelReplayQuery(parsed, schema)
+
+    expect(query).toEqual({ label: ["work"], folder: "inbox" })
+    expect(v.parse(historyQuery, query)).toEqual(query)
+  })
+
+  it("keeps scalar, repeated scalar, and schema-free filter values", () => {
+    expect(channelReplayQuery(parseChannelReplayArgs(["--folder", "inbox"]), querySchema)).toEqual({ folder: "inbox" })
+    expect(channelReplayQuery(parseChannelReplayArgs(["--folder", "inbox", "--filter", "folder=archive"]), querySchema)).toEqual({ folder: ["inbox", "archive"] })
+    expect(channelReplayQuery(parseChannelReplayArgs(["--filter", "label=work"]), undefined)).toEqual({ label: "work" })
+  })
+
+  it("keeps prototype-named query keys as own values", () => {
+    const query = channelReplayQuery(
+      parseChannelReplayArgs(["--__proto__", "proto", "--filter", "__proto__=again", "--constructor", "ctor", "--toString", "string"]),
+      { properties: { ["__proto__"]: {}, constructor: {}, toString: {} } },
+    )
+
+    expect(Object.hasOwn(query, "__proto__")).toBe(true)
+    expect(query["__proto__"]).toEqual(["proto", "again"])
+    expect(query.constructor).toBe("ctor")
+    expect(query.toString).toBe("string")
   })
 
   it.each(["", "  ", "x".repeat(513)])("rejects an invalid replay label %j", label => {

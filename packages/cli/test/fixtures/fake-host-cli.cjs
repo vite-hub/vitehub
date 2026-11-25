@@ -100,11 +100,22 @@ function wrangler() {
   state.deploys++
   save()
   const url = `https://${config.name}.example.workers.dev`
-  process.stdout.write(`Uploaded ${config.name}\n${preview ? "Worker Version Preview URL: https://v1-" + config.name + ".example.workers.dev" : url}\nCurrent Version ID: version-${state.deploys}\n`)
+  const previewUrl = config.preview_urls === false ? undefined : `https://v1-${config.name}.example.workers.dev`
+  const targets = wranglerTargets(config, url)
+  const printed = preview ? (previewUrl ? [`Worker Version Preview URL: ${previewUrl}`] : []) : targets
+  process.stdout.write(`Uploaded ${config.name}\n${printed.map(line => `${line}\n`).join("")}Current Version ID: version-${state.deploys}\n`)
+  if (process.env.FAKE_HOST_NO_OUTPUT) return
   const entry = preview
-    ? { type: "version-upload", version: 1, worker_name: config.name, version_id: `version-${state.deploys}`, preview_url: `https://v1-${config.name}.example.workers.dev` }
-    : { type: "deploy", version: 1, worker_name: config.name, version_id: `version-${state.deploys}`, targets: [url] }
+    ? { type: "version-upload", version: 1, worker_name: config.name, version_id: `version-${state.deploys}`, ...(previewUrl ? { preview_url: previewUrl } : {}) }
+    : { type: "deploy", version: 1, worker_name: config.name, version_id: `version-${state.deploys}`, targets }
   if (process.env.WRANGLER_OUTPUT_FILE_PATH) appendFileSync(process.env.WRANGLER_OUTPUT_FILE_PATH, `${JSON.stringify(entry)}\n`)
+}
+
+function wranglerTargets(config, url) {
+  const routes = (config.routes ?? []).map(route => typeof route === "string" ? route : `${route.pattern}${route.custom_domain ? " (custom domain)" : ""}`)
+  const crons = (config.triggers?.crons ?? []).map(cron => `schedule: ${cron}`)
+  const workersDev = config.workers_dev ?? routes.length === 0
+  return [...(workersDev ? [url] : []), ...routes, ...crons]
 }
 
 function vercel() {
