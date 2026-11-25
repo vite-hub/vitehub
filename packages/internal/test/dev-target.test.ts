@@ -1,4 +1,6 @@
-import { createServer, request } from "node:http"
+import { createServer, IncomingMessage, request } from "node:http"
+import { Socket } from "node:net"
+import { resolveConfig } from "vite"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
@@ -11,7 +13,7 @@ import {
 import { assertViteHubDevRequestGrant, isViteHubDevHostAllowed, registerViteHubDevEndpoint, validateViteHubDevRequest } from "../src/dev-endpoint.ts"
 import { isViteHubSecretEqual } from "../src/secret.ts"
 
-import type { IncomingMessage, Server, ServerResponse } from "node:http"
+import type { Server, ServerResponse } from "node:http"
 import type { ViteHubDevTargetArgs } from "../src/cli.ts"
 import type { ViteHubDevEndpointOptions, ViteHubDevEndpointServer } from "../src/dev-endpoint.ts"
 
@@ -345,6 +347,23 @@ describe("guarded dev endpoint", () => {
     expect(await requestWithHost(all.url, `attacker.example:${new URL(all.url).port}`)).toEqual([200, "handled"])
   })
 
+  it.each([
+    { host: "socket.test", server: { hmr: false, ws: { host: "socket.test" } } },
+    { host: "legacy-socket.test", server: { hmr: { host: "legacy-socket.test" } } },
+    { host: "origin.test", server: { origin: "https://origin.test:8443/app" } },
+  ])("accepts $host from Vite's resolved allowlist", async ({ host, server }) => {
+    const config = await resolveConfig({ configFile: false, logLevel: "silent", server }, "serve")
+    expect(config.server.allowedHosts).toContain(host)
+    const check = (requestHost: string) => {
+      const req = new IncomingMessage(new Socket())
+      req.method = "GET"
+      req.headers = { host: `${requestHost}:5173`, [endpoint.header]: endpoint.headerValue }
+      return validateViteHubDevRequest({ config, resolvedUrls: null }, req, { ...endpoint, label: "Test Dev" })
+    }
+    expect(check(host).grant?.label).toBe("Test Dev")
+    expect(check("unlisted.test").rejection?.status).toBe(403)
+  })
+
   it("matches Vite host validation rules", () => {
     const allowed = (host: string | undefined, server: ViteHubDevEndpointServer["config"]["server"] = {}) =>
       // SAFETY: the host check reads only the host header from the request.
@@ -365,12 +384,6 @@ describe("guarded dev endpoint", () => {
     expect(allowed("sub.app.test", { allowedHosts: ["app.test"] })).toBe(false)
     expect(allowed("machine.lan:5173", { host: "machine.lan" })).toBe(true)
     expect(allowed("machine.lan:5173", { host: true })).toBe(false)
-    expect(allowed("tunnel.test:5173", { hmr: { host: "tunnel.test" } })).toBe(true)
-    expect(allowed("tunnel.test:5173", { hmr: true })).toBe(false)
-    expect(allowed("tunnel.test:5173", { hmr: false, ws: { host: "tunnel.test" } })).toBe(true)
-    expect(allowed("app.test:5173", { origin: "https://app.test:8443/app/" })).toBe(true)
-    expect(allowed("attacker.example", { origin: "not a URL" })).toBe(false)
-    expect(allowed("attacker.example", { hmr: { host: "tunnel.test" }, origin: "https://app.test" })).toBe(false)
     expect(allowed("attacker.example", { allowedHosts: true })).toBe(true)
     expect(allowed("attacker.example", { https: {} })).toBe(true)
   })
