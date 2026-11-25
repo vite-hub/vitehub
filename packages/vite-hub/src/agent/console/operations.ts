@@ -2,7 +2,6 @@ import * as v from "valibot"
 
 import { consoleState } from "../../console/internal.ts"
 import { consoleOperationRequestBytes, defineConsoleOperation, legacyEvent, optionalCount, optionalText, record, text } from "../../console/runtime/server/operations.ts"
-import { viteHubErrorDiagnostics } from "../../error-diagnostics.ts"
 
 import type { AnyOperation } from "@vite-hub/internal/operations"
 import type { ConsoleAgentRealtimeLoader } from "../../console/internal.ts"
@@ -134,15 +133,7 @@ const searchQuery = defineConsoleOperation({
   input: v.strictObject({ cursor: optionalText, limit: optionalCount, search: optionalText }),
   kind: "read",
   name: "search.query",
-  run: async input => {
-    const url = new URL("http://vitehub.local/_vitehub/api/search")
-    for (const [key, value] of Object.entries(input)) {
-      if (value !== undefined) url.searchParams.set(key, String(value))
-    }
-    const response = await (await import("./search.get.ts")).consoleSearchCollectionHandler.fetch(new Request(url))
-    if (!response.ok) throw await searchError(response)
-    return await response.json()
-  },
+  run: async input => (await import("./search.ts")).searchConsoleInvocations(input),
   section: "agents",
 })
 
@@ -174,29 +165,6 @@ const usageGet = defineConsoleOperation({
   run: async (input, context) => (await import("./usage.get.ts")).readConsoleUsage(legacyEvent("usage", "GET", { query: input }, context)),
   section: "usage",
 })
-
-
-function jsonOf(body: string): unknown {
-  try {
-    return JSON.parse(body)
-  }
-  catch {
-    return undefined
-  }
-}
-
-async function searchError(response: Response): Promise<Error> {
-  const body = await response.text()
-  let message = body
-  const parsed = v.safeParse(v.object({ message: v.optional(v.unknown()), statusMessage: v.optional(v.unknown()) }), jsonOf(body))
-  if (parsed.success) {
-    const statusMessage = v.safeParse(v.string(), parsed.output.statusMessage)
-    const responseMessage = v.safeParse(v.string(), parsed.output.message)
-    if (statusMessage.success) message = statusMessage.output
-    else if (responseMessage.success) message = responseMessage.output
-  }
-  return Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0052({ message }), { statusCode: response.status, statusMessage: message })
-}
 
 /** The Console operations of the Agents, Skills, Usage, and Channels sections. The Console registers them only when the app has Agents. */
 export const agentConsoleOperations: readonly AnyOperation[] = [

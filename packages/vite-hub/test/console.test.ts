@@ -29,8 +29,7 @@ import { listConsoleInvocationCapabilities } from "../src/agent/console/invocati
 import { listConsoleInvocations } from "../src/agent/console/invocations.get.ts"
 import { isConsoleDevelopmentBuild } from "../src/console/runtime/server/development.ts"
 import { assertConsoleRequest } from "../src/console/runtime/server/request.ts"
-import { consoleSearchCollectionHandler } from "../src/agent/console/search.get.ts"
-import { consoleSearch } from "../src/agent/console/search.ts"
+import { searchConsoleInvocations } from "../src/agent/console/search.ts"
 import { listConsoleSections } from "../src/console/runtime/server/sections.get.ts"
 import { installConsoleDevelopment, installConsoleProjectName, installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { consoleInvocationRootPlugin, consoleVitePlugin } from "../src/console/vite.ts"
@@ -290,7 +289,7 @@ describe("Agent invocation console", () => {
 
       const generated = await readFile(consoleAppFile(plugin), "utf8")
       expect(generated).not.toMatch(/^import .*vite-hub\/(?:blob|database\/runtime\/registry|i18n\/server|kv)/m)
-      expect(generated).toContain(`capabilities: async () => { const [{ blob: vitehubConsoleAgentBlob }, { agentConsole: vitehubConsoleAgentConsole }, { agentDb: vitehubConsoleAgentDb }, { agentI18n: vitehubConsoleAgentI18n }, { kv: vitehubConsoleAgentKv }] = await Promise.all([import("vite-hub/blob"), import("vite-hub/console/server"), import("@vite-hub/database/runtime/registry"), import("vite-hub/i18n/server"), import("vite-hub/kv")]); return { blob: vitehubConsoleAgentBlob, console: vitehubConsoleAgentConsole, db: vitehubConsoleAgentDb, i18n: vitehubConsoleAgentI18n, kv: vitehubConsoleAgentKv } }`)
+      expect(generated).toContain(`capabilities: async () => { const [{ blob: vitehubConsoleAgentBlob }, { agentConsole: vitehubConsoleAgentConsole }, { agentDb: vitehubConsoleAgentDb }, { agentI18n: vitehubConsoleAgentI18n }, { kv: vitehubConsoleAgentKv }] = await Promise.all([import("vite-hub/blob").then(({ blob }) => ({ blob })), import("vite-hub/console/server").then(({ agentConsole }) => ({ agentConsole })), import("@vite-hub/database/runtime/registry").then(({ agentDb }) => ({ agentDb })), import("vite-hub/i18n/server").then(({ agentI18n }) => ({ agentI18n })), import("vite-hub/kv").then(({ kv }) => ({ kv }))]); return { blob: vitehubConsoleAgentBlob, console: vitehubConsoleAgentConsole, db: vitehubConsoleAgentDb, i18n: vitehubConsoleAgentI18n, kv: vitehubConsoleAgentKv } }`)
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -3020,8 +3019,7 @@ describe("Agent invocation console", () => {
     })
     installConsoleInvocations(process.cwd(), defineAgentInvocations({ store }))
 
-    const query = await consoleSearch.parseQuery({ search: "merged via" })
-    await expect(consoleSearch.page({ query })).resolves.toEqual({
+    await expect(searchConsoleInvocations({ limit: 12, search: " merged via " })).resolves.toEqual({
       items: [{
         agentName: "babysitter",
         context: "matching-invocation",
@@ -3033,15 +3031,21 @@ describe("Agent invocation console", () => {
       nextCursor: null,
     })
 
-    const response = await consoleSearchCollectionHandler.fetch(new Request("http://localhost/search?limit=12&search=merged%20via"))
-    expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toMatchObject({
-      items: [expect.objectContaining({ id: "matching-invocation" })],
-      nextCursor: null,
-    })
+    const firstPage = await searchConsoleInvocations({ limit: 1 })
+    expect(firstPage.items).toHaveLength(1)
+    expect(firstPage.nextCursor).toEqual(expect.any(String))
+    const secondPage = await searchConsoleInvocations({ cursor: firstPage.nextCursor ?? undefined, limit: 1 })
+    expect(secondPage.nextCursor).toBeNull()
+    expect([...firstPage.items, ...secondPage.items].map(item => item.id).sort()).toEqual(["matching-invocation", "other-invocation"])
 
-    const invalidResponse = await consoleSearchCollectionHandler.fetch(new Request("http://localhost/search?search=one&search=two"))
-    expect(invalidResponse.status).toBe(400)
+    await expect(searchConsoleInvocations({ limit: 0 })).rejects.toMatchObject({ status: 400 })
+    await expect(searchConsoleInvocations({ limit: 2 ** 53 })).rejects.toMatchObject({ code: "VITE_HUB_R0052", status: 400 })
+    await expect(searchConsoleInvocations({ cursor: "" })).rejects.toMatchObject({ code: "VITE_HUB_R0052", status: 400 })
+    await expect(searchConsoleInvocations({ cursor: "not-a-cursor" })).rejects.toMatchObject({ code: "VITE_HUB_R0052", status: 400 })
+    for (const code of ["AGENT_R0635", "AGENT_R0920"]) {
+      installConsoleInvocations(process.cwd(), defineAgentInvocations({ store: { ...store, list: () => { throw Object.assign(new Error("[vitehub] Agent Invocation cursor is invalid."), { code }) } } }))
+      await expect(searchConsoleInvocations({ cursor: "IjIi" })).rejects.toMatchObject({ code: "VITE_HUB_R0052", status: 400 })
+    }
   })
 
   it("accepts persisted Agent names up to the metadata limit", async () => {
