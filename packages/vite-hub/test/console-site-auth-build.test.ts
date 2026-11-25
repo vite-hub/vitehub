@@ -75,7 +75,7 @@ describe("Console tokens in an app whose Auth protects every route", () => {
       expect(link.status).toBe(401)
       const visit = await fetch(`${origin}/_vitehub/site?${new URLSearchParams({ return: "/", intent: "A".repeat(43) })}`, { redirect: "manual" })
       expect(visit.status).toBe(303)
-      expect(visit.headers.get("set-cookie")).toMatch(/__Host-vitehub-site-state=/)
+      expect(visit.headers.get("set-cookie")).toContain(`__Host-vitehub-site-state-${"A".repeat(43)}=`)
     }
     finally {
       server.kill()

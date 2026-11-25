@@ -45,8 +45,8 @@ The app refuses a token for another app, for another browser, an expired token, 
 A draft preview needs your app's origin to render, and impersonation needs it to set the session cookie, but the Console runs on another origin. So they use the route and the token of [Site access](#how-the-app-checks-a-visit), with the kind `preview` or `impersonate`. The app keeps no state and needs no store for them, and an app without Comments takes them too.
 
 1. In the Console, you click **Preview** or **Impersonate**. The Console calls the operation of the action on your app as you, with a signed request. The operation checks the section, the grant, and the target, and answers the app path to open.
-2. The Console keeps what you started for 60 seconds in a cookie of this browser, and opens `GET /_vitehub/site?intent=<id>` of your app in a new tab. The app sets its state cookie and sends the browser to the Console's `/visit`.
-3. The Console finds the cookie of the intent, checks that you are still signed in and a member of the team, and calls the operation again. Then it signs a token of the kind for 60 seconds, with the target, and sends the browser back to `GET /_vitehub/site?token=vst1.…`.
+2. The Console keeps what you started for 60 seconds in a cookie of this browser, and opens `GET /_vitehub/site?intent=<id>` of your app in a new tab. The app sets a separate state cookie for that intent and sends the browser to the Console's `/visit`.
+3. The Console finds the cookie of the intent, checks that you are still signed in and a member of the team, and calls the operation again. Then it signs a token of the kind for 60 seconds, with the target, and sends the browser back to `GET /_vitehub/site?token=vst1.…&intent=<id>`.
 4. The app checks the token as for Site access: for this app, for the state of this browser, of a known key, and not older than 60 seconds. It runs the action in this request and keeps no cookie for the token.
 
 | Operation | Kind | Opens | The app checks when it gets the token |

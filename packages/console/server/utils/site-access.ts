@@ -182,7 +182,7 @@ async function intentVisit(request: Request, user: { id: string, name?: unknown,
   if (!("path" in allowed)) return linkProblem(allowed.status, `${allowed.message} (${allowed.code})`, headers)
   const target = await caller.projects.target(project.id)
   if (!target) return linkProblem(404, "There is no such project, or VITEHUB_CONSOLE_SECRET changed since it was linked.", headers)
-  const location = await signedLocation({ project: target.project, key: target.key, person, roles: [], state: visit.state, path: allowed.path, kind: intent.kind, target: intent.target })
+  const location = await signedLocation({ project: target.project, key: target.key, person, roles: [], state: visit.state, path: allowed.path, kind: intent.kind, target: intent.target, intent: visit.id })
   if (location instanceof Response) return location
   return seeOther(location, headers)
 }

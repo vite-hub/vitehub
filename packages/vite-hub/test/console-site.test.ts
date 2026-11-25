@@ -350,7 +350,7 @@ describe("the /_vitehub/** route", () => {
     expect(location.pathname).toBe("/visit")
     expect(location.searchParams.get("intent")).toBe(intent)
     expect(location.searchParams.get("project")).toBe("p1")
-    expect(response.headers.get("set-cookie")).toMatch(/__Host-vitehub-site-state=/)
+    expect(response.headers.get("set-cookie")).toContain(`__Host-vitehub-site-state-${intent}=`)
     expect((await routes.fetch(new Request(`${origin}/_vitehub/site?return=%2F&intent=bad`))).status).toBe(400)
   })
 

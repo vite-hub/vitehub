@@ -5,7 +5,7 @@ import { operationRpcPath, operationRpcRefusal, readOperationRpcCall } from "../
 import { consoleDiagnosticBody, consoleStatusDiagnosticCode } from "../../packages/vite-hub/src/console/runtime/diagnostics.ts"
 import type { ConsoleRpcResult } from "../../packages/vite-hub/src/console/runtime/rpc.ts"
 import { consolePublicURL } from "../../packages/vite-hub/src/console/runtime/server/request.ts"
-import { authConsoleActionOperations, authConsoleImpersonationOperations, authConsoleReadOperations } from "../../packages/vite-hub/src/console/runtime/auth-operations.ts"
+import { authConsoleActionOperations, authConsoleReadOperations } from "../../packages/vite-hub/src/console/runtime/auth-operations.ts"
 import { authFixture } from "./auth-fixture.ts"
 import { cacheFixture } from "./cache-fixture.ts"
 import { channelsFixture } from "./channels-fixture.ts"
@@ -26,10 +26,7 @@ function authOperationFixture(operation: string, input: Record<string, unknown>)
   }
   const action = authActions.get(operation)
   if (action) return { ok: true, value: authFixture({ ...input, action }, events) }
-  const impersonation = operation === authConsoleImpersonationOperations.start ? "impersonate" : operation === authConsoleImpersonationOperations.stop ? "stopImpersonating" : undefined
-  if (!impersonation) return undefined
-  authFixture({ ...input, action: impersonation }, events)
-  return { ok: true, value: { url: "/", expiresAt: new Date(Date.now() + 60_000).toISOString() } }
+  return undefined
 }
 
 async function readBody(request: IncomingMessage): Promise<string> {

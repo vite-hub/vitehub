@@ -131,7 +131,7 @@ describe("impersonation with signed Site access tokens", () => {
 
     const visit = await browser(app.operator.cookie)
     const start = await visit.token({ key: key.key, kind: "impersonate", target: { action: "start", userId: app.member.id } })
-    const head = await siteActionRoute.fetch(new Request(`${origin}/_vitehub/site?${new URLSearchParams({ token: start })}`, { method: "HEAD", headers: { cookie: visit.cookie } }))
+    const head = await siteActionRoute.fetch(new Request(`${origin}/_vitehub/site?${new URLSearchParams({ token: start, intent: visit.intent })}`, { method: "HEAD", headers: { cookie: visit.cookie } }))
     expect(head.status).toBe(405)
     const started = await visit.open(start)
     expect(started.status).toBe(303)
@@ -172,7 +172,7 @@ describe("impersonation with signed Site access tokens", () => {
     const page = await other.text()
     expect(page).toContain("CONSOLE_SITE_ACCOUNT_MISMATCH")
     expect(page).toContain("signed in to the app as ada@example.com")
-    expect([...other.headers.getSetCookie()].map(line => line.split("=")[0])).toEqual(["__Host-vitehub-site-state"])
+    expect(other.headers.getSetCookie().map(line => line.split("=")[0])).toEqual([`__Host-vitehub-site-state-${ada.intent}`])
     expect((await app.store.list({ type: "impersonation.started" })).events).toEqual([])
   })
 

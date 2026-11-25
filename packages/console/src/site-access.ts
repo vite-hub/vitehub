@@ -172,13 +172,14 @@ export async function siteMember(db: ConsoleDatabase, project: Pick<ConsoleProje
  * the roles, the state hash that the app sent, and the app path to open. `kind` is `site` by default. An `impersonate`
  * or `preview` token also names its `target`.
  */
-export async function siteTokenLocation(input: { project: Pick<ConsoleProject, "url">, key: ConsoleSigningKey, person: ConsoleSitePerson, roles: string[], state: string, path: string, kind?: SiteTokenKind, target?: SiteTokenTarget }): Promise<string> {
+export async function siteTokenLocation(input: { project: Pick<ConsoleProject, "url">, key: ConsoleSigningKey, person: ConsoleSitePerson, roles: string[], state: string, path: string, kind?: SiteTokenKind, target?: SiteTokenTarget, intent?: string }): Promise<string> {
   const { person } = input
   const token = await signSiteToken({
     key: input.key,
     claims: { aud: input.project.url, sub: person.id, name: person.name, ...(person.email ? { email: person.email } : {}), ...(person.image ? { image: person.image } : {}), roles: input.roles, kind: input.kind ?? "site", path: input.path, state: input.state, ...(input.target ? { target: input.target } : {}) },
   })
-  return siteTokenUrl(input.project.url, token)
+  const location = siteTokenUrl(input.project.url, token)
+  return input.intent ? `${location}&${new URLSearchParams({ intent: input.intent })}` : location
 }
 
 /** Milliseconds that an intent waits for its visit. */

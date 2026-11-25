@@ -8,7 +8,7 @@ import { siteAccessRoute, siteActionRoute } from "../src/console/runtime/server/
 import { installViteHubConsoleOperations } from "./support/console-operations.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 import { consoleTestKey, signedRpcRequest } from "./support/console-signature.ts"
-import { siteActionBrowser } from "./support/site-token.ts"
+import { cookieJar, siteActionBrowser } from "./support/site-token.ts"
 import { operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 import type { ConsoleDocumentActions } from "../src/console/runtime/server/documents.ts"
@@ -75,7 +75,7 @@ describe("Content preview with a signed Site access token", () => {
     expect(page.status).toBe(200)
     expect(page.headers.get("cache-control")).toBe("no-store")
     expect(page.headers.get("content-security-policy")).toMatch(/script-src 'sha256-[\w+/=]+'; form-action 'self'/)
-    expect(page.headers.getSetCookie()).toEqual([expect.stringMatching(/^__Host-vitehub-site-state=; .*Max-Age=0/)])
+    expect(page.headers.getSetCookie()).toEqual([expect.stringContaining(`__Host-vitehub-site-state-${visit.intent}=; Path=/; Max-Age=0`)])
     const { action, value } = previewForm(await page.text())
     expect(action).toBe(`${origin}/blog/hello?vitehub-content-preview=`)
     expect(users).toEqual([expect.objectContaining({ id: "console-ada" }), expect.objectContaining({ id: "console-ada", email: "ada@example.com" })])
@@ -91,6 +91,26 @@ describe("Content preview with a signed Site access token", () => {
       method: "POST",
     }))
     expect(await rendered.json()).toEqual({ collection: "posts", id: "hello" })
+  })
+
+  it("redeems two pending previews without clearing each other's state or regular Site access state", async () => {
+    contentSection()
+    const site = await siteAccessRoute.fetch(new Request(`${origin}/_vitehub/site`))
+    const siteState = cookieJar("", site)
+    const first = await siteActionBrowser(siteAccessRoute, origin, siteState)
+    const second = await siteActionBrowser(siteAccessRoute, origin, first.cookie)
+    const input = { key: key.key, kind: "preview" as const, target, claims: adaClaims }
+    const firstToken = await first.token(input)
+    const swapped = await second.open(firstToken, second.cookie)
+    expect(swapped.status).toBe(401)
+    expect(await swapped.text()).toContain("(SITE_TOKEN_STATE)")
+    const firstPage = await first.open(firstToken, second.cookie)
+    expect(firstPage.status).toBe(200)
+    const afterFirst = cookieJar(second.cookie, firstPage)
+    const secondPage = await second.open(await second.token(input), afterFirst)
+    expect(secondPage.status).toBe(200)
+    expect(cookieJar(afterFirst, secondPage)).toBe(siteState)
+    expect((await first.open(firstToken, afterFirst)).status).toBe(401)
   })
 
   it("answers the path below the base of an app that is mounted under a path, and opens the page under that base", async () => {

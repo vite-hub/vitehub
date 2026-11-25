@@ -391,6 +391,7 @@ describe("Impersonation and Content preview in the Console", () => {
     const keys = readConsolePublicKeys({ [project.keyVariable]: project.publicKey })
     if (!(keys instanceof Map)) throw new Error(keys.message)
     const location = new URL(visited.location)
+    expect(location.searchParams.get("intent")).toBe(url.searchParams.get("intent"))
     const verified = await verifySiteToken({ token: location.searchParams.get("token")!, keys, origin: "https://app.example.com/portal", state: visited.appState, kinds: ["impersonate"] })
     expect(verified).toMatchObject({ ok: true, claims: { kind: "impersonate", target: start.target, roles: [], path: "/", sub: "u-ada" } })
     expect(await verifySiteToken({ token: location.searchParams.get("token")!, keys, origin: "https://app.example.com/portal", state: visited.appState })).toMatchObject({ ok: false, code: "SITE_TOKEN_KIND" })
