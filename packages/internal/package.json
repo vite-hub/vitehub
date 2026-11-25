@@ -33,6 +33,11 @@
       "import": "./dist/console-signature.js",
       "default": "./dist/console-signature.js"
     },
+    "./site-token": {
+      "types": "./dist/site-token.d.ts",
+      "import": "./dist/site-token.js",
+      "default": "./dist/site-token.js"
+    },
     "./console": {
       "types": "./dist/console.d.ts",
       "import": "./dist/console.js",
@@ -273,6 +278,11 @@
       "import": "./dist/runtime/page-tools.js",
       "default": "./dist/runtime/page-tools.js"
     },
+    "./runtime/page-account": {
+      "types": "./dist/runtime/page-account.d.ts",
+      "import": "./dist/runtime/page-account.js",
+      "default": "./dist/runtime/page-account.js"
+    },
     "./runtime/page-pill": {
       "types": "./dist/runtime/page-pill.d.ts",
       "import": "./dist/runtime/page-pill.js",
@@ -476,28 +486,28 @@
     "typecheck": "vp run --cache -t @vite-hub/internal#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.browser.json"
   },
   "dependencies": {
-    "@babel/parser": "^7.29.9",
+    "@babel/parser": "^8.1.3",
     "@sqlite.org/sqlite-wasm": "catalog:database",
     "@standard-schema/spec": "catalog:runtime",
     "@types/node": "catalog:tooling",
     "@vercel/nft": "catalog:vercel",
     "birpc": "catalog:runtime",
     "h3": "catalog:unjs",
-    "magic-string": "^0.30.21",
+    "magic-string": "^1.4.5",
     "minimatch": "catalog:workspace",
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs",
     "resolve-pkg-maps": "^1.0.0",
-    "semver": "^7.8.5"
+    "semver": "^7.8.6"
   },
   "devDependencies": {
-    "@babel/types": "^7.29.8",
+    "@babel/types": "^8.1.3",
     "@cloudflare/vitest-plugin": "catalog:",
     "@types/semver": "^7.8.0",
     "@valibot/to-json-schema": "catalog:runtime",
-    "esbuild": "catalog:esbuild-v27",
+    "esbuild": "catalog:tooling",
     "exsolve": "catalog:unjs",
-    "happy-dom": "21.0.3",
+    "happy-dom": "21.0.4",
     "nitro": "catalog:unjs",
     "sharp": "0.35.5",
     "srvx": "catalog:unjs",

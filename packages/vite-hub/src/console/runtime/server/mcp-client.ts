@@ -38,6 +38,7 @@ const completingAuthorizations = new Set<string>()
 const pendingLifetimeMs = 10 * 60_000
 const discoveryLifetimeMs = 60_000
 const requestTimeoutMs = 30_000
+const maximumPages = 20
 const callTimeoutMs = 120_000
 const maximumConnections = 20
 const clientInfo = { name: "vitehub-console", title: "ViteHub Console", version: "1.0.0" }
@@ -766,16 +767,28 @@ const listMethods: Readonly<Record<ConsoleMcpListKind, { field: string, method: 
   "tools": { field: "tools", method: "tools/list" },
 }
 
-/** One page of tools, resources, resource templates, or prompts. */
-export async function listConsoleMcpItems(caller: ConsoleMcpCaller, input: { cursor?: string, id: string, kind: ConsoleMcpListKind }): Promise<ConsoleMcpPage & { connection: ConsoleMcpConnection }> {
+/**
+ * All tools, resources, resource templates, or prompts, read page by page in one MCP session. A list of more than 20
+ * pages fails with `CONSOLE_MCP_LIST_INCOMPLETE`.
+ */
+export async function listConsoleMcpItems(caller: ConsoleMcpCaller, input: { id: string, kind: ConsoleMcpListKind }): Promise<ConsoleMcpPage & { connection: ConsoleMcpConnection }> {
   return withConnection(caller, input.id, async (connection) => {
     const { field, method } = listMethods[input.kind]
     try {
-      const result = await withClient(caller, connection, client => client.request({ method, params: input.cursor ? { cursor: input.cursor } : {} }, ResultSchema, { timeout: requestTimeoutMs }))
-      const values = Reflect.get(result, field)
-      const items = Array.isArray(values) ? values.filter(isRecord) : []
-      const nextCursor = text(Reflect.get(result, "nextCursor"))
-      return { connection: describe(connection), items, ...(nextCursor ? { nextCursor } : {}) }
+      const { cursor, items } = await withClient(caller, connection, async (client) => {
+        const items: Record<string, unknown>[] = []
+        let cursor: string | undefined
+        for (let page = 0; page < maximumPages; page++) {
+          const result = await client.request({ method, params: cursor ? { cursor } : {} }, ResultSchema, { timeout: requestTimeoutMs })
+          const values: unknown = Reflect.get(result, field)
+          if (Array.isArray(values)) items.push(...values.filter(isRecord))
+          cursor = text(Reflect.get(result, "nextCursor"))
+          if (!cursor) break
+        }
+        return { cursor, items }
+      })
+      if (cursor) throw consoleRequestError(502, `The MCP server sent more than ${maximumPages} pages of ${input.kind}. The Console shows no part of a list that it cannot read fully.`, "CONSOLE_MCP_LIST_INCOMPLETE")
+      return { connection: describe(connection), items }
     }
     catch (error) {
       // A server without this capability answers "method not found". It has none of these items.

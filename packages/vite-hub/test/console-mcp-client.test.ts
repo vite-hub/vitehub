@@ -56,6 +56,7 @@ let origin = ""
 /** Whether the authorization server lists `offline_access`, as Better Auth does. */
 let offersOfflineAccess = false
 let resourceScopes: string[] | undefined = ["openid", "profile", "email"]
+let resourcePages = 1
 /** Signs RPC calls as the Console does while a test takes only signed calls. */
 let signer: Awaited<ReturnType<typeof signedConsoleAccess>> | undefined
 
@@ -109,7 +110,11 @@ function mcpServer(person: () => string): Server {
     if (request.params.name === "echo") return { content: [{ text: String(request.params.arguments?.text), type: "text" }] }
     throw new McpError(ErrorCode.InvalidParams, `Unknown tool ${request.params.name}`)
   })
-  server.setRequestHandler(ListResourcesRequestSchema, async () => ({ resources: [{ mimeType: "text/markdown", name: "profile", uri: "profile://me" }] }))
+  server.setRequestHandler(ListResourcesRequestSchema, async (request) => {
+    const page = Number(request.params?.cursor ?? 0)
+    const resource = page ? { mimeType: "text/markdown", name: `note-${page}`, uri: `note://${page}` } : { mimeType: "text/markdown", name: "profile", uri: "profile://me" }
+    return { resources: [resource], ...(page + 1 < resourcePages ? { nextCursor: String(page + 1) } : {}) }
+  })
   server.setRequestHandler(ReadResourceRequestSchema, async request => ({ contents: [{ mimeType: "text/markdown", text: `# ${people[person()]!.name}`, uri: request.params.uri }] }))
   server.setRequestHandler(ListPromptsRequestSchema, async () => ({ prompts: [{ arguments: [{ name: "topic", required: true }], name: "summarize" }] }))
   server.setRequestHandler(GetPromptRequestSchema, async request => ({ messages: [{ content: { text: `Summarize ${request.params.arguments?.topic}.`, type: "text" }, role: "user" }] }))
@@ -234,6 +239,7 @@ afterEach(() => {
   delete process.env.VITEHUB_CONSOLE_MCP_KEY
   kvValues.clear()
   resourceScopes = ["openid", "profile", "email"]
+  resourcePages = 1
   vi.restoreAllMocks()
   resetConsoleMcp()
   installConsoleAccess({ mode: "open" })
@@ -735,6 +741,20 @@ describe("MCP client section", () => {
     const unknown = await rpc<ConsoleMcpOutcome>("mcp-client.call", { id: maxi.id, tool: "missing" })
     expect(unknown.status).toBe(200)
     expect(unknown.value.error).toEqual({ code: ErrorCode.InvalidParams, message: "Unknown tool missing" })
+  })
+
+  it("returns all items of a list of 20 pages, and refuses a list of 21 pages instead of a part of it", async () => {
+    install()
+    const maxi = await connectAs("maxi")
+    resourcePages = 20
+    const resources = await rpc<ConsoleMcpPage>("mcp-client.items", { id: maxi.id, kind: "resources" })
+    expect(resources.value.items.map(resource => resource.name)).toEqual(["profile", ...Array.from({ length: 19 }, (_, index) => `note-${index + 1}`)])
+    expect(Object.keys(resources.value)).toEqual(["connection", "items"])
+    resourcePages = 21
+    const incomplete = await rpc<ConsoleMcpPage>("mcp-client.items", { id: maxi.id, kind: "resources" })
+    expect(incomplete).toMatchObject({ failure: { code: "CONSOLE_MCP_LIST_INCOMPLETE" }, status: 502 })
+    const withCursor = await rpc<ConsoleMcpPage>("mcp-client.items", { cursor: "1", id: maxi.id, kind: "resources" })
+    expect(withCursor).toMatchObject({ failure: { message: expect.stringContaining("cursor") }, status: 400 })
   })
 
   it("refreshes a token that the server stops accepting, and starts a new session when the server forgets one", async () => {

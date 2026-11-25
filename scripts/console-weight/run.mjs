@@ -11,6 +11,8 @@ import { createConsoleKeyPair, signConsoleRequest } from "@vite-hub/internal/con
 import { providerHosts } from "@vite-hub/internal/deployment"
 
 import { chunkGrowth } from "./chunk-growth.mjs"
+import { memoryBudget, memoryNoiseLimit, memoryVerdict } from "./memory-verdict.mjs"
+import { startupGrowth } from "./startup-growth.mjs"
 
 const here = dirname(fileURLToPath(import.meta.url))
 const repo = resolve(here, "../..")
@@ -19,7 +21,7 @@ const publicUrl = "https://console-weight.example.com"
 const keyName = "WEIGHT"
 const kB = 1000
 const MB = 1000 * 1000
-const memoryRounds = 5
+const memoryRounds = 7
 const settleMs = 3000
 const httpTimeoutMs = 60_000
 const ownerNoise = 1000
@@ -328,6 +330,14 @@ function ownerOf(path, app) {
   return pkg[1]
 }
 
+function sourceKey(path, app) {
+  if (isVirtual(path)) return path
+  const modules = path.lastIndexOf("/node_modules/")
+  if (modules !== -1) return `node_modules/${path.slice(modules + "/node_modules/".length)}`
+  const inApp = relative(app, path)
+  return inApp.startsWith("..") ? relative(repo, path) : `<app>/${inApp}`
+}
+
 function isLinkage(line) {
   return /^\s*(?:\/\/|\/\*|\*)/.test(line) || /^(?:import|export)\b[^;]*(?:from\s*)?["'][^"']+["'];?\s*$/.test(line) || /^export \{[^}]*\};?$/.test(line)
 }
@@ -374,6 +384,8 @@ function attribute(app) {
     let originalLine = 0
     let region
     const chunkOwners = {}
+    const chunkSources = {}
+    let chunkUnmapped = 0
     const consolePieces = []
     lines.forEach((line, index) => {
       const text = index < lines.length - 1 ? `${line}\n` : line
@@ -398,6 +410,7 @@ function attribute(app) {
         const path = piece.path ?? (region ? fallbackOf(region) : inLibs ? join(app, "node_modules/_libs") : undefined)
         if (!path) {
           if (!/\S/.test(slice)) return
+          chunkUnmapped += bytes
           if (isLinkage(line)) linkage += bytes
           else {
             unattributed += bytes
@@ -408,6 +421,11 @@ function attribute(app) {
         }
         const fact = factOf(path)
         chunkOwners[fact.owner] = (chunkOwners[fact.owner] ?? 0) + bytes
+        if (piece.path || region) {
+          const key = sourceKey(path, app)
+          chunkSources[key] = (chunkSources[key] ?? 0) + bytes
+        }
+        else chunkUnmapped += bytes
         if (fact.console) consolePieces.push(slice)
       })
       if (line.startsWith("//#endregion")) region = undefined
@@ -417,7 +435,7 @@ function attribute(app) {
     if (consoleCode) glueGzip += gzipSync(consoleCode, { level: 9 }).length
     for (const match of consoleCode.matchAll(/["'`](VITEHUB_[A-Z0-9_]+)["'`]/g)) envLiterals.add(match[1])
     const body = lines.filter(line => !isLinkage(line)).join("\n")
-    chunks[relative(join(app, ".output/server"), file)] = { owners: chunkOwners, fingerprint: createHash("sha256").update(body).digest("hex") }
+    chunks[relative(join(app, ".output/server"), file)] = { owners: chunkOwners, sources: chunkSources, unmapped: chunkUnmapped, fingerprint: createHash("sha256").update(body).digest("hex") }
   }
   return {
     total,
@@ -454,15 +472,29 @@ function schemaDiff(off, on) {
   ]
 }
 
+function startupSources(modules, chunks) {
+  const sources = {}
+  let unmapped = 0
+  for (const module of modules) {
+    const chunk = chunks[module]
+    if (!chunk) continue
+    unmapped += chunk.unmapped
+    for (const [source, bytes] of Object.entries(chunk.sources)) sources[source] = (sources[source] ?? 0) + bytes
+  }
+  return { sources, unmapped, sourceBytes: Object.values(sources).reduce((total, bytes) => total + bytes, 0) }
+}
+
 function staticMeasures(app, host) {
   const manifest = JSON.parse(readFileSync(join(app, ".output/deployment.json"), "utf8"))
   if (manifest?.host !== host) fail(`Expected host ${host} in ${app}/.output/deployment.json, got ${manifest?.host ?? "no host"}.`)
   const server = join(app, ".output/server")
+  const attribution = attribute(app)
+  const startup = startupGraph(server)
   return {
     server: sizes(walk(server, path => path.includes("/node_modules"))),
-    startup: startupGraph(server),
+    startup: { ...startup, ...startupSources(startup.modules, attribution.chunks) },
     publicFiles: walk(join(app, ".output/public/_vitehub")).filter(file => !isSourceMap(file)).map(file => relative(join(app, ".output/public"), file)).sort(),
-    attribution: attribute(app),
+    attribution,
     declaredEnv: declaredEnv(manifest),
     authSchema: authSchema(app),
   }
@@ -735,17 +767,6 @@ async function runtimeMeasures(apps, auth) {
   return result
 }
 
-function memoryVerdict({ offA, on, offB }) {
-  const differences = on.map((value, index) => value - offA[index])
-  const change = median(differences)
-  const calibration = median(offB.map((value, index) => Math.abs(value - offA[index])))
-  const spread = median(differences.map(difference => Math.abs(difference - change)))
-  const uncertainty = Math.max(calibration, spread)
-  const tolerance = 0.5 * MB
-  const result = Math.abs(change) + uncertainty <= tolerance ? "PASS" : Math.abs(change) - uncertainty > tolerance ? "FAIL" : "INCONCLUSIVE"
-  return { change, calibration, spread, uncertainty, result, differences }
-}
-
 function formatBytes(bytes, unit = kB, label = "kB") {
   return `${(bytes / unit).toFixed(1)} ${label}`
 }
@@ -795,18 +816,23 @@ async function main() {
 
   for (const build of Object.values(builds)) {
     const { host, auth, off, on } = build
-    const modules = on.startup.files - off.startup.files
-    const bytes = on.startup.raw - off.startup.raw
+    const growth = startupGrowth(off.startup, on.startup)
+    const describe = startup => `${Object.keys(startup.sources).length} source modules, ${formatBytes(startup.sourceBytes)}`
     addRow({
       id: "startup",
       measure: "Startup code",
       variant: variantName(host, auth),
-      off: `${off.startup.files} modules, ${formatBytes(off.startup.raw)}`,
-      on: `${on.startup.files} modules, ${formatBytes(on.startup.raw)}`,
-      change: `${signed(modules, String)} modules, ${signed(bytes, formatBytes)}`,
-      target: "+0 modules, at most +1 kB",
-      result: modules <= 0 && bytes <= kB ? "PASS" : "FAIL",
-      details: { added: on.startup.modules.filter(module => !off.startup.modules.includes(module)) },
+      off: describe(off.startup),
+      on: describe(on.startup),
+      change: `+${growth.added.length} source modules, ${signed(growth.bytes, formatBytes)} traced, ${signed(growth.unmappedBytes, formatBytes)} unmapped`,
+      target: "+0 source modules, at most +1 kB",
+      result: growth.result,
+      details: {
+        added: growth.added,
+        grown: growth.grown,
+        chunks: { off: off.startup.modules.length, on: on.startup.modules.length },
+        unmapped: { off: off.startup.unmapped, on: on.startup.unmapped },
+      },
     })
   }
 
@@ -955,8 +981,8 @@ async function main() {
       variant: variantName("node", auth),
       off: `${mb(median(memory.offA))} RSS`,
       on: `${mb(median(memory.on))} RSS`,
-      change: `${signed(verdict.change, mb)} ± ${mb(verdict.uncertainty)}`,
-      target: "within 0.5 MB",
+      change: `${signed(verdict.change, mb)} [${signed(verdict.lower, mb)}, ${signed(verdict.upper, mb)}], noise ${mb(verdict.noise)}`,
+      target: `within ±${mb(memoryBudget)}`,
       result: verdict.result,
       details: { ...memory, ...verdict, rounds: memoryRounds, settleMs },
     })
@@ -971,8 +997,9 @@ async function main() {
     printTable(rows)
     log(`\n${rows.length - failed.length} of ${rows.length} rows pass at ${commit}.`)
     log(`Console glue: output bytes that the server sourcemaps trace to ${consoleSources.join(", ")}.`)
+    log("Startup code: the source modules and bytes that server sourcemaps trace in the output chunks that index.mjs imports statically. An added module or more than 1 kB of traced growth fails. If traced and unmapped growth together exceed 1 kB without a traced failure, the result is inconclusive. A module that only moves to another chunk does not count.")
     log("Server owners: the source package of each output byte, per chunk. The row fails when a new or changed chunk adds any bytes of a primitive the fixture does not configure. A Console-on chunk whose code (without import and export lines) is the same as a Console-off chunk does not count; each Console-off chunk matches one Console-on chunk at most.")
-    log(`Node rows run the Node build. Memory: median of ${memoryRounds} paired rounds (off, on, off), ${settleMs / 1000} s after the first 200 from /api/touch; the ± is the larger of the off/off calibration and the spread of the pairs. Tables: after one Agent run, then ${operationProbes.length} operation probes and the Site link redeem. Cloudflare env rows read the deployment manifest only.`)
+    log(`Node rows run the Node build. Memory: ${memoryRounds} rounds of off A, on, off B, RSS ${settleMs / 1000} s after the first 200 from /api/touch. The change is the median of on minus the mean of the two off readings in each round. The range uses the medians of on minus the higher and lower off readings. It passes if the range fits within ±${formatBytes(memoryBudget, MB, "MB")}, fails if the range is entirely outside the budget on one side, and is otherwise inconclusive. The result is also inconclusive when twice the mean off/off gap exceeds ${formatBytes(memoryNoiseLimit, MB, "MB")}. Tables: after one Agent run, then ${operationProbes.length} operation probes and the Site link redeem. Cloudflare env rows read the deployment manifest only.`)
     if (options.json) {
       writeFileSync(options.json, `${JSON.stringify(report, null, 2)}\n`)
       log(`Wrote ${options.json}`)

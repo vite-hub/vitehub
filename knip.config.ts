@@ -109,7 +109,6 @@ const packsWithPublint = ["forge", "gateways", "presets", "runtime", "shell"];
 const packageOverrides: Record<string, WorkspaceProjectConfig> = {
   agent: {
     entry: ["test/browser-smoke-cleanup.test.mjs"],
-    ignoreBinaries: ["ssh-keygen"],
     ignoreDependencies: ["unstorage"],
   },
   auth: { ignoreDependencies: ["@types/node"] },
@@ -124,7 +123,6 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
     entry: viteHubAppEntries,
     vite: false,
   },
-  database: { ignoreDependencies: ["drizzle-kit"] },
   docs: {
     entry: ["runtime/**/*.{ts,vue,css}"],
     ignoreDependencies: [
@@ -140,13 +138,14 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
   i18n: { ignoreDependencies: ["@diglot/cli"] },
   internal: {
     ignoreDependencies: [
+      "rolldown",
       "sharp",
     ],
   },
   presets: { ignoreDependencies: ["@t3tools/provider-runtime"] },
   realtime: { ignoreDependencies: ["prosemirror-transform"] },
   sandbox: { ignoreDependencies: ["@cloudflare/sandbox"] },
-  schedule: { ignoreBinaries: ["plutil", "systemd-analyze"] },
+  schedule: { ignoreBinaries: ["systemd-analyze"] },
   ui: {
     ignoreBinaries: ["ffmpeg", "ffprobe"],
     ignoreUnresolved: ["/@uploads-today"],
@@ -159,6 +158,7 @@ const packageOverrides: Record<string, WorkspaceProjectConfig> = {
   },
   "vite-hub": {
     entry: ["src/console/runtime/client/shiki-wasm.ts"],
+    ignoreDependencies: ["pnp-peer"],
   },
 };
 
@@ -200,8 +200,7 @@ const config: KnipConfiguration = {
       .filter(match => !/^(?:[a-z][a-z\d+.-]*:|\/|#)/i.test(match[1]!))
       .map(match => `import ${JSON.stringify(match[1])};`).join("\n"),
   },
-  ignoreDependencies: ["cloudflare"],
-  ignoreUnresolved: [/^#vitehub\//, /^#docs\//, "#app", "#console-page"],
+  ignoreUnresolved: [/^#vitehub\//, /^#docs\//, "#app", "#console-assets", "#console-outbound-fetch", "#console-page"],
   ignoreBinaries: ["crabbox"],
   workspaces: {
     ".": {

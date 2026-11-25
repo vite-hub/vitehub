@@ -62,7 +62,7 @@ describe("vitehub({ publicUrl }) on Cloudflare", () => {
     expect(await wranglerFor("https://calories.example.com", { routes })).toEqual(expect.objectContaining({ routes }))
     expect(await wranglerFor("https://calories.example.com", { workers_dev: true })).not.toHaveProperty("routes")
 
-    await writeFile(join(root, "wrangler.jsonc"), "{\n  // Served from the zone.\n  \"route\": \"example.com/*\"\n}\n")
+    await writeFile(join(root, "wrangler.jsonc"), "{\n  // Served from the zone.\n  \"route\": \"example.com/*\",\n}\n")
     // Nitro reads the nearest wrangler file from the app root up.
     const appRoot = join(root, "app")
     await mkdir(appRoot)

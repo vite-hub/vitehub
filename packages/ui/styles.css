@@ -2375,6 +2375,10 @@
     padding: 0.25rem 0 0;
   }
 
+  [data-slot="comment-thread"]:has([data-slot="comment-reply"][data-editing="true"]) > [data-slot="comment-composer"] {
+    display: none;
+  }
+
   [data-slot="comment-toolbar"] {
     align-items: center;
     background: var(--vh-bg);
