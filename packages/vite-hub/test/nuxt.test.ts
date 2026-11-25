@@ -1335,8 +1335,52 @@ describe("ViteHub Nuxt integration", () => {
     if (!transform || typeof transform === "function") throw new TypeError("Expected a filtered Env transform.")
     expect(transform.filter).toEqual({ code: "/* @vitehub-env */" })
     const code = "const serverEnvModuleId = \"#vitehub/env/server\"\nawait import(/* @vite-ignore */ /* @vitehub-env */ serverEnvModuleId)"
-    expect(await Reflect.apply(transform.handler, {}, [code, "/node_modules/@vite-hub/agent/dist/channels.js"])).toBe("const serverEnvModuleId = \"#vitehub/env/server\"\nawait import(\"#vitehub/env/server\")")
+    expect(await Reflect.apply(transform.handler, {}, [code, "/node_modules/@vite-hub/agent/dist/channels.js"])).toMatchObject({
+      code: "const serverEnvModuleId = \"#vitehub/env/server\"\nawait import(\"#vitehub/env/server\")",
+      map: { version: 3, mappings: expect.stringMatching(/\w/) },
+    })
   })
+
+  it("bundles Server Env in Nitro without a Vite build or generated runtime", async () => {
+    const root = await mkdtemp(resolve(import.meta.dirname, ".nuxt-env-replay-"))
+    onTestFinished(() => rm(root, { recursive: true, force: true }))
+    const serverDir = resolve(root, "server")
+    await mkdir(resolve(serverDir, "routes"), { recursive: true })
+    await writeFile(resolve(serverDir, "routes/env.ts"), `
+      const serverEnvModuleId = "#vitehub/env/server"
+      export default async () => (await import(/* @vite-ignore */ /* @vitehub-env */ serverEnvModuleId)).useServerEnv().gmail.clientId
+    `)
+    mocks.vitehub.mockReturnValue([hubEnv({ server: { gmail: { clientId: env({ source: env.source("SHOP_GMAIL_CLIENT_ID"), default: "shop-client" }) } } })])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    Object.assign(nuxt.options, { rootDir: root, srcDir: root, serverDir, buildDir: resolve(root, ".nuxt"), experimental: { nitroViteEnvironment: false } })
+    await viteHubNuxtModule({ env: {} }, nuxt)
+    await expect(readFile(resolve(root, ".vitehub/env/server.mjs"))).rejects.toMatchObject({ code: "ENOENT" })
+    const config: { alias?: Record<string, string>, rollupConfig?: { plugins?: Plugin[] } } = {}
+    await runNitroConfigHook(config)
+    const replay = config.rollupConfig?.plugins?.find(plugin => plugin.name === "vite-hub/nuxt-runtime-resolver:@vite-hub/env/vite")
+    const { build, createNitro, prepare } = await import("nitro/builder")
+    const host = await createNitro({
+      rootDir: root,
+      serverDir,
+      preset: "standard",
+      builder: "rolldown",
+      logLevel: 0,
+      alias: { "#vitehub/env/server": config.alias!["#vitehub/env/server"]! },
+      rollupConfig: { plugins: [replay] },
+    })
+    try {
+      await prepare(host)
+      await build(host)
+      const entry = pathToFileURL(resolve(root, ".output/server/index.mjs")).href
+      const { default: server } = await import(/* @vite-ignore */ entry) as { default: { fetch: (request: Request) => Promise<Response> } }
+      const response = await server.fetch(new Request("http://localhost/env"))
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe("shop-client")
+    }
+    finally {
+      await host.close()
+    }
+  }, 60_000)
 
   it("bundles glob() Sources in Nitro-only replay", async () => {
     const id = /^\0vitehub-source-glob:/
