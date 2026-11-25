@@ -32,7 +32,6 @@
   "packages/presets/src/babysitter/webhook-redelivery.ts": 6,
   "packages/presets/src/error-diagnostics.ts": 5,
   "packages/presets/src/github/auto-merge.ts": 41,
-  "packages/presets/src/github/base-reverts.ts": 5,
   "packages/presets/src/github/checkout.ts": 19,
   "packages/presets/src/github/ci-logs.ts": 5,
   "packages/presets/src/github/conflicts.ts": 26,
@@ -42,7 +41,6 @@
   "packages/presets/src/github/install-snapshot.ts": 7,
   "packages/presets/src/github/install.ts": 24,
   "packages/presets/src/github/pull-requests.ts": 2,
-  "packages/presets/src/github/repair.ts": 12,
   "packages/presets/src/github/required-checks.ts": 6,
   "packages/presets/src/labeller.ts": 7,
   "packages/presets/src/workspace.ts": 1,
@@ -76,8 +74,6 @@
   "packages/presets/test/github-conflicts.test.ts": 10,
   "packages/presets/test/github-host-conditional.test.ts": 4,
   "packages/presets/test/github-install.test.ts": 4,
-  "packages/presets/test/github-provider-checkout.test.ts": 4,
-  "packages/presets/test/github-repair.test.ts": 1,
   "packages/presets/test/github-required-checks.test.ts": 3,
   "packages/presets/vitest.config.ts": 2
 }

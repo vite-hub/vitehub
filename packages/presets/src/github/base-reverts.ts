@@ -9,7 +9,6 @@ export interface GitHubBaseRevert {
   restored: string[];
 }
 
-// The host regenerates lockfiles from the merged manifests, so their lines say nothing about intent.
 const lockfile = /(?:^|\/)(?:pnpm-lock\.yaml|package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|bun\.lockb?)$/;
 
 /**
@@ -50,28 +49,42 @@ export interface GitHubHeadRevert {
  *
  * A resolution that takes the base's copy of a conflicted hunk silently drops the PR's own work. This is
  * `findGitHubBaseReverts` with the sides swapped: the result must keep every line the PR added unless
- * the base removed it, and must not bring back a line the PR removed unless the base added it. A file
- * that the base renamed is compared at its new path. `skip` names files whose conflict the host
- * resolved by rule.
+ * the base removed it, and must not bring back a line the PR removed unless the base added it.
+ * Follow renames on both sides. `skip` names unchanged host resolutions in the staged result.
  */
 export async function findGitHubHeadReverts(git: GitHubConflictGit, options: { head: string; base: string; skip?: readonly string[] }): Promise<GitHubHeadRevert[]> {
   const origin = (await git("merge-base", options.head, options.base)).trim();
   const skipped = new Set(options.skip);
-  const differs = new Set(names(await git("diff", "--cached", "--name-only", "--no-renames", "-z", options.head)));
-  const renames = names(await git("diff", "--name-status", "--find-renames", "--diff-filter=R", "-z", origin, options.base));
-  const renamed = new Map<string, string>();
-  for (let index = 0; index + 2 < renames.length; index += 3) renamed.set(renames[index + 1]!, renames[index + 2]!);
+  const [headChanges, baseChanges, stagedChanges] = await Promise.all([
+    changedPaths(git, origin, options.head),
+    changedPaths(git, origin, options.base),
+    changedPaths(git, "--cached", options.head),
+  ]);
+  const differs = new Set([...stagedChanges.keys(), ...stagedChanges.values()]);
   const reverts: GitHubHeadRevert[] = [];
-  for (const path of names(await git("diff", "--name-only", "--no-renames", "-z", origin, options.head))) {
-    if (!differs.has(path) || lockfile.test(path)) continue;
-    const merged = await has(git, `:${path}`) ? path : renamed.get(path) ?? path;
-    if (skipped.has(path) || skipped.has(merged)) continue;
-    const [o, b, p, r] = await Promise.all([`${origin}:${path}`, `${options.base}:${merged}`, `${options.head}:${path}`, `:${merged}`].map(spec => blob(git, spec)));
+  for (const [original, path] of headChanges) {
+    const base = baseChanges.get(original) ?? original;
+    const staged = stagedChanges.get(path) ?? path;
+    if (!differs.has(path) && !differs.has(base)) continue;
+    const merged = staged === path && base !== path && !await isBlob(git, `:${path}`) ? base : staged;
+    if (skipped.has(merged) || [original, path, base, merged].some(name => lockfile.test(name))) continue;
+    const [o, b, p, r] = await Promise.all([`${origin}:${original}`, `${options.base}:${base}`, `${options.head}:${path}`, `:${merged}`].map(spec => blob(git, spec)));
     if ([o, b, p, r].some(text => text.includes("\0"))) continue;
     const revert = revertedLines(o, p, b, r);
     if (revert.dropped.length || revert.restored.length) reverts.push({ path, ...revert });
   }
   return reverts;
+}
+
+async function changedPaths(git: GitHubConflictGit, ...refs: string[]) {
+  const entries = names(await git("diff", "--name-status", "--find-renames", "-z", ...refs));
+  const paths = new Map<string, string>();
+  for (let index = 0; index < entries.length;) {
+    const status = entries[index++]!;
+    const path = entries[index++]!;
+    paths.set(path, status.startsWith("R") ? entries[index++]! : path);
+  }
+  return paths;
 }
 
 /**
@@ -80,7 +93,6 @@ export async function findGitHubHeadReverts(git: GitHubConflictGit, options: { h
  */
 export function revertedLines(origin: string, base: string, head: string, result: string): Omit<GitHubBaseRevert, "path"> {
   const [o, b, p, r] = [origin, base, head, result].map(lineCounts);
-  // Only new resolution lines can demonstrate a rewrite; existing PR lines cannot excuse a lost base addition.
   const rewrites = [...r.keys()].filter(line => !o.has(line) && !b.has(line) && !p.has(line)).map(words);
   const dropped: string[] = [];
   const restored: string[] = [];
@@ -89,7 +101,6 @@ export function revertedLines(origin: string, base: string, head: string, result
     const byBase = (b.get(line) ?? 0) - before;
     const byHead = (p.get(line) ?? 0) - before;
     const kept = r.get(line) ?? 0;
-    // A base line that the resolution rewrote to the PR's conventions, such as a changed call or count, is kept.
     if (byBase > 0 && kept < before + byBase + Math.min(0, byHead) && !rewrites.some(rewrite => similar(words(line), rewrite))) dropped.push(line);
     if (byBase < 0 && kept > before + byBase + Math.max(0, byHead)) restored.push(line);
   }
@@ -103,7 +114,6 @@ function similar(a: Set<string>, b: Set<string>) {
   return shared / (a.size + b.size - shared) >= 0.6;
 }
 
-// Braces, blank lines and other short punctuation move freely in a correct merge.
 function lineCounts(text: string) {
   const counts = new Map<string, number>();
   for (const raw of text.split("\n")) {
@@ -113,11 +123,10 @@ function lineCounts(text: string) {
   return counts;
 }
 
-const has = (git: GitHubConflictGit, spec: string) => git("cat-file", "-e", spec).then(() => true, () => false);
+const isBlob = (git: GitHubConflictGit, spec: string) => git("cat-file", "-t", spec).then(type => type.trim() === "blob", () => false);
 
 async function blob(git: GitHubConflictGit, spec: string) {
-  // A path that is absent on one side reads as an empty file.
-  return await has(git, spec) ? await git("cat-file", "blob", spec) : "";
+  return await isBlob(git, spec) ? await git("cat-file", "blob", spec) : "";
 }
 
 const names = (output: string) => output.split("\0").filter(Boolean);
