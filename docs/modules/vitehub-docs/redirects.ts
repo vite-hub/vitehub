@@ -83,7 +83,8 @@ const agentCapabilities = {
 
 const movedLearningPages = new Map(Object.entries({
   "/docs/ui/built-for-vue": "/docs/getting-started/built-for-vue",
-  "/docs/frameworks-hosts/migrate-from-nuxthub": "/docs/getting-started/migrate-from-nuxthub",
+  "/docs/frameworks-hosts/migrate-from-nuxthub": "/docs/compare/nuxthub",
+  "/docs/getting-started/migrate-from-nuxthub": "/docs/compare/nuxthub",
   "/docs/getting-started/concepts/workspace-and-sources": "/docs/workspace/concepts",
   "/docs/getting-started/concepts/auth-users-and-agent-invokers": "/docs/agents/invokers",
   "/docs/getting-started/concepts/runtime-policy-approvals-and-traces": "/docs/agents/runtime-policy",

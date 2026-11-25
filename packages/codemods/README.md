@@ -228,7 +228,7 @@ npx @vite-hub/codemods queue-durations [dir] [--dry-run]
 
 ## `nuxthub`
 
-The codemod runs when `package.json` or `modules` lists `@nuxthub/core`, or when `nuxt.config` sets `hub`. It follows [Migrate from NuxtHub](https://vitehub.dev/docs/getting-started/migrate-from-nuxthub) and makes only the edits that keep the same behavior:
+The codemod runs when `package.json` or `modules` lists `@nuxthub/core`, or when `nuxt.config` sets `hub`. It follows [Migrate from NuxtHub](https://vitehub.dev/docs/compare/nuxthub#migrate-from-nuxthub) and makes only the edits that keep the same behavior:
 
 - `nuxt.config`: `'@nuxthub/core'` becomes `'vite-hub/nuxt'`, and `hub` becomes `vitehub` in place. `db: 'sqlite'` becomes `database: true`, and `kv`, `blob`, and `cache` stay `true`. The host comes from `nitro.preset`, then `cloudflare` when the app has a Wrangler config, then `node`. Driver options and other `hub` keys become follow-ups. MySQL stops the codemod, because ViteHub does not support it.
 - `package.json`: removes `@nuxthub/core` and adds `vite-hub`. With a database, it adds `@vite-hub/database` and brings `drizzle-orm` and `drizzle-kit` to at least `^1.0.0-rc.5`, the lowest version that `@vite-hub/database` accepts.
