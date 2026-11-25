@@ -1,0 +1,8 @@
+{
+  "name": "zod3-schema-app",
+  "private": true,
+  "devDependencies": {
+    "nuxt-safe-runtime-config": "^0.3.2",
+    "zod": "^3.25.0"
+  }
+}

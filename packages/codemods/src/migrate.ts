@@ -29,6 +29,8 @@ export interface MigrationStep {
   result?: CodemodResult
   /** Why the codemod could not migrate. Its edits are not applied. */
   error?: string
+  /** How to fix the problem before retrying the codemod. */
+  fix?: string
 }
 
 export interface Migration {
@@ -116,7 +118,9 @@ export async function runMigration(options: RunMigrationOptions = {}): Promise<M
       }
       catch (error) {
         if (!isCodemodError(error)) throw error
-        steps.push({ codemod, detection, error: unscratch(error.message) })
+        const step: MigrationStep = { codemod, detection, error: unscratch(error.message) }
+        if (error.fix) step.fix = unscratch(error.fix)
+        steps.push(step)
       }
     }
     const needsNitro3 = steps.filter(({ result }) => result?.requiresNitro3).map(({ codemod }) => codemod.name)
@@ -166,6 +170,7 @@ export function formatMigrationReport(migration: Migration, nextSteps: readonly 
   for (const step of steps) {
     lines.push("", `${step.codemod.name} (${step.detection.reason})`)
     lines.push(step.result ? `  ${step.result.summary}` : `  Not migrated: ${step.error}`)
+    if (step.fix) lines.push(`  Fix: ${step.fix}`)
   }
   if (steps.length) {
     lines.push("", `${dryRun ? "Files to change" : "Files changed"} (${edits.length}):`)

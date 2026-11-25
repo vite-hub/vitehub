@@ -82,19 +82,32 @@ export function directMergeBranchSafety(repository: unknown, pr: unknown, openCh
     && field(child, "base", "ref") === branch) ? stackChildBaseDeletion : true;
 }
 
-/** Whether a PR's head branch lives in another repository than `repository`, such as a fork. */
-export function isForkHead(pr: unknown, repository: string): boolean {
+/**
+ * Whether a PR's head branch lives in its base repository. GitHub reports both under the repository's
+ * current name, so this compares them with each other, by id when both carry one. `repository` is the
+ * configured name, which goes stale when the repository is renamed; it only stands in for a missing base.
+ */
+export function headInBaseRepository(pr: unknown, repository: string): boolean | undefined {
+  const headId = field(pr, "head", "repo", "id");
+  const baseId = field(pr, "base", "repo", "id");
+  if (hasRuntimeType(headId, "number") && hasRuntimeType(baseId, "number")) return headId === baseId;
   const headRepository = field(pr, "head", "repo", "full_name");
-  return hasRuntimeType(headRepository, "string") && headRepository.toLowerCase() !== repository.toLowerCase();
+  if (!hasRuntimeType(headRepository, "string")) return undefined;
+  const baseRepository = field(pr, "base", "repo", "full_name");
+  return headRepository.toLowerCase() === (hasRuntimeType(baseRepository, "string") ? baseRepository : repository).toLowerCase();
 }
 
-/** The head and base branch of a PR whose head branch lives in `repository`, which the host can push to. */
+/** Whether a PR's head branch lives in another repository than its base, such as a fork. */
+export function isForkHead(pr: unknown, repository: string): boolean {
+  return headInBaseRepository(pr, repository) === false;
+}
+
+/** The head and base branch of a PR whose head branch lives in its base repository, which the host can push to. */
 export function sameRepositoryBranches(pr: unknown, repository: string): { head: string; base: string } | undefined {
   const head = field(pr, "head", "ref");
   const base = field(pr, "base", "ref");
-  const headRepository = field(pr, "head", "repo", "full_name");
-  if (!hasRuntimeType(head, "string") || !hasRuntimeType(base, "string") || !hasRuntimeType(headRepository, "string")) return undefined;
-  return headRepository.toLowerCase() === repository.toLowerCase() ? { head, base } : undefined;
+  if (!hasRuntimeType(head, "string") || !hasRuntimeType(base, "string")) return undefined;
+  return headInBaseRepository(pr, repository) === true ? { head, base } : undefined;
 }
 
 /**
