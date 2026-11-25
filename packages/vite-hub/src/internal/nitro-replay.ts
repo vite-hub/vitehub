@@ -13,9 +13,13 @@ export function isCloudflareDevShim(id: string): id is keyof typeof cloudflareDe
   return Object.hasOwn(cloudflareDevShims, id)
 }
 
-type AgentDefinitionTransform = (code: string, id: string, options: {
+export type NitroAgentOptions = {
   root: string
+  projectRoot?: string
   serverDirs?: string[]
+}
+
+type AgentDefinitionTransform = (code: string, id: string, options: NitroAgentOptions & {
   resolve?: (specifier: string, importer: string) => Promise<string | undefined>
 }) => Promise<string | undefined>
 
@@ -67,7 +71,7 @@ function withHookFilter<Handler>(hook: unknown, handler: Handler): Handler | { f
   return isRecord(hook) && hook.filter !== undefined ? { filter: hook.filter, handler } : handler
 }
 
-export function nitroRuntimeResolver(plugin: Plugin, config: Record<string, unknown>, agentOptions: { root: string, serverDirs?: string[] }): { plugin: Plugin, originalHooks: Pick<Plugin, "resolveId" | "load" | "transform"> } | undefined {
+export function nitroRuntimeResolver(plugin: Plugin, config: Record<string, unknown>, agentOptions: NitroAgentOptions): { plugin: Plugin, originalHooks: Pick<Plugin, "resolveId" | "load" | "transform"> } | undefined {
   const resolveId = nitroRuntimeResolverNames.has(plugin.name) ? pluginResolveIdHandler(plugin) : undefined
   const load = nitroRuntimeResolverNames.has(plugin.name) ? pluginLoadHandler(plugin) : undefined
   const transformAgentDefinition = (plugin as Plugin & {

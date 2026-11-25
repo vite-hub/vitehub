@@ -1493,13 +1493,17 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
-  it("registers the named Channels of an Agent in the Nuxt 4.7 Nitro build", async () => {
+  it.each([
+    { directory: "shared", cycle: true },
+    { directory: "node_modules/owner", cycle: false },
+  ])("registers named Channels in Nuxt 4.7 Nitro (cycle through $directory: $cycle)", async ({ directory, cycle }) => {
     const root = await mkdtemp(resolve(import.meta.dirname, ".nuxt-agent-channels-"))
     try {
       const owner = hubAgent()
       mocks.vitehub.mockReturnValue([{ name: owner.name, vitehub: { agent: owner.vitehub?.agent } }])
       const { nuxt, runNitroConfigHook } = createNuxt()
       Object.assign(nuxt.options, { rootDir: root, serverDir: resolve(root, "server"), buildDir: resolve(root, ".nuxt"), experimental: { nitroViteEnvironment: false } })
+      nuxt.options.vite.root = resolve(root, "app")
       await viteHubNuxtModule({ agent: true, host: "node" }, nuxt)
       const config: { rollupConfig?: { plugins?: Plugin[] } } = {}
       await runNitroConfigHook(config)
@@ -1509,19 +1513,39 @@ describe("ViteHub Nuxt integration", () => {
 
       const channel = resolve(root, "server/channels/hooks.ts")
       const agent = resolve(root, "server/agents/support.ts")
+      const helper = resolve(root, directory, "owner.ts")
       const source = "import { defineAgent } from '@vite-hub/agent'\nexport default defineAgent({ channels: ['hooks'], runtime: false, driver: { run: () => 'ok' } })\n"
+      const specifier = cycle ? "#shared/owner" : "owner"
       await mkdir(dirname(channel), { recursive: true })
       await mkdir(dirname(agent), { recursive: true })
-      await writeFile(channel, "import { defineChannel } from '@vite-hub/channels'\nimport { webhook } from '@vite-hub/channels/adapters'\nexport default defineChannel({ adapter: webhook({ secret: false }) })\n")
+      await mkdir(dirname(helper), { recursive: true })
+      await writeFile(helper, `export { default } from ${JSON.stringify(agent)}\n`)
+      await writeFile(channel, `import { defineChannel } from '@vite-hub/channels'
+import { webhook } from '@vite-hub/channels/adapters'
+import { defineChannelTrigger } from '@vite-hub/agent/channels'
+import owner from '${specifier}'
+export default defineChannel({ adapter: webhook({ secret: false }), on: { webhook: defineChannelTrigger({ tasks: { reply: { agent: owner } }, invoke: () => ({ task: 'reply', input: { prompt: 'reply' } }) }) } })`)
       await writeFile(agent, source)
       const resolved: string[] = []
-      const context = { resolve: async (specifier: string) => { resolved.push(specifier); return null } }
+      const context = {
+        resolve: async (id: string) => {
+          resolved.push(id)
+          if (id === specifier) return { id: helper }
+          if (id === agent) return { id: agent }
+          return null
+        },
+      }
 
-      const transformed = String(await Reflect.apply(transform, context, [source, agent]))
+      const result = Reflect.apply(transform, context, [source, agent])
+      if (cycle) {
+        await expect(result).rejects.toThrow("whose static imports lead back to that Agent")
+        return
+      }
+      const transformed = String(await result)
       expect(transformed).toContain(`import vitehubChannel0 from ${JSON.stringify(channel)}`)
       expect(transformed).toContain(`vitehubRegisterAgentChannels({ ["hooks"]: vitehubChannel0 })`)
       expect(transformed).toContain(`vitehubWithDiscoveredAgentName(`)
-      expect(resolved, "the import cycle check uses the Nitro resolver").toEqual(["@vite-hub/channels", "@vite-hub/channels/adapters"])
+      expect(resolved, "the import cycle check skips installed packages").toEqual(["@vite-hub/channels", "@vite-hub/channels/adapters", "@vite-hub/agent/channels", specifier])
     }
     finally {
       await rm(root, { force: true, recursive: true })

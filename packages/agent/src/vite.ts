@@ -103,6 +103,7 @@ interface AgentCliContributingPlugin {
       /** Runs the Agent Definition transform in a server build that does not run Vite transforms, such as Nitro on Nuxt 4.7. */
       transformAgentDefinition: (code: string, id: string, options: {
         root: string
+        projectRoot?: string
         serverDirs?: string[]
         resolve?: (specifier: string, importer: string) => Promise<string | undefined>
       }) => Promise<string | undefined>
@@ -3239,7 +3240,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
           runtimeWorkflow: agentRuntimeModule("runtime/workflow"),
           serverInternal: agentRuntimeModule("server/internal"),
         },
-        async transformAgentDefinition(code, id, { root, serverDirs, resolve: resolveId }) {
+        async transformAgentDefinition(code, id, { root, projectRoot = root, serverDirs, resolve: resolveId }) {
           const file = id.split(/[?#]/, 1)[0]!.replace(/\\/g, "/")
           const roots = serverDirs ?? [join(root, "server")]
           if (!/\.agent\.(?:c|m)?[jt]s$/i.test(file)
@@ -3248,7 +3249,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
             .find(definition => definition.handler.replace(/\\/g, "/") === file)
           if (!definition) return
           return await transformDiscoveredAgentDefinition(code, await parseTypeScript(), file, definition,
-            discoverAgentChannelModules(roots), resolveId && applicationModuleResolver([root, ...roots], resolveId))
+            discoverAgentChannelModules(roots), resolveId && applicationModuleResolver([root, projectRoot, ...roots], resolveId))
         },
         transformWorkflowRegistry: (code, id) => isGeneratedAgentWorkflowRegistryId(id)
           ? transformGeneratedAgentWorkflowRegistry(
