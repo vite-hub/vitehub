@@ -488,19 +488,15 @@ function createFileUrlPlugin(): Plugin {
   }
 }
 
-/**
- * Copies a `.wasm?module` import next to the bundle and keeps it as a relative `.wasm` import. Wrangler and Nitro load
- * such an import as a compiled WebAssembly module, which Workers need because they can't compile WebAssembly bytes.
- * Outside Node.js, a plain `.wasm` import gets the same treatment, as Workers packages such as the `workerd` build of
- * sh-syntax expect. Node.js compiles WebAssembly bytes, so there both imports become the bytes of the file.
- */
 function createWasmModulePlugin(outdir: string, workingDir: string, copy: boolean): Plugin {
   return {
     name: "vitehub-wasm-module",
     async resolveId(source, importer, extra) {
-      const path = source.endsWith(".wasm?module") ? source.slice(0, -"?module".length) : copy && source.endsWith(".wasm") ? source : undefined
-      if (!path) return
-      const resolved = await this.resolve(path, importerFor(importer, workingDir), { custom: extra.custom, kind: extra.kind, skipSelf: true })
+      const explicitModule = source.endsWith(".wasm?module")
+      if (!explicitModule && (!copy || !source.endsWith(".wasm") || extra.custom?.[skipMarkdownTemplateResolve])) return
+      const path = explicitModule ? source.slice(0, -"?module".length) : source
+      const resolved = await this.resolve(path, importerFor(importer, workingDir), { custom: extra.custom, isEntry: extra.isEntry, kind: extra.kind, skipSelf: true })
+      if (!explicitModule && (!isFileResolution(resolved) || !resolved.id.endsWith(".wasm"))) return resolved ?? undefined
       if (!isFileResolution(resolved)) this.error(`[vitehub] Could not resolve ${JSON.stringify(source)}.`)
       if (!copy) return resolved.id
       const bytes = await readFile(resolved.id)
