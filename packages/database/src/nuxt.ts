@@ -482,7 +482,13 @@ async function installNitroLocalDatabaseRuntime(
   const alias = isRecord(config.alias) ? config.alias : undefined
   const existingAlias = alias?.[databaseRegistryImport]
   const customRegistry = !!existingAlias && existingAlias !== file
+  const removeStartupPlugin = () => {
+    if (dev && Array.isArray(config.plugins) && config.plugins.includes(file)) {
+      config.plugins = config.plugins.filter(plugin => plugin !== file)
+    }
+  }
   if (customRegistry) {
+    removeStartupPlugin()
     await Promise.all([rm(file, { force: true }), rm(migrationsFile, { force: true })])
     if (!dev) return
   }
@@ -490,6 +496,7 @@ async function installNitroLocalDatabaseRuntime(
   const runtime = resolvedRuntime ?? resolveDBViteConfig(options, root, { contributions, provisionRoot, serverDirs })
   assertDistinctNuxtD1Bindings(runtime, d1, config)
   if (!runtime?.definitions.length) {
+    removeStartupPlugin()
     await Promise.all([rm(file, { force: true }), rm(migrationsFile, { force: true })])
     if (dev) {
       await rm(defaultsFile, { force: true })
@@ -600,6 +607,11 @@ async function installNitroLocalDatabaseRuntime(
     useDatabaseImport: pathToFileURL(resolve(databaseRuntimeDir, "use-database.js")).href,
   }))
   ensureRecord(config, "alias")[databaseRegistryImport] = file
+  if (dev) {
+    const kit = createNitroServerKit(config)
+    kit.addPlugin(file, "start")
+    config.plugins = kit.config.plugins
+  }
   return runtime
 }
 

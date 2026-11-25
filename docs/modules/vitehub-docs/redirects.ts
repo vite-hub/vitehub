@@ -484,14 +484,40 @@ export const docsLegacyFragmentRedirects = {
   },
 } satisfies Record<string, Record<string, string>>;
 
+const removedPrimitiveLandings = [
+  "agents",
+  "auth",
+  "blob",
+  "browser",
+  "channels",
+  "choices",
+  "cms",
+  "comments",
+  "connections",
+  "content",
+  "database",
+  "email",
+  "env",
+  "forms",
+  "i18n",
+  "kv",
+  "logs",
+  "queue",
+  "rate-limit",
+  "realtime",
+  "sandbox",
+  "schedule",
+  "shell",
+  "source",
+  "webhooks",
+  "workflows",
+  "workspace",
+];
+
 function rawMarkdownPath(path: string) {
   return `/raw${path}.md`;
 }
 
-/**
- * Permanent redirects for each removed HTML page and its raw Markdown copy. Nitro matches the trailing-slash form of a
- * route too, and ViteHub writes both forms to the Cloudflare `_redirects` file, so a second `/old/` rule is not needed.
- */
 export function createDocsRedirectRouteRules(redirects: Record<string, string> = docsPageRedirects) {
   const routeRules: Record<string, { redirect: { status: 301, to: string } }> = {};
 
@@ -501,8 +527,15 @@ export function createDocsRedirectRouteRules(redirects: Record<string, string> =
   }
 
   for (const [from, to] of Object.entries({
-    "/databases": "/database",
-    "/rate-limits": "/rate-limit",
+    ...Object.fromEntries(removedPrimitiveLandings.map(section => [`/${section}`, `/docs/${section}`] as const)),
+    "/databases": "/docs/database",
+    "/rate-limits": "/docs/rate-limit",
+  })) {
+    routeRules[from] = { redirect: { status: 301, to } };
+    routeRules[`${from}.md`] = { redirect: { status: 301, to: rawMarkdownPath(to) } };
+  }
+
+  for (const [from, to] of Object.entries({
     "/blog": "/learn",
     "/guides": "/learn",
     // Decisions was renamed to Choices.

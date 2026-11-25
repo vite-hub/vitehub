@@ -122,7 +122,7 @@ describe("Nuxt production Node Database runtime", () => {
   })
 })
 
-it("gives the copy of the package that Node loads in dev the Databases of the Nuxt dev registry", async () => {
+it("shares the Databases with the Node-loaded registry at Nitro dev startup", async () => {
   const root = await mkdtemp(join(packageRoot, ".vitest-nuxt-dev-"))
   const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
   try {
@@ -139,13 +139,12 @@ it("gives the copy of the package that Node loads in dev the Databases of the Nu
       },
       options: { buildDir: join(root, ".nuxt"), dev: true, nitro: { preset: "node-server" }, rootDir: root, vite: {} },
     })
-    const config = { alias: {} as Record<string, string> }
+    const config = { alias: {} as Record<string, string>, plugins: [] as string[] }
     for (const hook of hooks) await hook(config)
-    const output = join(root, "registry.output.mjs")
+    const output = join(root, "startup.output.mjs")
     await build({
       alias: { ...config.alias, "@vite-hub/database": join(packageRoot, "src/index.ts") },
       bundle: true,
-      entryPoints: [config.alias["@vite-hub/database/runtime/registry"]!],
       format: "esm",
       outfile: output,
       packages: "external",
@@ -156,6 +155,13 @@ it("gives the copy of the package that Node loads in dev the Databases of the Nu
           plugin.onResolve({ filter: /^file:\/\// }, args => plugin.resolve(fileURLToPath(args.path), { kind: args.kind, resolveDir: args.resolveDir }))
         },
       }],
+      stdin: {
+        contents: [
+          ...config.plugins.map((file, index) => `import plugin${index} from ${JSON.stringify(file)}`),
+          ...config.plugins.map((_, index) => `await plugin${index}()`),
+        ].join("\n"),
+        resolveDir: root,
+      },
     })
     await import(pathToFileURL(output).href)
 
