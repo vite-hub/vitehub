@@ -76,6 +76,29 @@ describe("nuxt-safe-runtime-config on a Nitro 2 app", () => {
 })
 
 describe("nuxt-safe-runtime-config on a Nitro 3 app with a vite.config", () => {
+  it.each([true, false])("does not claim a Nitro move without a matching route (with schema: %s)", async (withSchema) => {
+    const cwd = await mkdtemp(join(fixtures, ".nitro3-"))
+    try {
+      await cp(join(fixtures, "nitro3-module/input"), cwd, { recursive: true })
+      const path = join(cwd, "nitro.config.ts")
+      const config = await readFile(path, "utf8")
+      if (withSchema) {
+        await writeFile(path, config.replace("  modules: [safeRuntimeConfig],\n", ""))
+      }
+      else {
+        await rm(join(cwd, "routes"), { recursive: true })
+        await writeFile(path, config.replace("  safeRuntimeConfig: { $schema: './schema' },\n", ""))
+      }
+      const { result } = await runCodemod("nuxt-safe-runtime-config", { cwd, dryRun: true })
+      expect(result.summary).toMatch(withSchema
+        ? /^moved here because the schema has transforms on `port`\. Migrated /u
+        : /^removed nuxt-safe-runtime-config\/nitro:/u)
+    }
+    finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
   it("adds vitehub() before nitro() in the existing plugins", async () => {
     const cwd = await mkdtemp(join(fixtures, ".nitro3-"))
     try {
@@ -548,6 +571,23 @@ describe("defaults that the field schema rejects", () => {
 })
 
 describe("rules that change the value", () => {
+  it.each([
+    ["valibot", "v.array(v.pipe(v.string(), v.trim()))", "v.pipe(v.string(), v.check(value => value.length > 1))", "regions.*"],
+    ["zod", "v.string().pipe(v.string().trim())", "v.string().pipe(v.string().refine(value => value.length > 1))", "regions"],
+    ["zod/v3", "v.string().pipe(v.string().trim())", "v.string().pipe(v.string().refine(value => value.length > 1))", "regions"],
+  ])("reports composed %s transforms in a dry run", async (vendor, transform, refinement, path) => {
+    const cwd = await mkdtemp(join(fixtures, ".transform-"))
+    try {
+      await cp(join(fixtures, "valibot-transform/input"), cwd, { recursive: true })
+      await writeFile(join(cwd, "schema.ts"), `import * as v from '${vendor}'\nexport default v.object({ regions: ${transform}, region: ${refinement} })\n`)
+      const run = await runCodemod("nuxt-safe-runtime-config", { cwd, dryRun: true })
+      expect(formatReport(run)).toContain(`moved here because the schema has transforms on \`${path}\`. Migrated `)
+    }
+    finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
   it.each([
     ["Valibot", v.object({ origins: v.pipe(v.string(), v.transform(value => value.split(","))), region: v.pipe(v.string(), v.check(value => value.length > 1)) })],
     ["Zod", z.object({ origins: z.string().trim(), region: z.string().refine(value => value.length > 1) })],

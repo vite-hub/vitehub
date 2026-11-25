@@ -436,10 +436,6 @@ async function findNitroOutOfScopeConfigs(cwd: string, rootConfig: NuxtConfigFil
   return { directories: [...directories], followUps }
 }
 
-function nitroReason(config: NuxtConfigFile): string {
-  return `${config.fileName} uses \`${nitroModuleName}\``
-}
-
 async function migrateNitro(cwd: string): Promise<CodemodResult> {
   const config = await readNitroConfig(cwd)
   const moduleEntry = findNitroModuleEntry(config)
@@ -452,7 +448,8 @@ async function migrateNitro(cwd: string): Promise<CodemodResult> {
   if (options.schemaPath === undefined && options.schema === undefined) return removeUnusedNitroModule(cwd, config, moduleEntry)
 
   const { fields, unmigrated, planned, notes, schemaFile, lines, sourceLabel, schemaModule, generated, transforms } = await planSchema({ cwd, config, options, optionNodes: [safeProperty?.value], framework: "nitro" })
-  const reasons = [nitroReason(config), ...transformReason(transforms)]
+  const reasons = transformReason(transforms)
+  if (moduleEntry) reasons.unshift(`${config.fileName} uses \`${nitroModuleName}\``)
   const migrated = new Set(fields.map(field => pathLabel(field)))
   const hostPlan = planNitroHost(config, await readVitePreset(cwd))
   const edited = editNitroConfig({ config, moduleEntry, migrated, preset: hostPlan.preset })
@@ -540,7 +537,7 @@ async function removeUnusedNitroModule(cwd: string, config: NuxtConfigFile, modu
   const edits: FileEdit[] = [{ path: config.fileName, before: config.code, after: edited.code }]
   if (packageResult.edit) edits.push(packageResult.edit)
   return {
-    summary: routeReason([nitroReason(config)], `removed ${nitroModuleName}: it had no $schema, so it validated nothing.`),
+    summary: `removed ${nitroModuleName}: it had no $schema, so it validated nothing.`,
     edits,
     followUps: [],
     notes: ["To validate environment variables with ViteHub Env, add vitehub({ env }) and nitro() to vite.config. See https://vitehub.dev/docs/env."],
