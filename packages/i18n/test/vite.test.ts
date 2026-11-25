@@ -1,13 +1,46 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 
 import { VITEHUB_GENERATED_ROOT } from "@vite-hub/internal/build/vite"
+import { createServer, optimizeDeps } from "vite"
 import { describe, expect, it } from "vitest"
 
 import { hubI18n } from "../src/vite.ts"
 
+const packageRoot = fileURLToPath(new URL("..", import.meta.url))
+
 describe("hubI18n", () => {
+  it("serves Lingui to the dev browser prebundled, because its message compiler is CommonJS", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-i18n-dev-deps-"))
+    try {
+      await writeFile(join(root, "index.html"), '<script type="module" src="/main.js"></script>')
+      await writeFile(join(root, "main.js"), 'import { getI18n } from "@vite-hub/i18n/runtime"; console.log(getI18n)')
+      const installed = join(root, "node_modules/@vite-hub/i18n")
+      await mkdir(installed, { recursive: true })
+      await cp(join(packageRoot, "dist"), join(installed, "dist"), { recursive: true })
+      await cp(join(packageRoot, "package.json"), join(installed, "package.json"))
+      await mkdir(join(installed, "node_modules/@lingui"), { recursive: true })
+      await symlink(await realpath(join(packageRoot, "node_modules/@lingui/core")), join(installed, "node_modules/@lingui/core"), "dir")
+      const server = await createServer({ root, configFile: false, logLevel: "silent", plugins: [hubI18n({ locales: ["en", "es"], projectRoot: root })], server: { host: "127.0.0.1", port: 0, watch: null } })
+      await server.listen()
+      try {
+        const metadata = await optimizeDeps(server.config, true)
+        expect(Object.keys(metadata.optimized)).toContain("@vite-hub/i18n > @lingui/core")
+        const runtime = await (await fetch(new URL("/node_modules/@vite-hub/i18n/dist/runtime.js", server.resolvedUrls!.local[0]!))).text()
+        const lingui = /from ["']([^"']*@lingui[^"']*)["']/.exec(runtime)?.[1]
+        expect(lingui).toContain("/node_modules/.vite/deps/")
+      }
+      finally {
+        await server.close()
+      }
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it("installs the Nitro 3 request context plugin", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-i18n-vite-"))
     try {
