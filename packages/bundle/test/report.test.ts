@@ -113,7 +113,7 @@ describe("module ids and groups", () => {
     expect(moduleId("/repo/packages/agent/dist/index.js", root)).toBe("/repo/packages/agent/dist/index.js")
     expect(moduleId(`${root}/node_modules/.cache/nuxt/.nuxt/dist/server/server.mjs`, root)).toBe("node_modules/.cache/nuxt/.nuxt/dist/server/server.mjs")
     expect(moduleGroup("node_modules/vite-hub/dist/console/runtime/server/mcp.js")).toEqual({ name: "vite-hub/console", kind: "vitehub" })
-    expect(moduleGroup("node_modules/vite-hub/dist/usage-index-DINxJnhe.js")).toEqual({ name: "vite-hub/usage-index", kind: "vitehub" })
+    expect(moduleGroup("node_modules/vite-hub/dist/operations-DINxJnhe.js")).toEqual({ name: "vite-hub/operations", kind: "vitehub" })
     expect(moduleGroup("node_modules/@vite-hub/agent/dist/index.js")).toEqual({ name: "@vite-hub/agent", kind: "vitehub" })
     expect(moduleGroup("node_modules/h3/dist/index.mjs").kind).toBe("framework")
     expect(moduleGroup("node_modules/.cache/nuxt/.nuxt/x.mjs")).toEqual({ name: ".nuxt", kind: "generated" })

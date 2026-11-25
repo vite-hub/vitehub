@@ -377,12 +377,12 @@ const invocationsGet = defineConsoleOperation({
 })
 
 const invocationsUsage = defineConsoleOperation({
-  cli: false,
-  description: "Add up token use and cost evidence of Agent Invocations in the journal at request time. Same input and answer as usage.get.",
+  cli: { command: "usage", namespace: "agent" },
+  description: "Read token use and cost evidence of Agent Invocations. The app adds up its journal at request time.",
   input: v.strictObject({ agent: optionalText, cursor: optionalText, search: optionalText, status: optionalText, window: optionalText }),
   kind: "read",
   name: "invocations.usage",
-  run: async (input, context) => (await (import.meta.viteHubConsoleAgents === false ? disabledConsoleFeature("Agents") : import("./usage.get.ts"))).readConsoleJournalUsageRoute(legacyEvent("usage", "GET", { query: input }, context)),
+  run: async (input, context) => (await (import.meta.viteHubConsoleAgents === false ? disabledConsoleFeature("Agents") : import("./invocations.usage.ts"))).readConsoleUsage(legacyEvent("usage", "GET", { query: input }, context)),
   section: "usage",
 })
 
@@ -645,16 +645,6 @@ const siteOperations = [
   }),
 ]
 
-const usageGet = defineConsoleOperation({
-  cli: { command: "usage", namespace: "agent" },
-  description: "Read token use and cost evidence of Agent Invocations.",
-  input: v.strictObject({ agent: optionalText, cursor: optionalText, search: optionalText, status: optionalText, window: optionalText }),
-  kind: "read",
-  name: "usage.get",
-  run: async (input, context) => (await (import.meta.viteHubConsoleAgents === false ? disabledConsoleFeature("Agents") : import("./usage.get.ts"))).readConsoleUsage(legacyEvent("usage", "GET", { query: input }, context)),
-  section: "usage",
-})
-
 async function searchError(response: Response): Promise<Error> {
   const body = await response.text()
   let message = body
@@ -703,5 +693,4 @@ export const consoleOperations: readonly AnyOperation[] = [
   ...siteOperations,
   skillsInspect,
   statusGet,
-  usageGet,
 ]

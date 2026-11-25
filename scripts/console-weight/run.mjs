@@ -69,7 +69,6 @@ const operationProbes = [
   ["invocations.cancel", state => ({ id: state.invocation ?? absent }), invocationFailures],
   ["invocations.undo", state => ({ change: absent, id: state.invocation ?? absent }), invocationFailures],
   ["conversations.export", { agent, channel: absent, thread: absent }, channelFailures],
-  ["usage.get", {}],
   ["invocations.usage", {}],
   ["search.query", { search: "hello" }],
   ["env.get", {}],

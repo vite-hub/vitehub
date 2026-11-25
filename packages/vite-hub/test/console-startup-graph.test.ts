@@ -52,7 +52,7 @@ function startupGraph(code: string): { files: Set<string>, packages: Set<string>
 }
 
 describe("Console server startup graph", () => {
-  it("loads the operations, usage index, and journal stores on the first Console request", async () => {
+  it("loads the operations and journal stores on the first Console request", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-startup-"))
     try {
       const file = join(root, "plugin.mjs")
@@ -80,7 +80,7 @@ describe("Console server startup graph", () => {
       // app-wide journal of an Agent that runs before the first Console request.
       expect(files).not.toContain(join(agentSource, "invocations/default.ts"))
       expect(files).not.toContain(join(agentSource, "internal/default-invocations.ts"))
-      for (const lazy of ["agents.ts", "invocations.ts", "operation-contributions.ts", "operations.ts", "usage-index.ts", "invocations-database.ts", "mcp.ts", "mcp-client-operations.ts", "rpc.ts"]) {
+      for (const lazy of ["agents.ts", "invocations.ts", "operation-contributions.ts", "operations.ts", "invocations-database.ts", "mcp.ts", "mcp-client-operations.ts", "rpc.ts"]) {
         expect(loaded).not.toContain(`src/console/runtime/server/${lazy}`)
       }
       for (const lazy of ["d1.ts", "sqlite.ts"]) expect(files).not.toContain(join(agentSource, "invocations", lazy))

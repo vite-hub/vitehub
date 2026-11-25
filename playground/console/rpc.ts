@@ -55,7 +55,6 @@ const fixtureRoutes: Record<string, string> = {
   "sections.list": "sections",
   "skills.inspect": "skills",
   "status.get": "status",
-  "usage.get": "usage",
 }
 
 const projectFixture = {

@@ -2,7 +2,6 @@ import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { runInNewContext } from "node:vm"
-import { createClient } from "@libsql/client"
 import { createLibsqlAgentInvocationStore } from "@vite-hub/agent/invocations"
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -10,9 +9,10 @@ import { createDefaultAgentInvocations } from "@vite-hub/agent/internal/default-
 
 import { installAgentInvocations, resolveDefaultAgentInvocations } from "@vite-hub/agent/invocations/app"
 import { agentInvocationsVitePlugin } from "../src/agent-invocations-vite.ts"
-import { getConsoleUsageIndex } from "../src/console/runtime/server/invocations.ts"
+import { readConsoleJournalUsage } from "../src/console/runtime/server/invocations.ts"
+import { usageQueryWindow } from "../src/console/runtime/server/usage.ts"
 
-import type { Client } from "@libsql/client"
+import type { AgentInvocations } from "@vite-hub/agent"
 import type { AgentInvocationStoreCreateInput, AgentRetentionPolicy } from "@vite-hub/agent/server"
 
 // The libSQL driver that the generated plugin passes outside a Cloudflare production build.
@@ -39,7 +39,6 @@ const finished = (id: string, updatedAt: string, status: AgentInvocationStoreCre
 
 let directory: string
 let url: string
-const clients: Client[] = []
 
 beforeAll(async () => {
   // Keep cold module loading outside the journal's one-second store operation timeout.
@@ -58,16 +57,15 @@ beforeEach(async () => {
 
 afterEach(async () => {
   installAgentInvocations({})
-  for (const client of clients.splice(0)) client.close()
   vi.unstubAllEnvs()
   await rm(directory, { force: true, recursive: true })
 })
 
-async function projectedUsageIds() {
-  const client = createClient({ url })
-  clients.push(client)
-  const result = await client.execute("SELECT DISTINCT id FROM vitehub_console_usage_v2 ORDER BY id")
-  return result.rows.map(row => row.id)
+async function usageIds(invocations: AgentInvocations) {
+  const query = { window: "90d" } as const
+  const summary = await readConsoleJournalUsage(invocations, query, usageQueryWindow(query))
+  if (!summary) throw new TypeError("Expected the default journal to add up its usage.")
+  return summary.sessions.map(session => session.id).sort()
 }
 
 async function generatedPlugin(retention: AgentRetentionPolicy, options: { d1?: string, databaseUrl?: string } = {}) {
@@ -177,18 +175,15 @@ describe("Default Agent journal retention", () => {
     expect((await invocations.list()).invocations.map(record => record.id)).toEqual(["running"])
   })
 
-  it("removes the usage projection with a deleted or pruned invocation", async () => {
+  it("leaves a deleted or pruned invocation out of the usage", async () => {
     const invocations = createDefaultAgentInvocations({ databaseUrl: url, projectRoot: directory })
-    const usage = getConsoleUsageIndex(invocations)!
-    await usage.rebuild()
-    expect(await projectedUsageIds()).toEqual(["old", "recent"])
+    expect(await usageIds(invocations)).toEqual(["old", "recent"])
 
     await expect(invocations.delete("recent")).resolves.toBe("deleted")
-    expect(await projectedUsageIds()).toEqual(["old"])
+    expect(await usageIds(invocations)).toEqual(["old"])
 
     expect(await invocations.prune({ olderThanMs: 30 * day })).toEqual({ dryRun: false, ids: ["old"] })
-    expect(await projectedUsageIds()).toEqual([])
-    expect(await usage.query()).toMatchObject({ totals: { invocations: 0 } })
+    expect(await usageIds(invocations)).toEqual([])
     expect((await invocations.list()).invocations.map(record => record.id)).toEqual(["running"])
   })
 
