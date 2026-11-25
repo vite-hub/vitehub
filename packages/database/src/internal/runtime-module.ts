@@ -83,7 +83,7 @@ export function renderDatabaseRuntimeModule(options: RenderDatabaseRuntimeModule
       ? `const loadMigrations = () => import(${JSON.stringify(options.migrations.import)}).then(module => module.default)`
       : `const loadMigrations = async () => (${JSON.stringify({ allowDataLoss: false, databases: {}, unsupported: options.migrations.unsupported })})`,
     "export function ensureMigrations(name) { return ensureDatabaseMigrations({ databases, load: loadMigrations }, name === undefined ? undefined : [name]) }",
-    ...(options.shareWithNodeCopy ? ["shareRuntimeDatabases(() => ({ configured: new Set(Object.keys(configured())), databases }))"] : []),
+    ...(options.shareWithNodeCopy ? ["export default function shareDatabasesOnStartup() { shareRuntimeDatabases(() => ({ configured: new Set(Object.keys(configured())), databases })) }"] : []),
     "",
   ].join("\n")
 }
