@@ -136,6 +136,7 @@ const consoleRoutes: Record<string, ConsoleRoute> = {
   "definitions": { operation: "definitions.list", strings: ["section"] },
   "env": { operation: "env.get" },
   "invocation-capabilities": { operation: "invocations.capabilities", strings: ["agent"] },
+  "invocations-usage": { operation: "invocations.usage", strings: ["agent", "cursor", "search", "status", "window"] },
   "invocations": { lists: ["id"], numbers: ["limit"], operation: "invocations.list", strings: ["agent", "capability", "cursor", "triggeredBy"] },
   "sections": { operation: "sections.list" },
   "search": { numbers: ["limit"], operation: "search.query", strings: ["cursor", "search"] },
@@ -309,6 +310,23 @@ export async function requestConsoleOperation(
     throw new ConsoleRequestError(status, consoleErrorFields(outcome.error), consoleFailureFields(outcome.error))
   }
   throw await consoleResponseError(response)
+}
+
+/**
+ * Read usage that the app adds up from its journal at request time. An app that has no `invocations.usage` yet, or
+ * again after a rollback, answers with `usage.get`. Each call asks the new operation first.
+ */
+export async function requestConsoleUsage(
+  usagePath: string,
+  options: { query?: Record<string, unknown>, signal?: AbortSignal } = {},
+): Promise<unknown> {
+  try {
+    return await requestConsole(usagePath.replace(/\/usage$/, "/invocations-usage"), options)
+  }
+  catch (error) {
+    if (!(error instanceof ConsoleRequestError) || error.status !== 404 || error.code !== "CONSOLE_NOT_FOUND") throw error
+    return await requestConsole(usagePath, options)
+  }
 }
 
 export function appendUniqueConsoleKeys(existing: string[], page: string[]): string[] {

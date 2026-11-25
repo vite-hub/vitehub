@@ -222,7 +222,7 @@ A failure has `e` instead, with `code`, `message` and `status`, plus `fix`, `doc
 
 | Package | Operations |
 | --- | --- |
-| `vite-hub` (Console sections) | `agents.list`, `agents.invoke`, `invocations.list`, `invocations.get`, `invocations.cancel`, `invocations.undo`, `invocations.delete`, `invocations.workspace`, `invocations.capabilities`, `databases.browse`, `databases.tables`, `definitions.list`, `env.get`, `project.get`, `search.query`, `sections.list`, `status.get`, `usage.get`, `documents.action`, `media.action` |
+| `vite-hub` (Console sections) | `agents.list`, `agents.invoke`, `invocations.list`, `invocations.get`, `invocations.cancel`, `invocations.undo`, `invocations.delete`, `invocations.workspace`, `invocations.capabilities`, `invocations.usage`, `databases.browse`, `databases.tables`, `definitions.list`, `env.get`, `project.get`, `search.query`, `sections.list`, `status.get`, `usage.get`, `documents.action`, `media.action` |
 | [Blob](/docs/cli/primitives#read-and-write-blobs) | `blob.list`, `blob.head`, `blob.get`, `blob.put`, `blob.delete`, `blob.media`, `blob.variants` |
 | [Env](/docs/env) (Env section) | `env.inspect` |
 | [KV](/docs/cli/primitives#read-and-write-kv-keys) | `kv.list`, `kv.get`, `kv.has`, `kv.set`, `kv.delete` |

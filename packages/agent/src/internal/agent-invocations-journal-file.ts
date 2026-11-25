@@ -1,7 +1,9 @@
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { readAgentUsage } from "../usage.ts"
 import { isRuntimeRecord } from "./runtime-type.ts"
 
 import type { DatabaseSync } from "node:sqlite"
+import type { AgentUsagePeriod, AgentUsageQuery, AgentUsageSummary } from "../usage.ts"
 
 /**
  * A SQLite Agent Invocation journal file opened read-only. The values are unvalidated JSON from the file;
@@ -13,6 +15,8 @@ export interface AgentInvocationJournalFile {
   get: (id: string) => { invocation: Record<string, unknown>, observations: unknown[] } | undefined
   /** Newest first, as the SQLite store lists. `cursor` continues after the last record of the previous page. */
   list: (options: { cursor?: string, limit: number, status?: string }) => { cursor?: string, invocations: Record<string, unknown>[] }
+  /** Adds up usage with one SQL statement. Undefined when the journal is older than the `agent_name` and `updated_at` columns. */
+  usage?: (query: AgentUsageQuery, period: AgentUsagePeriod) => Promise<AgentUsageSummary>
 }
 
 function parseJson(value: unknown): unknown {
@@ -56,7 +60,13 @@ export async function openAgentInvocationJournalFile(path: string, tablePrefix =
     const appended = tables.has(`${table}_observations`)
       ? db.prepare(`SELECT observation FROM ${table}_observations WHERE invocation_sequence = ? ORDER BY position`)
       : undefined
+    const usage = ["agent_name", "updated_at"].every(name => columns.has(name))
+      ? async (query: AgentUsageQuery, period: AgentUsagePeriod) => await readAgentUsage({
+        execute: async statement => ({ rows: db.prepare(statement.sql).all(...statement.args) }),
+      }, query, period, { table })
+      : undefined
     return {
+      ...(usage ? { usage } : {}),
       close: () => db.close(),
       get(id) {
         db.exec("BEGIN")
