@@ -253,6 +253,10 @@ describe("forwardAuth()", () => {
 
     expect(refused.events.map(event => [event.type, event.metadata.method])).toEqual([["user.signed_in", "email-password"], ["sign_in.failed", "email-password"]])
 
+    const rejectedPassword = createForwardAuth()
+    expect((await post(rejectedPassword.definition, "sign-in/email", { email: ada.email, password: "wrong-password" }, { [header]: "gho_ada" })).status).toBe(401)
+    expect(rejectedPassword.events.filter(event => event.type !== "user.signed_up").map(event => [event.type, event.metadata.method])).toEqual([["user.signed_in", "forward"], ["sign_in.failed", "email-password"]])
+
     const accepted = createForwardAuth()
     expect((await post(accepted.definition, "sign-up/email", { email: "eve@example.com", name: "Eve", password: "passwordpassword" }, { [header]: "gho_grace" })).status).toBe(200)
 
@@ -260,6 +264,7 @@ describe("forwardAuth()", () => {
     const userIds = Object.fromEntries((accepted.db.user ?? []).map(user => [String(user.email), user.id]))
     expect(signUps.map(event => [event.userId, event.metadata.method])).toEqual(expect.arrayContaining([[userIds["grace@example.com"], "forward"], [userIds["eve@example.com"], "email-password"]]))
     expect(signUps).toHaveLength(2)
+    expect(accepted.events.filter(event => event.type === "user.signed_in").map(event => [event.userId, event.metadata.method])).toEqual([[userIds["grace@example.com"], "forward"], [userIds["eve@example.com"], "email-password"]])
   })
 
   it("tells `onRefused` when a provider requires a verified email", async () => {

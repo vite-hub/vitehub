@@ -55,6 +55,7 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
   const createdSessions = new WeakSet<object>()
   const recordedSessions = new WeakSet<object>()
   const forwardSessions = new WeakSet<object>()
+  const forwardedByRequest = new WeakMap<object, NonNullable<GenericEndpointContext["context"]["newSession"]>["session"]>()
   const expiredLookups = new WeakMap<object, Set<string>>()
   async function append(type: AuthEventType, userId: string | null, ctx: GenericEndpointContext | null, metadata: AuthEventMetadata = {}, fallback?: string | null): Promise<boolean> {
     const event: AuthEvent = { id: crypto.randomUUID(), type, time: new Date().toISOString(), actor: actor(ctx, fallback), userId, metadata }
@@ -100,6 +101,7 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
     await task
   }
   async function deleted(session: { userId: string, id: string, token?: unknown, impersonatedBy?: unknown }, ctx: GenericEndpointContext | null) {
+    if (ctx && forwardedByRequest.get(ctx.context)?.id === session.id) forwardedByRequest.delete(ctx.context)
     const expired = typeof session.token === "string" && ctx?.context !== undefined && expiredLookups.get(ctx.context)?.has(session.token) === true
     const type = ctx?.path === "/sign-out" ? "user.signed_out"
       : ctx?.path === "/admin/stop-impersonating" ? "impersonation.stopped"
@@ -157,7 +159,10 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
       session: {
         create: { async after(session, ctx) {
           createdSessions.add(session)
-          if (forwardSignIns.getStore()) forwardSessions.add(session)
+          if (forwardSignIns.getStore()) {
+            forwardSessions.add(session)
+            if (ctx) forwardedByRequest.set(ctx.context, session)
+          }
           if (session.impersonatedBy || ctx?.path === "/admin/impersonate-user") {
             if (await append("impersonation.started", session.userId, ctx, { sessionId: session.id }, identifier(session.impersonatedBy))) return
             // An impersonation without a record must not start. Better Auth sets no cookie when this hook throws.
@@ -249,14 +254,14 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
           const path = ctx.path ?? ""
           const outcome = outcomes.get(ctx.context)
           const value = record(outcome)
-          const signedIn = ctx.context.newSession
-          // Better Auth clears newSession when the first factor still needs 2FA.
-          // This plugin runs after the app plugins, so only completed sign-ins count.
-          if (signedIn && createdSessions.has(signedIn.session) && !signedIn.session.impersonatedBy && path !== "/admin/impersonate-user" && !recordedSessions.has(signedIn.session)) {
-            recordedSessions.add(signedIn.session)
-            await append("user.signed_in", signedIn.user.id, ctx, { method: forwardSessions.has(signedIn.session) ? "forward" : method(ctx), device: authEventDevice(ctx.headers?.get("user-agent") ?? ctx.request?.headers.get("user-agent")), sessionId: signedIn.session.id }, signedIn.user.id)
+          const signedIn = ctx.context.newSession?.session
+          const forwarded = forwardedByRequest.get(ctx.context)
+          for (const session of [forwarded, signedIn]) {
+            if (!session || !createdSessions.has(session) || session.impersonatedBy || path === "/admin/impersonate-user" || recordedSessions.has(session)) continue
+            recordedSessions.add(session)
+            await append("user.signed_in", session.userId, ctx, { method: forwardSessions.has(session) ? "forward" : method(ctx), device: authEventDevice(ctx.headers?.get("user-agent") ?? ctx.request?.headers.get("user-agent")), sessionId: session.id }, session.userId)
           }
-          if (!signedIn && outcome instanceof APIError && (path.startsWith("/sign-in/") || path === "/magic-link/verify" || path === "/passkey/verify-authentication" || path === "/siwe/verify" || challenges.has(ctx.context))) {
+          if ((!signedIn || forwardSessions.has(signedIn)) && outcome instanceof APIError && (path.startsWith("/sign-in/") || path === "/magic-link/verify" || path === "/passkey/verify-authentication" || path === "/siwe/verify" || challenges.has(ctx.context))) {
             await append("sign_in.failed", null, ctx, { method: method(ctx) })
           }
           if (outcome instanceof APIError) return
