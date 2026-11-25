@@ -53,7 +53,6 @@ import { hostManagedAuthorize, productionConsole } from "./support/console-autho
 import { consoleEvent } from "./console-event.ts"
 import { generatedModules } from "../src/internal/generated-modules.ts"
 
-// The libSQL driver that the generated plugin passes outside a Cloudflare production build.
 const libsql = async () => await import("../src/internal/agent-invocations-libsql.ts")
 
 const invocationHandler = allowed(invocationHandlerRoute)
@@ -67,7 +66,6 @@ function isPluginHookObject(value: unknown): value is { handler: unknown } {
   return value !== null && typeof value === "object" && "handler" in value
 }
 
-/** Add the Vite logger that resolved-config hooks use for build warnings. */
 function withViteLogger<T extends object>(config: T): T & { logger: { warn: () => void } } {
   return Object.assign(config, { logger: { warn: () => undefined } })
 }
@@ -82,12 +80,10 @@ function callPluginHook(hook: unknown, context: unknown, args: readonly unknown[
   return Reflect.apply(candidate, context, args)
 }
 
-/** A test event whose URL and Node response a test can change between calls. */
 interface MutableTestEvent extends ConsoleRequestEvent {
   req: { url: string }
 }
 
-/** A Console request event at `http://localhost/_vitehub`. Each read of its Standard Context uses the current `req.url`. */
 function event(address: string | undefined, method = "GET"): MutableTestEvent {
   const url = "http://localhost/_vitehub"
   const headers = new Headers()
@@ -111,7 +107,6 @@ function runtime(runId: string): AgentRuntimeContext {
   }
 }
 
-/** Installs the default Agent journal, as the generated server does with the Console on or off, and lets the Console read it. */
 function installDefaultJournal(projectRoot: string, setting?: AgentInvocationsDefault): AgentInvocations {
   installAgentInvocations({ default: setting, journal: { libsql, projectRoot } })
   return installConsoleInvocations(projectRoot)
@@ -125,12 +120,10 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-/** The hosted Console link of an invocation, as `consoleInvocationUrl()` builds it. */
 function hostedInvocationUrl(project: string, agentSegment: string, id: string): string {
   return `https://console.vitehub.dev/open?project=${encodeURIComponent(project)}&path=${encodeURIComponent(`/agents/${agentSegment}/invocations/${encodeURIComponent(id)}`)}`
 }
 
-/** The generated Console app module, which the Console plugin resolves for `#vitehub/console/app`. */
 function consoleAppFile(plugin: Plugin): string {
   const hook = plugin.resolveId
   const handler = hook && "handler" in hook ? hook.handler : hook
@@ -265,7 +258,6 @@ describe("Agent invocation console", () => {
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
 
       const generated = await readFile(consoleAppFile(plugin), "utf8")
-      // Without its own Database Definition, the app gets only the implicit default Database.
       expect(generated).toContain('"name":"default","source":"implicit-default"')
       expect(generated).not.toContain("inherited/server/databases/default.ts")
     }
@@ -297,7 +289,6 @@ describe("Agent invocation console", () => {
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
       const generated = await readFile(consoleAppFile(plugin), "utf8")
-      // The capabilities load with the first Console invocation, not when the server starts.
       expect(generated).not.toMatch(/^import .*vite-hub\/(?:blob|database\/runtime\/registry|i18n\/server|kv)/m)
       expect(generated).toContain(`capabilities: async () => { const [{ blob: vitehubConsoleAgentBlob }, { agentConsole: vitehubConsoleAgentConsole }, { agentDb: vitehubConsoleAgentDb }, { agentI18n: vitehubConsoleAgentI18n }, { kv: vitehubConsoleAgentKv }] = await Promise.all([import("vite-hub/blob"), import("vite-hub/console/server"), import("@vite-hub/database/runtime/registry"), import("vite-hub/i18n/server"), import("vite-hub/kv")]); return { blob: vitehubConsoleAgentBlob, console: vitehubConsoleAgentConsole, db: vitehubConsoleAgentDb, i18n: vitehubConsoleAgentI18n, kv: vitehubConsoleAgentKv } }`)
     }
@@ -327,6 +318,7 @@ describe("Agent invocation console", () => {
         `${mount}/_vitehub/**`,
         `${mount}/_vitehub`,
         `${mount}/_vitehub/rpc`,
+        `${mount}/_vitehub/site`,
       ])
       expect(config.nitro?.publicAssets ?? []).toEqual([])
     }
@@ -359,7 +351,6 @@ describe("Agent invocation console", () => {
         "/portal/_vitehub/rpc",
         "/portal/_vitehub/site",
       ])
-      // The app keeps its own assets below /_vitehub. The Console adds none.
       expect(resolvedConfig.nitro?.publicAssets).toEqual([
         { baseURL: "/portal/_vitehub/assets", dir: "/user-owned-assets" },
       ])
@@ -382,7 +373,6 @@ describe("Agent invocation console", () => {
       const generated = await readFile(consoleAppFile(plugin), "utf8")
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["setup","kv"], ["setup"])`)
       expect(generated).toContain(`true, "/__vitehub/setup")`)
-      // A development server has no build for `project.get` to name.
       expect(generated).not.toContain("installConsoleBuild")
     }
     finally {
@@ -836,7 +826,6 @@ describe("Agent invocation console", () => {
       expect(generated).toContain(`import(${JSON.stringify(generatedModules.consoleDefinitions)})`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["schedules"])`)
-      // The runtime reader reads the Definitions that the Process Runtime loaded. It does not import a handler itself.
       expect(generated).toContain(`{ readScheduleConsoleRecords: vitehubConsoleRuntimeReader0 }`)
       expect(generated).toMatch(/import\("[^"]*[\\/]schedule[\\/](?:src|dist)[\\/]runtime[\\/]console\.(?:ts|js)"\)/)
       expect(generated).not.toContain("() => import(")
@@ -1057,8 +1046,6 @@ describe("Agent invocation console", () => {
       const plugin = consoleVitePlugin({ console: { invoke: true }, resolveAuthConfig: () => auth, sections: ["agents"] })
       const config: { nitro?: { handlers: Array<{ route: string }> }; root: string } = { root }
       await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
-      // App Auth access routes leave a request that Nitro routes to the Console to its own check: a signed RPC POST, a
-      // one-time ticket GET, or the way in from a page.
       expect(config.nitro?.handlers).toEqual(["/_vitehub/**", "/_vitehub", "/_vitehub/rpc", "/_vitehub/site"].map(route => ({
         handler: expect.stringMatching(/server\/entry\.js$/), lazy: true, meta: { vitehubAuthAccess: "handler" }, route,
       })))
@@ -1204,7 +1191,6 @@ describe("Agent invocation console", () => {
     await callPluginHook(plugin.closeBundle, { environment: secondEnvironment })
     expect(state.closed).toBe(true)
 
-    // A restarted environment writes the plugin again.
     await callPluginHook(plugin.buildStart, { environment: firstEnvironment })
     expect(state.closed).toBe(false)
   })
@@ -1473,7 +1459,6 @@ describe("Agent invocation console", () => {
       install(true)
       await expect(invocationHandler(detailEvent(running.id, { action: "delete" }))).rejects.toMatchObject({ statusCode: 409 })
       await expect(invocationHandler(detailEvent("missing", { action: "cancel" }))).rejects.toMatchObject({ statusCode: 404 })
-      // A custom `run` Driver receives the abort signal, but the Console does not report the cancel as enforced.
       await expect(invocationHandler(detailEvent(running.id, { action: "cancel" }))).resolves.toEqual({
         delivery: "local",
         id: running.id,
@@ -1529,7 +1514,6 @@ describe("Agent invocation console", () => {
         url: "http://localhost/_vitehub/api/agents/support/invocations",
       }))
       await vi.waitFor(() => expect(signal).toBeDefined())
-      // A replacement owner writes a terminal state while the original handler still runs.
       await backing.update(id, { status, timestamp: new Date().toISOString() })
       const terminalRecord = await backing.get(id)
       installConsoleAgentDefinitions([{ definition: { default: definition }, fallbackName: "help" }], { invoke: false, projectRoot: root })
@@ -2881,7 +2865,6 @@ describe("Agent invocation console", () => {
     }
     const invocations = defineAgentInvocations({ store })
 
-    // A long result text truncates the observation, but the Agent keeps the scalar usage totals.
     expect(invocationUsage((await invocations.get("truncated"))!)).toEqual({
       inputTokens: 4,
       model: "truncated",
