@@ -325,7 +325,6 @@ describe("Babysitter stacked PR preservation", () => {
   });
 
   it("keeps a renamed repository's own branches out of the fork path", () => {
-    // onmax/skillfleet became onmax/fleetrc: GitHub reports the new name on both sides, the config keeps the old one.
     const pr = { head: { ref: "fix", repo: { id: 1, full_name: "onmax/fleetrc" } }, base: { ref: "main", repo: { id: 1, full_name: "onmax/fleetrc" } } };
     expect(isForkHead(pr, "onmax/skillfleet")).toBe(false);
     expect(sameRepositoryBranches(pr, "onmax/skillfleet")).toEqual({ head: "fix", base: "main" });
@@ -334,7 +333,6 @@ describe("Babysitter stacked PR preservation", () => {
     const fork = { head: { ref: "fix", repo: { id: 2, full_name: "someone/fleetrc" } }, base: { ref: "main", repo: { id: 1, full_name: "onmax/fleetrc" } } };
     expect(isForkHead(fork, "onmax/fleetrc")).toBe(true);
     expect(sameRepositoryBranches(fork, "onmax/fleetrc")).toBeUndefined();
-    // Without a base repository the configured name decides, as before.
     expect(isForkHead({ head: { ref: "fix", repo: { full_name: "someone/app" } } }, "acme/app")).toBe(true);
     expect(isForkHead({ head: { ref: "fix", repo: { full_name: "acme/app" } } }, "acme/app")).toBe(false);
   });

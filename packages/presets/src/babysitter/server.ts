@@ -1239,8 +1239,6 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
           const files = overlap.slice(0, 3).join(", ") + (overlap.length > 3 ? ` and ${overlap.length - 3} more` : "");
           schedulerEvent("babysitter.direct_merge.skipped", { ...owner, reason: `${base} changed files this PR touches after its checks ran: ${files}` });
           if (!await updateBranch(owner, repository, number, decision.head, signal, live)) {
-            // A fork gets its fresh run from an hourly reopen. Wait for the next one: a spent pass budget
-            // would otherwise park the PR with green checks and nothing left to wake it.
             const reopened = isForkHead(live, repository) ? await pullRequestInbox.meta(forkReopenKey(repository, number)) : undefined;
             const at = isRuntimeRecord(reopened) ? Number(reopened.at) : Number.NaN;
             if (Number.isFinite(at)) return await parkMerge(`${base} changed ${files} after its checks ran; the next reopen for fresh checks is due within the hour.`, Math.max(at + 60 * 60_000, Date.now() + 60_000));
