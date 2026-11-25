@@ -27,7 +27,7 @@ Pick a tool from the app you need to build. ViteHub adds Agents and server servi
 
 ## When ViteHub is the wrong choice
 
-- **Your framework has no ViteHub integration.** ViteHub works with Vite (through `vitehub()` and Nitro) and Nuxt 5. Next.js and other frameworks with their own server build do not work. See [Frameworks and hosts](/docs/frameworks-hosts#choose-a-framework).
+- **Your framework has no ViteHub integration.** ViteHub works with Vite (through `vitehub()` and Nitro), Nuxt 4.7 with `nitro` and ViteHub 0.5.1 or newer, and Nuxt 5. Next.js and other frameworks with their own server build do not work. See [Frameworks and hosts](/docs/frameworks-hosts#choose-a-framework).
 - **You need a stable API today.** ViteHub releases can change the public API.
 - **You need MySQL.** ViteHub Database supports SQLite, libSQL, Cloudflare D1, and Postgres.
 - **You need retrieval with a vector store.** ViteHub has no vector store or embedding pipeline. Mastra has both.
