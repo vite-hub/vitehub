@@ -43,11 +43,11 @@ async function project(files: Record<string, string>) {
 
 const supportAgent = `import { defineAgent } from "vite-hub/agent"\nexport default defineAgent({ driver: { run: () => "" } })\n`
 
-function build(root: string, options: AgentOptions, vitehub: Record<string, unknown> = {}) {
+async function build(root: string, options: AgentOptions, vitehub: Record<string, unknown> = {}) {
   const plugin = hubAgent(options)
   if (typeof plugin.config !== "function") throw new TypeError("Expected Agent config hook.")
   // SAFETY: The config hook reads only these fields of the Vite config in this test.
-  plugin.config.call({} as never, { root, vitehub, nitro: {} } as never, { command: "build", mode: "production" } as never)
+  return plugin.config.call({} as never, { root, vitehub, nitro: {} } as never, { command: "build", mode: "production" } as never)
 }
 
 it("gives each Agent build code a fix and its own docs page", () => {
@@ -61,7 +61,7 @@ it("gives each Agent build code a fix and its own docs page", () => {
 
 it("names the alias option when an alias path is not static", async () => {
   const root = await project({ "server/agents/support.ts": supportAgent })
-  expect(() => build(root, { routes: { aliases: { "/hooks/:id": { agent: "support", webhook: "github" } } } })).toThrow(expect.objectContaining({
+  await expect(build(root, { routes: { aliases: { "/hooks/:id": { agent: "support", webhook: "github" } } } })).rejects.toThrow(expect.objectContaining({
     code: "AGENT_ROUTE_NOT_STATIC",
     fix: expect.stringContaining("routes: { aliases }"),
     message: "[vitehub] Agent webhook alias requires a static route path.",
@@ -70,7 +70,7 @@ it("names the alias option when an alias path is not static", async () => {
 
 it("names the alias entry fields when an alias has no target", async () => {
   const root = await project({ "server/agents/support.ts": supportAgent })
-  expect(() => build(root, { routes: { aliases: { "/hooks/github": { agent: "", webhook: "github" } } } })).toThrow(expect.objectContaining({
+  await expect(build(root, { routes: { aliases: { "/hooks/github": { agent: "", webhook: "github" } } } })).rejects.toThrow(expect.objectContaining({
     code: "AGENT_WEBHOOK_ALIAS_TARGET_INVALID",
     fix: expect.stringContaining("`agent` and `webhook`"),
   }))
@@ -81,7 +81,7 @@ it("names the Node host when a process host Agent builds for Vercel", async () =
     "node_modules/@acme/host/package.json": JSON.stringify({ name: "@acme/host", vitehub: { agent: { processHost: ["./worker"] } } }),
     "server/agents/worker/agent.ts": `import { defineAgent } from "vite-hub/agent"\nimport { worker } from "@acme/host/worker"\nexport default defineAgent({ extends: worker })\n`,
   })
-  expect(() => build(root, { providers: { state: { driver: "libsql", url: "libsql://state.example.test" } } }, { host: "vercel" })).toThrow(expect.objectContaining({
+  await expect(build(root, { providers: { state: { driver: "libsql", url: "libsql://state.example.test" } } }, { host: "vercel" })).rejects.toThrow(expect.objectContaining({
     code: "AGENT_B0022",
     fix: expect.stringContaining("vitehub({ host: \"node\" })"),
   }))
