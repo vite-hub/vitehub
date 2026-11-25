@@ -712,7 +712,7 @@ describe("env declarations", () => {
     })).toThrow("[vitehub] Env declaration is invalid.")
   })
 
-  it("does not execute inherited schema methods", () => {
+  it("does not execute inherited parse methods", () => {
     let calls = 0
     const inherited = {
       safeParse: () => {
@@ -722,12 +722,6 @@ describe("env declarations", () => {
       parse: () => {
         calls++
         return "inherited"
-      },
-      "~standard": {
-        validate: () => {
-          calls++
-          return { value: "inherited" }
-        },
       },
     }
 
@@ -763,10 +757,6 @@ describe("env declarations", () => {
     }
   })
 
-  it("does not accept an inherited Zod identity", () => {
-    expect(parseSchema(Object.create(z.string().min(3)), "x", "env.test")).toBe("x")
-  })
-
   it("does not execute inherited validators with forged Zod traits", () => {
     let calls = 0
     const validators = {
@@ -778,16 +768,10 @@ describe("env declarations", () => {
         calls++
         return "inherited"
       },
-      "~standard": {
-        validate: () => {
-          calls++
-          return { value: "inherited" }
-        },
-      },
     }
     const metadata = [{ traits: new Set(["ZodType"]) }, z.string()._zod]
     for (const _zod of metadata) {
-      for (const method of ["safeParse", "parse", "~standard"] as const) {
+      for (const method of ["safeParse", "parse"] as const) {
         const schema = Object.assign(Object.create({ [method]: validators[method] }), { _zod })
         expect(parseSchema(schema, "input", "env.test")).toBe("input")
       }

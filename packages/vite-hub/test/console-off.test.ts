@@ -36,7 +36,7 @@ async function devConsoleRoutes(value: ViteHubOptions["console"]): Promise<strin
 describe("console option in development", () => {
   it("serves only the operation RPC when console is unset", async () => {
     const routes = await devConsoleRoutes(undefined)
-    expect(routes).toEqual(["/_vitehub/**"])
+    expect(routes).toEqual(["/_vitehub/**", "/_vitehub", "/_vitehub/rpc", "/_vitehub/site"])
   })
 
   it("serves no /_vitehub route with console: false", async () => {
@@ -45,7 +45,7 @@ describe("console option in development", () => {
 
   it("serves the operation RPC when the Console is on", async () => {
     const routes = await devConsoleRoutes({ auth: false })
-    expect(routes).toEqual(["/_vitehub/**"])
+    expect(routes).toEqual(["/_vitehub/**", "/_vitehub", "/_vitehub/rpc", "/_vitehub/site"])
   })
 
   it("serves Site access on the same route only in an app with Comments", async () => {

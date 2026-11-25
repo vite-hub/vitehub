@@ -78,11 +78,11 @@ async function setup() {
   await client.execute({ sql: "insert into member (id, organization_id, user_id, role, created_at) values (?, ?, ?, ?, ?)", args: ["m1", "t-ada", "u-ada", "owner", now] })
   const project = (await createConsoleProjectStore(db as ConsoleDatabase, consoleSecret, "t-ada").create({ url: "https://app.example.com/portal", createdBy: "u-ada" }))!
   const { key: apiKey } = (await createConsoleApiKey(db as ConsoleDatabase, { userId: "u-ada", teamId: "t-ada", name: "Test" }))!
-  const api = async (method: string, path: string, body?: unknown, surface = "site") => {
-    const request = new Request(`${consoleOrigin}/api/projects/${project.id}/${surface}${path}`, { method, headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
+  const api = async (method: string, path: string, body?: unknown, surface = "site", cookie = "") => {
+    const request = new Request(`${consoleOrigin}/api/projects/${project.id}/${surface}${path}`, { method, headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json", cookie }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
     const endpoints = surface === "site" ? { item: siteApi, list: siteOverview } : { item: commentsApi, list: commentsOverview }
     const response = await (path ? endpoints.item : endpoints.list).fetch(request)
-    return { status: response.status, body: await response.json() as Record<string, unknown> }
+    return { status: response.status, body: await response.json() as Record<string, unknown>, headers: response.headers }
   }
   const open = async (body: unknown, headers: Record<string, string> = {}) => await siteApi.fetch(new Request(`${consoleOrigin}/api/projects/${project.id}/site/open`, { method: "POST", headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json", ...headers }, body: JSON.stringify(body) }))
   return { client, project, api, open }
@@ -162,7 +162,9 @@ describe("Site access in the Console", () => {
 
     const opened = await invitePage.fetch(new Request(link))
     expect(opened.status).toBe(303)
-    expect(opened.headers.get("location")).toBe(`https://app.example.com/portal/_vitehub/site?return=%2Fdocs&project=${project.id}`)
+    const handoff = new URL(opened.headers.get("location")!)
+    expect(`${handoff.origin}${handoff.pathname}`).toBe(`${project.url}/_vitehub/site`)
+    expect(Object.fromEntries(handoff.searchParams)).toMatchObject({ return: "/docs", project: project.id, issuer: consoleOrigin, handoff: expect.any(String) })
     expect(opened.headers.getSetCookie()[0]).toMatch(new RegExp(`^__Host-vitehub-site-pass-${project.id}=[\\w-]{43}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800; Secure$`))
     const again = await invitePage.fetch(new Request(link))
     expect(again.status).toBe(410)
@@ -181,7 +183,7 @@ describe("Site access in the Console", () => {
     const cookie = cookieOf(await invitePage.fetch(new Request(String(created.body.url))))
     const sessions = (await api("GET", "")).body.sessions as { id: string, kind: string }[]
     expect(sessions).toMatchObject([{ kind: "guest", person: { name: "Grace" }, grants: ["comments-read"] }])
-    expect(await api("DELETE", `/sessions/${sessions[0]!.id}`)).toEqual({ status: 200, body: { revoked: true, removedUser: true } })
+    expect(await api("DELETE", `/sessions/${sessions[0]!.id}`)).toMatchObject({ status: 200, body: { revoked: true, removedUser: true } })
     expect((await api("GET", "")).body.sessions).toEqual([])
     const { location } = await visitApp(cookie)
     expect(location).toMatch(/^\/open\?/)
@@ -198,6 +200,7 @@ describe("Site access in the Console", () => {
     expect(Date.parse(String(code.body.expiresAt)) - Date.now()).toBeGreaterThan(9 * 60_000)
     const opened = await codePage.fetch(new Request(link, { headers: { "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Safari/604.1" } }))
     expect(opened.status).toBe(303)
+    expect(Object.fromEntries(new URL(opened.headers.get("location")!).searchParams)).toMatchObject({ return: "/runs/42", project: project.id, issuer: consoleOrigin, handoff: expect.any(String) })
     expect((await codePage.fetch(new Request(link))).status).toBe(410)
     const cookie = cookieOf(opened)
     const { location, appState } = await visitApp(cookie)
@@ -219,13 +222,13 @@ describe("Site access in the Console", () => {
     expect(await api("POST", "/invites", { name: "Grace", grants: ["comments-read"], path: "//evil.example" })).toMatchObject({ status: 400 })
     const created = await api("POST", "/invites", { name: "Grace", grants: ["comments-read"], expiresInDays: 1 })
     const id = (created.body.invite as { id: string }).id
-    expect(await api("DELETE", `/invites/${id}`)).toEqual({ status: 200, body: { revoked: true } })
+    expect(await api("DELETE", `/invites/${id}`)).toMatchObject({ status: 200, body: { revoked: true } })
     expect(await api("DELETE", `/invites/${id}`)).toMatchObject({ status: 404 })
     expect((await invitePage.fetch(new Request(String(created.body.url)))).status).toBe(410)
     expect((await invitePage.fetch(new Request(`${consoleOrigin}/i/unknown`))).status).toBe(404)
   })
 
-  it("signs a token for a signed-in member, from a visit or from the Console page", async () => {
+  it("records revocable member browsers from a visit and from the Console page", async () => {
     const { project, api } = await setup()
     expect((await visitApp(undefined)).location).toMatch(/^\/open\?/)
     state.user = { id: "u-bob" }
@@ -233,11 +236,24 @@ describe("Site access in the Console", () => {
     state.user = { id: "u-ada" }
     const visited = await visitApp(undefined)
     expect(await verifyAt(project, visited.location, visited.appState)).toMatchObject({ ok: true, claims: { sub: "u-ada", roles: expect.arrayContaining(["console"]) } })
+    const visitPass = cookieOf(visited.response)
+    expect((await api("GET", "")).body.sessions).toMatchObject([{ kind: "member", person: { id: "u-ada" }, grants: expect.arrayContaining(["console"]) }])
 
     const appState = createSiteState()
-    const token = await api("POST", "/token", { path: "/runs/42", state: await siteStateHash(appState) })
+    const input = { path: "/runs/42", state: await siteStateHash(appState) }
+    const token = await api("POST", "/token", input)
     expect(await verifyAt(project, String(token.body.url), appState)).toMatchObject({ ok: true, claims: { path: "/runs/42", aud: "https://app.example.com/portal" } })
+    const tokenPass = token.headers.getSetCookie()[0]!.split(";")[0]!
+    expect(tokenPass).not.toBe(visitPass)
+    expect((await api("POST", "/token", input, "site", tokenPass)).headers.getSetCookie()[0]).toContain(`${tokenPass};`)
     expect(await api("POST", "/token", { path: "/", state: "short" })).toMatchObject({ status: 400 })
+
+    state.user = null
+    const sessions = (await api("GET", "")).body.sessions as { id: string }[]
+    expect(sessions).toHaveLength(2)
+    for (const pass of [visitPass, tokenPass]) expect((await visitApp(pass)).response.status).toBe(303)
+    for (const { id } of sessions) expect((await api("DELETE", `/sessions/${id}`)).status).toBe(200)
+    for (const pass of [visitPass, tokenPass]) expect((await visitApp(pass)).location).toMatch(/^\/open\?/)
   })
 
   it("asks the app for its Site access policy before each action, and gives only the roles of that policy", async () => {

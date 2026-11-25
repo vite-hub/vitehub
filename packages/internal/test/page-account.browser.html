@@ -43,43 +43,46 @@
       const pill = document.querySelector("vitehub-pill")
       pill.style.transition = "none"
       await frame()
-      const shadow = pill.querySelector("vitehub-account").shadowRoot
-      const button = shadow.querySelector("button.who")
-      const menu = shadow.querySelector("[role=menu]")
-      const label = `${edge} ${at}% (${innerWidth}x${innerHeight})`
+      for (const [shadow, selector] of [[pill.querySelector("vitehub-account").shadowRoot, "button.who"], [pill.shadowRoot, "button.exit"]]) {
+        const button = shadow.querySelector(selector)
+        const menu = shadow.getElementById(button.getAttribute("popovertarget"))
+        const label = `${selector} ${edge} ${at}% (${innerWidth}x${innerHeight})`
 
-      const opened = toggled(menu)
-      button.click()
-      await opened
-      await frame()
-      assert(menu.matches(":popover-open"), `${label}: the button opens the menu`)
-      assert(button.getAttribute("aria-expanded") === "true", `${label}: aria-expanded is true`)
-      assert(shadow.activeElement === shadow.querySelector("[role=menuitem]:not([hidden])"), `${label}: the first item has the focus`)
-      const box = menu.getBoundingClientRect()
-      const bar = pill.shadowRoot.querySelector("div").getBoundingClientRect()
-      const own = button.getBoundingClientRect()
-      // A menu beside a vertical dock can be wider than the room beside it on a phone, as before popovers.
-      if (edge === "bottom" || edge === "top") assert(box.left >= 8 - 1 && box.right <= innerWidth - 8 + 1, `${label}: inside the screen across (${box.left}, ${box.right})`)
-      assert(box.top >= 0 && box.bottom <= innerHeight, `${label}: inside the screen down (${box.top}, ${box.bottom})`)
-      const gap = edge === "bottom" ? bar.top - box.bottom : edge === "top" ? box.top - bar.bottom : edge === "left" ? box.left - bar.right : bar.left - box.right
-      assert(Math.abs(gap - 8) < 1, `${label}: 8px from the pill, not ${gap}`)
-      if (edge === "bottom" || edge === "top") {
-        // Its right edge lines up with the button, unless the screen has no room for that on the left.
-        if (own.right - box.width >= 8) assert(Math.abs(box.right - own.right) < 1, `${label}: lines up with the button (${box.right}, ${own.right})`)
-      }
-      else {
-        // Its top lines up with the button, or its bottom when there is no room under the button.
-        assert(Math.abs(box.top - own.top) < 1 || Math.abs(box.bottom - own.bottom) < 1, `${label}: level with the button (${box.top}, ${own.top})`)
-      }
+        const opened = toggled(menu)
+        button.click()
+        await opened
+        await frame()
+        assert(menu.matches(":popover-open"), `${label}: the button opens the menu`)
+        assert(button.getAttribute("aria-expanded") === "true", `${label}: aria-expanded is true`)
+        assert(shadow.activeElement === shadow.querySelector("[role=menuitem]:not([hidden])"), `${label}: the first item has the focus`)
+        const box = menu.getBoundingClientRect()
+        const bar = pill.shadowRoot.querySelector("div").getBoundingClientRect()
+        const own = button.getBoundingClientRect()
+        // A menu beside a vertical dock can be wider than the room beside it on a phone, as before popovers.
+        if (edge === "bottom" || edge === "top") assert(box.left >= 8 - 1 && box.right <= innerWidth - 8 + 1, `${label}: inside the screen across (${box.left}, ${box.right})`)
+        assert(box.top >= 0 && box.bottom <= innerHeight, `${label}: inside the screen down (${box.top}, ${box.bottom})`)
+        const gap = edge === "bottom" ? bar.top - box.bottom : edge === "top" ? box.top - bar.bottom : edge === "left" ? box.left - bar.right : bar.left - box.right
+        assert(Math.abs(gap - 8) < 1, `${label}: 8px from the pill, not ${gap}`)
+        if (edge === "bottom" || edge === "top") {
+          // Its right edge lines up with the button, unless the screen has no room for that on the left.
+          if (own.right - box.width >= 8) assert(Math.abs(box.right - own.right) < 1, `${label}: lines up with the button (${box.right}, ${own.right})`)
+        }
+        else {
+          // Its top lines up with the button, or its bottom when there is no room under the button.
+          assert(Math.abs(box.top - own.top) < 1 || Math.abs(box.bottom - own.bottom) < 1, `${label}: level with the button (${box.top}, ${own.top})`)
+        }
 
-      const closed = toggled(menu)
-      menu.hidePopover()
-      await closed
-      assert(button.getAttribute("aria-expanded") === "false", `${label}: aria-expanded is false after close`)
-      cases++
+        const closed = toggled(menu)
+        pill.setAttribute("edge", edge === "top" ? "bottom" : "top")
+        await closed
+        assert(button.getAttribute("aria-expanded") === "false", `${label}: aria-expanded is false after close`)
+        pill.setAttribute("edge", edge)
+        await frame()
+        cases++
+      }
       await stop()
     }
-    result.textContent = `PASS: ${cases} dock states keep the account menu 8px off the pill and level with its button, and the top and bottom docks keep it inside the screen`
+    result.textContent = `PASS: ${cases} account and exit menu placements stay 8px off the pill and close when the dock changes`
   } catch (error) {
     result.textContent = `FAIL: ${error.stack}`
     throw error

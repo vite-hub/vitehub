@@ -303,7 +303,7 @@ fi
     expect(runGate(results, "push").status).not.toBe(0)
   })
 
-  it.each(["node-floor", "prepublish-contracts"])("requires %s on pushes, manual dispatches and repair-main pull requests", (name) => {
+  it.each(["consumer-nuxt-4-7", "node-floor", "prepublish-contracts"])("requires %s on pushes, manual dispatches and repair-main pull requests", (name) => {
     const results = { ...successfulJobs, [name]: { result: "skipped" } }
     expect(runGate(results, "pull_request").status).toBe(0)
     expect(runGate(results, "push").status).not.toBe(0)

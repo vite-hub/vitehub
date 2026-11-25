@@ -1,4 +1,4 @@
-import { registerViteHubPageAccount, registerViteHubPageTool, installViteHubSiteVisitor } from "@vite-hub/internal/runtime/page-tools"
+import { registerViteHubPageAccount, registerViteHubPageTool, installViteHubSiteVisitor, viteHubPageGrants } from "@vite-hub/internal/runtime/page-tools"
 import { configuredConsoleOrigin } from "@vite-hub/runtime/internal/console"
 import { installRequestStandardContext } from "@vite-hub/runtime/internal/h3"
 
@@ -12,6 +12,7 @@ export interface ConsolePillOptions {
   development?: boolean
   /** The `vite-hub` version of the app. The Console serves the segment script of this version. */
   version: string
+  useCurrentGrants?: boolean
 }
 
 const siteSignOutPath = "/_vitehub/site"
@@ -23,6 +24,7 @@ export function consolePageAccount(visitor: ViteHubSiteVisitor, signOut: string)
     ...(visitor.kind === "member" && visitor.email ? { email: visitor.email } : {}),
     ...(visitor.image ? { image: visitor.image } : {}),
     via: "console",
+    ...(visitor.kind === "guest" ? { guest: true } : {}),
     signOut,
   }
 }
@@ -46,7 +48,11 @@ export function consolePillScript(version: string, base = "/"): string {
 export function installConsolePill(nitroApp: unknown, options: ConsolePillOptions): void {
   const base = options.base || "/"
   const development = options.development === true
-  const site: ViteHubSiteVisitorReader = async request => (await import("./site-visitor.ts")).readConsoleSiteVisitor(request, base, development)
+  const site: ViteHubSiteVisitorReader = async (request) => {
+    const visitor = await (await import("./site-visitor.ts")).readConsoleSiteVisitor(request, base, development)
+    if (visitor?.kind !== "member" || !options.useCurrentGrants) return visitor
+    return { ...visitor, roles: [...new Set([...visitor.roles, ...viteHubPageGrants(request).map(grant => grant.id)])] }
+  }
   installViteHubSiteVisitor(site)
   const signOut = `${base.replace(/\/+$/, "")}${siteSignOutPath}`
   registerViteHubPageAccount(nitroApp, async ({ request }) => {

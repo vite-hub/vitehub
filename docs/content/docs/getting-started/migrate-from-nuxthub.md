@@ -28,7 +28,7 @@ After the move, [Agents](/docs/agents) can also use KV, Blob, and Database throu
 | `handleUpload`, multipart helpers, `useUpload`, `useMultipartUpload` | Same names on `blob` and in `vite-hub/blob/vue` | Methods return `[error, value]`. Multipart works with `fs`, `cloudflare` (binding), and `vercel`. NuxtHub's `s3` driver had multipart. ViteHub's `s3` does not, and returns `BLOB_R0030`. |
 | `hosting` auto-detection | `host` | Set the host, or let ViteHub detect it from the build variables. |
 | `.data/` | `.vitehub/data/` | Local development data does not move automatically. See [Move local data](#move-local-data). |
-| Auto-imported `kv`, `blob`, `db`, `schema` | Imported from `vite-hub/*` in Nuxt server code | On Nuxt 5, server auto-imports are off by default, so the codemod imports them in each server file. Set `experimental: { nitroAutoImports: true }` to auto-import them and the helpers of every other enabled feature. See [Nuxt server auto-imports](/docs/frameworks-hosts/nuxt-server-auto-imports). Explicit imports also work. |
+| Auto-imported `kv`, `blob`, `db`, `schema` | Imported from `vite-hub/*` in Nuxt server code | The codemod imports them in each server file, so the code works on Nuxt 4.7 and on Nuxt 5. On Nuxt 4.7, server auto-imports are on by default, so these helpers and the helpers of every other enabled feature are also auto-imported. On Nuxt 5, they are off by default. Set `experimental: { nitroAutoImports: true }` to auto-import them. See [Nuxt server auto-imports](/docs/frameworks-hosts/nuxt-server-auto-imports). Explicit imports also work. |
 
 NuxtHub v0.10 removed `hubAI()`, AutoRAG, Vectorize, and `hubBrowser()`.
 ViteHub has no AI or Vectorize feature either. For browser work on Cloudflare,
@@ -36,12 +36,13 @@ see [Browser](/docs/browser).
 
 ## Replace the module
 
-Use Nuxt 5. It is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`. Use pnpm 11.5 or newer. Older versions can hang when they resolve this nightly alias. Remove `@nuxthub/core` and install ViteHub:
+Remove `@nuxthub/core`:
 
 ```bash [Terminal]
 pnpm remove @nuxthub/core
-pnpm add vite-hub
 ```
+
+Use Nuxt 4.7 with the `nitro` package, or Nuxt 5. Follow the [Nuxt module installation](/docs/frameworks-hosts/nuxt#install-the-module) to install the framework and the matching ViteHub version.
 
 Install the package for each feature you use. For Database, keep or add `drizzle-orm` as a direct dependency, because your schema imports it. `@vite-hub/database` needs `drizzle-orm` 1.0.0-rc.5, 1.0.0-rc.6 or 1.x, plus `drizzle-kit` 1.0.0-rc.5, 1.0.0-rc.6 or 1.x for migration commands. With an older version, the package manager installs a second copy, and the query types stop matching. Do not use `^1.0.0-rc.5`. It also matches Drizzle snapshot builds, such as `1.0.0-rc.5-ab785fc`, which sort above the release:
 

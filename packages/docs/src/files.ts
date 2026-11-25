@@ -18,7 +18,7 @@ export interface DocsPackedFiles {
   packed: string
 }
 
-/** What `#docs/files` exports in development: a reader that loads each file through Vite. */
+/** What `#docs/files` exports in development: a reader that loads each file through Vite, or from disk. */
 export interface DocsDevFiles {
   has: (store: string, file: string) => boolean
   /** The file of a store, or null when the store or the file is unknown. */
@@ -68,18 +68,24 @@ function packDocsFiles(stores: DocsFileStore[], order: Array<[store: string, fil
 }
 
 /**
- * The source of `#docs/files` in development. Each file is a `?raw` import, so Vite watches it, and an edit shows on the
- * next read. The server can run in workerd, which cannot read the folders from disk.
+ * The source of `#docs/files` in development. When Nitro runs in Vite, each file is a `?raw` import, so Vite watches it,
+ * and an edit shows on the next read. The server can run in workerd, which cannot read the folders from disk. When
+ * Nitro builds the server with its own bundler, as on Nuxt 4.7, that bundler cannot load `?raw`, and the server reads
+ * each file from disk on request.
  */
-export function docsDevFilesModule(stores: DocsFileStore[]): string {
-  const loaders = stores.map(store => `  ${JSON.stringify(store.name)}: {\n${markdownFiles(store.dir).map(file => `    ${JSON.stringify(file)}: () => import(${JSON.stringify(`${join(store.dir, file).split(sep).join("/")}?raw`)}),`).join("\n")}\n  },`)
+export function docsDevFilesModule(stores: DocsFileStore[], { nitroInVite }: { nitroInVite: boolean }): string {
+  const loader = (path: string) => nitroInVite
+    ? `() => import(${JSON.stringify(`${path}?raw`)}).then(module => module.default)`
+    : `() => readFile(${JSON.stringify(path)}, "utf8")`
+  const loaders = stores.map(store => `  ${JSON.stringify(store.name)}: {\n${markdownFiles(store.dir).map(file => `    ${JSON.stringify(file)}: ${loader(join(store.dir, file).split(sep).join("/"))},`).join("\n")}\n  },`)
   return [
+    ...nitroInVite ? [] : [`import { readFile } from "node:fs/promises"`],
     `const files = {\n${loaders.join("\n")}\n}`,
     "const has = (store, file) => Object.hasOwn(files, store) && Object.hasOwn(files[store], file)",
     "export default {",
     "  has,",
     "  async read(store, file) {",
-    "    return has(store, file) ? (await files[store][file]()).default : null",
+    "    return has(store, file) ? await files[store][file]() : null",
     "  },",
     "}",
     "",

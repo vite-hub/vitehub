@@ -325,7 +325,7 @@ function storedUpdate(value: unknown): Uint8Array | undefined {
 interface ResolvedRealtimeDefinition {
   adapter: RealtimeDocumentAdapter
   definition: RealtimeDocumentDefinition
-  editor: (context: RealtimeDocumentContext) => RealtimeEditor
+  editor: (context: RealtimeDocumentContext) => RealtimeEditor | Promise<RealtimeEditor>
   persistence: { debounce: number, maxWait: number } | false
 }
 
@@ -1211,7 +1211,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     return openRoom(key, sql, async () => {
       const bus = sql ? undefined : await sharedBus()
       const context: RealtimeDocumentContext = { authority: sql ? "cloudflare" : bus?.authority ?? "memory", definition: definitionName, documentId }
-      const editor = resolved.editor(context)
+      const editor = await resolved.editor(context)
       const { loaded, guard, shared } = bus
         ? await bus.withRoomLock(key, async () => {
             const loaded = await resolved.adapter.load(context)

@@ -38,6 +38,7 @@ jobs:
       - prepublish-contracts
       - consumer-contracts
       - consumer-contracts-success
+      - consumer-nuxt-4-7
       - node-floor
       - codemods-node-22
       - docs
@@ -76,6 +77,7 @@ jobs:
             "contracts-examples",
             "consumer-contracts",
             "consumer-contracts-success",
+            "consumer-nuxt-4-7",
             "node-floor",
             "prepublish-contracts",
             "verify-providers",
@@ -571,6 +573,24 @@ jobs:
     permissions: {}
     steps:
       - run: echo 'All consumer contract shards passed'
+
+  # The packed Nuxt apps of the consumer contracts again, on Nuxt 4.7 with the
+  # nitro package, which builds the server with Nitro 3 through Nuxt's
+  # nitroLegacy layer. The consumer contracts run them on the Nuxt 5 nightly.
+  consumer-nuxt-4-7:
+    name: consumer contracts (Nuxt 4.7)
+    if: *full-suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - run: vp run test:consumer -t Nuxt
+        env:
+          VITEHUB_CONSUMER_NUXT: "4.7"
 
   # The codemods run before an app moves to ViteHub, often on Node.js 22, so
   # @vite-hub/codemods requires Node.js 22.12. This job runs its built CLI on
