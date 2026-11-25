@@ -175,6 +175,8 @@ describe("release workflow artifact handoff", () => {
     expect(publishNpm).toContain("release-packages.mjs publish")
     expect(githubRelease).toContain('gh release view "$release_tag"')
     expect(githubRelease).toContain('gh release create "$release_tag"')
+    // Without a title, GitHub shows the subject of the tagged commit, such as "v0.5.0 (#5168)".
+    expect(githubRelease).toContain('--title "$release_tag"')
     expect(githubRelease).not.toContain("--generate-notes")
     expect(githubRelease).toContain("releases/generate-notes")
     expect(githubRelease).toContain("(( ${#notes} > 120000 ))")
