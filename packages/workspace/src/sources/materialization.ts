@@ -1013,11 +1013,7 @@ async function materializeWorkspaceSourcesInternal(
       }
       catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        const cached = existing
         resultSources.push({ ...ready, error: message, status: "error" })
-        if (cached && control.isCurrent()) {
-          await control.checkpoint(() => writeSourceSnapshotMetadata(store, workspace, { ...cached, error: message, status: "error" })).catch(() => undefined)
-        }
         await reportMaterializationProgress(options, source, {
           bytes: existing?.bytes || 0,
           cacheStatus, counts, durationMs,

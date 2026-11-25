@@ -3826,6 +3826,70 @@ describe("lazy sources", () => {
     expect(observed).toEqual(["# B\n"])
   })
 
+  it("reads a later Source from an observer without waiting for a queued successor", async () => {
+    const entered = Promise.withResolvers<void>()
+    const resume = Promise.withResolvers<void>()
+    const observed: string[] = []
+    const view = createWorkspaceSourceView({
+      name: "queued-progress-read",
+      sources: {
+        aa: custom({ materialize: "lazy", files: [] }),
+        bb: custom({ materialize: "lazy", files: [{ path: "item.md", content: "B" }] }),
+      },
+    }, createMemoryWorkspaceStore())
+    const current = view.materializeSources({
+      abortSignal: AbortSignal.timeout(1000),
+      async onProgress(event) {
+        if (event.source !== "aa" || event.status !== "started") return
+        entered.resolve()
+        await resume.promise
+        observed.push(await view.readFile("bb/item.md", { encoding: "utf8" }))
+      },
+    })
+    await entered.promise
+    const successor = view.materializeSources({ sources: ["bb"], onProgress: event => {
+      if (event.status === "started") observed.push("successor")
+    } })
+    resume.resolve()
+    await Promise.all([current, successor])
+    expect(observed).toEqual(["B", "successor"])
+  })
+
+  it("does not publish a preview of a later cached Source", async () => {
+    const store = createMemoryWorkspaceStore()
+    const observed: string[] = []
+    const view = createWorkspaceSourceView({
+      name: "ordered-progress-read",
+      sources: {
+        aa: custom({ materialize: "lazy", getKeys: () => ["input.md"], getItem: key => ({ key, path: key, content: "ready" }) }),
+        bb: custom({
+          cache: { maxAge: 3600 },
+          materialize: "lazy",
+          getKeys: () => ["item.md"],
+          async getItem(key, context) {
+            const content = await context.workspaceFiles?.exists("aa/input.md")
+              ? await context.workspaceFiles?.readFile("aa/input.md", { encoding: "utf8" })
+              : "preview"
+            return { key, path: key, content }
+          },
+        }),
+      },
+    }, store)
+    const result = await view.materializeSources({
+      details: "paths",
+      async onProgress(event) {
+        if (event.source !== "aa" || event.status !== "started") return
+        observed.push(await view.readFile("bb/item.md", { encoding: "utf8" }))
+        await expect(view.stat("bb/item.md")).resolves.toMatchObject({ type: "file" })
+        await expect(view.list("bb")).resolves.toMatchObject([{ path: "bb/item.md" }])
+        await expect(store.readFile("bb/item.md")).resolves.toBeUndefined()
+      },
+    })
+    expect(observed).toEqual(["preview"])
+    expect(result.sources[1]?.paths).toEqual([{ path: "bb/item.md", status: "added" }])
+    await expect(view.readFile("bb/item.md", { encoding: "utf8" })).resolves.toBe("ready")
+  })
+
   it("reports failures during source fingerprinting", async () => {
     const progress: unknown[] = []
     const view = createWorkspaceSourceView({
@@ -4011,9 +4075,9 @@ describe("lazy sources", () => {
     ])
     expect(progress.map(event => event.status)).toEqual(["started", "completed", "failed"])
     await expect(store.getMeta?.("workspace:cache-completion-observer-failure:source:docs:snapshot")).resolves.toMatchObject({
-      error: "observer failed",
-      status: "error",
+      status: "ready",
     })
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({ sources: [{ cacheStatus: "hit", status: "ready" }] })
   })
 
   it("honors cancellation while resolving a cached source snapshot", async () => {
@@ -4213,6 +4277,28 @@ describe("lazy sources", () => {
       sources: [{ files: 1, status: "ready" }],
     })
     await expect(view.readFile("docs/guide.md", { encoding: "utf8" })).resolves.toBe("# Guide\n")
+  })
+
+  it("retries a rejected revision resolution on the next lazy read", async () => {
+    const resolveRevision = vi.fn<() => Promise<string>>()
+      .mockRejectedValueOnce(new Error("revision unavailable"))
+      .mockResolvedValueOnce("second")
+      .mockResolvedValue("materialized")
+    const view = createWorkspaceSourceView({
+      name: "lazy-revision-retry",
+      sources: {
+        docs: custom({
+          materialize: "lazy",
+          resolveRevision,
+          getKeys: () => ["guide.md"],
+          getItem: (key, context) => ({ key, path: key, content: context.revision }),
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await expect(view.readFile("docs/guide.md", { encoding: "utf8" })).rejects.toThrow("revision unavailable")
+    await expect(view.readFile("docs/guide.md", { encoding: "utf8" })).resolves.toBe("materialized")
+    expect(resolveRevision).toHaveBeenCalledTimes(3)
   })
 
   it("prepares a live Source after a cache hit in a fresh view", async () => {
