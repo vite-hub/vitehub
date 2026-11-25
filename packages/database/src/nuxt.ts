@@ -596,6 +596,7 @@ async function installNitroLocalDatabaseRuntime(
       `const definitionDefaults = ${definitionDefaults}`,
     ],
     setup: [...schemas, ...relations],
+    shareWithNodeCopy: dev,
     useDatabaseImport: pathToFileURL(resolve(databaseRuntimeDir, "use-database.js")).href,
   }))
   ensureRecord(config, "alias")[databaseRegistryImport] = file
