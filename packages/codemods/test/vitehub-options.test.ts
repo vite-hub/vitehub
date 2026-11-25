@@ -465,6 +465,20 @@ describe("vitehub-options transform", () => {
     expect(result.code.replace(/\s+/g, "")).toContain("$production:{vitehub:{console:{},agent:{invocations:{retention:{days:7}}},}}")
   })
 
+  it("reports a journal move when Nuxt auto-loads a local layer", async () => {
+    await mkdir(scratch, { recursive: true })
+    const cwd = await mkdtemp(join(scratch, "app-"))
+    const config = join(cwd, "nuxt.config.ts")
+    await writeFile(config, "export default defineNuxtConfig({ vitehub: { console: { retention: { days: 7 } } } })\n")
+    const layer = join(cwd, "layers", "shared")
+    await mkdir(layer, { recursive: true })
+    await writeFile(join(layer, "nuxt.config.ts"), "export default defineNuxtConfig({ vitehub: { agent: { invocations: 'database' } } })\n")
+
+    const { result } = await runCodemod("vitehub-options", { cwd, dryRun: true })
+    expect(result.edits).toEqual([])
+    expect(result.followUps).toEqual([expect.objectContaining({ file: "nuxt.config.ts", message: expect.stringContaining("console.retention was removed") })])
+  })
+
   it("moves retention into an explicit store without changing that store", () => {
     const input = "export default defineNuxtConfig({ vitehub: { agent: { invocations: { store: 'database', database: 'jobs' } }, console: { retention: { maxRecords: 50 } } } })\n"
     const result = migrateViteHubOptions("nuxt.config.ts", input)

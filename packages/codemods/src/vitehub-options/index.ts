@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises"
-import { join } from "node:path"
+import { basename, dirname, join } from "node:path"
 
 import { glob } from "tinyglobby"
 
@@ -13,7 +13,6 @@ const configPatterns = ["**/{vite,nuxt}.config.{ts,mts,cts,js,mjs,cjs}"]
 const sourcePatterns = ["**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,vue}"]
 const ignored = ["**/node_modules/**", "**/.nuxt/**", "**/.output/**", "**/.data/**", "**/.vitehub/**", "**/dist/**", "**/coverage/**"]
 
-/** Option types that this release renamed or removed, with their replacement. */
 const renamedTypes: Record<string, string> = {
   AgentModuleOptions: "AgentOptions",
   AuthModuleOptions: "AuthOptions",
@@ -53,16 +52,20 @@ async function migrations(cwd: string) {
   const results = []
   for (const file of files) {
     const before = await readFile(join(cwd, file), "utf8")
-    results.push({ before, file, result: migrateViteHubOptions(file, before) })
+    const directory = dirname(file)
+    const hasLocalNuxtLayers = basename(file).startsWith("nuxt.config") && (
+      basename(dirname(directory)) === "layers"
+      || (await glob("layers/*", { cwd: join(cwd, directory), onlyDirectories: true })).length > 0
+    )
+    results.push({ before, file, result: migrateViteHubOptions(file, before, { hasLocalNuxtLayers }) })
   }
   for (const [file, positions] of [...imported.options.entries()].sort(([left], [right]) => left.localeCompare(right))) {
     const before = await readFile(join(cwd, file), "utf8")
-    results.push({ before, file, result: migrateViteHubOptions(file, before, program => optionsAt(program, positions)) })
+    results.push({ before, file, result: migrateViteHubOptions(file, before, { findOptions: program => optionsAt(program, positions) }) })
   }
   return { results, followUps: imported.followUps }
 }
 
-/** Source lines that name a renamed option type. The codemod reports them and edits nothing. */
 async function renamedTypeReferences(cwd: string): Promise<FollowUp[]> {
   const followUps: FollowUp[] = []
   for (const file of (await glob(sourcePatterns, { cwd, ignore: ignored })).sort()) {

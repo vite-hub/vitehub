@@ -9,10 +9,8 @@ import { unwrapExpression } from "../shared/nuxt-config.ts"
 import type { File, Identifier, Node, ObjectExpression, ObjectProperty } from "@babel/types"
 import type { FollowUp } from "../types.ts"
 
-/** Top-level Vite keys that owner plugins read before `vitehub()` became the only config place. */
 const removedViteKeys = ["agent", "auth", "blob", "browser", "database", "kv", "queue", "rateLimit", "sandboxTask", "vitehub", "workflow", "workspace"]
 
-/** The standalone plugin that takes the options of each key as its argument. */
 const ownerPlugins: Record<string, { name: string, previousName?: string, package: string }> = {
   agent: { name: "hubAgent", package: "agent" },
   auth: { name: "hubAuth", package: "auth" },
@@ -64,7 +62,6 @@ export function findConfigRoot(program: File, followUps: FollowUp[], file: strin
     }
   }
   if (value.type === "CallExpression") {
-    // Only a config: `export default defineAgent({...})` is not one.
     if (value.callee.type !== "Identifier" || !configFunctions.has(value.callee.name)) return undefined
     const [argument] = value.arguments
     if (!argument) return undefined
@@ -175,7 +172,6 @@ function logsMode(node: Node): "capture" | "possibly-disabled" | "source" | unde
   }
 }
 
-/** Value imports of the expected API, checked against each call's lexical binding. */
 function importedNames(program: File, sources: readonly string[], imported: string | readonly string[]): Map<string, Identifier> {
   const names = new Map<string, Identifier>()
   const imports = typeof imported === "string" ? [imported] : imported
@@ -196,7 +192,6 @@ function callsOf(scope: Node, names: ReadonlyMap<string, Identifier>, resolveBin
   return calls
 }
 
-/** Moves the lines of `text` after the first from the indentation `from` to `to`. */
 function reindent(text: string, from: string, to: string): string {
   if (from === to) return text
   return text.split("\n").map((value, index) => {
@@ -207,13 +202,12 @@ function reindent(text: string, from: string, to: string): string {
 }
 
 /**
- * Moves the vite-hub options of a config file. `findRoots` selects other config objects, such as the inline configs of
- * a test file. Without it, the file's default export is the config.
- */
-/**
  * `findOptions` selects the options objects traced from a config that imports this file.
  */
-export function migrateViteHubOptions(file: string, code: string, findOptions?: (program: File) => ObjectExpression[]): OptionsMigration {
+export function migrateViteHubOptions(file: string, code: string, { findOptions, hasLocalNuxtLayers }: {
+  findOptions?: (program: File) => ObjectExpression[]
+  hasLocalNuxtLayers?: boolean
+} = {}): OptionsMigration {
   const followUps: FollowUp[] = []
   const notes: string[] = []
   const unchanged = { code, changed: false, followUps, notes }
@@ -244,7 +238,6 @@ export function migrateViteHubOptions(file: string, code: string, findOptions?: 
     removed.add(node)
     changed = true
   }
-  /** Renames the `from` key of a vite-hub options object to `to`, and keeps its value. */
   const renameKey = (options: ObjectExpression, from: string, to: string, conflict: string) => {
     const item = property(options, from)
     if (!item) return
@@ -252,7 +245,6 @@ export function migrateViteHubOptions(file: string, code: string, findOptions?: 
       follow(item, conflict)
       return
     }
-    // A shorthand `{ preset }` and a computed `{ ["preset"]: ... }` key both need the whole property rewritten.
     if (item.shorthand || item.computed) editor.output.overwrite(start(item), end(item), `${to}: ${text(item.value)}`)
     else editor.output.overwrite(start(item.key), end(item.key), to)
     changed = true
@@ -260,7 +252,7 @@ export function migrateViteHubOptions(file: string, code: string, findOptions?: 
 
   const moveToInvocations = (options: ObjectExpression, items: ObjectProperty[]): boolean => {
     const entries = items.map(text)
-    if (importedOptions || !staticNuxtOptions || options === legacyAgentTarget) return false
+    if (importedOptions || !staticNuxtOptions || hasLocalNuxtLayers || options === legacyAgentTarget) return false
     if (nuxt && allOptions.some(other => other !== options &&
       (hasOpaqueKeys(other) || hasProperty(other, "agent") || hasProperty(other, "console")))) return false
     if (hasOpaqueKeys(options) || hasAmbiguousProperty(options, "agent") || hasAmbiguousProperty(options, "console")) return false
@@ -328,7 +320,6 @@ export function migrateViteHubOptions(file: string, code: string, findOptions?: 
     }
   }
 
-  // The options objects of `vitehub()` in a Vite config, or of `vite-hub/nuxt` in a Nuxt config.
   const optionObjects: ObjectExpression[] = importedOptions ?? []
   const environmentOptions: ObjectExpression[] = []
   const emptyCalls: Array<Node & { type: "CallExpression" }> = []
@@ -356,7 +347,6 @@ export function migrateViteHubOptions(file: string, code: string, findOptions?: 
     }
   }
 
-  // Only a config root, not an imported options object, can contain legacy top-level Vite keys.
   const viteObject = importedOptions ? undefined : nuxt ? objectValue(property(root, "vite")?.value) : root
   const legacyAgentTarget = viteObject && property(viteObject, "agent") && optionObjects.length === 1 && !emptyCalls.length ? optionObjects[0] : undefined
 
@@ -384,7 +374,6 @@ export function migrateViteHubOptions(file: string, code: string, findOptions?: 
       remove(contentImportBase)
       notes.push(`${file}: removed contentImportBase. ViteHub always imports Content from vite-hub/content.`)
     }
-    // `logs` is a top-level key: `observability.logs` moves out to it, and an old `logs.evlog` goes to `observability.evlog`.
     const observability = property(options, "observability")
     const observabilityValue = observability ? unwrapExpression(observability.value) : undefined
     const observabilityObject = objectValue(observability?.value)
@@ -434,7 +423,6 @@ export function migrateViteHubOptions(file: string, code: string, findOptions?: 
     if (!observability) insertProperties(options, [`observability: { ${text(evlog)} }`])
     else if (observabilityObject) insertProperties(observabilityObject, [text(evlog)])
     else if (observabilityValue) editor.output.overwrite(start(observabilityValue), end(observabilityValue), `{ ${text(evlog)} }`)
-    // `logs.evlog` becomes `observability.evlog`. The other `logs` options stay.
     if (logsObject.properties.length === 1) {
       editor.output.overwrite(start(logs.value), end(logs.value), "true")
       changed = true
@@ -482,7 +470,6 @@ export function migrateViteHubOptions(file: string, code: string, findOptions?: 
     let moved = false
     const targetEnv = optionObjects[0] ? property(optionObjects[0], "env") : undefined
     const targetEnvValue = targetEnv ? unwrapExpression(targetEnv.value) : undefined
-    // `vitehub({ env: false })` next to the app's own `hubEnv()`: the declarations belong to that plugin.
     const envOff = targetEnvValue?.type === "BooleanLiteral" && !targetEnvValue.value
     if (viteHubTargets > 1) follow(envProperty, "The config has more than one vite-hub options object. Move env into the right one by hand.")
     else if (optionObjects[0] && envOff && hubEnvCalls.length !== 1) follow(envProperty, "vitehub({ env: false }) turns Env off, but the config declares Env. Remove one of them.")
@@ -524,7 +511,6 @@ export function migrateViteHubOptions(file: string, code: string, findOptions?: 
       const sourceIndent = indentAt(code, start(item))
       const plugin = ownerPlugins[key]
       const pluginCalls = plugin && !nuxt ? callsOf(root, importedNames(program, [`@vite-hub/${plugin.package}/vite`, `vite-hub/${plugin.package}/vite`], plugin.previousName ? [plugin.name, plugin.previousName] : plugin.name), resolveBinding) : []
-      // The key moves to the one place that reads it now: the vite-hub options, or the owner plugin's argument.
       if (key !== "vitehub" && optionObjects.length === 1 && !emptyCalls.length && !property(optionObjects[0]!, key)) {
         insertProperties(optionObjects[0]!, [`${key}: ${reindent(text(value), sourceIndent, editor.propertyIndent(optionObjects[0]!))}`])
         remove(item)

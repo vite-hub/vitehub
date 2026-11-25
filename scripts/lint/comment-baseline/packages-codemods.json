@@ -54,8 +54,6 @@
   "packages/codemods/src/t3-env/index.ts": 4,
   "packages/codemods/src/t3-env/plan.ts": 4,
   "packages/codemods/src/tsconfig-paths/index.ts": 4,
-  "packages/codemods/src/vitehub-options/index.ts": 2,
-  "packages/codemods/src/vitehub-options/transform.ts": 14,
   "packages/codemods/src/workspace-repo/index.ts": 1,
   "packages/codemods/test/define-forms.test.ts": 4,
   "packages/codemods/test/e2e.mjs": 3,

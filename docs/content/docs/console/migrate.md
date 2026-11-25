@@ -18,7 +18,7 @@ pnpm vitehub migrate --dry-run
 pnpm vitehub migrate
 ```
 
-- `vitehub-options` removes `console.pill`, `mcpClient`, `embed`, `mcp`, `origins`, `signInPage` and `auth: 'token'`. When no option stays, it writes `console: true`. It moves `console.databaseUrl`, `observations` and `retention` to `agent: { invocations }`.
+- `vitehub-options` removes `console.pill`, `mcpClient`, `embed`, `mcp`, `origins`, `signInPage` and `auth: 'token'`. When no option stays, it writes `console: true` (`console: {}` in a Nuxt environment override). It moves `console.databaseUrl`, `observations` and `retention` to `agent: { invocations }` only when it can preserve the effective journal. In Nuxt apps with layers, check the merged options and move these settings by hand.
 - `console-out-of-app` removes the `via === 'page'` branch of `console.authorize` and the `ConsolePageAuthorizeContext` import.
 - `runtime-contracts` reports imports of `vite-hub/console/mcp-client`.
 
