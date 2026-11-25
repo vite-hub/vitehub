@@ -96,7 +96,10 @@ export interface CommentSendService {
   send: (caller: CommentSendCaller) => Promise<Result<CommentSendResult, "COMMENTS_FORBIDDEN" | "COMMENTS_SEND_INSECURE" | "COMMENTS_SEND_OFF">>
   /** Opens a send with its read token. */
   read: (id: string, token: string) => Promise<Result<CommentSendView, "COMMENTS_SEND_GRANT_INVALID">>
-  /** Opens a send of `user`, or their latest one that the agent has not read, for the MCP tool. */
+  /**
+   * Opens a send of `user` by its id, also while its delivery waits for the receiver's answer, so an agent can read the
+   * send that it just got. Without an id, it opens the latest delivered send that no agent read yet.
+   */
   readOwn: (user: CommentsUser, id?: string, policy?: CommentSendPolicy) => Promise<CommentSendView | undefined>
   /**
    * The sends of `user` among `states`, newest first, with the threads that `user` may still read. It skips a send
@@ -577,7 +580,7 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       const found = id ? await store.send(id) : await store.latestSend(user.id, undefined, ["pending", "sent"])
       if (found?.member !== user.id) return undefined
       const row = await reconcile(found)
-      if (row.state === "failed" || row.state === "pending") return undefined
+      if (row.state === "failed" || (!id && row.state === "pending")) return undefined
       return view(row, user, policy)
     },
 

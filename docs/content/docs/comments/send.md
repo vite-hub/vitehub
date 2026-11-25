@@ -141,7 +141,7 @@ export const comments = defineComments({
 
 ## Read sends on the server
 
-`comments.listSends(user)` gives the sends of `user` that reached the agent and that it has not finished, newest first, at most 20. Each one has the threads that `user` may still read, marked `ask` or `quote`. As it scans, it checks queued deliveries and marks finished sends as done. `states` and `limit` choose other sends, and `gate` and `console` go to `comments.can()`, as for a thread. `comments.readSend(user, id)` opens one send, as `comments_get_send` does, and a send that reached the agent becomes **Working**.
+`comments.listSends(user)` gives the sends of `user` that reached the agent and that it has not finished, newest first, at most 20. Each one has the threads that `user` may still read, marked `ask` or `quote`. As it scans, it checks queued deliveries and marks finished sends as done. `states` and `limit` choose other sends, and `gate` and `console` go to `comments.can()`, as for a thread. `comments.readSend(user, id)` opens one send, as `comments_get_send` does, and a send that reached the agent becomes **Working**. It opens the send also while the delivery waits for the receiver's answer, so an agent that reads the send as soon as the webhook comes gets it.
 
 ```ts [server/api/inbox.get.ts]
 import { defineEventHandler } from 'h3'

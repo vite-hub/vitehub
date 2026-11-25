@@ -472,6 +472,26 @@ describe("sends", () => {
     expect(status).not.toHaveProperty("sent")
   })
 
+  it("lets the member read a send by its id before the webhook acknowledges delivery, and keeps it out of the list", async () => {
+    const { call, comments, comment, connect, page } = await setup()
+    const thread = await comment("ana", "Shorten the introduction")
+    let own: Awaited<ReturnType<typeof comments.readSend>> | undefined
+    let other: Awaited<ReturnType<typeof comments.readSend>> | undefined
+    let listed: Awaited<ReturnType<typeof comments.listSends>> | undefined
+    receive = async ({ body }) => {
+      other = await comments.readSend(people.bob!, body.send)
+      listed = await comments.listSends(people.ana!)
+      own = await comments.readSend(people.ana!, body.send)
+    }
+    const { allowed } = await connect()
+    expect(allowed.body.data.status).toBe("sent")
+    expect(other?.[0]?.code).toBe("COMMENTS_NOT_FOUND")
+    expect(listed).toEqual([undefined, []])
+    expect(own?.[1]).toMatchObject({ send: { id: allowed.body.data.id, state: "working" }, threads: [{ id: thread.id, role: "ask" }] })
+    const status = (await call(`/send/status?page=${page}`, { as: "ana" })).body.data
+    expect(status.working).toEqual({ id: allowed.body.data.id })
+  })
+
   it("limits a member to 30 sends an hour", async () => {
     vi.useFakeTimers({ toFake: ["Date"] })
     const start = Date.now()
