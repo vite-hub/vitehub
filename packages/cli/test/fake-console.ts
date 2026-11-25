@@ -4,14 +4,14 @@ export const consoleEnv = (home: string): NodeJS.ProcessEnv => ({ VITEHUB_CONSOL
 
 export interface FakeApp { id: string, teamId: string, url: string, label: string | null, createdBy: string, createdAt: number, publicKey: string | null, keyVariable: string | null }
 
-export function fakeConsole(options: { role?: string, appKnowsKey?: boolean } = {}) {
+export function fakeConsole(options: { role?: string, appKnowsKey?: boolean, deleteResponse?: Response } = {}) {
   const apps: FakeApp[] = []
-  const requests: { method: string, path: string, search: string, body: unknown }[] = []
+  const requests: { method: string, origin: string, path: string, search: string, body: unknown }[] = []
   const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input))
     const method = init?.method ?? "GET"
     const body: unknown = init?.body ? JSON.parse(String(init.body)) : undefined
-    requests.push({ body, method, path: url.pathname, search: url.search })
+    requests.push({ body, method, origin: url.origin, path: url.pathname, search: url.search })
     if (new Headers(init?.headers).get("authorization") !== `Bearer ${consoleToken}`) return Response.json({ code: "CONSOLE_API_KEY_INVALID" }, { status: 401 })
     if (url.pathname === "/api/whoami") return Response.json({ key: { expiresAt: 0, id: "key-1" }, projectIds: null, roles: [options.role ?? "owner"], team: { id: "t1", name: "Acme" }, user: { email: "", id: "u1", name: "Ada" } })
     if (url.pathname === "/api/projects" && method === "GET") return Response.json({ projects: apps })
@@ -33,6 +33,7 @@ export function fakeConsole(options: { role?: string, appKnowsKey?: boolean } = 
     }
     const project = /^\/api\/projects\/([^/]+)$/.exec(url.pathname)
     if (project && method === "DELETE") {
+      if (options.deleteResponse) return options.deleteResponse
       const index = apps.findIndex(app => app.id === decodeURIComponent(project[1]!))
       if (index < 0) return Response.json({ code: "CONSOLE_PROJECT_NOT_FOUND", message: "There is no such project." }, { status: 404 })
       apps.splice(index, 1)

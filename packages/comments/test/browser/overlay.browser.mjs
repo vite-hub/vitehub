@@ -301,8 +301,8 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
       for (const width of [375, 390]) {
         await page.setViewportSize({ width, height: 720 })
         // Include a spot with too little room on either side, plus the middle and right edge.
-        for (const x of [100, 180, 200, width - 10]) {
-          await page.mouse.click(x, 30)
+        for (const [x, y] of [[100, 30], [180, 150], [200, 30], [width - 10, 30], [180, 600]]) {
+          await page.mouse.click(x, y)
           await composer.waitFor({ timeout: 5000 })
           const bubble = page.locator("vitehub-comments [data-draft='true'] > [data-slot='comment-layer-popover']")
           // The bubble comes out of its pin with the appear effect of the motion layer. Wait until it rests.
@@ -317,8 +317,10 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
           assert.equal(await send.isEnabled(), true)
           const button = await send.boundingBox()
           assert.ok(button.x >= 0 && button.x + button.width <= width, `Send is at ${button.x}..${button.x + button.width}`)
-          const anchor = await bubble.evaluate(card => Number.parseFloat(card.parentElement.style.left))
-          assert.ok(Math.abs(anchor - x) < 1, `the pin stays on its anchor at ${x} (got ${anchor})`)
+          const pin = await page.locator("vitehub-comments [data-slot='comment-pin'][data-draft='true']").boundingBox()
+          assert.ok(Math.abs(pin.x - x) < 1 && Math.abs(pin.y + pin.height - y) < 1, `the pin stays on its anchor at (${x}, ${y})`)
+          assert.ok(Math.max(card.x - pin.x - pin.width, pin.x - card.x - card.width, card.y - pin.y - pin.height, pin.y - card.y - card.height) >= 7.5,
+            `the card clears the pin at (${x}, ${y}) in ${width}px (${rootSize}px root)`)
           await composer.fill("")
           await page.keyboard.press("Escape")
           await composer.waitFor({ state: "detached", timeout: 5000 })
@@ -327,6 +329,21 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     }
     await page.evaluate(() => { document.documentElement.style.fontSize = "" })
     await page.setViewportSize({ width: 1024, height: 720 })
+  })
+
+  await t.test("the whole-page draft is centered", async () => {
+    await page.locator("vitehub-tool").getByRole("button", { name: "Whole page" }).click()
+    const bubble = page.locator("vitehub-comments [data-draft='true'][data-kind='page'] > [data-slot='comment-layer-popover']")
+    await bubble.evaluate(card => new Promise((resolve) => {
+      const check = () => (card.style.translate || card.style.clipPath || card.style.opacity ? requestAnimationFrame(check) : resolve())
+      requestAnimationFrame(check)
+    }))
+    const card = await bubble.boundingBox()
+    assert.ok(Math.abs(card.x + card.width / 2 - 512) < 1, `the card centers at ${card.x + card.width / 2}`)
+    const pin = await page.locator("vitehub-comments [data-slot='comment-pin'][data-draft='true']").boundingBox()
+    assert.ok(card.y - pin.y - pin.height >= 7.5, "the card clears the pin")
+    await composer.press("Escape")
+    await composer.waitFor({ state: "detached", timeout: 5000 })
   })
 
   await t.test("two quotes of one paragraph get two pins that each take a click", async () => {
@@ -679,6 +696,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     assert.equal(await items.count(), 0)
     await composer.fill("Only this one shows")
     await composer.press("Enter")
+    await page.mouse.move(5, 5)
     // The item is a zero-size anchor, so wait for its pin. From then on the page records each change of the pins, as
     // the pop-out lasts 180ms and a screenshot can take longer.
     await items.first().locator("[data-slot='comment-pin']").waitFor({ timeout: 5000 })

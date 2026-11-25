@@ -41,6 +41,20 @@ describe("vitehub apps", () => {
     expect(ok.stdout).toBe(`The app answers signed requests of ${consoleUrl}.\n`)
   })
 
+  it("prints a check command for the selected Console and includes the Node prerequisite", async () => {
+    const home = await createProject()
+    const console = fakeConsole({ appKnowsKey: true })
+    const origin = "https://other-console.example.com"
+    const linked = await runSetup<{ next: string }>(["apps", "link", "https://app.example.com", "--console", `${origin}/`, "--json"], home, env(home), { fetch: console.fetch })
+    expect(linked.exitCode).toBe(0)
+    expect(linked.json.next).toContain('publicUrl: "https://app.example.com"')
+    const command = linked.json.next.match(/`(vitehub apps check [^`]+)`/)?.[1]
+    expect(command).toBe(`vitehub apps check a1b2c3d4-0 --console ${origin}`)
+    const checked = await runSetup(command!.split(" ").slice(1), home, env(home), { fetch: console.fetch })
+    expect(checked.exitCode).toBe(0)
+    expect(console.requests.map(request => request.origin)).toEqual([origin, origin])
+  })
+
   it("registers a site with --kind site and prints its script tag", async () => {
     const home = await createProject()
     const console = fakeConsole()
@@ -67,6 +81,17 @@ describe("vitehub apps", () => {
     expect(unlinked.json).toMatchObject({ next: "Remove VITEHUB_CONSOLE_KEY_CONSOLE_A1B2C3D4 from the environment of https://app.example.com.", unlinked: "a1b2c3d4-0" })
     expect(console.requests.at(-1)).toMatchObject({ method: "DELETE", path: "/api/projects/a1b2c3d4-0", search: "?deleteHostedComments=true" })
     expect(console.apps).toHaveLength(0)
+  })
+
+  it("requires a delete acknowledgment before reporting an unlink", async () => {
+    const home = await createProject()
+    const console = fakeConsole({ deleteResponse: new Response("Sign in", { headers: { "content-type": "text/html" } }) })
+    await runSetup(["apps", "link", "https://app.example.com"], home, env(home), { fetch: console.fetch })
+    const result = await runSetup(["apps", "unlink", "a1b2c3d4-0", "--delete-hosted-comments"], home, env(home), { fetch: console.fetch })
+    expect(result.exitCode).toBe(1)
+    expect(result.stdout).toBe("")
+    expect(result.stderr).toContain("expected status 204")
+    expect(console.apps).toHaveLength(1)
   })
 
   it("passes the Console's refusal on, and asks for a login without a key", async () => {
