@@ -1345,25 +1345,28 @@ describe("the account item", () => {
     await loadViteHubPageTools({ load: async () => ({ default(context: ViteHubPageToolContext) {
       context.beforeExit(() => allowExit)
     } }) })
+    expect(location.href).toBe("http://localhost:3000/guide?tab=2")
     const { element } = pill()
     const shadow = element.shadowRoot!
     const exit = shadow.querySelector<HTMLButtonElement>("button.exit")!
     const signOut = shadow.querySelectorAll<HTMLButtonElement>("#exit-menu [role=menuitem]")[1]!
     const replace = vi.fn()
-    vi.spyOn(window, "location", "get").mockReturnValue({ ...window.location, href: location.href, host: location.host, replace, reload: vi.fn() })
+    const reload = vi.fn()
+    vi.spyOn(window, "location", "get").mockReturnValue({ ...window.location, href: location.href, host: location.host, replace, reload })
     fetch.mockResolvedValue(Response.json({}))
 
     exit.click()
     signOut.click()
     expect(fetch).toHaveBeenCalledTimes(1)
     expect(replace).not.toHaveBeenCalled()
+    expect(reload).not.toHaveBeenCalled()
     expect(element.isConnected).toBe(true)
 
     allowExit = true
     signOut.click()
-    await vi.waitFor(() => expect(replace).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(reload).toHaveBeenCalledOnce())
     expect(fetch).toHaveBeenLastCalledWith(ada.signOut, { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: "{}" })
-    expect(String(replace.mock.calls[0]![0])).toBe("http://localhost:3000/guide?tab=2")
+    expect(replace).not.toHaveBeenCalled()
     expect(localStorage.getItem("vitehub-tools-off")).toBeNull()
     expect(element.isConnected).toBe(true)
   })
