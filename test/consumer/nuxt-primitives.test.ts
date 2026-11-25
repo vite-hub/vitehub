@@ -32,6 +32,7 @@ const nuxtVersion = process.env.VITEHUB_CONSUMER_NUXT === "4.7" ? "Nuxt 4.7" : "
 const featurePackages: Record<string, string> = { rateLimit: "rate-limit", sandboxTask: "sandbox" }
 const notPrimitives: Record<string, string> = {
   cli: "The `vitehub` command, which the Database row runs.",
+  docs: "A Nuxt module of its own, `vite-hub/docs/nuxt`, that `vite-hub/nuxt` does not install. It adds Nuxt UI and owns `/sitemap.xml`, `/mcp`, and the trailing-slash rule of the site, so it cannot share the primitives app. packages/docs/test/nuxt-consumer.test.ts builds it in a Nuxt app.",
   codemods: "Rewrites app source before it moves to ViteHub. It adds nothing to a Nuxt app.",
   presets: "Agent presets built from the other primitives.",
   runtime: "The shared error and request contracts of every primitive.",
