@@ -22,7 +22,7 @@ export interface ReferencingKey {
 /** The foreign keys that reference each table before a migration, by referenced table in lower case. */
 export type TableReferences = ReadonlyMap<string, readonly ReferencingKey[]>
 
-const identifier = String.raw`(?:"(?:[^"]|"")+"|\x60(?:[^\x60]|\x60\x60)+\x60|\[[^\]]+\]|[\w$]+)`
+const identifier = String.raw`(?:"(?:[^"]|"")+"|'(?:[^']|'')+'|\x60(?:[^\x60]|\x60\x60)+\x60|\[[^\]]+\]|[\w$]+)`
 const qualifiedName = String.raw`(?:${identifier}\s*\.\s*)?${identifier}`
 const schemaQualifiedTable = new RegExp(String.raw`^${identifier}\.${identifier}$`)
 
@@ -136,7 +136,7 @@ function scanSqlStatements(sql: string): { ends: number[], statements: string[] 
 /** Names a table the same way in every statement: unquoted parts in lower case, quoted parts as written. */
 function tableKey(name: string): string {
   return [...name.matchAll(new RegExp(identifier, "g"))].map(([part]) => {
-    const value = /^["`[]/.test(part) ? unquote(part) : part.toLowerCase()
+    const value = /^["'`[]/.test(part) ? unquote(part) : part.toLowerCase()
     // Keep separators inside quoted names distinct from schema separators.
     return /^[\w$]+$/.test(value) ? value : `"${value.replaceAll('"', '""')}"`
   }).join(".")
@@ -145,7 +145,7 @@ function tableKey(name: string): string {
 /** Removes the quotes and the schema of a table or column name. */
 function unquote(name: string): string {
   const last = name.match(new RegExp(`${identifier}$`))?.[0] ?? name
-  if (/^["`]/.test(last)) return last.slice(1, -1).replaceAll(last[0]! + last[0]!, last[0]!)
+  if (/^["'`]/.test(last)) return last.slice(1, -1).replaceAll(last[0]! + last[0]!, last[0]!)
   if (last.startsWith("[")) return last.slice(1, -1)
   return last
 }
@@ -316,7 +316,7 @@ export interface DataLossMigration {
 }
 
 const alterTable = new RegExp(String.raw`^ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(${qualifiedName})`, "i")
-const referencedTable = new RegExp(String.raw`^\s+(${qualifiedName})`)
+const referencedTable = new RegExp(String.raw`^\s*(${qualifiedName})`)
 const createTable = new RegExp(String.raw`^CREATE\s+(?:TEMP(?:ORARY)?\s+)?TABLE\s+(IF\s+NOT\s+EXISTS\s+)?(${qualifiedName})`, "i")
 const renameTo = new RegExp(String.raw`^ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(${qualifiedName})\s+RENAME\s+TO\s+(${qualifiedName})`, "i")
 const setSchema = new RegExp(String.raw`^ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?${qualifiedName}\s+SET\s+SCHEMA\b`, "i")
@@ -359,20 +359,28 @@ interface NewTables {
   temporaryTableSeen: boolean
 }
 
-function trackReferences(statement: string, owner: string, { referencedBy }: NewTables) {
+function referenceKey(name: string, { dialect }: NewTables): string {
+  return dialect === "sqlite" ? unquote(name).toLowerCase() : name
+}
+
+function trackReferences(statement: string, owner: string, tables: NewTables) {
+  const { referencedBy } = tables
   for (const index of keywordIndexes(statement, "REFERENCES")) {
     const match = statement.slice(index + "REFERENCES".length).match(referencedTable)
     if (!match) continue
-    const parent = tableKey(match[1]!)
+    const parent = referenceKey(tableKey(match[1]!), tables)
     referencedBy.set(parent, (referencedBy.get(parent) ?? new Set()).add(owner))
   }
 }
 
-function renameReferences(from: string, to: string, { referencedBy }: NewTables) {
-  const children = referencedBy.get(from)
+function renameReferences(from: string, to: string, tables: NewTables) {
+  const { referencedBy } = tables
+  const oldKey = referenceKey(from, tables)
+  const newKey = referenceKey(to, tables)
+  const children = referencedBy.get(oldKey)
   if (children) {
-    referencedBy.delete(from)
-    referencedBy.set(to, new Set([...referencedBy.get(to) ?? [], ...children]))
+    referencedBy.set(newKey, new Set([...referencedBy.get(newKey) ?? [], ...children]))
+    if (tables.dialect !== "sqlite") referencedBy.delete(oldKey)
   }
   for (const set of referencedBy.values()) {
     if (set.delete(from)) set.add(to)
@@ -384,7 +392,7 @@ function holdsNoOlderRows(table: string, tables: NewTables): boolean {
   const visit = (name: string): boolean => {
     if (visited.has(name)) return true
     visited.add(name)
-    return tables.noOlderRows.has(name) && [...tables.referencedBy.get(name) ?? []].every(visit)
+    return tables.noOlderRows.has(name) && [...tables.referencedBy.get(referenceKey(name, tables)) ?? []].every(visit)
   }
   return visit(table)
 }

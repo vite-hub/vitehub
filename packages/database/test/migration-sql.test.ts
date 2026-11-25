@@ -144,6 +144,18 @@ describe("migration data loss", () => {
       expect(runLosses(createParent, createChild, ["DELETE FROM `parent`;"])).toEqual([])
     })
 
+    it.each([
+      ["main.parent", " parent", "accounts"],
+      ['"Parent"', " parent", "accounts"],
+      ["parent", '"parent"', "accounts"],
+      ["parent", "'parent'", "'accounts'"],
+    ])("keeps the loss through a SQLite foreign key to %s (%s)", (parent, referenceName, child) => {
+      const create = [`CREATE TABLE ${parent} (id integer PRIMARY KEY);`]
+      const reference = [`ALTER TABLE ${child} ADD COLUMN parent_id integer REFERENCES${referenceName}(id) ON DELETE CASCADE;`]
+      expect(runLosses(create, reference, [`DROP TABLE ${parent};`])).toHaveLength(1)
+      expect(runLosses(create, reference, [`DELETE FROM ${parent};`])).toHaveLength(1)
+    })
+
     it("keeps the loss on a new table that an older table references in the previous snapshot", () => {
       const references = new Map([["parent", [{ table: "accounts", columns: ["parent_id"], onDelete: "CASCADE" }]]])
       for (const statement of ["DROP TABLE `parent`;", "DELETE FROM `parent`;"]) {
