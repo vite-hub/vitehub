@@ -27,19 +27,13 @@ On Nuxt 4.7, use ViteHub 0.5.1 or newer. ViteHub 0.5.0 rejects Nuxt 4.7 even wit
 pnpm add vite-hub@^0.5.1
 ```
 
-If 0.5.1 is not yet available on npm, try Nuxt 4.7 locally with the published [PR preview](https://github.com/vite-hub/vitehub/pull/5468), or use Nuxt 5 for an install from the npm release:
-
-```bash [Terminal]
-pnpm add https://pkg.pr.new/vite-hub@5468
-```
-
 On Nuxt 5, install `vite-hub` from npm:
 
 ```bash [Terminal]
 pnpm add vite-hub
 ```
 
-See [Add feature packages](/docs/getting-started/installation#add-feature-packages) for the features you enable. If your app needs Sandbox Tasks on Nuxt, use Nuxt 5: the Nuxt 4.7 build can omit the Task registry, so `runSandboxTask()` fails before reaching the provider.
+See [Add feature packages](/docs/getting-started/installation#add-feature-packages) for the features you enable.
 
 Register the module. It takes the same options as `vitehub()`. ViteHub
 detects the [deployment host](/docs/frameworks-hosts#choose-a-host) from the build.
@@ -87,8 +81,8 @@ Nitro and H3 helpers, the module also auto-imports the ViteHub helpers of each
 feature that you turn on, such as `kv`, `db`, `sendQueue`, and
 `requireRateLimit`, and `nuxt typecheck` knows their types.
 
-- **Nuxt 4.7:** server auto-imports are on by default. Nuxt 4.7 turns on its
-  `nitroLegacy` layer, which keeps them, unless `future.compatibilityVersion`
+- **Nuxt 4.7:** server auto-imports are on by default. Nuxt 4.7 sets
+  `experimental.nitroAutoImports` to `true` unless `future.compatibilityVersion`
   is 5. Set `experimental: { nitroAutoImports: false }` to override that
   default. If you explicitly enable legacy imports, see [Turn auto-imports off](/docs/frameworks-hosts/nuxt-server-auto-imports#turn-auto-imports-off).
 - **Nuxt 5:** server auto-imports are off by default. Server code imports

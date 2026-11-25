@@ -26,7 +26,7 @@ Pick your framework. The docs remember it and show its code on every page. Nitro
 :::tabs-item{label="Nuxt"}
 In your Nuxt 4.7 or Nuxt 5 app, install ViteHub, H3, and Valibot for request validation. The tutorials import H3 helpers explicitly.
 
-For Nuxt 4.7, use ViteHub 0.5.1 or newer. If that version is not on npm yet, see the [Nuxt guide for the preview install](/docs/frameworks-hosts/nuxt#install-the-module).
+For Nuxt 4.7, use ViteHub 0.5.1 or newer. ViteHub 0.5.0 stops on Nuxt 4.7.
 
 ```bash pm [commands/install-nuxt-47]
 pnpm add vite-hub@^0.5.1 h3@^2.0.8 valibot

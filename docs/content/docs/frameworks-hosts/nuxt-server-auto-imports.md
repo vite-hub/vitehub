@@ -64,9 +64,9 @@ export default defineNuxtConfig({
 With the switch on, Nuxt auto-imports the Nitro and H3 helpers, and the
 `vite-hub/nuxt` module auto-imports the server helpers in the table below.
 `nitroLegacy: true`, or a `nitroLegacy` object without `imports: false`, also
-turns them on. Nuxt 4.7 turns on `nitroLegacy` by default, unless
-`future.compatibilityVersion` is 5, so a Nuxt 4.7 app gets the auto-imports
-without the switch.
+turns them on. Nuxt 4.7 sets `experimental.nitroAutoImports` to `true` by
+default, unless `future.compatibilityVersion` is 5, so a Nuxt 4.7 app gets the
+auto-imports without the switch.
 
 ```ts [server/api/welcome.post.ts] fragment
 export default defineEventHandler(async (event) => {
