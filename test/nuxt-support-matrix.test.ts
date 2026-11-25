@@ -3,10 +3,38 @@ import { join } from "node:path"
 
 import { expect, it } from "vitest"
 
-import { renderNuxtSupportMatrix } from "./consumer/nuxt-primitives/index.ts"
+import { nuxtSupport } from "./consumer/nuxt-primitives.test.ts"
+import { modes, type Mode } from "./consumer/nuxt-primitives/row.ts"
 
 const pagePath = join(import.meta.dirname, "../docs/content/docs/frameworks-hosts/support-matrix.md")
 const marked = /(<!-- support-matrix:nuxt:start -->\n)([\s\S]*?)(\n<!-- support-matrix:nuxt:end -->)/
+
+const modeNames: Record<Mode, string> = {
+  "node-build": "Node build",
+  "node-dev": "Node dev",
+  "cloudflare-build": "Cloudflare build",
+  "cloudflare-dev": "Cloudflare dev",
+}
+
+function renderNuxtSupportMatrix(): string {
+  const { rows, pending, notPrimitives } = nuxtSupport
+  const tableRow = (id: string, cells: string[]) => `| \`${id}\` | ${cells.join(" | ")} |`
+  const exempt = rows.flatMap(row => modes.flatMap(mode => row.exempt?.[mode] ? [`- \`${row.id}\`, ${modeNames[mode]}: ${row.exempt[mode]}`] : []))
+  return [
+    `| Package | ${modes.map(mode => modeNames[mode]).join(" | ")} |`,
+    `| --- |${modes.map(() => " --- |").join("")}`,
+    ...rows.map(row => tableRow(row.id, modes.map(mode => row.exempt?.[mode] ? "Not tested" : "Tested"))),
+    ...pending.map(id => tableRow(id, modes.map(() => "Not checked yet"))),
+    "",
+    "Not tested:",
+    "",
+    ...exempt,
+    "",
+    "Packages without a row:",
+    "",
+    ...Object.entries(notPrimitives).map(([id, reason]) => `- \`${id}\`: ${reason}`),
+  ].join("\n")
+}
 
 it("documents the Nuxt rows and exemptions of the packed-app test on the support matrix page", async () => {
   let page = await readFile(pagePath, "utf8")
