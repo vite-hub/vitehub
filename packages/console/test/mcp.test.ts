@@ -236,6 +236,14 @@ describe("ViteHub MCP at /mcp/account", () => {
     expect((await call("list_apps", {}, tokens.ada)).body!.result.structuredContent).toMatchObject({ apps: [] })
   })
 
+  it("registers a site for Hosted Comments with kind: \"site\"", async () => {
+    const { body } = await call("link_app", { kind: "site", url: "https://docs.example.com" }, tokens.ada)
+    const site = body!.result.structuredContent as { app: { id: string }, script: string }
+    expect(site.app).toMatchObject({ keyVariable: null, publicKey: null })
+    expect(site.script).toBe(`<script type="module" src="${origin}/hosted-comments.js" data-vitehub-comments="${site.app.id}"></script>`)
+    await call("unlink_app", { id: site.app.id, deleteHostedComments: true }, tokens.ada)
+  })
+
   it("signs operations for the person as the mcp surface, and keeps the app's MCP rules", async () => {
     const { body } = await call("link_app", { url: appUrl }, tokens.ada)
     const { app, variable } = body!.result.structuredContent as { app: { id: string }, variable: string }
