@@ -10,15 +10,18 @@ export interface ConsoleAppIdentity {
   name: string
   /** The host and mount, such as `app.example.com/portal`. Empty when the app has no URL. */
   host: string
-  /** The favicon of the app. The logo shows the first letter of the name when it does not load. */
-  icon?: string
+  /** The addresses where the app may serve its favicon, in the order the logo tries them. Without one that loads, the logo shows the first letter of the name. */
+  icons?: readonly string[]
   letter: string
 }
 
-/** The identity of a linked app. The site serves its favicon at `/favicon.ico` of its origin. */
+/** The paths of the origin where a site serves its favicon, as Vite and Nuxt starters write it to `public/`. */
+export const consoleAppIconPaths: readonly string[] = ["/favicon.ico", "/favicon.svg", "/favicon.png", "/icon.svg"]
+
+/** The identity of a linked app. The logo tries each favicon path of its origin. */
 export function consoleAppIdentity(project: ConsoleLinkedProject, name = consoleProjectDisplayName(project)): ConsoleAppIdentity {
   const { origin } = consoleProjectTarget(project)
-  return { name, host: consoleProjectHost(project), icon: `${origin}/favicon.ico`, letter: letterOf(name) }
+  return { name, host: consoleProjectHost(project), icons: consoleAppIconPaths.map(path => `${origin}${path}`), letter: letterOf(name) }
 }
 
 function letterOf(name: string): string {

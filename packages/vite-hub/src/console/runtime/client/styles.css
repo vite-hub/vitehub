@@ -223,3 +223,35 @@ body {
     padding: 1.5rem 1.5rem 4rem;
   }
 }
+
+.vitehub-account-list {
+  border: 1px solid var(--border);
+  border-radius: 0.625rem;
+  overflow: hidden;
+}
+
+.vitehub-account-list > li + li {
+  border-top: 1px solid var(--border);
+}
+
+.vitehub-account-list__row {
+  align-items: center;
+  display: flex;
+  gap: 0.75rem;
+  min-height: 3.25rem;
+  padding: 0.5rem 0.875rem;
+  width: 100%;
+}
+
+a.vitehub-account-list__row:hover {
+  background: var(--muted);
+}
+
+.vitehub-account-list__item {
+  align-items: center;
+  display: flex;
+}
+
+.vitehub-account-list__item:hover {
+  background: var(--muted);
+}

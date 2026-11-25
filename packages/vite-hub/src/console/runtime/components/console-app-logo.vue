@@ -1,18 +1,34 @@
+<script lang="ts">
+const loadedIcon = new Map<string, number>();
+</script>
+
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 
 import type { ConsoleAppIdentity } from "../client/app-identity";
 
 /** The favicon of an app in a frame, or the first letter of its name when the site has no favicon. */
 const props = defineProps<{ app: ConsoleAppIdentity }>();
 
-const failed = ref(false);
-watch(() => props.app.icon, () => { failed.value = false; });
+const icons = computed(() => props.app.icons ?? []);
+const key = computed(() => icons.value.join(" "));
+const index = ref(loadedIcon.get(key.value) ?? 0);
+watch(key, (value) => { index.value = loadedIcon.get(value) ?? 0; });
+const icon = computed(() => icons.value[index.value]);
+
+function loaded(): void {
+  loadedIcon.set(key.value, index.value);
+}
+
+function next(): void {
+  index.value += 1;
+  loadedIcon.set(key.value, index.value);
+}
 </script>
 
 <template>
   <span class="vitehub-app-logo" aria-hidden="true">
-    <img v-if="app.icon && !failed" :src="app.icon" alt="" referrerpolicy="no-referrer" @error="failed = true">
+    <img v-if="icon" :key="icon" :src="icon" alt="" referrerpolicy="no-referrer" @load="loaded" @error="next">
     <span v-else>{{ app.letter }}</span>
   </span>
 </template>

@@ -71,15 +71,15 @@ describe("project URLs", () => {
 describe("app switcher order", () => {
   const apps = ["Strata", "loadsheet.dev", "Brief", "Wiki", "Bot", "Sorted", "Agent", "Docs"].map((name, index) => ({ id: `p-${index}`, name }))
 
-  it("puts the recent apps first, then the others by name", () => {
-    const { recent, others } = orderSwitcherProjects(apps, ["p-3", "gone", "p-0"], app => app.name)
-    expect(recent.map(app => app.name)).toEqual(["Wiki", "Strata"])
+  it("puts the starred apps first, then the others, each by name", () => {
+    const { favorites, others } = orderSwitcherProjects(apps, ["p-3", "gone", "p-0"], app => app.name)
+    expect(favorites.map(app => app.name)).toEqual(["Strata", "Wiki"])
     expect(others.map(app => app.name)).toEqual(["Agent", "Bot", "Brief", "Docs", "loadsheet.dev", "Sorted"])
   })
 
-  it("shows a short list by name, without a Recent group", () => {
-    const { recent, others } = orderSwitcherProjects(apps.slice(0, 3), ["p-2"], app => app.name)
-    expect(recent).toEqual([])
+  it("lists every app by name when none is starred", () => {
+    const { favorites, others } = orderSwitcherProjects(apps.slice(0, 3), [], app => app.name)
+    expect(favorites).toEqual([])
     expect(others.map(app => app.name)).toEqual(["Brief", "loadsheet.dev", "Strata"])
   })
 })
@@ -539,17 +539,19 @@ describe("account Console", () => {
     expect((await sections.loadConsoleNavigation(sections.consoleSectionsPath))?.sections).toEqual(["mcp-client", "logs"])
     expect(sent).toEqual(["project.get /p/p-1/_vitehub/rpc", "sections.list /p/p-1/_vitehub/rpc"])
     // The app that opened is the app of the team that the next visit opens.
-    expect(module.recentAccountProjects("t")).toEqual(["p-1"])
+    expect(stored.get("vitehub-console:account-project:t")).toBe("p-1")
   })
 
-  it("keeps the five apps of a team that opened last, the last one first", async () => {
-    const stored = new Map<string, string>([["vitehub-console:account-project:t", "p-0"]])
+  it("keeps the starred apps of each team in this browser", async () => {
+    const stored = new Map<string, string>([["vitehub-console:favorite-projects:other", "not json"]])
     vi.stubGlobal("localStorage", { getItem: (key: string) => stored.get(key) ?? null, setItem: (key: string, value: string) => void stored.set(key, value) })
     const module = await import("../src/console/runtime/client/project-session.ts")
-    expect(module.recentAccountProjects("t")).toEqual(["p-0"])
-    for (const id of ["p-1", "p-2", "p-3", "p-4", "p-5", "p-2"]) module.rememberAccountProject("t", id)
-    expect(module.recentAccountProjects("t")).toEqual(["p-2", "p-5", "p-4", "p-3", "p-1"])
-    expect(module.recentAccountProjects("other")).toEqual([])
+    expect(module.toggleFavoriteAccountProject("t", "p-1")).toEqual(["p-1"])
+    expect(module.toggleFavoriteAccountProject("t", "p-2")).toEqual(["p-1", "p-2"])
+    expect(module.toggleFavoriteAccountProject("t", "p-1")).toEqual(["p-2"])
+    expect(module.favoriteAccountProjects("t")).toEqual(["p-2"])
+    expect(module.favoriteAccountProjects("other")).toEqual([])
+    expect(module.favoriteAccountProjects(undefined)).toEqual([])
   })
 
   it("sends the project's calls to the Console server, with the page cookies and no token", async () => {

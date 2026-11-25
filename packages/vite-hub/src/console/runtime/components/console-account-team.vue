@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, shallowRef, watchPostEffect } from "vue";
+import { computed, nextTick, onMounted, ref, shallowRef, useTemplateRef, watchPostEffect } from "vue";
 
 import type { ConsoleTeamDetails, ConsoleTeamMember } from "../client/account";
 import { cancelConsoleInvitation, earlyConsoleTeam, inviteConsoleMember, loadConsoleTeam, removeConsoleMember } from "../client/account";
@@ -15,6 +15,7 @@ const team = computed(() => account.value?.teams.find(item => item.id === accoun
 const manage = computed(() => account.value ? canManageConsoleProjects(account.value) : false);
 const details = shallowRef<ConsoleTeamDetails>();
 const loadProblem = ref<string>();
+const root = useTemplateRef<HTMLElement>("root");
 
 const email = ref("");
 const role = ref<"member" | "admin">("member");
@@ -49,7 +50,7 @@ onMounted(() => {
 watchPostEffect(() => {
   if (!consoleInviteRequested.value) return;
   consoleInviteRequested.value = false;
-  document.getElementById("vitehub-team-invite-email")?.focus();
+  root.value?.querySelector<HTMLElement>("#vitehub-team-invite-email")?.focus();
 });
 
 function initials(text: string): string {
@@ -120,7 +121,7 @@ async function copy(link: string): Promise<void> {
 </script>
 
 <template>
-  <div class="grid max-w-2xl gap-10">
+  <div ref="root" class="grid max-w-2xl gap-10">
     <p class="text-sm text-pretty text-muted">Everyone in {{ team?.name ?? "the team" }} opens its apps. Owners and admins also link apps and invite people.</p>
 
     <section v-if="manage" class="grid gap-3" aria-labelledby="vitehub-team-invite">

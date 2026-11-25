@@ -341,7 +341,7 @@ async function link(): Promise<void> {
       <div v-if="!shared" class="vitehub-account-invite">
         <Icon name="i-lucide-user-plus" class="vitehub-account-icon shrink-0 text-muted" aria-hidden="true" />
         <p class="min-w-0 flex-1 text-[13px] leading-5 text-muted"><span class="font-medium text-highlighted">Invite your team.</span> Optional. People in {{ teamName }} open the same apps.</p>
-        <UButton size="sm" color="neutral" variant="outline" label="Invite people" @click="showConsoleAccountPage('team')" />
+        <UButton size="sm" color="neutral" variant="outline" label="Invite people" @click="showConsoleAccountPage('team', 'invite')" />
       </div>
     </section>
   </div>
@@ -462,40 +462,6 @@ async function link(): Promise<void> {
 .vitehub-account-step[data-done] .vitehub-account-step__title {
   color: var(--muted-foreground);
   font-weight: 500;
-}
-
-/* Rows, not a table: one bordered list, a hairline between rows. Members and Settings use it too. */
-.vitehub-account-list {
-  border: 1px solid var(--border);
-  border-radius: 0.625rem;
-  overflow: hidden;
-}
-
-.vitehub-account-list > li + li {
-  border-top: 1px solid var(--border);
-}
-
-.vitehub-account-list__row {
-  align-items: center;
-  display: flex;
-  gap: 0.75rem;
-  min-height: 3.25rem;
-  padding: 0.5rem 0.875rem;
-  width: 100%;
-}
-
-a.vitehub-account-list__row:hover {
-  background: var(--muted);
-}
-
-/* An app row: the link fills the row, and the menu of its actions sits at the end. The whole row takes the hover. */
-.vitehub-account-list__item {
-  align-items: center;
-  display: flex;
-}
-
-.vitehub-account-list__item:hover {
-  background: var(--muted);
 }
 
 /* The Apps table: one row per app. The link of the first cell covers the row, and the actions sit above it. */

@@ -387,7 +387,7 @@ export function consoleOpenProjectName(reported?: string): string | undefined {
   return (projects.mode === "account" ? projects.current.value?.label : undefined) || reported || projects.info.value?.name
 }
 
-/** The Invite action of the app switcher sets it: the Members page opens with its invite field focused. */
+/** The Invite action of the app switcher sets it: the Members page or tab opens with its invite field focused. */
 export const consoleInviteRequested: Ref<boolean> = ref(false)
 
 /** Only owners and admins of a team link and unlink its apps. */
@@ -395,18 +395,36 @@ export function canManageConsoleProjects(account: Pick<ConsoleAccount, "roles">)
   return account.roles.includes("owner") || account.roles.includes("admin")
 }
 
-// The person picks it, so no answer of the server has it, and the device keeps only answers. It holds ids of the team,
-// which open nothing for another account.
+// The person picks it, so no answer of the server has it, and the device keeps only answers. It holds an id of the team,
+// which opens nothing for another account.
 const accountProjectKey = (teamId: string) => `vitehub-console:account-project:${teamId}`
-const recentProjectLimit = 5
 
-/** The apps of a team that this browser opened, the last one first. */
-export function recentAccountProjects(teamId: string | undefined): string[] {
+/** The project that an `account` Console opens next for a team, kept in this browser. */
+export function rememberAccountProject(teamId: string | undefined, projectId: string): void {
+  if (!teamId) return
+  try {
+    globalThis.localStorage?.setItem(accountProjectKey(teamId), projectId)
+  }
+  catch {}
+}
+
+function rememberedAccountProject(teamId: string | undefined): string | undefined {
+  if (!teamId) return undefined
+  try {
+    return globalThis.localStorage?.getItem(accountProjectKey(teamId)) ?? undefined
+  }
+  catch {
+    return undefined
+  }
+}
+
+const favoriteProjectsKey = (teamId: string) => `vitehub-console:favorite-projects:${teamId}`
+
+/** The apps of a team that the person starred in the app switcher, kept in this browser. */
+export function favoriteAccountProjects(teamId: string | undefined): string[] {
   if (!teamId) return []
   try {
-    const value = globalThis.localStorage?.getItem(accountProjectKey(teamId))
-    if (!value) return []
-    const parsed: unknown = value.startsWith("[") ? JSON.parse(value) : [value]
+    const parsed: unknown = JSON.parse(globalThis.localStorage?.getItem(favoriteProjectsKey(teamId)) ?? "[]")
     return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : []
   }
   catch {
@@ -414,18 +432,16 @@ export function recentAccountProjects(teamId: string | undefined): string[] {
   }
 }
 
-/** The project that an `account` Console opens next for a team, kept in this browser with the other recent apps. */
-export function rememberAccountProject(teamId: string | undefined, projectId: string): void {
-  if (!teamId) return
-  const recent = [projectId, ...recentAccountProjects(teamId).filter(id => id !== projectId)].slice(0, recentProjectLimit)
+/** Star an app of a team, or remove its star. Returns the starred apps of the team. */
+export function toggleFavoriteAccountProject(teamId: string | undefined, projectId: string): string[] {
+  const favorites = favoriteAccountProjects(teamId)
+  const next = favorites.includes(projectId) ? favorites.filter(id => id !== projectId) : [...favorites, projectId]
+  if (!teamId) return next
   try {
-    globalThis.localStorage?.setItem(accountProjectKey(teamId), JSON.stringify(recent))
+    globalThis.localStorage?.setItem(favoriteProjectsKey(teamId), JSON.stringify(next))
   }
   catch {}
-}
-
-function rememberedAccountProject(teamId: string | undefined): string | undefined {
-  return recentAccountProjects(teamId)[0]
+  return next
 }
 
 /**

@@ -9,6 +9,8 @@ import ConsoleSettingsCard from "./console-settings-card.vue";
 import ConsoleSettingsValue from "./console-settings-value.vue";
 
 /** The Team settings page of an `account` Console: the team name and ID, and leaving the team. */
+const props = defineProps<{ inline?: boolean }>();
+
 const projects = useConsoleProjects();
 const toast = useConsoleToast();
 const account = computed(() => projects.account.value);
@@ -21,12 +23,13 @@ const sections = computed(() => [
   { id: "general", label: "General" },
   ...(canLeave.value ? [{ id: "danger", label: "Danger zone" }] : []),
 ].map(item => ({ ...item, href: `${window.location.pathname}${item.id === "general" ? "" : `#${item.id}`}` })));
-const requested = ref(window.location.hash.slice(1));
+const requested = ref(props.inline ? "general" : window.location.hash.slice(1));
 const section = computed(() => sections.value.some(item => item.id === requested.value) ? requested.value : "general");
 
 /** The section is in the address, so a reload or a shared link opens it. */
 function select(id: string): void {
   requested.value = id;
+  if (props.inline) return;
   window.history.replaceState(window.history.state, "", sections.value.find(item => item.id === id)?.href);
 }
 
