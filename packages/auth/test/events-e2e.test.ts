@@ -206,6 +206,18 @@ describe("auth events with real Better Auth and Node SQLite", () => {
     expect((await app.store.list({ type: "impersonation.stopped" })).events).toHaveLength(1)
   })
 
+  it("records an expired session that /get-session deletes as session.expired", async () => {
+    const app = await setup()
+    const user = await app.signUp("expired")
+    app.sqlite.prepare("update session set expiresAt = ?").run(new Date(Date.now() - 60_000).toISOString())
+
+    expect(await (await app.request("get-session", undefined, user.cookie)).json()).toBeNull()
+
+    expect(app.sqlite.prepare("select count(*) as count from session").get()).toEqual({ count: 0 })
+    expect((await app.store.list({ type: "session.revoked" })).events).toEqual([])
+    expect((await app.store.list({ type: "session.expired" })).events).toEqual([expect.objectContaining({ actor: "system", userId: user.id, metadata: { sessionId: expect.any(String) } })])
+  })
+
   it("atomically records concurrent secondary-storage deletions", async () => {
     const values = new Map<string, string>()
     let deleting = false

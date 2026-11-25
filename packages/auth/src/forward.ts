@@ -3,6 +3,7 @@ import { applySetCookies, deleteSessionCookie, setSessionCookie } from "better-a
 import { handleOAuthUserInfo, setTokenUtil } from "better-auth/oauth2"
 
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
+import { forwardSignIns } from "./forward-sign-ins.ts"
 
 import type { BetterAuthPlugin } from "better-auth"
 
@@ -36,6 +37,20 @@ export interface ForwardAuthVerifyContext {
   request?: Request
 }
 
+/** Why Better Auth refused an identity that `verify` returned, in `code` of {@link ForwardAuthRefusal}. */
+export const forwardAuthRefusalCodes = ["account_not_linked", "unable_to_link_account", "unable_to_update_account", "signup_disabled", "unable_to_create_user", "unable_to_create_session", "refused"] as const
+
+export type ForwardAuthRefusalCode = typeof forwardAuthRefusalCodes[number]
+
+/** What `onRefused` gets when Better Auth refuses to sign in an identity that `verify` returned. */
+export interface ForwardAuthRefusal {
+  /** Why Better Auth refused, such as `account_not_linked` for an existing user whose email the identity does not prove. `refused` for a reason this version does not know. */
+  code: ForwardAuthRefusalCode
+  identity: ForwardedIdentity
+  headers: Headers
+  request?: Request
+}
+
 export interface ForwardAuthOptions {
   /** The request header that the proxy sets, such as `x-auth-request-access-token` or `cf-access-jwt-assertion`. */
   header: string
@@ -46,9 +61,19 @@ export interface ForwardAuthOptions {
    * so cache slow checks in it.
    */
   verify: (context: ForwardAuthVerifyContext) => ForwardedIdentity | null | Promise<ForwardedIdentity | null>
+  /**
+   * Runs when Better Auth refuses to sign in an identity that `verify` returned, for a log or a metric. The request stays
+   * signed out. Auth calls it on each such request, before the response, and a thrown error fails the request.
+   */
+  onRefused?: (refusal: ForwardAuthRefusal) => void | Promise<void>
 }
 
 export const forwardAuthPluginId = "vitehub-forward-auth"
+
+const refusalCode = (error: unknown): ForwardAuthRefusalCode => {
+  const code = typeof error === "string" ? error.trim().toLowerCase().replaceAll(" ", "_") : ""
+  return forwardAuthRefusalCodes.find(entry => entry === code) ?? "refused"
+}
 
 const nonEmpty = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0
 
@@ -71,7 +96,7 @@ export function forwardAuth(options: ForwardAuthOptions): BetterAuthPlugin {
   if (!nonEmpty(header) || typeof options.verify !== "function") {
     throw authErrorDiagnostics.AUTH_C0067({ message: "`forwardAuth()` needs a `header` name and a `verify` function. Auth never trusts a forwarded header without `verify`." })
   }
-  const verify = options.verify
+  const { onRefused, verify } = options
   // The session that this process made for each identity. The browser does not have its cookie when the first
   // requests come from server code, such as a guard, so later requests reuse the session instead of making another.
   const sessions = new Map<string, { token: string, userId: string, expiresAt: number }>()
@@ -129,7 +154,8 @@ export function forwardAuth(options: ForwardAuthOptions): BetterAuthPlugin {
             let session = reusable ? await live(reusable.token) : null
             if (!session || session.session.userId !== reusable?.userId) {
               sessions.delete(key)
-              const { data } = await handleOAuthUserInfo(ctx, {
+              forwardSignIns.add(ctx.context)
+              const { data, error } = await handleOAuthUserInfo(ctx, {
                 userInfo: {
                   id: identity.accountId,
                   email: identity.email,
@@ -146,6 +172,7 @@ export function forwardAuth(options: ForwardAuthOptions): BetterAuthPlugin {
               })
               // Better Auth refused the sign-in, for example a database hook or an unverified email of an existing user.
               if (!data) {
+                await onRefused?.({ code: refusalCode(error), identity, headers, ...(ctx.request ? { request: ctx.request } : {}) })
                 deleteSessionCookie(ctx)
                 applySetCookies(headers, ctx.responseHeaders?.getSetCookie() ?? [])
                 ctx.context.session = null

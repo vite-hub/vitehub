@@ -142,7 +142,8 @@ Each event has `id`, `type`, `time`, `actor`, `userId`, and `metadata`. The acto
 | `user.signed_in` | `method`, coarse `device`, and `sessionId`. A new session completes authentication. |
 | `user.signed_out` | `sessionId`. Sign-out deletes a stored session. |
 | `sign_in.failed` | `method`. A sign-in endpoint returns a Better Auth API error. No email or attempted user ID is saved. |
-| `session.revoked` | `sessionId`. A stored session is deleted, other than at sign-out or the end of impersonation, including cleanup after a ban or user deletion. |
+| `session.revoked` | `sessionId`. A stored session is deleted, other than at sign-out, the end of impersonation, or expiry, including cleanup after a ban or user deletion. |
+| `session.expired` | `sessionId`. Better Auth deletes a session that is past its expiry, such as when `/get-session` reads it. The actor is `system`. |
 | `user.banned`, `user.unbanned` | No metadata. Admin ban, unban, or an admin update of `banned`. |
 | `user.role_changed` | `role`. Admin changes the user's role. |
 | `user.updated` | `fields`. Admin updates user fields or sets a password. Field values and ban reasons are omitted. |
@@ -154,7 +155,7 @@ Each event has `id`, `type`, `time`, `actor`, `userId`, and `metadata`. The acto
 
 The log never stores IP addresses, the raw user agent, tokens, passwords, authorization codes, email addresses, or request bodies. `device` is `desktop`, `mobile`, `tablet`, `bot`, or `unknown`. Metadata has a fixed set of fields, and unknown fields are removed.
 
-Methods are `email-password`, `oauth:<provider-id>`, `email-otp`, `magic-link`, `username`, `phone-number`, `passkey`, `siwe`, `anonymous`, `two-factor`, and `unknown`. OAuth IDs must match a configured provider. `two-factor` names the last verification step, not the first factor.
+Methods are `email-password`, `oauth:<provider-id>`, `email-otp`, `magic-link`, `username`, `phone-number`, `passkey`, `siwe`, `anonymous`, `two-factor`, `forward` for a [`forwardAuth()`](/docs/auth/configure#sign-in-through-a-trusted-proxy) sign-in, and `unknown`. OAuth IDs must match a configured provider. `two-factor` names the last verification step, not the first factor.
 
 ## Retention and failure behavior
 

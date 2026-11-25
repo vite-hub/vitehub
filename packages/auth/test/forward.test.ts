@@ -5,8 +5,8 @@ import { forwardAuth } from "../src/forward.ts"
 import { handleAuthRequest, withAuth } from "../src/internal/server.ts"
 import { defineFixedAuth } from "./fixed-auth.ts"
 
-import type { ForwardAuthOptions, ForwardedIdentity } from "../src/forward.ts"
-import type { AuthDefinition } from "../src/index.ts"
+import type { ForwardAuthOptions, ForwardAuthRefusal, ForwardedIdentity } from "../src/forward.ts"
+import type { AuthDefinition, AuthEvent, AuthEventStore } from "../src/index.ts"
 
 const origin = "http://localhost:3000"
 const secret = "vitehub-forward-auth-test-secret-8e3f1a6c2d"
@@ -19,16 +19,23 @@ const grace: ForwardedIdentity = { providerId: "github", accountId: "2", email: 
 // What the provider says about each token. A token that is not here is forged.
 const tokens: Record<string, ForwardedIdentity> = { gho_ada: ada, gho_grace: grace }
 
-function createForwardAuth(verify: ForwardAuthOptions["verify"] = ({ value }) => tokens[value] ?? null, options: Record<string, unknown> = {}) {
+function createForwardAuth(verify: ForwardAuthOptions["verify"] = ({ value }) => tokens[value] ?? null, options: Record<string, unknown> = {}, onRefused?: ForwardAuthOptions["onRefused"]) {
   const db: Record<string, MemoryRow[]> = { account: [], session: [], user: [], verification: [] }
+  const events: AuthEvent[] = []
+  const store: AuthEventStore = {
+    append: async (event) => { events.push(event) },
+    list: async () => ({ events }),
+    aggregate: async () => ({ days: [], totals: { activeUsers: 0, methods: {}, signIns: 0, signUps: 0 } }),
+  }
   const definition = defineFixedAuth({
     database: memoryAdapter(db),
     emailAndPassword: { enabled: true },
-    plugins: [forwardAuth({ header, verify })],
+    events: { store },
+    plugins: [forwardAuth({ header, verify, ...(onRefused ? { onRefused } : {}) })],
     secret,
     ...options,
   })
-  return { db, definition }
+  return { db, definition, events }
 }
 
 function cookiePairs(response: Response): string {
@@ -81,6 +88,26 @@ describe("forwardAuth()", () => {
     expect(cookiePairs(response)).toContain("better-auth.session_token=")
     expect(db.account).toEqual([expect.objectContaining({ providerId: "github", accountId: "1", accessToken: "gho_ada" })])
     expect(db.session).toHaveLength(1)
+  })
+
+  it("records one sign-in and one sign-up with method `forward`", async () => {
+    const { definition, events } = createForwardAuth()
+    const { check } = guarded(definition)
+
+    expect((await check({ [header]: "gho_ada" })).status).toBe(200)
+    const cookie = cookiePairs(await getSession(definition, { [header]: "gho_ada" }))
+    await getSession(definition, { [header]: "gho_ada", cookie })
+
+    expect(events.filter(event => event.type === "user.signed_in")).toEqual([expect.objectContaining({ metadata: expect.objectContaining({ method: "forward" }) })])
+    expect(events.filter(event => event.type === "user.signed_up")).toEqual([expect.objectContaining({ metadata: { method: "forward" } })])
+  })
+
+  it("records a forward sign-in through Better Auth's own request, too", async () => {
+    const { definition, events } = createForwardAuth()
+
+    await getSession(definition, { [header]: "gho_ada" })
+
+    expect(events.filter(event => event.type === "user.signed_in").map(event => event.metadata.method)).toEqual(["forward"])
   })
 
   it("reuses the session of the cookie, and of this process before the browser has the cookie", async () => {
@@ -180,6 +207,31 @@ describe("forwardAuth()", () => {
 
     expect(await (await getSession(definition, { [header]: "gho_unverified" })).json()).toBeNull()
     expect(db.account!.map(account => account.providerId)).toEqual(["credential"])
+  })
+
+  it("tells `onRefused` why Better Auth refused a proven identity", async () => {
+    const refusals: ForwardAuthRefusal[] = []
+    const { definition, events } = createForwardAuth(({ value }) => value === "gho_unverified" ? { ...ada, emailVerified: false } : null, {}, (refusal) => { refusals.push(refusal) })
+    await handleAuthRequest(definition, new Request(`${origin}/api/auth/sign-up/email`, {
+      body: JSON.stringify({ email: "ada@example.com", name: "Ada", password: "passwordpassword" }),
+      headers: { "content-type": "application/json", origin },
+      method: "POST",
+    }))
+
+    expect(await (await getSession(definition, { [header]: "gho_unverified" })).json()).toBeNull()
+
+    expect(refusals).toEqual([expect.objectContaining({ code: "account_not_linked", identity: expect.objectContaining({ providerId: "github", accountId: "1" }) })])
+    expect(refusals[0]?.request).toBeInstanceOf(Request)
+    expect(events.filter(event => event.type === "user.signed_in")).toEqual([expect.objectContaining({ metadata: expect.objectContaining({ method: "email-password" }) })])
+  })
+
+  it("names a refused session in `onRefused`", async () => {
+    const onRefused = vi.fn()
+    const { definition } = createForwardAuth(undefined, { databaseHooks: { session: { create: { before: async () => false } } } }, onRefused)
+
+    await getSession(definition, { [header]: "gho_ada" })
+
+    expect(onRefused).toHaveBeenCalledWith(expect.objectContaining({ code: "unable_to_create_session" }))
   })
 
   it("fails the request when `verify` returns a value that is not an identity", async () => {

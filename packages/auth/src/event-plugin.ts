@@ -5,6 +5,7 @@ import type { BetterAuthPlugin, GenericEndpointContext, SecondaryStorage } from 
 import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { parseAuthEventList, parseAuthEventWindow } from "./events.ts"
+import { forwardSignIns } from "./forward-sign-ins.ts"
 import { authRequestEvent } from "./request.ts"
 import { authRequestLog, currentAuthEvent } from "./request-log.ts"
 import type { AuthDevice, AuthEvent, AuthEventActor, AuthEventListInput, AuthEventMetadata, AuthEventsConfiguration, AuthEventType } from "./events.ts"
@@ -21,6 +22,7 @@ function actor(ctx: GenericEndpointContext | null, fallback?: string): AuthEvent
   return id ? `user:${id}` : "system"
 }
 function method(ctx: GenericEndpointContext | null): string {
+  if (ctx && forwardSignIns.has(ctx.context)) return "forward"
   const path = ctx?.path ?? ""
   const providers = ctx?.context.socialProviders ?? []
   const candidate = path.startsWith("/callback/") || path.startsWith("/oauth2/callback/")
@@ -95,8 +97,11 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
     }
     await task
   }
-  async function deleted(session: { userId: string, id: string, impersonatedBy?: unknown }, ctx: GenericEndpointContext | null) {
-    const type = ctx?.path === "/sign-out" ? "user.signed_out" : ctx?.path === "/admin/stop-impersonating" ? "impersonation.stopped" : "session.revoked"
+  async function deleted(session: { userId: string, id: string, impersonatedBy?: unknown, expiresAt?: unknown }, ctx: GenericEndpointContext | null) {
+    const expiresAt = session.expiresAt instanceof Date || typeof session.expiresAt === "string" ? new Date(session.expiresAt).getTime() : Number.NaN
+    const type = ctx?.path === "/sign-out" ? "user.signed_out"
+      : ctx?.path === "/admin/stop-impersonating" ? "impersonation.stopped"
+        : expiresAt <= Date.now() ? "session.expired" : "session.revoked"
     await append(type, session.userId, ctx, { sessionId: session.id }, identifier(session.impersonatedBy) ?? (type === "user.signed_out" ? session.userId : undefined))
   }
   return {
@@ -117,7 +122,7 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
           const session = record(record(parsed).session)
           const id = identifier(session.id)
           const userId = identifier(session.userId)
-          if (id && userId && session.token === key) await deleted({ id, userId, impersonatedBy: session.impersonatedBy }, deletionContext.getStore() ?? null)
+          if (id && userId && session.token === key) await deleted({ id, userId, impersonatedBy: session.impersonatedBy, expiresAt: session.expiresAt }, deletionContext.getStore() ?? null)
         },
       }
     },
@@ -159,6 +164,7 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
             })
           }
           else if (!ctx) {
+            recordedSessions.add(session)
             await append("user.signed_in", session.userId, ctx, { method: method(ctx), device: "unknown", sessionId: session.id })
           }
         } },
