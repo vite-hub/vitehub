@@ -15,10 +15,12 @@ vi.mock("sh-syntax/main.wasm?module", async () => {
   return { default: undefined }
 })
 
+const webAssembly = (globalThis as unknown as { WebAssembly: { instantiate: (module: object, imports: object) => Promise<object> } }).WebAssembly
+
 describe("shell analysis on a cold server", () => {
   it("retries failed initialization and excludes the first successful load from the time limit", async () => {
-    const instantiate = WebAssembly.instantiate
-    const wasm = vi.spyOn(WebAssembly, "instantiate")
+    const instantiate = webAssembly.instantiate.bind(webAssembly)
+    const wasm = vi.spyOn(webAssembly, "instantiate")
       .mockRejectedValueOnce(new Error("transient WASM initialization failure"))
       .mockImplementationOnce(async (module, imports) => {
         await sleep(250)
@@ -47,7 +49,7 @@ describe("shell analysis on a cold server", () => {
   })
 
   it("still times out when the parse does not finish", async () => {
-    vi.mocked(parse).mockReturnValueOnce(Promise.withResolvers<Awaited<ReturnType<typeof parse>>>().promise)
+    vi.mocked(parse).mockReturnValueOnce(new Promise<Awaited<ReturnType<typeof parse>>>(() => {}))
     await expect(analyzeShellCommand("echo ok", { timeoutMs: 10 })).resolves.toEqual({
       error: "Shell analysis timed out after 10ms.",
       ok: false,
