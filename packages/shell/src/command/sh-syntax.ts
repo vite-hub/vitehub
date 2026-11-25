@@ -18,7 +18,6 @@ export async function parseShell(text: string, options?: ShOptions): Promise<Fil
   return (await shellParser())(text, options)
 }
 
-/** Loads sh-syntax and its WebAssembly once. A failed load is tried again on the next call. */
 export function shellParser(): Promise<ShellParser> {
   parser ??= loadParser().catch((error: unknown) => {
     parser = undefined
@@ -31,10 +30,12 @@ async function loadParser(): Promise<ShellParser> {
   const shSyntax: Partial<typeof import("sh-syntax")> & Pick<typeof import("sh-syntax"), "getProcessor"> = await import("sh-syntax")
   const { importError, module: wasm } = await bundledWasmModule()
   if (!wasm) {
-    if (!shSyntax.parse) throw shellErrorDiagnostics.SHELL_SH_SYNTAX_WASM_UNAVAILABLE({ cause: importError })
+    if (!shSyntax.parse || !shSyntax.init) throw shellErrorDiagnostics.SHELL_SH_SYNTAX_WASM_UNAVAILABLE({ cause: importError })
+    await shSyntax.init()
     return shSyntax.parse
   }
   const processor = shSyntax.getProcessor((imports: Record<string, unknown>) => WebAssembly.instantiate(wasm, imports))
+  await processor.init()
   return (text, options) => processor(text, options)
 }
 
