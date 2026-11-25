@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
+import { VITEHUB_GENERATED_ROOT } from "@vite-hub/internal/build/vite"
 import { describe, expect, it } from "vitest"
 
 import { hubI18n } from "../src/vite.ts"
@@ -63,9 +64,61 @@ describe("hubI18n", () => {
       await rm(root, { recursive: true, force: true })
     }
   })
+
+  it("gives Nitro's own bundler the messages of the browser build", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-i18n-nitro-messages-"))
+    try {
+      const plugin = hubI18n({ locales: ["en", "es"], projectRoot: root })
+      const config = plugin.config as { handler: (config: object, env: { command: string }) => Promise<unknown> }
+      await config.handler({ root, nitro: {} }, { command: "build" })
+      const configResolved = plugin.configResolved as (config: object) => void
+      configResolved({ isProduction: true, plugins: [plugin] })
+      const page = join(root, "app/pages/checkout.ts")
+      const code = "import { t } from 'vite-hub/i18n'\nexport const title = t`Checkout`\n"
+      await mkdir(join(root, "app/pages"), { recursive: true })
+      await writeFile(page, code)
+      const client = { environment: { name: "client", config: { consumer: "client", command: "build" } }, getModuleIds: () => [page] }
+      const transform = plugin.transform as { handler: (this: object, code: string, id: string) => Promise<unknown> }
+      await transform.handler.call(client, code, page)
+      const renderStart = plugin.renderStart as (this: object) => void
+      renderStart.call(client)
+      const resolveId = plugin.resolveId as (id: string) => string | undefined
+      const load = plugin.load as (this: object, id: string) => Promise<string | undefined>
+      const module = await load.call({}, resolveId("virtual:vite-hub/i18n/build-messages")!)
+      expect(module).not.toContain("__VITEHUB_I18N_")
+      const clientIds = JSON.parse(/export const clientIds = (.*)\n/.exec(module!)![1]!) as string[]
+      const sources = JSON.parse(/export const sources = (.*)\n/.exec(module!)![1]!) as Record<string, { message: string }>
+      expect(clientIds).toHaveLength(1)
+      expect(sources[clientIds[0]!]).toMatchObject({ message: "Checkout" })
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
 })
 
 describe("hubI18n i18n.workspace", () => {
+  it.each([
+    '{"clientIds":[1],"sources":{}}',
+    '{"clientIds":[],"sources":{"invalid":{"message":"Checkout","hash":"abc","origins":"app.ts:1"}}}',
+    '{"clientIds":',
+  ])("rejects a malformed cached Vue message inventory: %s", async (inventory) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-i18n-workspace-"))
+    try {
+      const plugin = hubI18n({ locales: ["en", "es"], projectRoot: root, workspace: "translations" })
+      const config = plugin.config as { handler: (config: object, env: { command: string }) => Promise<unknown> }
+      await config.handler({ root, nitro: {}, [VITEHUB_GENERATED_ROOT]: root }, { command: "build" })
+      await mkdir(join(root, "i18n"), { recursive: true })
+      await writeFile(join(root, "i18n/vue-messages.json"), inventory)
+      const renderChunk = plugin.renderChunk as (this: object, code: string) => Promise<unknown>
+      await expect(renderChunk.call({ getModuleIds: () => [] }, 'export const clientIds = "__VITEHUB_I18N_CLIENT_IDS__"'))
+        .rejects.toMatchObject({ code: "I18N_INVALID_BUILD_INVENTORY" })
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   const workspacePlugin = (names: string[]) => ({ name: "@vite-hub/workspace/vite", api: { getWorkspaces: () => names.map(name => ({ name })) } })
   const resolve = async (workspace: string, plugins: object[]) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-i18n-workspace-"))

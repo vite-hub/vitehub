@@ -2,9 +2,10 @@ import { randomUUID } from "node:crypto"
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
-import { createNoExternalAddition, isServerEnvironment, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT } from "@vite-hub/internal/build/vite"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
+import { isRecord } from "@vite-hub/internal/object"
 import { isLinguiTemplateTransform, linguiTemplateTransform } from "@lingui/vue/compiler"
 import MagicString from "magic-string"
 
@@ -58,7 +59,28 @@ interface InternalOptions extends I18nVitePluginOptions {
 
 export type I18nVitePlugin = Plugin & { vitehub: ViteHubCliPluginMetadata & ViteHubInspectionPluginMetadata }
 
-type ViteHubConfig = (UserConfig | ResolvedConfig) & { i18n?: I18nOptions, nitro?: unknown }
+type ViteHubConfig = (UserConfig | ResolvedConfig) & { i18n?: I18nOptions, nitro?: unknown, [VITEHUB_GENERATED_ROOT]?: string }
+
+interface VueBuildInventory {
+  clientIds: string[]
+  sources: SourceMessages
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every(entry => typeof entry === "string")
+}
+
+function isVueBuildInventory(value: unknown): value is VueBuildInventory {
+  return isRecord(value)
+    && isStringArray(value.clientIds)
+    && isRecord(value.sources)
+    && Object.values(value.sources).every(source => isRecord(source)
+      && typeof source.message === "string"
+      && typeof source.hash === "string"
+      && isStringArray(source.origins)
+      && (source.context === undefined || typeof source.context === "string")
+      && (source.comments === undefined || isStringArray(source.comments)))
+}
 
 function renderNitroPlugin(importBase: string, messagesFile: string, workspace: string | undefined): string {
   const workspaceImport = importBase.replace(/i18n$/, "workspace/files")
@@ -130,6 +152,7 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
   const importBase = (options as InternalOptions).importBase ?? packageName
   let configured: I18nVitePluginOptions = options
   let projectRoot: string | undefined
+  let vueInventoryFile: string | undefined
   let locale: I18nLocaleConfig | undefined
   let lingui: LinguiConfigNormalized | undefined
   let isProduction = false
@@ -137,14 +160,32 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
   let plugins: readonly Plugin[] = []
   const manifest: I18nManifest = { environments: {} }
   const moduleMessages = new Map<string, Map<string, SourceMessages>>()
+  const nitroMessages = new Map<string, SourceMessages>()
   let manifestWrite = Promise.resolve()
   let serverWrite = Promise.resolve()
   let buildRecords: Promise<Record<string, TranslationRecords>> | undefined
   const browserEnvironments = new Set<string>()
+  const builtClientIds = (): string[] => [...new Set([...browserEnvironments].flatMap(name => Object.keys(manifest.environments[name] ?? {})))].sort()
+  const buildInventory = (): VueBuildInventory => ({ clientIds: builtClientIds(), sources: allMessages(manifest) })
+  const readVueInventory = async (): Promise<VueBuildInventory> => {
+    if (!vueInventoryFile) return buildInventory()
+    try {
+      const inventory: unknown = JSON.parse(await readFile(vueInventoryFile, "utf8"))
+      if (!isVueBuildInventory(inventory)) throw i18nErrorDiagnostics.I18N_INVALID_BUILD_INVENTORY({ file: vueInventoryFile })
+      return inventory
+    }
+    catch (error) {
+      if (error instanceof SyntaxError) throw i18nErrorDiagnostics.I18N_INVALID_BUILD_INVENTORY({ file: vueInventoryFile, cause: error })
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+      return buildInventory()
+    }
+  }
 
   const setup = (config: ViteHubConfig): void => {
     configured = { ...options, ...config.i18n }
     projectRoot = resolveViteHubProjectRoot(config.root || process.cwd(), { projectRoot: configured.projectRoot })
+    const generatedRoot = config[VITEHUB_GENERATED_ROOT]
+    vueInventoryFile = configured.workspace && generatedRoot ? resolve(generatedRoot, "i18n/vue-messages.json") : undefined
     locale = resolveI18nLocaleConfig({ locales: configured.locales ?? [], cookie: configured.cookie })
     lingui = createLinguiConfig({ rootDir: projectRoot, locale, importBase })
   }
@@ -266,6 +307,10 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
       if (!projectRoot || !locale) return
       if (id === resolvedClientModule) return renderClientModule(importBase, locale, Boolean(configured.workspace))
       if (id === resolvedBuildMessagesModule) {
+        if (isBuild && !this.environment && !vueInventoryFile) {
+          const { clientIds, sources } = buildInventory()
+          return `export const clientIds = ${JSON.stringify(clientIds)}\nexport const sources = ${JSON.stringify(sources)}\n`
+        }
         if (isBuild) return `export const clientIds = ${JSON.stringify(clientIdsMarker)}\nexport const sources = ${JSON.stringify(sourcesMarker)}\n`
         return `export const clientIds = null\nexport const sources = ${JSON.stringify(lingui ? await scanMessages(lingui) : {})}\n`
       }
@@ -280,7 +325,18 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
       filter: { id: { include: [sourceRe], exclude: [nodeModulesRe, otherFormQueryRe] } },
       async handler(code, id, options) {
         if (!lingui || nodeModulesRe.test(id) || otherFormQueryRe.test(id) || !sourceRe.test(id)) return
-        if (!this.environment) return options?.ssr ? transformMacros(code, id, lingui, importBase, "all", { macroImportsOnly: true }) : undefined
+        if (!this.environment) {
+          if (!options?.ssr) return
+          const transformed = await transformMacros(code, id, lingui, importBase, "all", { macroImportsOnly: true })
+          if (isBuild && vueInventoryFile && transformed) {
+            const file = id.split("?")[0]!
+            const source = await readFile(file, "utf8").catch(() => code)
+            const messages: SourceMessages = {}
+            for (const message of await extractFileMessages(file, source, lingui)) addMessage(messages, message, lingui.rootDir)
+            nitroMessages.set(id, messages)
+          }
+          return transformed
+        }
         const server = this.environment.config.consumer === "server"
         if (isBuild) {
           const file = id.split("?")[0]!
@@ -310,18 +366,22 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
     },
     async renderChunk(code) {
       if (code.includes(clientIdsMarker) || code.includes(sourcesMarker)) {
-        const ids = [...browserEnvironments].flatMap(name => Object.keys(manifest.environments[name] ?? {}))
+        const inventory = this.environment ? buildInventory() : await readVueInventory()
+        if (!this.environment) {
+          const active = new Set(this.getModuleIds())
+          inventory.sources = mergeMessages([inventory.sources, ...[...nitroMessages].filter(([id]) => active.has(id)).map(([, messages]) => messages)])
+        }
         const values: Record<string, string> = {
-          [clientIdsMarker]: JSON.stringify([...new Set(ids)].sort()),
-          [sourcesMarker]: JSON.stringify(allMessages(manifest)),
+          [clientIdsMarker]: JSON.stringify(inventory.clientIds),
+          [sourcesMarker]: JSON.stringify(inventory.sources),
         }
         const output = new MagicString(code)
-        for (const match of code.matchAll(new RegExp(`"(${clientIdsMarker}|${sourcesMarker})"`, "g"))) {
-          output.overwrite(match.index, match.index + match[0].length, values[match[1]!]!)
+        for (const match of code.matchAll(new RegExp(`(["'])(${clientIdsMarker}|${sourcesMarker})\\1`, "g"))) {
+          output.overwrite(match.index, match.index + match[0].length, values[match[2]!]!)
         }
         return { code: output.toString(), map: output.generateMap({ hires: "boundary" }) }
       }
-      if (!code.includes("__VITEHUB_I18N_CATALOG_")) return
+      if (!this.environment || !code.includes("__VITEHUB_I18N_CATALOG_")) return
       const sources = manifest.environments[this.environment.name] ?? {}
       const records = await (buildRecords ??= readAllRecords())
       const output = new MagicString(code)
@@ -335,6 +395,7 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
       if (!projectRoot) return
       const file = resolve(projectRoot, manifestFile)
       manifestWrite = manifestWrite.catch(() => {}).then(async () => {
+        if (vueInventoryFile) await writeFileIfChanged(vueInventoryFile, `${JSON.stringify(buildInventory())}\n`)
         const temporary = `${file}.${randomUUID()}.tmp`
         try {
           await mkdir(resolve(file, ".."), { recursive: true })

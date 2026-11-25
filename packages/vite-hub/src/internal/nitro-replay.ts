@@ -18,6 +18,7 @@ export const nitroRuntimeResolverNames = new Set([
   "@vite-hub/blob/vite",
   "@vite-hub/browser/vite",
   "@vite-hub/email/vite",
+  "@vite-hub/i18n/vite",
   "@vite-hub/kv/vite",
   "@vite-hub/markdown-template/vite",
   "@vite-hub/realtime/vite",
@@ -95,6 +96,7 @@ export function nitroRuntimeResolver(plugin: Plugin, config: Record<string, unkn
     plugin: {
       name: `vite-hub/nuxt-runtime-resolver:${plugin.name}`,
       ...originalHooks,
+      ...(plugin.name === "@vite-hub/i18n/vite" && plugin.renderChunk ? { renderChunk: plugin.renderChunk } : {}),
       ...(transformWorkspaceAgent ? {
         transform: {
           filter: { id: /\.[cm]?[jt]s(?:[?#]|$)/i },
