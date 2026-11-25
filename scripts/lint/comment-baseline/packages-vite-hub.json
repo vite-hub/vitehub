@@ -562,6 +562,5 @@
   "packages/vite-hub/test/vite.test.ts": 24,
   "packages/vite-hub/test/webhooks-build.test.ts": 3,
   "packages/vite-hub/test/workflow-openworkflow-workerd.test.ts": 2,
-  "packages/vite-hub/vite.config.ts": 22,
-  "packages/vite-hub/vitest.config.ts": 1
+  "packages/vite-hub/vite.config.ts": 22
 }

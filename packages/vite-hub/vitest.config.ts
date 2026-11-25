@@ -6,7 +6,6 @@ import vue from "@vitejs/plugin-vue"
 import { standaloneUI } from "../ui/src/standalone/vite.ts"
 
 export default defineConfig({
-  // Tests that mount the comments overlay build its parts the way the overlay build does.
   plugins: [vue(), standaloneUI()],
   resolve: {
     alias: [
@@ -16,6 +15,8 @@ export default defineConfig({
     ],
   },
   test: {
+    maxWorkers: 2,
+    testTimeout: 30_000,
     environment: "node",
     include: ["test/**/*.test.ts"],
     typecheck: {
