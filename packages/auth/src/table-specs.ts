@@ -57,10 +57,6 @@ const coreTableSpecs = {
       image: { type: "string" },
       createdAt: { type: "date", required: true, defaultValue: "now" },
       updatedAt: { type: "date", required: true, defaultValue: "now", onUpdate: true },
-      role: { type: "string" },
-      banned: { type: "boolean", defaultValue: false },
-      banReason: { type: "string" },
-      banExpires: { type: "date" },
     },
   },
   session: {
@@ -72,7 +68,6 @@ const coreTableSpecs = {
       ipAddress: { type: "string" },
       userAgent: { type: "string" },
       userId: { type: "string", required: true, index: true, references: { model: "user", field: "id", onDelete: "cascade" } },
-      impersonatedBy: { type: "string" },
       activeOrganizationId: { type: "string" },
     },
   },
@@ -292,15 +287,14 @@ const coreTableSpecs = {
 export type AuthCoreTableSpecs = typeof coreTableSpecs
 
 /**
- * The Better Auth core tables, with the fields of the plugins that ViteHub ships: `admin()` (`user.role`, bans, and
- * `session.impersonatedBy`), the `jwt()` and `oauthProvider()` tables of `mcpOAuth()`, the tables of
- * `organization()` and of `passkey()` from `@better-auth/passkey`, and the table of Better Auth's limiter. A test checks this
- * list against Better Auth's own `getAuthTables()`, so a Better Auth upgrade that changes a table fails it.
+ * The Better Auth core tables, with the tables of the plugins that ViteHub ships: `jwt()` and `oauthProvider()` of
+ * `mcpOAuth()`, `organization()`, `passkey()` from `@better-auth/passkey`, and the table of Better Auth's limiter. The
+ * fields of `admin()` are in `authPluginSchemas`. A test checks this list against Better Auth's own `getAuthTables()`, so a Better Auth upgrade that changes a table fails it.
  */
 export const authTableSpecs: Readonly<Record<AuthTableName, AuthTableSpec>> = coreTableSpecs
 
 /** The Better Auth plugins whose tables and columns `authDatabase()` adds when the Auth Definition imports them. */
-export type AuthSchemaPlugin = "anonymous" | "apiKey" | "lastLoginMethod" | "phoneNumber" | "stripe" | "twoFactor" | "username"
+export type AuthSchemaPlugin = "admin" | "anonymous" | "apiKey" | "lastLoginMethod" | "phoneNumber" | "stripe" | "twoFactor" | "username"
 
 /** The core Better Auth models. Each one takes `additionalFields`. */
 export type AuthCoreModel = "user" | "session" | "account" | "verification"
@@ -314,6 +308,12 @@ interface AuthPluginSchema {
 
 // A plain literal, so that `createAuthSqliteSchema()` and `createAuthPostgresSchema()` can type the plugin columns.
 const pluginSchemas = {
+  admin: {
+    fields: {
+      user: { role: { type: "string" }, banned: { type: "boolean", defaultValue: false }, banReason: { type: "string" }, banExpires: { type: "date" } },
+      session: { impersonatedBy: { type: "string" } },
+    },
+  },
   anonymous: { fields: { user: { isAnonymous: { type: "boolean", defaultValue: false } } } },
   apiKey: {
     tables: {

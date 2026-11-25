@@ -1,3 +1,4 @@
+import "#vitehub/console/app"
 import { consoleBodySha256 } from "@vite-hub/internal/console-signature"
 import { answerOperationRpc, operationRpcRefusal, readOperationRpcCall } from "@vite-hub/internal/operation-rpc"
 import { assertOperationConfirmation, assertOperationConfirmed, assertOperationProject, operationAccessAllows, operationAccessDenial, operationCall, operationRootHeader, operationSection, operationSurfaceHeader, parseOperationInput, projectRootHash } from "@vite-hub/internal/operations"

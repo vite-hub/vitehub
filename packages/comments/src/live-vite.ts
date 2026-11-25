@@ -36,6 +36,7 @@ export { findCommentsEntry } from "./entry.ts"
 export interface CommentsImports {
   /** Exports `defineCommentsPlugin`, `createCommentsHandler`, and `viteHubPageSessionHandler`. */
   runtime: string
+  siteVisitor?: string
   /** Exports `commentsRealtime`. */
   realtime: string
   /** Exports `commentsAuthSession`. */
@@ -110,6 +111,22 @@ export interface CommentsVitePluginOptions {
    * `defineComments({ rateLimit })` there too. Default `false`: each process counts in its memory.
    */
   rateLimit?: boolean
+  /**
+   * More segments of the Comments pill, such as the **Console** segment of `vite-hub`. The generated Nitro plugin
+   * imports `export` from `module` and calls it with the Nitro app and `{ base, development, ...options }`, before it
+   * installs the pill. With `overlay: false`, the app has no pill and calls none of them.
+   */
+  pillSegments?: readonly CommentsPillSegment[]
+}
+
+/** A segment of the Comments pill that another package adds. See `CommentsVitePluginOptions.pillSegments`. */
+export interface CommentsPillSegment {
+  /** The file or package path of the module that exports the install function. */
+  module: string
+  /** The name of the install function. */
+  export: string
+  /** JSON options that the install function gets with `base` and `development`. */
+  options?: Readonly<Record<string, string | number | boolean>>
 }
 
 export interface CommentsRealtimeContributionContext {
@@ -406,6 +423,10 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
   const session = sessionWithGitHubLines(input.session ?? {}, input.imports, input.build?.repository, input.base)
   const postgres = input.session?.dialect === "postgresql"
   const overlay = input.session?.overlay === false ? "false" : JSON.stringify(`${commentsRoute}/assets/overlay.js?v=${version}`)
+  const segments = pillSegmentLines(input.session?.overlay === false ? [] : input.session?.pillSegments ?? [])
+  const siteVisitor = input.session?.overlay === false && input.imports.siteVisitor
+    ? `siteVisitor: async (request) => (await import(${JSON.stringify(input.imports.siteVisitor)})).readConsoleSiteVisitor(request, ${JSON.stringify(input.base ?? "")}, ${input.development === true})`
+    : undefined
   if (input.standalone) {
     const { where, fallback, node } = input.standalone
     const options = [`name: "comments"`, ...(fallback ? [`fallback: ${JSON.stringify(fallback)}`] : [])]
@@ -416,11 +437,12 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
       `import { connectDatabase } from ${JSON.stringify(node ? `${input.imports.connect}/node` : input.imports.connect)}`,
       ...definitionLines(input.definition, input.imports.runtime),
       ...session.imports,
+      ...segments.imports,
       "",
       `const database = () => connectDatabase(${where === undefined ? "undefined" : JSON.stringify(where)}, { ${options.join(", ")} })`,
       "",
       // Comments opened this database itself, so it creates and migrates its tables before the first query.
-      `export default defineCommentsPlugin({ comments, database, schema: "comments", session: ${session.value}, ${session.githubLogin ? "githubLogin, " : ""}development: ${input.development === true}, overlay: ${overlay}, base: ${JSON.stringify(input.base ?? "")} })`,
+      `export default defineCommentsPlugin({ comments, database, schema: "comments", session: ${session.value}, ${session.githubLogin ? "githubLogin, " : ""}development: ${input.development === true}, overlay: ${overlay}, base: ${JSON.stringify(input.base ?? "")}${segments.value ? `, pillSegments: ${segments.value}` : ""} })`,
       "",
     ].join("\n")
   }
@@ -429,6 +451,7 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
     `import { defineCommentsPlugin, selectCommentsDatabase } from ${JSON.stringify(input.imports.runtime)}`,
     ...definitionLines(input.definition, input.imports.runtime),
     ...session.imports,
+    ...segments.imports,
     "",
     // The Database registry imports the app's schema and drizzle-orm, so it loads on the first Comments call.
     `const database = async () => selectCommentsDatabase((await import(${JSON.stringify(input.imports.databases)})).databases${input.database ? `, ${JSON.stringify(input.database)}` : ""})`,
@@ -451,9 +474,19 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
       `development: ${input.development === true}`,
       `overlay: ${overlay}`,
       `base: ${JSON.stringify(input.base ?? "")}`,
+      ...(siteVisitor ? [siteVisitor] : []),
+      ...(segments.value ? [`pillSegments: ${segments.value}`] : []),
     ].join(", ")} })`,
     "",
   ].join("\n")
+}
+
+function pillSegmentLines(segments: readonly CommentsPillSegment[]): { imports: string[], value?: string } {
+  if (!segments.length) return { imports: [] }
+  return {
+    imports: segments.map((segment, index) => `import { ${segment.export} as pillSegment${index} } from ${JSON.stringify(segment.module)}`),
+    value: `[${segments.map((segment, index) => `(nitroApp, context) => pillSegment${index}(nitroApp, { ...context, ...${JSON.stringify(segment.options ?? {})} })`).join(", ")}]`,
+  }
 }
 
 /** The generated directory of Comments in a project. */

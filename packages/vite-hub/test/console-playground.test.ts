@@ -284,7 +284,7 @@ async function playgroundRpcRequest(headers: IncomingMessage["headers"], payload
   // SAFETY: The route consumes the body stream, headers, method, and URL from this fixture.
   const request = Readable.from([operationRpcBody(payload.operation, payload.input)]) as IncomingMessage
   request.method = "POST"
-  request.url = "/_vitehub/rpc"
+  request.url = payload.operation.startsWith("mcp-client.") ? "/mcp-client" : "/_vitehub/rpc"
   request.headers = headers
   const middleware = handler
   if (!middleware) throw new Error("Expected playground RPC middleware")

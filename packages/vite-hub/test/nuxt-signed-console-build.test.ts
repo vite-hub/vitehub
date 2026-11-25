@@ -48,7 +48,7 @@ function createNuxt(app: string, dev: boolean) {
       buildDir: join(app, ".nuxt"),
       dev,
       experimental: { nitroViteEnvironment: false },
-      nitro: {} as Record<string, unknown>,
+      nitro: {} as Record<string, unknown> & { alias?: Record<string, string> },
       plugins: [],
       rootDir: app,
       routeRules: {},
@@ -64,8 +64,8 @@ function createNuxt(app: string, dev: boolean) {
       for (const hook of modulesDoneHooks) hook()
       const config: Record<string, unknown> = {
         ...nuxt.options.nitro,
-        // Nuxt gives Nitro its aliases, such as the generated `#vitehub/env/server`.
-        alias: { ...nuxt.options.alias },
+        // Nuxt gives Nitro its aliases, such as the generated `#vitehub/env/server`, merged with `nitro.alias`.
+        alias: { ...nuxt.options.alias, ...nuxt.options.nitro.alias },
         buildDir: join(app, ".nuxt/nitro"),
         dev,
         output: { dir: join(app, ".output") },
@@ -98,9 +98,9 @@ describe("Signed Console calls in Nuxt with a separate Nitro build", () => {
       const { nitroConfig, nuxt } = createNuxt(app, true)
       await viteHubNuxt({ console: true, env: false, host: "node", name: "glosa", publicUrl }, nuxt)
       const config = await nitroConfig()
-      const plugin = (config.plugins as string[]).find(file => file.includes("/.vitehub/nitro/console/"))
-      if (!plugin) throw new TypeError("Expected the generated Console plugin.")
-      expect(await readFile(plugin, "utf8")).toContain(`installConsoleProjectName(${JSON.stringify(app)}, "glosa")`)
+      const appModule = (config.alias as Record<string, string>)["#vitehub/console/app"]
+      if (!appModule) throw new TypeError("Expected the generated Console app module.")
+      expect(await readFile(appModule, "utf8")).toContain(`installConsoleProjectName(${JSON.stringify(app)}, "glosa")`)
     }
     finally {
       await rm(root, { force: true, recursive: true })

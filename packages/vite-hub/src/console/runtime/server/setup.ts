@@ -10,16 +10,6 @@ export { installConsoleAccess } from "./access-policy.ts"
 export { installConsoleDevelopment } from "./development.ts"
 export { installConsoleRuntime } from "./runtime.ts"
 
-export function installConsoleSiteDatabase(load: () => Promise<Record<string, { db: object }>>, preferredName?: string): void {
-  consoleState().siteDatabase = async () => {
-    const databases = await load()
-    const name = preferredName ?? Object.keys(databases)[0]
-    if (name === undefined) return undefined
-    const entry = databases[name]
-    return entry && { name, db: entry.db }
-  }
-}
-
 export function installConsoleSections(projectRoot: string, sections: readonly ConsoleSectionId[], navigationSections?: readonly ConsoleSectionId[]): readonly ConsoleSectionId[] {
   const state = consoleState()
   state.navigationSections = navigationSections ? [...new Set(navigationSections)] : undefined

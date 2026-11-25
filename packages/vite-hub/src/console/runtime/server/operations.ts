@@ -1,7 +1,9 @@
-import { defineOperation, operationAccessAllows, operationCall, operationSection, table } from "@vite-hub/internal/operations"
+import { defineOperation, operationAccessAllows, operationCall, operationSection } from "@vite-hub/internal/operations"
 import * as v from "valibot"
 
-import { bindConsoleAccess, consoleOperationAccess } from "./access.ts"
+import { viteHubPageGrants } from "@vite-hub/internal/runtime/page-tools"
+
+import { bindConsoleAccess, consoleAccessWrites, consoleOperationAccess, readConsoleAccessGrants } from "./access.ts"
 import { loadConsoleMedia } from "./blob.ts"
 import { consoleAttachmentRequestBytes, consoleDocumentActionNames, consoleMediaUploadRequestBytes, maximumConsoleDocumentRequestBytes, maximumConsoleMediaRequestBytes, maximumConsoleRpcRequestBytes } from "./limits.ts"
 import { consoleRequestError } from "./request.ts"
@@ -15,8 +17,7 @@ import type { Result } from "@vite-hub/runtime"
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type { ConsoleAccess } from "./access.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
-import type { ConsoleTicket } from "./tickets.ts"
-import type { SiteGrant, SiteInvite, SiteSession } from "../site-access.ts"
+import type { SiteAccessPolicy } from "@vite-hub/internal/site-token"
 
 // Standalone runtime imports retain every operation; host builds replace these flags before bundling.
 declare global {
@@ -546,104 +547,32 @@ const statusGet = defineConsoleOperation({
   section: "agents",
 })
 
-const sitePagePath = v.optional(v.pipe(text, v.maxLength(2048)))
-const siteId = v.pipe(text, v.minLength(1), v.maxLength(64))
-const siteAccess = () => import("./site-access.ts")
-
-function formatSiteSessions({ sessions }: { sessions: SiteSession[] }): string {
-  if (!sessions.length) return "No browser is signed in through Site access.\n"
-  return `${table([
-    ["ID", "KIND", "PERSON", "DEVICE", "LAST SEEN", "EXPIRES"],
-    ...sessions.map(session => [session.id, session.kind, session.person.email ? `${session.person.name} <${session.person.email}>` : session.person.name, session.device, session.lastSeenAt, session.expiresAt]),
-  ])}\n`
-}
-
-function formatSiteInvites({ invites }: { invites: SiteInvite[] }): string {
-  if (!invites.length) return "No open invites.\n"
-  return `${table([
-    ["ID", "NAME", "ROLES", "PATH", "EXPIRES", "BY"],
-    ...invites.map(invite => [invite.id, invite.name, invite.grants.join(","), invite.path, invite.expiresAt, invite.createdBy.name]),
-  ])}\n`
-}
-
-function formatSiteGrants({ grants }: { grants: SiteGrant[] }): string {
-  return `${table([["ROLE", "LABEL", "GUESTS"], ...grants.map(grant => [grant.id, grant.label, grant.membersOnly ? "no, members only" : "yes"])])}\n`
-}
-
-/** Site access: the Console signs browsers in to the app for the page tools. See `site-access.ts`. */
-const siteOperations = [
-  defineConsoleOperation({
-    // A `vitehub` command signs as a key, not as a person, so the server refuses it with CONSOLE_TICKET_NO_PERSON and the fix.
-    cli: { command: "open", format: (ticket: ConsoleTicket) => `${ticket.url}\nThe link works once, until ${ticket.expiresAt}.\n`, positional: ["path"] },
-    description: "Return a one-time link that signs the browser that opens it in to the app as you, with the console role, then opens the page. With qr: true, it works for 10 minutes, for a phone. With the state of GET /_vitehub, it works only in the browser that opened that route.",
-    input: v.strictObject({ path: sitePagePath, qr: v.optional(v.boolean()), state: v.optional(v.pipe(text, v.regex(/^[\w-]{43}$/))) }),
-    kind: "write",
-    mcp: false,
-    name: "site.link",
-    run: async (input, context) => (await siteAccess()).linkSite(context, input),
-    section: "site",
-  }),
-  defineConsoleOperation({
-    cli: { format: formatSiteSessions },
-    description: "List the app sessions of Console members and invited guests: one per browser.",
-    input: v.strictObject({}),
-    kind: "read",
-    name: "site.sessions",
-    run: async (_input, context) => (await siteAccess()).listSessions(context),
-    section: "site",
-  }),
-  defineConsoleOperation({
-    cli: { command: "revoke", format: ({ removedUser }: { removedUser: boolean }) => removedUser ? "Signed the browser out and deleted the guest.\n" : "Signed the browser out.\n", positional: ["id"] },
-    description: "Sign one browser out. Revoking a guest's browser deletes the guest.",
-    input: v.strictObject({ id: siteId }),
-    kind: "destructive",
-    name: "site.revoke-session",
-    run: async ({ id }, context) => (await siteAccess()).revokeSession(context, id),
-    section: "site",
-  }),
-  defineConsoleOperation({
-    cli: { format: ({ url, invite }: ConsoleTicket & { invite: SiteInvite }) => `${url}\nThe link works once, in one browser, until ${invite.expiresAt}. Revoke it with \`vitehub site revoke-invite ${invite.id}\`.\n`, positional: ["name"] },
-    description: "Invite a guest: a one-time link that signs one browser in as a new app user with a name and roles, such as comments-write. Guests never get the Console.",
-    input: v.strictObject({
-      expiresInDays: v.optional(v.picklist([1, 7, 30])),
-      grants: v.pipe(v.array(v.pipe(text, v.maxLength(128))), v.maxLength(32)),
-      name: v.pipe(text, v.maxLength(64)),
-      path: sitePagePath,
-    }),
-    kind: "write",
-    mcp: false,
-    name: "site.invite",
-    run: async (input, context) => (await siteAccess()).inviteGuest(context, input),
-    section: "site",
-  }),
-  defineConsoleOperation({
-    cli: { format: formatSiteInvites },
-    description: "List the guest invites that nobody opened yet.",
-    input: v.strictObject({}),
-    kind: "read",
-    name: "site.invites",
-    run: async (_input, context) => (await siteAccess()).listInvites(context),
-    section: "site",
-  }),
-  defineConsoleOperation({
-    cli: { format: () => "Revoked the invite.\n", positional: ["id"] },
-    description: "Revoke a guest invite that nobody opened yet.",
-    input: v.strictObject({ id: siteId }),
-    kind: "destructive",
-    name: "site.revoke-invite",
-    run: async ({ id }, context) => (await siteAccess()).revokeInvite(context, id),
-    section: "site",
-  }),
-  defineConsoleOperation({
-    cli: { format: formatSiteGrants },
-    description: "List the roles that Site access gives. Console is for members only.",
-    input: v.strictObject({}),
-    kind: "read",
-    name: "site.grants",
-    run: async () => (await siteAccess()).listGrants(),
-    section: "site",
-  }),
-]
+/**
+ * `site.access`: the Site access of the caller, which the ViteHub Console reads before it signs a Site access token.
+ * `write` follows write access to the `site` section, and `roles` are the `grants` of `console.authorize`, or every page
+ * tool role of the app.
+ */
+const siteAccessGet = defineConsoleOperation({
+  cli: false,
+  description: "Read the Site access of the caller: whether they may change it, and the page tool roles that they get and may give guests.",
+  input: v.strictObject({}),
+  kind: "read",
+  name: "site.access",
+  run: (_input, context): SiteAccessPolicy => {
+    const roles = viteHubPageGrants()
+    const grants = readConsoleAccessGrants(context.access)
+    if (grants) {
+      const known = new Set(roles.map(role => role.id))
+      const unknown = grants.filter(grant => !known.has(grant))
+      if (unknown.length) throw consoleRequestError(500, `console.authorize returned grants that no page tool of this app gives: ${unknown.join(", ")}.`)
+    }
+    return {
+      write: consoleAccessWrites(context.access, "site"),
+      roles: roles.filter(role => !grants || grants.includes(role.id)).map(({ id, label, description }) => ({ id, label, ...(description ? { description } : {}) })),
+    }
+  },
+  section: "site",
+})
 
 async function searchError(response: Response): Promise<Error> {
   const body = await response.text()
@@ -690,7 +619,7 @@ export const consoleOperations: readonly AnyOperation[] = [
   projectGet,
   searchQuery,
   sectionsList,
-  ...siteOperations,
+  siteAccessGet,
   skillsInspect,
   statusGet,
 ]

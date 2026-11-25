@@ -131,12 +131,12 @@ const runtimeEntries = [
   "src/console/runtime/mcp-client.ts",
   "src/console/runtime/rpc.ts",
   "src/console/runtime/sections.ts",
-  "src/console/runtime/site-access.ts",
   "src/console/runtime/skills.ts",
-  // Generated Console output imports these when the server starts. Own files keep the request code out of startup.
+  // The generated Console app module imports these with the first Console request. Own files keep each route small.
   "src/console/runtime/server/access-policy.ts",
+  "src/console/runtime/server/agent-console.ts",
+  "src/console/runtime/operation-loader.ts",
   "src/console/runtime/server/development.ts",
-  "src/console/runtime/server/page-tool.ts",
   "src/console/runtime/server/runtime.ts",
   "src/console/runtime/server/agents.get.ts",
   "src/console/runtime/server/channel-replay.ts",
@@ -152,6 +152,8 @@ const runtimeEntries = [
   "src/console/runtime/server/env.get.ts",
   "src/console/runtime/server/auth.ts",
   "src/console/runtime/server/tickets.ts",
+  "src/console/runtime/server/entry.ts",
+  "src/console/runtime/server/entry-site-access.ts",
   "src/console/runtime/server/site-entry.ts",
   "src/console/runtime/server/logs.get.ts",
   "src/console/runtime/server/search.get.ts",
@@ -159,11 +161,11 @@ const runtimeEntries = [
   "src/console/runtime/server/setup.ts",
   "src/console/runtime/server/invocations.usage.ts",
   "src/console/runtime/server/status.get.ts",
-  // The page tools session route, and the Auth and Site access readers that the Console page tool loads with the first
-  // session request.
-  "src/console/runtime/server/page-auth.ts",
-  "src/console/runtime/server/page-tools-route.ts",
-  "src/console/runtime/server/site-session.ts",
+  // The Console segment of the Comments pill. Comments installs it at startup, and it reads the visitor on the first
+  // page tools session request.
+  "src/console/runtime/server/pill.ts",
+  "src/console/runtime/server/site-visitor.ts",
+  "src/console/runtime/server/site.ts",
 ];
 
 const skillsSource = resolve(import.meta.dirname, "../../docs/skills");
@@ -535,7 +537,7 @@ export default defineConfig({
       ],
       deps: {
         // Agent-only apps need the client-free journal constructor without installing the optional Database package.
-        neverBundle: ["vite", /^@vite-hub\/(?!internal(?:\/|$)|database\/runtime\/libsql-drizzle$)/],
+        neverBundle: ["vite", "#vitehub/console/app", /^@vite-hub\/(?!internal(?:\/|$)|database\/runtime\/libsql-drizzle$)/],
         alwaysBundle: [/^@vite-hub\/internal/, "@vite-hub/database/runtime/libsql-drizzle"],
         onlyBundle: false,
       },
@@ -543,8 +545,8 @@ export default defineConfig({
       dts: { entry: runtimeEntries.filter(entry => !["src/index.ts", "src/nuxt.ts"].includes(entry)) },
       plugins: [
         {
-          // Emit the skills and the well-known index that `npx skills add <app>/_vitehub` reads. The pack task owns dist,
-          // so the task cache can replay it. A write to a folder outside dist made the build uncacheable.
+          // Emit the skills and the well-known index that the Console serves to `npx skills add <console>`. The pack task
+          // owns dist, so the task cache can replay it. A write to a folder outside dist made the build uncacheable.
           name: "vite-hub-console-skills",
           generateBundle() {
             const skills = consoleSkills.map((name) => {
@@ -555,14 +557,11 @@ export default defineConfig({
               if (field("name") !== name || !description) throw new TypeError(`docs/skills/${name}/SKILL.md needs the name "${name}" and a description.`);
               const files = readdirSync(root, { recursive: true, withFileTypes: true }).filter(entry => entry.isFile()).map(entry => relative(root, resolve(entry.parentPath, entry.name))).sort();
               for (const file of files) {
-                const source = readFileSync(resolve(root, file));
-                this.emitFile({ type: "asset", fileName: `console/runtime/public/skills/${name}/${file}`, source });
-                // Also publish it at `node_modules/vite-hub/dist/skills/<name>/`, where `npx skills add` and agents find it.
-                this.emitFile({ type: "asset", fileName: `skills/${name}/${file}`, source });
+                this.emitFile({ type: "asset", fileName: `console-skills/${name}/${file}`, source: readFileSync(resolve(root, file)) });
               }
               return { name, description, files };
             });
-            this.emitFile({ type: "asset", fileName: "console/runtime/public/skills/index.json", source: `${JSON.stringify({ skills }, null, 2)}\n` });
+            this.emitFile({ type: "asset", fileName: "console-skills/index.json", source: `${JSON.stringify({ skills }, null, 2)}\n` });
           },
         },
         {
@@ -626,7 +625,6 @@ export default defineConfig({
           delete exports["./console/runtime/mcp-client"];
           delete exports["./console/runtime/rpc"];
           delete exports["./console/runtime/sections"];
-          delete exports["./console/runtime/site-access"];
           delete exports["./console/runtime/skills"];
           delete exports["./console/runtime/server/agents.get"];
           delete exports["./console/runtime/server/blob"];
@@ -646,21 +644,23 @@ export default defineConfig({
           delete exports["./console/runtime/server/auth"];
           delete exports["./console/runtime/server/tickets"];
           delete exports["./console/runtime/server/site-entry"];
+          delete exports["./console/runtime/server/entry"];
+          delete exports["./console/runtime/server/entry-site-access"];
           delete exports["./console/runtime/server/env"];
           delete exports["./console/runtime/server/logs.get"];
-          delete exports["./console/runtime/server/mcp-client-operations"];
           delete exports["./console/runtime/server/access-policy"];
+          delete exports["./console/runtime/server/agent-console"];
+          delete exports["./console/runtime/operation-loader"];
           delete exports["./console/runtime/server/development"];
           delete exports["./console/runtime/server/operation-contributions"];
-          delete exports["./console/runtime/server/page-auth"];
-          delete exports["./console/runtime/server/page-tools-route"];
-          delete exports["./console/runtime/server/page-tool"];
+          delete exports["./console/runtime/server/pill"];
           delete exports["./console/runtime/server/runtime"];
           delete exports["./console/runtime/server/search.get"];
           delete exports["./console/runtime/server/sections.get"];
           delete exports["./console/runtime/server/sections"];
           delete exports["./console/runtime/server/setup"];
-          delete exports["./console/runtime/server/site-session"];
+          delete exports["./console/runtime/server/site"];
+          delete exports["./console/runtime/server/site-visitor"];
           delete exports["./console/runtime/server/invocations.usage"];
           delete exports["./console/runtime/server/status.get"];
           // Generated code imports `src/internal/*` entries by path. They are not public API.
@@ -676,7 +676,6 @@ export default defineConfig({
           return normalizePackageExports({
             ...frameworkPackageManifest.exports,
             ...exports,
-            "./console/mcp-client": "./dist/console/runtime/server/mcp-client-operations.js",
             // A browser script, not a module: no types and no `import` condition.
             "./page/pill.js": { default: "./dist/page/pill.iife.js" },
             "./ui/styles.css": "./dist/ui/styles.css",
@@ -716,7 +715,7 @@ export default defineConfig({
         },
       }],
       deps: {
-        neverBundle: ["vite", /^@vite-hub\/(?!internal(?:\/|$)|database\/runtime\/libsql-drizzle$)/],
+        neverBundle: ["vite", "#vitehub/console/app", /^@vite-hub\/(?!internal(?:\/|$)|database\/runtime\/libsql-drizzle$)/],
         alwaysBundle: [/^@vite-hub\/internal/, "@vite-hub/database/runtime/libsql-drizzle"],
         onlyBundle: false,
         dts: {
@@ -727,20 +726,7 @@ export default defineConfig({
       outExtensions: () => ({ dts: ".d.ts", js: ".js" }),
     },
     {
-      // The page tools loader at `/_vitehub/page/assets/loader.js`, for an app with the Console and no Comments. It has its
-      // own build, so it shares no chunk with the server code.
-      alias: motionCoreAlias,
-      deps: { alwaysBundle: [/./], onlyBundle: false },
-      dts: false,
-      entry: { "console/runtime/page/loader": "src/page/loader.ts" },
-      minify: true,
-      outExtensions: () => ({ js: ".js" }),
-      platform: "browser",
-      target: browserTarget,
-      tsconfig: "tsconfig.build.json",
-    },
-    {
-      // The Console segment of the page tools pill, at `/_vitehub/console/assets/page-tool.js` (see src/page/console.ts).
+      // The Console segment of the page tools pill. The ViteHub Console serves it at `/page/<version>/page-tool.js`.
       deps: { alwaysBundle: [/./], onlyBundle: false },
       dts: false,
       entry: { "console/runtime/page-tool/page-tool": "src/page/console.ts" },

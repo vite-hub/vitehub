@@ -145,7 +145,7 @@ export const comments = defineComments({
 
 This policy does not grant access based on Console admission alone. Do not pass the entire `authorize` context as the gate: `console: true` means the Console admitted the request, but with `identify` the built-in policy does not treat that as permission for the app user.
 
-On pages, the user comes from `identify` when the app has one (`null` is anonymous), else the first of: the ViteHub [Auth](/docs/auth) session, the [Site access](#roles-from-site-access) cookie of an app without Auth, or [Sign in with GitHub](#sign-in-with-github). Comment operations through the Console, the CLI, and MCP use `identify`, else the [Console caller](#comments-through-the-console).
+On pages, the user comes from `identify` when the app has one (`null` is anonymous), else the first of: the [Site access](#roles-from-site-access) cookie, the ViteHub [Auth](/docs/auth) session, or [Sign in with GitHub](#sign-in-with-github). Comment operations through the Console, the CLI, and MCP use `identify`, else the [Console caller](#comments-through-the-console).
 
 Every Comments API route checks the policy again. A user that `read` denies gets `403` with [`COMMENTS_FORBIDDEN`](/docs/comments/limits-and-errors#comments_forbidden), and no overlay. Writes must come from a same-origin page.
 
@@ -328,7 +328,7 @@ A write over the limit fails with [`COMMENTS_GUEST_RATE_LIMITED`](/docs/comments
 
 ### Roles from Site access
 
-[Site access](/docs/console/site-access#sign-browsers-in) in the Console signs members and invited guests in to the app, with roles in the Better Auth `user.role`, or, in an app without Auth, roles in its sealed `vitehub_site` cookie: `comments-read`, `comments-write`, `comments-resolve`, and `comments-delete`. Any of the last three also lets the person read. Members get all four. A guest gets the ones the member picked, and comments under the name the member gave them.
+[Site access](/docs/console/site-access#sign-browsers-in) in the Console signs members and invited guests in to the app with a token that the app keeps in its site cookie. The token has their roles: `comments-read`, `comments-write`, `comments-resolve`, and `comments-delete`. The app does not keep the person or the roles in Auth. Any of the last three also lets the person read. Members get all four. A guest gets the ones the member picked, and comments under the name the member gave them.
 
 Without `authorize`, these roles decide. With `authorize`, your policy decides, so check the roles there with `commentsRoleAllows()` from `vite-hub/comments`:
 
@@ -737,7 +737,7 @@ export default defineConfig({
 | Arrow | An arrow from where the drag starts to where it ends. Its shaft bows a little, and <kbd>Shift</kbd> draws it straight. |
 | Text | A click types a label there. A click on a label edits it, a drag moves it, and a label with no words goes. <kbd>Cmd</kbd> <kbd>Enter</kbd> or <kbd>Ctrl</kbd> <kbd>Enter</kbd> puts the label down and comments on the ink. |
 
-When Comments or the [Console link](/docs/console/site-access#open-the-console-from-your-pages) is on, every HTML page gets the page tools bootstrap, a short inline script before `</body>`. It is the same for every visitor, so the page keeps its cache headers. It loads the loader only with a hint: the `?vitehub` query, `vitehub-tools=1`, or the [Auth session marker](/docs/auth/configure#session-marker-cookie) of someone who just signed in. Without a hint, the page makes no request. With the hint, the server instead adds `<script type="module" src="/_vitehub/page/assets/loader.js?v=22">` and sends `cache-control: private, no-store`. The loader imports the overlay only for people the session route allows. With an application base such as `/portal/`, the loader and session URLs start with `/portal/_vitehub/page/`. Paths under `/_vitehub` and `/api` never get the page tools.
+When Comments is on, every HTML page gets the page tools bootstrap, a short inline script before `</body>`. It is the same for every visitor, so the page keeps its cache headers. It loads the loader only with a hint: the `?vitehub` query, `vitehub-tools=1`, or the [Auth session marker](/docs/auth/configure#session-marker-cookie) of someone who just signed in. Without a hint, the page makes no request. With the hint, the server instead adds `<script type="module" src="/_vitehub/page/assets/loader.js?v=22">` and sends `cache-control: private, no-store`. The loader imports the overlay only for people the session route allows. With an application base such as `/portal/`, the loader and session URLs start with `/portal/_vitehub/page/`. Paths under `/_vitehub` and `/api` never get the page tools.
 
 - Nitro 3 apps, including Nuxt 5, get the script from the server response.
 - A single-page app whose `index.html` Vite serves or builds gets the bootstrap in `index.html`.
