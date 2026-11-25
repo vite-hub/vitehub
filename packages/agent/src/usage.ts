@@ -843,7 +843,8 @@ function sqlUsageTotal(data: Record<string, unknown>): AgentUsageTotal {
     const value = data[part]
     return sum + (typeof value === "string" ? BigInt(value) : 0n) * 10n ** BigInt(agentUsageFractionDigits - 9 * index)
   }, 0n)
-  total.cost = { scale, units: units / 10n ** BigInt(agentUsageFractionDigits - scale) }
+  const scaleDelta = scale - agentUsageFractionDigits
+  total.cost = { scale, units: scaleDelta > 0 ? units * 10n ** BigInt(scaleDelta) : units / 10n ** BigInt(-scaleDelta) }
   return total
 }
 

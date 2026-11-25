@@ -197,16 +197,20 @@ describe("readAgentUsage()", { timeout: 60_000 }, () => {
   it.each([false, true])("preserves padded prices and exact out-of-range prices (fallback: %s)", async (fallback) => {
     const { client, store } = await journal()
     for (const [id, observations] of [
-      ["finish", [finish({ cost: { usd: "00000000000001.25" }, model: "\tgpt\n", usage: { totalTokens: 1 } })]],
-      ["recorded", [finish({ usage: { totalTokens: 1 } }), recorded(`0.1${"0".repeat(40)}`)]],
+      ["finish", [finish({ cost: { usd: `00000000000001.25${"0".repeat(38)}` }, model: "\tgpt\n", usage: { totalTokens: 1 } })]],
+      ["recorded-padded", [finish({ usage: { totalTokens: 1 } }), recorded(`0.1${"0".repeat(40)}`)]],
       ["nested", [finish({ calls: [{ calls: [{ cost: { usd: fallback ? `0.${"0".repeat(36)}1` : "0.5" }, usage: { totalTokens: 1 } }], model: "\tgpt\n" }] })]],
       ["large", [finish({ cost: { usd: fallback ? "98765432109876543210.01" : "12.01" }, usage: { totalTokens: 1 } })]],
+      ["fraction", [finish({ cost: { usd: "0.2" }, usage: { totalTokens: 1 } })]],
+      ["fraction-two", [finish({ usage: { totalTokens: 1 } }), recorded("0.3")]],
     ] as const) {
       const time = at(1)
       await store.create({ agentName: "prices", annotations: { "agent.model.id": "\tgpt\n" }, completedAt: time, createdAt: time, id, observations: observations.map((observation, index) => ({ ...observation, sequence: index + 1, timestamp: time, type: "lifecycle" })), status: "completed", traceId: id, updatedAt: time })
     }
     const query = { agentName: "prices", now }
     const { period, summary } = await expected(store, query)
+    expect(summary.totals.pricedInvocations).toBe(6)
+    if (!fallback) expect(summary.totals.averageCostUsd).toBe(`2.39${"3".repeat(46)}`)
     const execute = vi.fn((statement: Parameters<AgentUsageSqlClient["execute"]>[0]) => client.execute(statement))
     expect(withoutTime(await readAgentUsage({ execute }, query, period))).toEqual(withoutTime(summary))
     expect(execute).toHaveBeenCalledTimes(fallback ? 2 : 1)

@@ -66,7 +66,7 @@ function decimalParts(value: string, prefix: string): string {
   return [
     `CAST(substr(${value}, 1, ${dot} - 1) AS INTEGER) AS ${prefix}w`,
     ...[1, 2, 3, 4].map(index => `CAST(substr(${padded}, ${index * 9 - 8}, 9) AS INTEGER) AS ${prefix}f${index}`),
-    `min(length(${fraction}), ${fractionDigits}) AS ${prefix}scale`,
+    `length(${fraction}) AS ${prefix}scale`,
   ].join(", ")
 }
 
