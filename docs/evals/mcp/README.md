@@ -19,12 +19,12 @@ From `docs/`, build `vite-hub` once (`vp run -t vite-hub#build`), then:
 ```sh
 corepack pnpm run eval:mcp -- --model sonnet
 corepack pnpm run eval:mcp -- --model haiku --case queue-get-started --samples 1
-corepack pnpm run eval:mcp -- --dry-run --baseline evals/mcp/baseline.json
+corepack pnpm run eval:mcp -- --dry-run
 ```
 
 `run.ts` uses `@ai-sdk/anthropic`, which reads `ANTHROPIC_API_KEY` and, if it is set, `ANTHROPIC_BASE_URL`. To send the requests through a local proxy, such as CLIProxy, set `ANTHROPIC_BASE_URL` to its `/v1` URL and `ANTHROPIC_API_KEY` to its key. `--model` takes `sonnet` (Claude Sonnet 5.5, the default) or `haiku` (Claude Haiku 5.5). `MCP_URL` changes the server, such as a preview deploy. The other flags are in the [docs](https://vitehub.dev/docs/mcp/evals#run-the-eval).
 
-The dry run makes no model call and needs no API key. It exits with code `1` when the tools, the server instructions, or the cases are different from [baseline.json](baseline.json). Then run the eval with `--model sonnet --out <dir>` and copy `<dir>/run.json` to `baseline.json`.
+The dry run makes no model call and needs no API key. Add `--baseline evals/mcp/baseline.json` to check for changes in the tools, server instructions, or cases. The committed [baseline.json](baseline.json) records the original run. A baseline dry run exits with code `1` because `general-code-no-docs`, `rate-limit-429`, `blob-known-path`, and `webhooks-debounce` now use different checks. A model run with `--baseline` compares only cases that have not changed. To refresh the baseline for all cases, run with `--model sonnet --out <dir>` and copy `<dir>/run.json` to `baseline.json`.
 
 The dry run is not in CI. vitehub.dev changes when `main` deploys, not in a pull request, so a pull request check would not test the pull request's changes.
 
@@ -44,7 +44,7 @@ The prices use the Claude Sonnet 5.5 list price on [models.dev](https://models.d
 
 `list-pages` returns 151,010 characters (about 40k tokens), and the model sends that result again at each later step. A sample that calls `list-pages` uses about 122k tokens. A sample that calls only `get-page` uses about 5k.
 
-## Result
+## Original run result
 
 | Case | Kind | Samples | Pass rate | Status |
 | --- | --- | --- | --- | --- |
