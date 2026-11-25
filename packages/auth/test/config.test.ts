@@ -680,11 +680,11 @@ describe("resolveAuthViteConfig", () => {
     const rootDir = await createTempProject()
     await writeAuthSource(rootDir, "server/auth.ts", [
       "import { apiKey } from '@better-auth/api-key'",
-      "import { twoFactor as secondFactor, username } from 'better-auth/plugins'",
+      "import { admin, twoFactor as secondFactor, username } from 'better-auth/plugins'",
       "import type { lastLoginMethod } from 'better-auth/plugins'",
       "import { defineAuth } from 'vite-hub/auth'",
       "import { authDatabase } from 'vite-hub/auth/database'",
-      "const plugins = [apiKey(), secondFactor()]",
+      "const plugins = [admin(), apiKey(), secondFactor()]",
       "export default defineAuth(() => ({",
       "  database: authDatabase(),",
       "  plugins,",
@@ -699,7 +699,7 @@ describe("resolveAuthViteConfig", () => {
     expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toEqual({
       database: "default",
       schema: {
-        plugins: ["apiKey", "twoFactor"],
+        plugins: ["admin", "apiKey", "twoFactor"],
         additionalFields: {
           user: { login: { type: "string" }, language: { type: "string", defaultValue: "en" }, credits: { type: "number", required: true } },
           session: { device: { type: "string", index: true } },
@@ -737,6 +737,77 @@ describe("resolveAuthViteConfig", () => {
       "}))",
     ])
     expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toEqual({ database: "default", schema: { plugins: ["stripe", "twoFactor"] } })
+  })
+
+  it("reads the plugins that the Definition calls through a namespace import or a local module that re-exports them", async () => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import * as plugins from 'better-auth/plugins'",
+      "import { defineAuth } from 'vite-hub/auth'",
+      "import { authDatabase } from 'vite-hub/auth/database'",
+      "export default defineAuth({ database: authDatabase(), plugins: [plugins.admin(), plugins['twoFactor']()] })",
+    ])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toEqual({ database: "default", schema: { plugins: ["admin", "twoFactor"] } })
+
+    await writeAuthSource(rootDir, "server/plugins.ts", [
+      "export { admin } from 'better-auth/plugins'",
+      "export * from './more-plugins'",
+    ])
+    await writeAuthSource(rootDir, "server/more-plugins.ts", ["export * from 'better-auth/plugins'"])
+    await writeAuthSource(rootDir, "server/keys.ts", [
+      "import { apiKey } from '@better-auth/api-key'",
+      "export { apiKey as keys }",
+    ])
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from 'vite-hub/auth'",
+      "import { authDatabase } from 'vite-hub/auth/database'",
+      "import { admin } from './plugins'",
+      "import * as local from './plugins'",
+      "import { keys } from './keys'",
+      "export default defineAuth({ database: authDatabase(), plugins: [admin(), local.username(), keys()] })",
+    ])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toEqual({ database: "default", schema: { plugins: ["admin", "apiKey", "username"] } })
+  })
+
+  it.each(["local.loginByUsername", "local['loginByUsername']"])("reads only the namespace member %s and its dependencies", async (member) => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/plugins.ts", [
+      "import { admin, username } from 'better-auth/plugins'",
+      "export const loginByUsername = () => username()",
+      "export const createAdmin = () => admin()",
+    ])
+    await writeAuthSource(rootDir, "server/helpers.ts", [
+      "import * as local from './plugins'",
+      `export const loginByUsername = () => ${member}()`,
+    ])
+    for (const [imports, plugins] of [
+      ["import * as local from './plugins'", `${member}()`],
+      ["import { loginByUsername } from './helpers'", "loginByUsername()"],
+    ] as const) {
+      await writeAuthSource(rootDir, "server/auth.ts", [
+        "import { defineAuth } from 'vite-hub/auth'",
+        "import { authDatabase } from 'vite-hub/auth/database'",
+        imports,
+        `export default defineAuth({ database: authDatabase(), plugins: [${plugins}], user: { additionalFields: { role: { type: 'number' } } } })`,
+      ])
+      const tables = resolveAuthViteConfig(undefined, rootDir)?.tables
+      expect(tables && tables.schema?.plugins).toEqual(["username"])
+    }
+  })
+
+  it("lets an explicit non-schema plugin re-export shadow a schema plugin from a star export", async () => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/plugins.ts", [
+      "export * from 'better-auth/plugins'",
+      "export { bearer as admin } from 'better-auth/plugins'",
+    ])
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from 'vite-hub/auth'",
+      "import { authDatabase } from 'vite-hub/auth/database'",
+      "import { admin, username } from './plugins'",
+      "export default defineAuth({ database: authDatabase(), plugins: [admin(), username()] })",
+    ])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toEqual({ database: "default", schema: { plugins: ["username"] } })
   })
 
   it("reads only the exports that the Definition uses, from the files that Vite resolves", async () => {
@@ -780,7 +851,7 @@ describe("resolveAuthViteConfig", () => {
   it("rejects a field that a table has with another type, and a renamed column", async () => {
     const rootDir = await createTempProject()
     for (const [fields, message] of [
-      ["{ role: { type: 'number' } }", /user.additionalFields declares user.role as number/],
+      ["{ email: { type: 'number' } }", /user.additionalFields declares user.email as number/],
       ["{ login: { type: 'string', fieldName: 'github_login' } }", /fieldName cannot rename the column/],
     ] as const) {
       await writeAuthSource(rootDir, "server/auth.ts", [
