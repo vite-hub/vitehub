@@ -49,6 +49,12 @@ export const initPackages: Readonly<Record<InitFramework, { prod: readonly strin
 const nuxtNitroRange = "^3.0.261103-rc"
 export const nuxtNitroPackage = `nitro@${nuxtNitroRange}`
 
+/**
+ * Nuxt 4 installs esbuild, and pnpm 11 and later fail the install while the esbuild build script waits for
+ * approval. esbuild runs without that script, so a new Nuxt 4.7 app declines it.
+ */
+export const nuxtPnpmWorkspace = "allowBuilds:\n  esbuild: false\n"
+
 /** The pinned Nuxt CLI that creates a new Nuxt app. */
 export const nuxiPackage = "nuxi@3.37.0"
 
@@ -381,6 +387,9 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
     base.set(".gitignore", { ...(gitignore === undefined ? {} : { before: gitignore }), after: gitignore === undefined ? ".vitehub\n" : gitignoreWithViteHub(gitignore) ?? gitignore })
   }
 
+  if (state.kind === "create" && framework === "nuxt" && nuxtNeedsNitro && packageManager === "pnpm" && await readOptional(join(root, "pnpm-workspace.yaml")) === undefined) {
+    base.set("pnpm-workspace.yaml", { after: nuxtPnpmWorkspace })
+  }
   const scaffolded = state.kind === "create" && framework === "nuxt"
   const ordered = [...base.entries()]
     .filter(([path]) => !scaffolded || !Object.hasOwn(nuxtAppFiles(name, args.host), path))
@@ -594,6 +603,7 @@ async function runInit(rawArgs: string[], context: ViteHubCliContext): Promise<n
     }
     if (planned.scaffold) {
       await scaffoldNuxt(planned, context)
+      for (const write of planned.writes.filter(write => write.path === "pnpm-workspace.yaml")) await writeFile(join(root, write.path), write.after)
       planned = await planInit({ ...args, pm: plan.packageManager }, root, await readDir(root, context.env), context)
     }
     await applyInit(planned, args.install, context, !!plan.scaffold)

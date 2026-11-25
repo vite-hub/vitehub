@@ -8,7 +8,7 @@ import { locateViteHubConfig } from "@vite-hub/internal/config-edit"
 import { featureIds, featureSupport } from "@vite-hub/internal/features"
 import { describe, expect, it } from "vitest"
 
-import { initPackages, nuxiPackage, nuxtNitroPackage } from "../src/setup/init.ts"
+import { initPackages, nuxiPackage, nuxtNitroPackage, nuxtPnpmWorkspace } from "../src/setup/init.ts"
 import { createProject, runSetup } from "./setup-helpers.ts"
 
 import type { ViteHubCliSpawn } from "@vite-hub/internal/cli"
@@ -415,8 +415,10 @@ describe("vitehub init", () => {
   ] as const)("creates a Nuxt app with the pinned nuxi using %s (Nuxt 5 nightly: %s), then adopts it", async (pm, nightly) => {
     const parent = await createProject()
     const calls: string[][] = []
+    let workspaceAtInstall: string | undefined
     const spawn: ViteHubCliSpawn = async (command, args) => {
       calls.push([command, ...args])
+      if (args[0] === "add") workspaceAtInstall = await readFile(join(parent, "site/pnpm-workspace.yaml"), "utf8").catch(() => undefined)
       if (args.includes("init")) {
         await mkdir(join(parent, "site/server"), { recursive: true })
         await writeFile(join(parent, "site", pm === "yarn" ? "yarn.lock" : "pnpm-lock.yaml"), "")
@@ -438,6 +440,7 @@ describe("vitehub init", () => {
     expect(locateViteHubConfig("nuxt.config.ts", config)).toMatchObject({ ok: true, site: { form: "nuxt-module-tuple", keys: { kv: { value: true }, host: { value: "vercel" } } } })
     expect(result.json.stack.command).toBe(`pnpm dlx vite-hub init site --host vercel --features kv --framework nuxt${nightly ? " --nuxt-nightly" : ""} --pm ${pm} --yes`)
     expect(await readFile(join(parent, "site/README.md"), "utf8")).toBe("# Nuxt starter\n")
+    expect(workspaceAtInstall).toBe(pm === "pnpm" && !nightly ? nuxtPnpmWorkspace : undefined)
     expect((await runSetup<StatusResult>(["status", "--json"], join(parent, "site"))).json.stack).toEqual(result.json.stack)
   })
 
@@ -451,6 +454,7 @@ describe("vitehub init", () => {
     expect(result.json).toMatchObject({ framework: "nuxt", mode: "create", status: "planned" })
     expect(result.json.scaffold?.command.includes("--nightly 5x")).toBe(flags.length > 0)
     expect(result.json.install.packages).toEqual([...initPackages.nuxt.prod, ...nitro, "@vite-hub/kv"])
+    expect(result.json.changes.some(change => change.path === "pnpm-workspace.yaml" && change.after === nuxtPnpmWorkspace)).toBe(flags.length === 0)
     expect(result.json.stack.command).toBe(`pnpm dlx vite-hub init site --host node --features kv ${replay.join(" ")} --pm pnpm --yes`)
   })
 
