@@ -652,7 +652,7 @@ export const CommentLayer = defineComponent({
                     // The bubble comes out of its pin, as a tooltip comes out of its trigger. In the margin it is a card.
                     "data-motion-appear": draftColumn ? undefined : "[data-slot=comment-pin]",
                     "data-slot": "comment-layer-popover",
-                    style: draftColumn?.style ?? { left: `${placement.left}px`, right: "auto" },
+                    style: draftColumn?.style ?? { "--vh-comment-draft-left": `${placement.left}px` },
                     ref: (element: unknown) => {
                       draftCard.value = element instanceof HTMLElement ? element : null;
                       if (draftColumn) measured(draftPositionKey)(element);

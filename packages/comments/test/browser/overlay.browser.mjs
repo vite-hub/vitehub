@@ -679,6 +679,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     assert.equal(await items.count(), 0)
     await composer.fill("Only this one shows")
     await composer.press("Enter")
+    await page.mouse.move(5, 5)
     // The item is a zero-size anchor, so wait for its pin. From then on the page records each change of the pins, as
     // the pop-out lasts 180ms and a screenshot can take longer.
     await items.first().locator("[data-slot='comment-pin']").waitFor({ timeout: 5000 })
