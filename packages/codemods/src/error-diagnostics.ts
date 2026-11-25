@@ -2,16 +2,16 @@ import { defineDiagnostics } from "nostics"
 
 import type { Diagnostic, Diagnostics } from "nostics"
 
-// Each code identifies one codemod failure. Keep published codes stable.
 const codes = {
-  // Named errors. Keep these codes in alphabetical order.
   CODEMODS_BLOCKED: {
     why: ({ problem }: { problem: string }): string => problem,
     fix: "Change the file, the option, or the argument that the message names, then run the codemod again. Add `--dry-run` to see the edits before it writes them.",
   },
   CODEMODS_NITRO_UNSUPPORTED: {
-    why: ({ codemod, config, nitropack }: { codemod: string, config: string, nitropack: string }): string => `${config} belongs to a Nitro 2 app: package.json requires nitropack "${nitropack}". ${codemod} moves an app to ViteHub, which supports Nitro 3 only, so the migrated app would not build. No file was written.`,
-    fix: "Keep nuxt-safe-runtime-config/nitro while the app runs on Nitro 2. To move to ViteHub Env, upgrade the app to Nitro 3 (the `nitro` package) first, then run the codemod again.",
+    why: ({ codemod, reason }: { codemod: string, reason: string, mixed: boolean }): string => `${reason} ViteHub supports Nitro 3 only. ${codemod} made no edits.`,
+    fix: ({ mixed }: { mixed: boolean }): string => mixed
+      ? "Keep only the Nitro package the app uses. If it uses Nitro 2, keep nuxt-safe-runtime-config/nitro until you upgrade to Nitro 3. Run the codemod again once the app uses Nitro 3."
+      : "Keep nuxt-safe-runtime-config/nitro while the app runs on Nitro 2. To move to ViteHub Env, upgrade the app to Nitro 3 (the `nitro` package) first, then run the codemod again.",
   },
   CODEMODS_UNKNOWN: {
     why: ({ available, name }: { available: readonly string[], name: string }): string => `Unknown codemod "${name}". Available: ${available.join(", ")}.`,

@@ -51,7 +51,7 @@ The codemod stops without writing files when:
 - `modules` is an expression, such as `buildModules()`, or a root spread can supply it. Make the list explicit.
 - `nitro.preset` is dynamic and no ViteHub host is explicit. Use a string literal, or set `vitehub.host`.
 - the config has no schema and extends layers, uses a root spread, or has automatic `layers/` directories.
-- the app is a Nitro app without `nuxt.config` that does not run on Nitro 3 (the `nitro` package). ViteHub supports Nitro 3 only, so keep `nuxt-safe-runtime-config/nitro` until the app moves to Nitro 3. The error code is `CODEMODS_NITRO_UNSUPPORTED`.
+- a Nitro app without `nuxt.config` declares `nitropack`, directly or through an npm alias. ViteHub supports Nitro 3 only, so keep `nuxt-safe-runtime-config/nitro` until the app moves to Nitro 3. If the app declares both packages, keep only the Nitro package it uses before retrying. The error code is `CODEMODS_NITRO_UNSUPPORTED`.
 
 The report lists what Env cannot express and what the codemod could not rewrite: rules that no schema module keeps, unions of input types, array and object defaults, non-empty secret defaults, secret reads that need `.unseal()`, `useRuntimeConfig()` reads of migrated keys, template reads, and the ESLint rules of the module. Public Env values are fixed when you build, while Nuxt applied `NUXT_PUBLIC_*` overrides when the server started.
 
