@@ -94,6 +94,7 @@ Available namespaces:
 | `vitehub login` | Available | ViteHub CLI | Sign in to a ViteHub Console with the device flow and save an API key for this machine. `--console` names a self-hosted Console. Does not load the project config. |
 | `vitehub logout` | Available | ViteHub CLI | Revoke the saved API key on the Console and remove it from this machine. Does not load the project config. |
 | `vitehub whoami` | Available | ViteHub CLI | Show the person, team, and projects of the Console API key. Does not load the project config. |
+| `vitehub apps` | Available | ViteHub CLI | [List, link, check, and unlink apps](/docs/cli/project#link-an-app-to-a-console) in the Console. Does not load the project config. |
 | `vitehub agent eval` | Opt-in tooling | Agent Package | Run discovered Agent Evals through ViteHub defaults. |
 | `vitehub agent get` | Available | Agent Package | Inspect one Agent by name through the running dev server, or a deployed app with `--url`. |
 | `vitehub agent dev` | Available | Agent Package | Talk to a discovered Agent through a running Vite Development Server. |

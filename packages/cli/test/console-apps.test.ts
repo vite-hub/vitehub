@@ -8,14 +8,14 @@ const env = (home: string) => ({ VITEHUB_CONSOLE_TOKEN: token, VITEHUB_CONSOLE_U
 
 interface FakeApp { id: string, teamId: string, url: string, label: string | null, createdBy: string, createdAt: number, publicKey: string | null, keyVariable: string | null }
 
-function fakeConsole(options: { role?: string, appKnowsKey?: boolean } = {}) {
+function fakeConsole(options: { role?: string, appKnowsKey?: boolean, deleteResponse?: Response } = {}) {
   const apps: FakeApp[] = []
-  const requests: { method: string, path: string, search: string, body: unknown }[] = []
+  const requests: { method: string, origin: string, path: string, search: string, body: unknown }[] = []
   const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input))
     const method = init?.method ?? "GET"
     const body: unknown = init?.body ? JSON.parse(String(init.body)) : undefined
-    requests.push({ body, method, path: url.pathname, search: url.search })
+    requests.push({ body, method, origin: url.origin, path: url.pathname, search: url.search })
     if (new Headers(init?.headers).get("authorization") !== `Bearer ${token}`) return Response.json({ code: "CONSOLE_API_KEY_INVALID" }, { status: 401 })
     if (url.pathname === "/api/whoami") return Response.json({ key: { expiresAt: 0, id: "key-1" }, projectIds: null, roles: [options.role ?? "owner"], team: { id: "t1", name: "Acme" }, user: { email: "", id: "u1", name: "Ada" } })
     if (url.pathname === "/api/projects" && method === "GET") return Response.json({ projects: apps })
@@ -37,6 +37,7 @@ function fakeConsole(options: { role?: string, appKnowsKey?: boolean } = {}) {
     }
     const project = /^\/api\/projects\/([^/]+)$/.exec(url.pathname)
     if (project && method === "DELETE") {
+      if (options.deleteResponse) return options.deleteResponse
       const index = apps.findIndex(app => app.id === decodeURIComponent(project[1]!))
       if (index < 0) return Response.json({ code: "CONSOLE_PROJECT_NOT_FOUND", message: "There is no such project." }, { status: 404 })
       apps.splice(index, 1)
@@ -83,6 +84,20 @@ describe("vitehub apps", () => {
     expect(ok.stdout).toBe(`The app answers signed requests of ${consoleUrl}.\n`)
   })
 
+  it("prints a check command for the selected Console and includes the Node prerequisite", async () => {
+    const home = await createProject()
+    const console = fakeConsole({ appKnowsKey: true })
+    const origin = "https://other-console.example.com"
+    const linked = await runSetup<{ next: string }>(["apps", "link", "https://app.example.com", "--console", `${origin}/`, "--json"], home, env(home), { fetch: console.fetch })
+    expect(linked.exitCode).toBe(0)
+    expect(linked.json.next).toContain('publicUrl: "https://app.example.com"')
+    const command = linked.json.next.match(/`(vitehub apps check [^`]+)`/)?.[1]
+    expect(command).toBe(`vitehub apps check a1b2c3d4-0 --console ${origin}`)
+    const checked = await runSetup(command!.split(" ").slice(1), home, env(home), { fetch: console.fetch })
+    expect(checked.exitCode).toBe(0)
+    expect(console.requests.map(request => request.origin)).toEqual([origin, origin])
+  })
+
   it("registers a site with --kind site and prints its script tag", async () => {
     const home = await createProject()
     const console = fakeConsole()
@@ -109,6 +124,17 @@ describe("vitehub apps", () => {
     expect(unlinked.json).toMatchObject({ next: "Remove VITEHUB_CONSOLE_KEY_CONSOLE_A1B2C3D4 from the environment of https://app.example.com.", unlinked: "a1b2c3d4-0" })
     expect(console.requests.at(-1)).toMatchObject({ method: "DELETE", path: "/api/projects/a1b2c3d4-0", search: "?deleteHostedComments=true" })
     expect(console.apps).toHaveLength(0)
+  })
+
+  it("requires a delete acknowledgment before reporting an unlink", async () => {
+    const home = await createProject()
+    const console = fakeConsole({ deleteResponse: new Response("Sign in", { headers: { "content-type": "text/html" } }) })
+    await runSetup(["apps", "link", "https://app.example.com"], home, env(home), { fetch: console.fetch })
+    const result = await runSetup(["apps", "unlink", "a1b2c3d4-0", "--delete-hosted-comments"], home, env(home), { fetch: console.fetch })
+    expect(result.exitCode).toBe(1)
+    expect(result.stdout).toBe("")
+    expect(result.stderr).toContain("expected status 204")
+    expect(console.apps).toHaveLength(1)
   })
 
   it("passes the Console's refusal on, and asks for a login without a key", async () => {

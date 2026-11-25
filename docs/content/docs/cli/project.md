@@ -664,7 +664,7 @@ The CLI has no valid key for the Console: there is no saved key, or the Console 
 
 ## Link an app to a Console
 
-`vitehub apps` lists, links, checks, and unlinks the apps of your team in the Console, with the key of `vitehub login`. It needs no project. Each command matches a tool of the Console MCP and prints the same JSON with `--json`.
+`vitehub apps` lists, links, checks, and unlinks the apps of your team in the Console, with the key of `vitehub login`. It needs no project. The commands cover the same tasks as the Console MCP tools. `--json` prints a CLI result, not an MCP tool response.
 
 | CLI | Console MCP tool |
 | --- | --- |
@@ -675,19 +675,23 @@ The CLI has no valid key for the Console: there is no saved key, or the Console 
 
 ```bash [Terminal]
 vitehub apps link https://app.example.com --label Docs
-vitehub apps check a1b2c3d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d
 ```
 
 ```txt [Output]
 Linked Docs (https://app.example.com) as a1b2c3d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d.
 VITEHUB_CONSOLE_KEY_CONSOLE_A1B2C3D4=MCowBQYDK2VwAyEA...
-Set VITEHUB_CONSOLE_KEY_CONSOLE_A1B2C3D4 in the environment of https://app.example.com, with console: true in its vitehub config. Deploy it, then run `vitehub apps check a1b2c3d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d`.
+Set VITEHUB_CONSOLE_KEY_CONSOLE_A1B2C3D4 in the environment of https://app.example.com and enable console: true in its vitehub config. On Node, also set publicUrl: "https://app.example.com" in that config. Deploy it, then run `vitehub apps check a1b2c3d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d --console https://console.vitehub.dev`.
+```
+
+On Node, `vitehub({ console: true, publicUrl: "https://app.example.com" })` sets the app's public origin for signed requests. Set the key, deploy the app, and run the printed `apps check` command. A successful check prints:
+
+```txt [Output]
 The app answers signed requests of https://console.vitehub.dev.
 ```
 
 - `apps link` of a URL that the team already linked prints the same link and key again, so you can run it on every deploy. Only owners and admins may link.
 - The variable holds the public key of the link. It is not a secret, but set it as a secret on Cloudflare so that a deploy from the dashboard or `wrangler deploy` keeps it.
-- `apps check` exits with `1` until the deployed app has the variable.
+- `apps check` exits with `1` if the deployed app does not accept the Console's signed request.
 - `apps unlink` deletes the private key of the link and the hosted comment threads of the app, so it needs `--delete-hosted-comments`.
 
 ### `CLI_CONSOLE_REQUEST_FAILED`

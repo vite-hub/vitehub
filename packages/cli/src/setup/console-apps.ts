@@ -3,6 +3,7 @@ import { parseArgs } from "node:util"
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { consoleOrigin, consoleUrlVariable, defaultConsoleUrl, readConsoleCredential } from "./console-auth.ts"
 import { setupExitCodes, table, writeSetupError, writeSetupJson } from "./envelope.ts"
+import { shellQuote } from "./status.ts"
 
 import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cli"
 
@@ -114,8 +115,9 @@ interface AppsValues {
 }
 
 function readAppsArgs(command: AppsCommand, args: string[]): { values: AppsValues, positionals: string[] } {
+  let parsed
   try {
-    const { positionals, values } = parseArgs({
+    parsed = parseArgs({
       allowPositionals: true,
       args,
       options: {
@@ -127,14 +129,18 @@ function readAppsArgs(command: AppsCommand, args: string[]): { values: AppsValue
       },
       strict: true,
     })
-    const expected = command === "list" ? 0 : 1
-    if (!values.help && positionals.length !== expected) throw new Error(expected ? `Pass one ${command === "link" ? "URL" : "app id"}.` : `Got ${JSON.stringify(positionals[0])}.`)
-    // SAFETY: The options above, read with `strict: true`.
-    return { positionals, values: { "delete-hosted-comments": false, ...values } as AppsValues }
   }
   catch (error: unknown) {
     throw cliErrorDiagnostics.CLI_R0003({ message: `[vitehub] ${error instanceof Error ? error.message : String(error)} Usage: ${usage[command]}` })
   }
+  const { positionals, values } = parsed
+  const expected = command === "list" ? 0 : 1
+  if (!values.help && positionals.length !== expected) {
+    const message = expected ? `Pass one ${command === "link" ? "URL" : "app id"}.` : `Got ${JSON.stringify(positionals[0])}.`
+    throw cliErrorDiagnostics.CLI_R0003({ message: `[vitehub] ${message} Usage: ${usage[command]}` })
+  }
+  // SAFETY: The options above, read with `strict: true`.
+  return { positionals, values: { "delete-hosted-comments": false, ...values } as AppsValues }
 }
 
 function appName(app: ConsoleApp): string {
@@ -175,7 +181,8 @@ async function runApps(command: AppsCommand, args: string[], context: ViteHubCli
       return setupExitCodes.done
     }
     const variable = `${app.keyVariable}=${app.publicKey}`
-    const next = `Set ${app.keyVariable} in the environment of ${app.url}, with console: true in its vitehub config. Deploy it, then run \`vitehub apps check ${app.id}\`.`
+    const check = `vitehub apps check ${shellQuote(app.id)} --console ${shellQuote(client.origin)}`
+    const next = `Set ${app.keyVariable} in the environment of ${app.url} and enable console: true in its vitehub config. On Node, also set publicUrl: ${JSON.stringify(new URL(app.url).origin)} in that config. Deploy it, then run \`${check}\`.`
     write({ app, variable, next }, `${verb} ${appName(app)} as ${app.id}.\n${variable}\n${next}\n`)
     return setupExitCodes.done
   }
@@ -191,14 +198,22 @@ async function runApps(command: AppsCommand, args: string[], context: ViteHubCli
     throw cliErrorDiagnostics.CLI_R0003({ message: `[vitehub] Unlinking permanently deletes the hosted comment threads and replies of the app. Pass --delete-hosted-comments to confirm. Usage: ${usage.unlink}` })
   }
   const app = (await listConsoleApps(client)).find(item => item.id === id)
-  await client.request(`/api/projects/${encodeURIComponent(id)}?deleteHostedComments=true`, { method: "DELETE" })
+  const { status } = await client.request(`/api/projects/${encodeURIComponent(id)}?deleteHostedComments=true`, { method: "DELETE" })
+  if (status !== 204) {
+    throw cliErrorDiagnostics.CLI_CONSOLE_REQUEST_FAILED({
+      code: String(status),
+      console: client.origin,
+      fix: "Check that the Console and its proxy return the project API response, not a sign-in page. Run `vitehub apps list` to see if the app is still linked.",
+      message: "The Console did not confirm the unlink (expected status 204).",
+    })
+  }
   const next = app?.keyVariable ? `Remove ${app.keyVariable} from the environment of ${app.url}.` : ""
   write({ unlinked: id, next }, `Unlinked ${app ? appName(app) : id}.${next ? ` ${next}` : ""}\n`)
   return setupExitCodes.done
 }
 
 const appsHelp: Record<AppsCommand, string> = {
-  check: "Call project.get on a linked app with a signed request of the Console. Exits with 1 until the app has the variable of the link.",
+  check: "Call project.get on a linked app with a signed request from the Console. Exits with 1 if the request fails.",
   link: "Link a deployed ViteHub app to your team, or register a site for Hosted Comments with --kind site. Linking a URL again returns the same link and key. Only owners and admins may link.",
   list: "List the apps of the team of your Console key, with the id that the other commands take.",
   unlink: "Unlink an app. This deletes the private key of the link and the hosted comment threads of the app. Only owners and admins may unlink.",
