@@ -11,6 +11,7 @@ interface RenderDatabaseRuntimeModuleOptions {
   setup?: string[]
   /** The module of shipped migrations, or why this build cannot apply migrations in the server process. */
   migrations: { import: string } | { unsupported: string }
+  shareWithNodeCopy?: boolean
   useDatabaseImport: string
 }
 
@@ -22,7 +23,7 @@ interface RenderDatabaseRuntimeModuleOptions {
 export function renderDatabaseRuntimeModule(options: RenderDatabaseRuntimeModuleOptions): string {
   return [
     `import { createAgentDatabase, createDatabaseBindingLookup, defaultDatabaseNotConfiguredError, pingDatabaseEntries } from ${JSON.stringify(options.createAgentDatabaseImport)}`,
-    `import { createUseDatabase } from ${JSON.stringify(options.useDatabaseImport)}`,
+    `import { createUseDatabase${options.shareWithNodeCopy ? ", shareRuntimeDatabases" : ""} } from ${JSON.stringify(options.useDatabaseImport)}`,
     `export { chunkParameters } from ${JSON.stringify(options.chunkParametersImport)}`,
     `import { readPostgresConnectionUrl } from ${JSON.stringify(options.postgresConnectionImport)}`,
     `import { ensureDatabaseMigrations } from ${JSON.stringify(options.ensureMigrationsImport)}`,
@@ -82,6 +83,7 @@ export function renderDatabaseRuntimeModule(options: RenderDatabaseRuntimeModule
       ? `const loadMigrations = () => import(${JSON.stringify(options.migrations.import)}).then(module => module.default)`
       : `const loadMigrations = async () => (${JSON.stringify({ allowDataLoss: false, databases: {}, unsupported: options.migrations.unsupported })})`,
     "export function ensureMigrations(name) { return ensureDatabaseMigrations({ databases, load: loadMigrations }, name === undefined ? undefined : [name]) }",
+    ...(options.shareWithNodeCopy ? ["shareRuntimeDatabases(() => ({ configured: new Set(Object.keys(configured())), databases }))"] : []),
     "",
   ].join("\n")
 }
