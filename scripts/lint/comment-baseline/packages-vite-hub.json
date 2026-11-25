@@ -517,7 +517,6 @@
   "packages/vite-hub/test/nuxt-nitro-import.test.ts": 2,
   "packages/vite-hub/test/nuxt-queue.test.ts": 2,
   "packages/vite-hub/test/nuxt-server-imports.test.ts": 3,
-  "packages/vite-hub/test/nuxt-signed-console-build.test.ts": 4,
   "packages/vite-hub/test/nuxt.test.ts": 77,
   "packages/vite-hub/test/optional-owners.test.ts": 14,
   "packages/vite-hub/test/own-module-entries.test.ts": 2,

@@ -124,7 +124,7 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
       },
       commitRepair: {
         name: "commitRepair",
-        description: "Stage the named repair files and commit them on the host. Git metadata is read-only in the provider sandbox. A base merge is rejected when it undoes base changes, unless baseOverrides names each such file with a reason. Call pushRepair after validation and this commit.",
+        description: "Stage the named repair files and commit them on the host. Git metadata is read-only in the provider sandbox. A base merge is rejected when it undoes changes of the base or of this PR, unless baseOverrides or prOverrides names each such file with a reason. Call pushRepair after validation and this commit.",
         inputSchema: {
           type: "object",
           properties: {
@@ -135,6 +135,11 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
               description: "Files where this PR deliberately replaces a change the base made, each with a one-sentence reason.",
               items: { type: "object", properties: { path: { type: "string", minLength: 1 }, reason: { type: "string", minLength: 1 } }, required: ["path", "reason"], additionalProperties: false },
             },
+            prOverrides: {
+              type: "array",
+              description: "Files where the base version deliberately replaces a change this PR made, each with a one-sentence reason.",
+              items: { type: "object", properties: { path: { type: "string", minLength: 1 }, reason: { type: "string", minLength: 1 } }, required: ["path", "reason"], additionalProperties: false },
+            },
           },
           required: ["message", "paths"],
           additionalProperties: false,
@@ -142,9 +147,15 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
         execute: (input: unknown) => withinRepair(async () => {
           if (!isRuntimeRecord(input) || !Array.isArray(input.paths) || !input.paths.every(path => hasRuntimeType(path, "string"))) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_TOOL_PATHS_MISSING();
           await workspace?.beforeRepair(context.context, input.paths);
-          if (input.baseOverrides !== undefined && !Array.isArray(input.baseOverrides)) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_TOOL_FIELD_INVALID({ key: "baseOverrides", expected: "an array" });
-          const baseOverrides = input.baseOverrides?.map((entry: unknown) => ({ path: stringField(entry, "path"), reason: stringField(entry, "reason") }));
-          const head = await operations.commitRepair({ message: stringField(input, "message"), paths: input.paths, ...baseOverrides && { baseOverrides } });
+          const overrides = (key: "baseOverrides" | "prOverrides") => {
+            const entries = input[key];
+            if (entries === undefined) return undefined;
+            if (!Array.isArray(entries)) throw presetsErrorDiagnostics.PRESETS_BABYSITTER_TOOL_FIELD_INVALID({ key, expected: "an array" });
+            return entries.map((entry: unknown) => ({ path: stringField(entry, "path"), reason: stringField(entry, "reason") }));
+          };
+          const baseOverrides = overrides("baseOverrides");
+          const prOverrides = overrides("prOverrides");
+          const head = await operations.commitRepair({ message: stringField(input, "message"), paths: input.paths, ...baseOverrides && { baseOverrides }, ...prOverrides && { prOverrides } });
           return { head };
         }),
       },
