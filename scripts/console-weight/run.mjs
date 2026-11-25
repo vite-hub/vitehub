@@ -11,7 +11,7 @@ import { createConsoleKeyPair, signConsoleRequest } from "@vite-hub/internal/con
 import { providerHosts } from "@vite-hub/internal/deployment"
 
 import { chunkGrowth } from "./chunk-growth.mjs"
-import { memoryFloor, memoryNoiseLimit, memoryVerdict } from "./memory-verdict.mjs"
+import { memoryBudget, memoryNoiseLimit, memoryVerdict } from "./memory-verdict.mjs"
 import { startupGrowth } from "./startup-growth.mjs"
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -816,7 +816,7 @@ async function main() {
 
   for (const build of Object.values(builds)) {
     const { host, auth, off, on } = build
-    const growth = startupGrowth(off.startup.sources, on.startup.sources)
+    const growth = startupGrowth(off.startup, on.startup)
     const describe = startup => `${Object.keys(startup.sources).length} source modules, ${formatBytes(startup.sourceBytes)}`
     addRow({
       id: "startup",
@@ -824,9 +824,9 @@ async function main() {
       variant: variantName(host, auth),
       off: describe(off.startup),
       on: describe(on.startup),
-      change: `+${growth.added.length} source modules, ${signed(growth.bytes, formatBytes)}`,
+      change: `+${growth.added.length} source modules, ${signed(growth.bytes, formatBytes)} traced, ${signed(growth.unmappedBytes, formatBytes)} unmapped`,
       target: "+0 source modules, at most +1 kB",
-      result: !growth.added.length && growth.bytes <= kB ? "PASS" : "FAIL",
+      result: growth.result,
       details: {
         added: growth.added,
         grown: growth.grown,
@@ -981,8 +981,8 @@ async function main() {
       variant: variantName("node", auth),
       off: `${mb(median(memory.offA))} RSS`,
       on: `${mb(median(memory.on))} RSS`,
-      change: `${signed(verdict.change, mb)}, noise ${mb(verdict.noise)}`,
-      target: `within max(${mb(memoryFloor)}, 2 × noise)`,
+      change: `${signed(verdict.change, mb)} [${signed(verdict.lower, mb)}, ${signed(verdict.upper, mb)}], noise ${mb(verdict.noise)}`,
+      target: `within ±${mb(memoryBudget)}`,
       result: verdict.result,
       details: { ...memory, ...verdict, rounds: memoryRounds, settleMs },
     })
@@ -997,9 +997,9 @@ async function main() {
     printTable(rows)
     log(`\n${rows.length - failed.length} of ${rows.length} rows pass at ${commit}.`)
     log(`Console glue: output bytes that the server sourcemaps trace to ${consoleSources.join(", ")}.`)
-    log("Startup code: the source modules that the server sourcemaps trace in the output chunks that index.mjs imports statically, and the output bytes they trace to. The row fails when the Console adds a source module or more than 1 kB in total. A module that only moves to another chunk does not count.")
+    log("Startup code: the source modules and bytes that server sourcemaps trace in the output chunks that index.mjs imports statically. An added module or more than 1 kB of traced growth fails. If traced and unmapped growth together exceed 1 kB without a traced failure, the result is inconclusive. A module that only moves to another chunk does not count.")
     log("Server owners: the source package of each output byte, per chunk. The row fails when a new or changed chunk adds any bytes of a primitive the fixture does not configure. A Console-on chunk whose code (without import and export lines) is the same as a Console-off chunk does not count; each Console-off chunk matches one Console-on chunk at most.")
-    log(`Node rows run the Node build. Memory: ${memoryRounds} rounds of off A, on, off B, RSS ${settleMs / 1000} s after the first 200 from /api/touch; the change is the median of on minus the mean of off A and off B in the same round; the noise is the mean gap between off A and off B in the same round; the row passes when the change is within the larger of ${formatBytes(memoryFloor, MB, "MB")} and twice the noise, and is inconclusive when twice the noise is above ${formatBytes(memoryNoiseLimit, MB, "MB")}. Tables: after one Agent run, then ${operationProbes.length} operation probes and the Site link redeem. Cloudflare env rows read the deployment manifest only.`)
+    log(`Node rows run the Node build. Memory: ${memoryRounds} rounds of off A, on, off B, RSS ${settleMs / 1000} s after the first 200 from /api/touch. The change is the median of on minus the mean of the two off readings in each round. The range uses the medians of on minus the higher and lower off readings. It passes if the range fits within ±${formatBytes(memoryBudget, MB, "MB")}, fails if the range is entirely outside the budget on one side, and is otherwise inconclusive. The result is also inconclusive when twice the mean off/off gap exceeds ${formatBytes(memoryNoiseLimit, MB, "MB")}. Tables: after one Agent run, then ${operationProbes.length} operation probes and the Site link redeem. Cloudflare env rows read the deployment manifest only.`)
     if (options.json) {
       writeFileSync(options.json, `${JSON.stringify(report, null, 2)}\n`)
       log(`Wrote ${options.json}`)

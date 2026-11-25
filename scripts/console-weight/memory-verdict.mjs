@@ -1,5 +1,5 @@
 const MB = 1000 * 1000
-export const memoryFloor = 0.5 * MB
+export const memoryBudget = 0.5 * MB
 export const memoryNoiseLimit = 3 * MB
 
 const mean = values => values.reduce((total, value) => total + value, 0) / values.length
@@ -14,7 +14,12 @@ export function memoryVerdict({ offA, on, offB }) {
   const differences = on.map((value, index) => value - (offA[index] + offB[index]) / 2)
   const change = median(differences)
   const noise = mean(offB.map((value, index) => Math.abs(value - offA[index])))
-  const bound = Math.max(memoryFloor, 2 * noise)
-  const result = bound > memoryNoiseLimit ? "INCONCLUSIVE" : Math.abs(change) <= bound ? "PASS" : "FAIL"
-  return { change, noise, bound, result, differences }
+  const lower = median(on.map((value, index) => value - Math.max(offA[index], offB[index])))
+  const upper = median(on.map((value, index) => value - Math.min(offA[index], offB[index])))
+  let result = "INCONCLUSIVE"
+  if (2 * noise <= memoryNoiseLimit) {
+    if (lower > memoryBudget || upper < -memoryBudget) result = "FAIL"
+    else if (lower >= -memoryBudget && upper <= memoryBudget) result = "PASS"
+  }
+  return { change, noise, lower, upper, result, differences }
 }

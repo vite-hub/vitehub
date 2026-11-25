@@ -32,36 +32,64 @@ it("a renamed chunk prefers an exact match with no same-name fallback", () => {
 it("a module that moves to another startup chunk is not startup growth", () => {
   const off = { "packages/kv/src/index.ts": 900, "node_modules/h3/dist/index.mjs": 4000 }
   const on = { "node_modules/h3/dist/index.mjs": 4000, "packages/kv/src/index.ts": 900 }
-  expect(startupGrowth(off, on)).toEqual({ added: [], grown: [], bytes: 0 })
+  expect(startupGrowth({ sources: off, unmapped: 0 }, { sources: on, unmapped: 0 })).toEqual({
+    added: [], grown: [], bytes: 0, unmappedBytes: 0, result: "PASS",
+  })
 })
 
 it("an added startup module and a grown startup module are startup growth", () => {
   const off = { "packages/kv/src/index.ts": 900 }
   const on = { "packages/kv/src/index.ts": 950, "packages/vite-hub/src/console/rpc.ts": 3000 }
-  expect(startupGrowth(off, on)).toEqual({
+  expect(startupGrowth({ sources: off, unmapped: 0 }, { sources: on, unmapped: 0 })).toEqual({
     added: [{ source: "packages/vite-hub/src/console/rpc.ts", bytes: 3000 }],
     grown: [{ source: "packages/kv/src/index.ts", bytes: 50 }],
     bytes: 3050,
+    unmappedBytes: 0,
+    result: "FAIL",
   })
 })
 
 it("bytes that the sourcemap traces to a different startup module are not startup growth", () => {
   const off = { "node_modules/comark/dist/internal/bracket-math.js": 30000, "node_modules/comark/dist/plugins/linkify.js": 100 }
   const on = { "node_modules/comark/dist/internal/bracket-math.js": 1900, "node_modules/comark/dist/plugins/linkify.js": 28200 }
-  expect(startupGrowth(off, on).bytes).toBe(0)
+  expect(startupGrowth({ sources: off, unmapped: 0 }, { sources: on, unmapped: 0 }).bytes).toBe(0)
+})
+
+it("growth in an existing startup dependency with empty mappings is inconclusive", () => {
+  const off = { sources: { "<app>/server/logs.ts": 1000 }, unmapped: 5000 }
+  const on = { sources: { "<app>/server/logs.ts": 941 }, unmapped: 9074 }
+  expect(startupGrowth(off, on)).toMatchObject({ added: [], bytes: -59, unmappedBytes: 4074, result: "INCONCLUSIVE" })
+})
+
+it("startup uses the combined delta for uncertainty and fails on proven growth", () => {
+  const off = { sources: { "<app>/server/logs.ts": 1000 }, unmapped: 1000 }
+  expect(startupGrowth(off, { sources: { "<app>/server/logs.ts": 1600 }, unmapped: 1400 }).result).toBe("PASS")
+  expect(startupGrowth(off, { sources: { "<app>/server/logs.ts": 1600 }, unmapped: 1401 }).result).toBe("INCONCLUSIVE")
+  expect(startupGrowth(off, { sources: { "<app>/server/logs.ts": 2001 }, unmapped: 0 }).result).toBe("FAIL")
 })
 
 const MB = 1000 * 1000
 const rss = (values: number[]) => values.map(value => value * MB)
 
-it("memory passes when Console on is inside the off A to off B noise", () => {
-  const verdict = memoryVerdict({ offA: rss([101.3, 103.1, 102.7, 102.5, 102.6]), on: rss([102.5, 102.2, 103.4, 102.8, 102.0]), offB: rss([102.8, 102.8, 103.2, 101.1, 101.1]) })
-  expect(verdict.result).toBe("PASS")
+it("memory passes when the full range fits the fixed budget", () => {
+  const verdict = memoryVerdict({ offA: rss([100, 100, 101]), on: rss([100.5, 100.5, 101.5]), offB: rss([101, 101, 102]) })
+  expect(verdict).toMatchObject({ result: "PASS", lower: -0.5 * MB, upper: 0.5 * MB })
 })
 
-it("memory fails when Console on adds more than twice the noise", () => {
-  const verdict = memoryVerdict({ offA: rss([102.0, 101.6, 102.3, 101.6, 101.2]), on: rss([106.5, 106.7, 106.7, 106.1, 106.0]), offB: rss([102.5, 101.5, 102.2, 102.1, 100.7]) })
+it("memory fails when a consistent increase exceeds the budget despite off/off noise", () => {
+  const gaps = [0, 2, 2, 0, 0, 2, 0]
+  const verdict = memoryVerdict({ offA: rss(gaps.map(() => 100)), on: rss(gaps.map(gap => 101.6 + gap / 2)), offB: rss(gaps.map(gap => 100 + gap)) })
+  expect(verdict).toMatchObject({ result: "FAIL", change: 1.6 * MB, lower: 1.6 * MB, upper: 1.6 * MB })
+})
+
+it("memory fails when the full range is below the negative budget", () => {
+  const verdict = memoryVerdict({ offA: rss([100]), on: rss([99]), offB: rss([101]) })
   expect(verdict.result).toBe("FAIL")
+})
+
+it("memory is inconclusive when the range overlaps the budget", () => {
+  const verdict = memoryVerdict({ offA: rss([100]), on: rss([101]), offB: rss([101]) })
+  expect(verdict).toMatchObject({ result: "INCONCLUSIVE", lower: 0, upper: MB })
 })
 
 it("memory is inconclusive when off A and off B differ by more than 1.5 MB", () => {
