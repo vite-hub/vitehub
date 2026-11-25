@@ -6,7 +6,9 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { createEntrySource } from "../../src/task/runtime/entry-script.injected.ts"
+import { resolveSandboxTaskProject } from "../../src/task/project.ts"
+import { createEntrySource, EXEC_STDIO_OUTPUT_MARKER, MAX_EXEC_DIAGNOSTIC_BYTES } from "../../src/task/runtime/entry-script.injected.ts"
+import { readExecOutputWithRecovery } from "../../src/task/runtime/output-recovery.ts"
 import {
   decodeSandboxTaskValue,
   DEFAULT_SANDBOX_TASK_TRANSFER_BYTES,
@@ -57,7 +59,8 @@ async function executePackageEntry(definitionSource: string, options: {
     child.once("error", reject)
     child.once("close", resolve)
   })
-  const output = JSON.parse(await readFile(outputPath, "utf8")) as {
+  const raw = await readFile(outputPath, "utf8")
+  const output = JSON.parse(raw) as {
     error?: { code?: string; message?: string }
     ok: boolean
     result?: unknown
@@ -65,6 +68,8 @@ async function executePackageEntry(definitionSource: string, options: {
   return {
     code,
     output,
+    raw,
+    outputPath,
     readOutputFile: async (id: number) => await readFile(join(`${outputPath}.files`, String(id))),
   }
 }
@@ -95,7 +100,7 @@ describe("package entry result transport", () => {
     ["binary", "new Response(new Uint8Array([0, 127, 255]), { status: 201 })", [0, 127, 255]],
     ["streaming", "new Response(new ReadableStream({ start(controller) { controller.enqueue(new Uint8Array([0, 127])); controller.enqueue(new Uint8Array([255])); controller.close() } }), { status: 201 })", [0, 127, 255]],
     ["null", "new Response(null, { status: 204 })", []],
-  ])("clones a native %s response only once during detection", async (_label, expression, bytes) => {
+  ])("recognizes a native %s response without cloning it", async (_label, expression, bytes) => {
     const execution = await executePackageEntry(`export default () => ${expression}`, {
       prelude: [
         "const proofNativeClone = Response.prototype.clone",
@@ -112,7 +117,7 @@ describe("package entry result transport", () => {
     const sandbox = {} as Parameters<typeof decodeSandboxTaskValue>[0]
     const response = await decodeSandboxTaskValue(sandbox, execution.output.result, "", "result")
     if (!(response instanceof Response)) throw new TypeError("Expected Response")
-    expect(response.headers.get("x-clone-count")).toBe("1")
+    expect(response.headers.get("x-clone-count")).toBeNull()
     expect(response.status).toBe(bytes.length ? 201 : 204)
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(new Uint8Array(bytes))
   })
@@ -652,6 +657,82 @@ describe("package entry result transport", () => {
 })
 
 describe("output transfer limits", () => {
+  it("uses package manifest overrides for executable entries", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-sandbox-task-transfer-"))
+    tempDirs.push(root)
+    const entry = join(root, "index.mjs")
+    const definition = "export default () => Array.from({ length: 65 }, () => new Uint8Array([1]))"
+    await writeFile(join(root, "package.json"), JSON.stringify({
+      private: true,
+      vitehub: { sandboxTask: { transfer: { maxSidecars: 65 } } },
+    }))
+    await writeFile(entry, definition)
+
+    const project = await resolveSandboxTaskProject(entry, root, { readSandboxTaskOptions: true })
+    expect(project.options).toEqual({ transfer: { maxSidecars: 65 } })
+    const execution = await executePackageEntry(definition, { transfer: project.options?.transfer })
+    expect(execution.output).toMatchObject({ ok: true })
+    expect(execution.output.result).toHaveLength(65)
+    expect(await execution.readOutputFile(64)).toEqual(Buffer.from([1]))
+  })
+
+  it.each(["{ nested: true }", "{ toJSON() { return { nested: true } } }"])("accepts one level of result nesting: %s", async (value) => {
+    const execution = await executePackageEntry(`export default () => (${value})`, { transfer: { maxDepth: 1 } })
+    expect(execution.output).toEqual({ ok: true, result: { nested: true } })
+  })
+
+  it("transports a native File as a Blob", async () => {
+    const execution = await executePackageEntry('export default () => new File(["abc"], "upload.txt", { type: "text/plain" })', {
+      transfer: { maxSidecarBytes: 3 },
+    })
+    expect(execution.output).toEqual({
+      ok: true,
+      result: { [SANDBOX_VALUE_MARKER]: { id: 0, kind: "blob", tag: "binary", type: "text/plain" } },
+    })
+    expect(await execution.readOutputFile(0)).toEqual(Buffer.from("abc"))
+  })
+
+  it.each([
+    ['() => { throw new Error("conversion failed") }', { message: "conversion failed" }],
+    ['() => new Uint8Array(4)', { code: "SANDBOX_TASK_TRANSFER_LIMIT", message: "Sandbox result exceeds its maxSidecarBytes limit (4 > 3)." }],
+    ['() => "x".repeat(64)', { code: "SANDBOX_TASK_TRANSFER_LIMIT", message: "Sandbox result exceeds its maxOutputBytes limit (87 > 32)." }],
+  ])("preserves generated failures under a small output limit: %s", async (handler, error) => {
+    const execution = await executePackageEntry(`export default ${handler}`, { transfer: { maxOutputBytes: 32, maxSidecarBytes: 3 } })
+    const sandbox = { provider: "vercel", readFile: (path: string) => readFile(path, "utf8") } as Parameters<typeof readExecOutputWithRecovery>[0]
+    const direct = await readExecOutputWithRecovery(sandbox, execution.outputPath, undefined, undefined, undefined, 32)
+    expect(JSON.parse(direct)).toMatchObject({ ok: false, error })
+    const marker = await readExecOutputWithRecovery(sandbox, execution.outputPath, undefined, undefined, {
+      stderr: EXEC_STDIO_OUTPUT_MARKER + execution.raw,
+    }, 32)
+    expect(marker).toBe(direct)
+  })
+
+  it("bounds oversized diagnostics even when the message needs JSON escapes", async () => {
+    const execution = await executePackageEntry('export default () => { throw new Error("failure: " + "\\u0000".repeat(200_000)) }', {
+      transfer: { maxOutputBytes: 32 },
+    })
+    expect(execution.output.error?.message).toMatch(/^failure: /)
+    expect(Buffer.byteLength(execution.raw)).toBeLessThanOrEqual(MAX_EXEC_DIAGNOSTIC_BYTES)
+  })
+
+  it("cancels a Response stream before consuming its full body", async () => {
+    const execution = await executePackageEntry(`
+      import { writeFileSync } from 'node:fs'
+      export default () => {
+        let pulls = 0
+        return new Response(new ReadableStream({
+          pull(controller) {
+            controller.enqueue(new Uint8Array(1024))
+            if (++pulls === 128) controller.close()
+          },
+          cancel() { writeFileSync(process.argv[3] + '.pulls', String(pulls)) },
+        }))
+      }
+    `, { transfer: { maxOutputBytes: 4096 } })
+    expect(execution.output.error).toMatchObject({ code: "SANDBOX_TASK_TRANSFER_LIMIT" })
+    expect(execution.output.error?.message).toContain("maxOutputBytes")
+    expect(Number(await readFile(`${execution.outputPath}.pulls`, "utf8"))).toBeLessThanOrEqual(4)
+  })
   it("rejects Blob arrayBuffer overrides", async () => {
     const execution = await executePackageEntry(
       `export default () => {

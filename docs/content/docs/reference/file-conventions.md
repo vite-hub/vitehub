@@ -45,7 +45,7 @@ Sandbox Task folders are the exception. `server/sandbox-tasks/<path>/index.ts` d
 
 - The `package.json` next to it must set `"type": "module"`.
 - Local TypeScript uses relative ESM imports. Bare dependencies must ship ready-to-run JavaScript. CommonJS source and package-local import aliases are not compiled.
-- The folder sets the name. `vitehub.sandboxTask.timeout` sets an optional static time limit.
+- The folder sets the name. Set optional time and transfer limits in `vitehub.sandboxTask`.
 
 A `<path>.sandbox-task.ts` file still default-exports `defineSandboxTask(...)`.
 

@@ -60,7 +60,8 @@ export default defineSandboxTask({
 
 | Option | Where | Type | Description |
 | --- | --- | --- | --- |
-| `vitehub.sandboxTask.timeout` | `package.json` | `number` | Timeout in milliseconds for one attempt. The only supported manifest key. |
+| `vitehub.sandboxTask.timeout` | `package.json` | `number` | Timeout in milliseconds for one attempt. |
+| `vitehub.sandboxTask.transfer` | `package.json` | `object` | Limits for a package-backed Definition. See [Transfer limits](#transfer-limits). |
 | `handler` | `defineSandboxTask()` | `function` | Required handler. Called with `(payload, context)`. |
 | `timeout` | `defineSandboxTask()` | `number` | Timeout in milliseconds for one attempt. |
 | `env` | `defineSandboxTask()` | `Record<string, string>` | Environment variables for the run. |
@@ -71,13 +72,13 @@ Each timeout must be a positive integer up to `2_147_483_647`. Without a timeout
 
 ## Transfer limits
 
-`transfer` limits what one run sends into the Sandbox and what the handler returns. Each limit is a whole number from 1 to `1_073_741_824`.
+`transfer` limits what one run sends into the Sandbox and what the handler returns. Set it in `defineSandboxTask()` or as `vitehub.sandboxTask.transfer` in the task package's `package.json`. Each limit is a whole number from 1 to `1_073_741_824`.
 
 | Key | Default | Limit |
 | --- | --- | --- |
 | `maxInputBytes` | `4_194_304` (4 MiB) | UTF-8 bytes of the payload and context JSON. |
-| `maxOutputBytes` | `4_194_304` (4 MiB) | UTF-8 bytes of the result JSON. |
-| `maxDepth` | `32` | Levels of nested arrays and objects in the input, and in the result. |
+| `maxOutputBytes` | `4_194_304` (4 MiB) | UTF-8 bytes of successful result JSON, including base64-encoded `Response` bodies. |
+| `maxDepth` | `32` | Levels of nested arrays and objects in the payload, context, or result. |
 | `maxSidecars` | `64` | Number of `Blob`, `Uint8Array`, and `Buffer` values in the input, and in the result. |
 | `maxSidecarBytes` | `67_108_864` (64 MiB) | Total bytes of the binary values in the input, and in the result. |
 

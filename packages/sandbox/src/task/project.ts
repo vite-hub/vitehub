@@ -5,6 +5,7 @@ import picomatch from 'picomatch'
 import type { SandboxTaskProjectOptions } from './module-types'
 import { sandboxTaskErrorDiagnostics } from "./error-diagnostics.ts"
 import { isRecord as isPlainObject } from "@vite-hub/internal/object"
+import { assertSandboxTaskTransferOptions } from './transfer-options'
 
 type SandboxTaskPackageManager = 'bun' | 'npm' | 'pnpm' | 'yarn'
 
@@ -131,20 +132,23 @@ function parseSandboxTaskProjectOptions(manifest: PackageManifest, path: string)
   if (!isPlainObject(sandbox))
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0058({ message: `[vitehub] Sandbox package manifest "vitehub.sandboxTask" must be an object: ${path}` })
 
-  const unsupported = Object.keys(sandbox).filter(key => key !== 'timeout')
+  const unsupported = Object.keys(sandbox).filter(key => key !== 'timeout' && key !== 'transfer')
   if (unsupported.length) {
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0059({ message: `[vitehub] Sandbox package manifest "vitehub.sandboxTask" has unsupported keys: ${unsupported.join(', ')}.` })
   }
 
-  const timeout = sandbox.timeout
-  if (timeout === undefined)
-    return undefined
-  const numericTimeout = Number(timeout)
-  if (numericTimeout !== timeout || !Number.isInteger(numericTimeout) || numericTimeout <= 0 || numericTimeout > maxTimeout) {
+  const { timeout, transfer } = sandbox
+  if (timeout !== undefined && (typeof timeout !== 'number' || !Number.isInteger(timeout) || timeout <= 0 || timeout > maxTimeout)) {
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0060({ message: `[vitehub] Sandbox package manifest "vitehub.sandboxTask.timeout" must be a positive integer no greater than ${maxTimeout}.` })
   }
 
-  return { timeout: numericTimeout }
+  assertSandboxTaskTransferOptions(transfer)
+  if (timeout === undefined && transfer === undefined)
+    return undefined
+  return {
+    ...(timeout === undefined ? {} : { timeout }),
+    ...(transfer === undefined ? {} : { transfer }),
+  }
 }
 
 function pnpmPatchPaths(manifest: PackageManifest) {

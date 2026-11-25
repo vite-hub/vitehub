@@ -109,9 +109,7 @@ export interface SandboxTaskDefinitionOptions {
   transfer?: SandboxTaskTransferOptions
 }
 
-export interface SandboxTaskProjectOptions {
-  timeout?: number
-}
+export type SandboxTaskProjectOptions = Pick<SandboxTaskDefinitionOptions, 'timeout' | 'transfer'>
 
 export interface SandboxTaskDefinitionInput<TPayload = unknown, TResult = unknown>
   extends SandboxTaskDefinitionOptions {

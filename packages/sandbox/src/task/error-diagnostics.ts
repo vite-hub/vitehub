@@ -164,7 +164,7 @@ export const sandboxTaskErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     SANDBOX_TASK_TRANSFER_INVALID: {
       why: ({ problem }: { problem: string }) => `[vitehub] The \`transfer\` option of the Sandbox Task Definition ${problem}.`,
-      fix: "Set `transfer` of `defineSandboxTask()` to an object that uses only `maxInputBytes`, `maxOutputBytes`, `maxDepth`, `maxSidecars`, and `maxSidecarBytes`. Set each one to a whole number from 1 to 1073741824, or remove it.",
+      fix: "Set `transfer` in `defineSandboxTask()` or `vitehub.sandboxTask.transfer` in `package.json` to an object that uses only `maxInputBytes`, `maxOutputBytes`, `maxDepth`, `maxSidecars`, and `maxSidecarBytes`. Set each one to a whole number from 1 to 1073741824, or remove it.",
     },
     SANDBOX_TASK_VERCEL_TIMEOUT_LIMIT: {
       why: ({ limit, timeout }: { limit: string; timeout: number }) => `Vercel rejected the Sandbox session timeout of ${timeout}ms: ${limit}.`,

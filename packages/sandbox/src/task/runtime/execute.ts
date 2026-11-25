@@ -89,6 +89,7 @@ async function executeSandboxTaskDefinitionOnce<TPayload>(
       'payload/context',
       signal,
       transferLimits,
+      -1,
     )
     const json = toJson(encoded.value, 'payload/context', maxInputBytes)
     await encoded.writeSidecars()

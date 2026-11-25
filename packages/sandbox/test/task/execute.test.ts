@@ -740,6 +740,41 @@ describe("executeSandboxTaskDefinition", () => {
     expect(written.filter(entry => entry.path.includes(".files"))).toEqual([])
   })
 
+  it.each([false, true])("accepts one level of payload and context nesting (toJSON: %s)", async (useToJSON) => {
+    const { sandbox } = createFakeSandbox({
+      async onExecute({ args, read }) {
+        expect(JSON.parse(new TextDecoder().decode(read(args.at(-2)!)))).toEqual({
+          payload: { nested: true }, context: { requestId: "test" },
+        })
+      },
+    })
+    const payload = { nested: true }
+    await executeSandboxTaskDefinition(sandbox, "input-depth", { transfer: { maxDepth: 1 } }, {
+      entry: "definition.mjs",
+      execution: "module",
+      modules: { "definition.mjs": "export default () => true" },
+    }, useToJSON ? { toJSON: () => payload } : payload, { requestId: "test" })
+  })
+
+  it("stages a multipart File with its Blob bytes and media type", async () => {
+    const form = new FormData()
+    form.set("image", new Blob(["abc"], { type: "image/jpeg" }), "image.jpg")
+    const multipart = await new Request("https://example.test/upload", { method: "POST", body: form }).formData()
+    const { sandbox } = createFakeSandbox({
+      async onExecute({ args, read }) {
+        const inputPath = args.at(-2)!
+        const input = JSON.parse(new TextDecoder().decode(read(inputPath)))
+        expect(input.payload.image[SANDBOX_VALUE_MARKER]).toEqual({ id: 0, kind: "blob", tag: "binary", type: "image/jpeg" })
+        expect(read(`${inputPath}.files/0`)).toEqual(Uint8Array.from([97, 98, 99]))
+      },
+    })
+    await executeSandboxTaskDefinition(sandbox, "multipart-file", { transfer: { maxSidecarBytes: 3 } }, {
+      entry: "definition.mjs",
+      execution: "module",
+      modules: { "definition.mjs": "export default () => true" },
+    }, { image: multipart.get("image") })
+  })
+
   it("preserves transfer errors from the generated entry script", async () => {
     const { sandbox } = createFakeSandbox({
       async onExecute({ args, write }) {

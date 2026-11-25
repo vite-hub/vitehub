@@ -3,7 +3,7 @@ import { sleep } from '../internal/shared/utils'
 import { sandboxTaskError } from '../sandbox-task/errors'
 import { assertSandboxTaskTransferBytes, isSandboxTaskTransferLimitError } from './binary-sidecars'
 import { readSandboxTaskErrorMetadata } from './error-normalization'
-import { EXEC_STDIO_OUTPUT_MARKER } from './entry-script.injected'
+import { EXEC_DIAGNOSTIC_PREFIX, EXEC_STDIO_OUTPUT_MARKER, MAX_EXEC_DIAGNOSTIC_BYTES } from './entry-script.injected'
 
 import type { TaskSandbox } from './task-sandbox'
 
@@ -17,6 +17,11 @@ const HANDLER_DIAGNOSTIC_LENGTH = 16_384
 type ExecutionMeta = { stdout?: string, stderr?: string, code?: number | null, meta?: Record<string, unknown> }
 
 function assertOutputBytes(output: string, maxOutputBytes: number | undefined) {
+  if (output.startsWith(EXEC_DIAGNOSTIC_PREFIX) || EXEC_DIAGNOSTIC_PREFIX.startsWith(output)) {
+    assertSandboxTaskTransferBytes(output, 'diagnostic', 'maxDiagnosticBytes', MAX_EXEC_DIAGNOSTIC_BYTES)
+    if (tryParseSandboxTaskOutput(output)?.ok !== true)
+      return
+  }
   if (maxOutputBytes !== undefined)
     assertSandboxTaskTransferBytes(output, 'result', 'maxOutputBytes', maxOutputBytes)
 }
