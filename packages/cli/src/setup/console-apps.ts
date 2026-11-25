@@ -127,8 +127,6 @@ function readAppsArgs(command: AppsCommand, args: string[]): { values: AppsValue
       },
       strict: true,
     })
-    const expected = command === "list" ? 0 : 1
-    if (!values.help && positionals.length !== expected) throw new Error(expected ? `Pass one ${command === "link" ? "URL" : "app id"}.` : `Got ${JSON.stringify(positionals[0])}.`)
     // SAFETY: The options above, read with `strict: true`.
     return { positionals, values: { "delete-hosted-comments": false, ...values } as AppsValues }
   }
@@ -146,6 +144,11 @@ async function runApps(command: AppsCommand, args: string[], context: ViteHubCli
   if (values.help) {
     context.stdout.write(`Usage: ${usage[command]}\n\n${appsHelp[command]}\n`)
     return setupExitCodes.done
+  }
+  const expected = command === "list" ? 0 : 1
+  if (positionals.length !== expected) {
+    const problem = expected ? `Pass one ${command === "link" ? "URL" : "app id"}.` : `Got ${JSON.stringify(positionals[0])}.`
+    throw cliErrorDiagnostics.CLI_R0003({ message: `[vitehub] ${problem} Usage: ${usage[command]}` })
   }
   const client = await openConsole(context, values.console)
   const write = (result: object, text: string) => {

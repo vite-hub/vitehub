@@ -10,7 +10,7 @@ import { basename, join } from "pathe"
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { build, readBuildOutput } from "./build-output.ts"
 import { formatFailedChecks, rollbackFor, runDeployChecks, submitIndexNow } from "./deploy/after.ts"
-import { formatDeployConsole, linkDeployedApp, openDeployConsole, readsConsoleKey, withoutConsoleKey } from "./deploy/console.ts"
+import { formatDeployConsole, linkDeployedApp, openDeployConsole, readsConsoleKey } from "./deploy/console.ts"
 import { checkoutPushError, formatDeployCheckouts, prepareDeployCheckouts, pushDeployCheckouts } from "./deploy/checkouts.ts"
 import { cloudflareAdapter } from "./deploy/cloudflare.ts"
 import { denoAdapter, denoOrganization } from "./deploy/deno.ts"
@@ -302,11 +302,12 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
   const secrets = credentials.ok ? [credentials.token] : []
   const run = createDeployRun(context.stderr, secrets)
   const consoleStep = args.console && !args.temporary && readsConsoleKey(output.env) ? await openDeployConsole(context) : undefined
-  const linksConsole = consoleStep && !args.preview
+  const availableConsole = consoleStep === "unavailable" ? undefined : consoleStep
   const env = await checkDeployEnv({
     context,
-    ...(consoleStep ? { consoleKeys: consoleStep.keys } : {}),
-    entries: linksConsole ? withoutConsoleKey(output.env) : output.env,
+    ...(availableConsole ? { consoleKeys: availableConsole.keys } : {}),
+    deferConsoleKey: !!consoleStep && !args.preview,
+    entries: output.env,
     envDir: output.envDir,
     host,
     interactive,
@@ -338,10 +339,12 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
   await env.apply()
   const checkPaths = args.check ? output.deploy.check : []
   const previous = checkPaths.length && !args.preview && !args.temporary ? await previousDeployment(project.root, link, credentials, context, run) : undefined
-  const result = await adapter.deploy()
+  let result = await adapter.deploy()
   if (!link && !args.temporary) await recordLink(project.root, host, result, projectName)
+  const consoleDeploy = availableConsole && !args.preview ? await deployConsole(availableConsole, result, { context, deployContext, host, onHost: env.onHost, projectName }) : undefined
+  if (consoleDeploy) result = consoleDeploy.result
+  const linkedConsole = consoleDeploy?.output
   if (checkPaths.length && !result.url) context.stderr.write(`Deploy checks skipped: ${host} reported no URL to request, such as a workers.dev URL, a custom domain, or a \`<host>/*\` route. The deploy is done.\n`)
-  const linkedConsole = linksConsole ? await deployConsole(consoleStep, result, { context, deployContext, host, onHost: env.onHost, projectName }) : undefined
   const checks = checkPaths.length && result.url ? await runDeployChecks(result.url, checkPaths, deployContext.fetch) : undefined
 
   const deployed: SetupDeployOutput = {
@@ -368,28 +371,38 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
   return setupExitCodes.done
 }
 
-async function deployConsole(step: DeployConsole, result: DeployResult, options: { context: ViteHubCliContext, deployContext: DeployContext, host: DeployHost, onHost: ReadonlySet<string>, projectName: string }): Promise<DeployConsoleOutput | undefined> {
+async function deployConsole(step: DeployConsole, initial: DeployResult, options: { context: ViteHubCliContext, deployContext: DeployContext, host: DeployHost, onHost: ReadonlySet<string>, projectName: string }) {
   const { context, deployContext, host } = options
-  if (!result.url) {
-    context.stderr.write(`The app was not linked in the Console, because ${host} reported no URL. Run \`vitehub apps link <url>\` with the URL of the app.\n`)
+  const productionUrl = (result: DeployResult) => host === "vercel" ? result.productionUrl : result.url
+  const url = productionUrl(initial)
+  if (!url) {
+    context.stderr.write(`The app was not linked in the Console, because ${host} reported no production URL. Run \`vitehub apps link <url>\` with the production URL of the app.\n`)
     return
   }
-  return await linkDeployedApp({
+  let result = initial
+  const output = await linkDeployedApp({
     console: step,
     context,
     label: options.projectName,
     onHost: options.onHost,
     async setKey(name, value) {
       const link = deployContext.link ?? (await readSetupLinks(deployContext.root)).targets.find(target => target.host === host)
-      if (!link) throw new Error(`${host} has no link in .vitehub/link.json to set ${name} on.`)
+      if (!link) throw cliErrorDiagnostics.SETUP_ENV_VALUE_UNSUPPORTED({ host, name, reason: "The project has no host target in .vitehub/link.json." })
       const hostEnv = hostEnvs[host]({ env: context.env, fetch: deployContext.fetch, link, root: deployContext.root, run: deployContext.run, secrets: deployContext.secrets, target: "production" })
-      await hostEnv.setSecret(name, value, { secret: true })
-      if (host === "cloudflare") return
-      context.stderr.write(`Deploying again, so ${host} reads ${name}.\n`)
-      await (await hostAdapter(host, { ...deployContext, link, upload: {} })).deploy()
+      await hostEnv.setSecret(name, value, { secret: host === "cloudflare" })
+      if (host === "cloudflare") {
+        const { version: _version, ...live } = result
+        result = live
+      }
+      else {
+        context.stderr.write(`Deploying again, so ${host} reads ${name}.\n`)
+        result = await (await hostAdapter(host, { ...deployContext, link, upload: {} })).deploy()
+      }
+      return productionUrl(result)
     },
-    url: result.url,
+    url,
   })
+  return { output, result }
 }
 
 type PreviousDeployment = { deployment: HostDeployment | undefined } | { failed: string }
