@@ -867,12 +867,12 @@ The Comments section of the [Console](/docs/console) lists the 500 threads with 
 
 Connect the Agent to the [ViteHub MCP](/docs/console/mcp) of the Console. It runs the Comments operations of your app, such as `comments.threads` and `comments.reply`: it lists open threads, reads their page context and source files, and changes the code. Then it resolves every thread that it handled with one `comments.resolve` call, each with a reply that says what changed, such as the commit or a link, so the threads leave the page. It acts as you, and `authorize` applies to each call. The `page` filter takes a path such as `/pricing` or a full URL of the page. When `authorize` hides threads, the list says how many and why, and `hidden` counts them.
 
-A member of your Console team who opens the app through Site access sees **Copy prompt** in the comment pill while the page has open threads. It copies three lines for the Agent: the page URL, the ViteHub MCP address with the tools to call, and the resolve step. It needs no setup, and guests of Site access do not see it, since the ViteHub MCP does not know them. Build the same text yourself with `commentsAgentPrompt({ url, count, mcp })` from `vite-hub/comments/client`.
+A Console team member who opens the app through Site access sees **Copy prompt** when the page has open threads and their Console MCP access allows `comments.get`. The prompt identifies the linked app and team and names the exact threads in the pill. It asks the Agent to resolve them only if the member's MCP access allows `comments.resolve`; otherwise the Agent reports the fixes for the member to review. Site access guests do not see the button. Build the same text with `commentsAgentPrompt({ url, threadIds, mcp, project, resolve })` from `vite-hub/comments/client`, where `project` is the linked app's `{ id, teamId, url }`.
 
 ```txt [Prompt]
-Fix the 2 open ViteHub comments on https://app.example.com/pricing
-Read them with the ViteHub MCP (https://console.vitehub.dev/mcp/account): list_apps finds the app https://app.example.com, then read_operation comments.threads with page "/pricing".
-After each fix, resolve the thread with run_operation comments.resolve and a reply that says what changed.
+Fix the 2 open ViteHub comments on https://app.example.com/portal/pricing
+In the ViteHub MCP (https://console.vitehub.dev/mcp/account), use list_apps to verify team team-1 and app https://app.example.com/portal (id: app-1). If the team is different, ask me to switch to that team in the Console; if the app is missing, ask me to check the link. Only after both match, call read_operation with the app id, operation "comments.get", and input { threadId } for each ID in ["thread-1","thread-2"].
+After each fix, use run_operation with the app id, operation "comments.resolve", and input { threadId, reply }. In the reply, say what changed.
 ```
 
 To hand the comments over without a paste, turn on [Send](/docs/comments/send): it posts them to your Agent's thread through a signed webhook.

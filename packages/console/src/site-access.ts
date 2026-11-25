@@ -9,7 +9,7 @@ import { signSiteToken, siteTokenUrl } from "@vite-hub/internal/site-token"
 import { consoleProjects } from "./projects.ts"
 
 import type { ConsoleSigningKey } from "@vite-hub/internal/console-signature"
-import type { SiteAccessPolicy } from "@vite-hub/internal/site-token"
+import type { SiteAccessPolicy, SiteCommentsAgent } from "@vite-hub/internal/site-token"
 import type { ConsoleDatabase, ConsoleProject } from "./projects.ts"
 
 const { member, user: authUser } = authSqliteSchema
@@ -171,11 +171,11 @@ export async function siteMember(db: ConsoleDatabase, project: Pick<ConsoleProje
  * The URL that ends a visit: `<app>/_vitehub/site?token=…`, with a token that the key of the link signs for the person,
  * the roles, the state hash that the app sent, and the app path to open.
  */
-export async function siteTokenLocation(input: { project: Pick<ConsoleProject, "url">, key: ConsoleSigningKey, person: ConsoleSitePerson, roles: string[], state: string, path: string }): Promise<string> {
+export async function siteTokenLocation(input: { project: Pick<ConsoleProject, "url">, key: ConsoleSigningKey, person: ConsoleSitePerson, roles: string[], state: string, path: string, commentsAgent?: SiteCommentsAgent }): Promise<string> {
   const { person } = input
   const token = await signSiteToken({
     key: input.key,
-    claims: { aud: input.project.url, sub: person.id, name: person.name, ...(person.email ? { email: person.email } : {}), ...(person.image ? { image: person.image } : {}), roles: input.roles, kind: "site", path: input.path, state: input.state },
+    claims: { aud: input.project.url, sub: person.id, name: person.name, ...(person.email ? { email: person.email } : {}), ...(person.image ? { image: person.image } : {}), roles: input.roles, kind: "site", path: input.path, state: input.state, ...(input.commentsAgent ? { commentsAgent: input.commentsAgent } : {}) },
   })
   return siteTokenUrl(input.project.url, token)
 }

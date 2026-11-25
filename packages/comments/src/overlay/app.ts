@@ -352,6 +352,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const me = computed<CommentUser | undefined>(() => account() ?? (guest.value ? { id: `guest:${guest.value.id}`, name: guest.value.name, guest: true } : undefined))
   /** What this person may do on the current page. The answer of `/session` for each new page replaces it. */
   const pageCan = shallowRef(session?.can)
+  const pageAgent = shallowRef(session?.agent)
   const canComment = computed(() => Boolean(pageCan.value?.comment))
   const canAttach = computed(() => canComment.value && session?.attachments !== false)
   const needsName = computed(() => canComment.value && !me.value)
@@ -412,8 +413,11 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const path = page.value
     return session?.send ? createCommentSend(createOverlaySendTransport(() => path)) : undefined
   })
-  async function copyPrompt(mcp: string) {
-    const prompt = commentsAgentPrompt({ url: new URL(page.value, location.origin).href, count: state.counts.value.open, mcp })
+  async function copyPrompt() {
+    const agent = pageAgent.value
+    const threadIds = state.openThreads.value.map(thread => thread.id)
+    if (!agent || !threadIds.length || resolving.value || commentOn.value || normalizeCommentPage(location.pathname) !== page.value) return
+    const prompt = commentsAgentPrompt({ ...agent, url: new URL(page.value, location.origin).href, threadIds })
     const copied = await navigator.clipboard?.writeText(prompt).then(() => true, () => false)
     showToast(copied ? { text: "Prompt copied. Paste it in your agent.", kind: "info" } : { text: "Could not copy the prompt. Allow clipboard access and try again.", kind: "error" })
   }
@@ -949,7 +953,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const commenting = commentOn.value
     const badge = (shown: boolean) => shown && open > 0 ? h(OpenCount, { value: open }) : null
     const togglePanel = () => (panelOpen.value ? pageWindow?.hide() : showPanel())
-    const agent = session?.agent
     return h("div", { class: "toolbar", role: "group", "aria-label": "Comments" }, [
       canComment.value
         ? h("button", {
@@ -979,11 +982,11 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
           }, visibility.value === "hidden" ? eyeOffIcon() : eyeIcon())
         : null,
       send.value && canComment.value ? h(CommentSend, { client: send.value, key: `send:${page.value}` }) : null,
-      agent && open > 0 && !commenting
+      pageAgent.value && open > 0 && !commenting && !resolving.value
         ? h("button", {
             "aria-label": `Copy a prompt for your agent: ${open} open ${open === 1 ? "comment" : "comments"}`,
             "data-action": "copy-prompt",
-            onClick: () => void copyPrompt(agent.mcp),
+            onClick: () => void copyPrompt(),
             title: "Copy a prompt that sends your agent to these comments through the ViteHub MCP",
             type: "button",
           }, [copyIcon(), "Copy prompt"])
@@ -1107,6 +1110,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       }
       clearRetry()
       pageCan.value = answer.can
+      pageAgent.value = answer.agent
       revision = answer.revision
       const mapped = answer.subject ?? { kind: "page", id: next }
       if (mapped.kind !== subject.value.kind || mapped.id !== subject.value.id) subject.value = mapped

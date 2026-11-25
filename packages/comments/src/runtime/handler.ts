@@ -329,7 +329,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): { fetch(
     const signIn = !user && !comments.options.identify && github ? { provider: "github" as const, url: `${route}/auth/github` } : undefined
     const signOut = user && user.github && github ? `${route}/auth/sign-out` : undefined
     const send = Boolean(comments.options.send && user && !user.guest && comment && await commentSendOf(comments))
-    const agent = identity.member && read ? { mcp: `${configuredConsoleOrigin()}/mcp/account` } : undefined
+    const agent = identity.commentsAgent && read ? { ...identity.commentsAgent, mcp: `${configuredConsoleOrigin()}/mcp/account` } : undefined
     return json({
       data: {
         user: user ? authorOf(user) : null,

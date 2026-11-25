@@ -33,12 +33,13 @@ describe("the user of a Comments request", () => {
     expect((await resolveCommentsIdentity(comments, request())).user).toEqual({ id: "console-ada", name: "Ada", role: "console,comments-write" })
   })
 
-  it("marks a Console team member of Site access, and not a guest", async () => {
-    installViteHubSiteVisitor(async () => ada)
+  it("passes the signed Comments handoff through only for a Site access member", async () => {
+    const commentsAgent = { project: { id: "app-1", teamId: "team-1", url: "https://docs.example.com/portal" }, resolve: false }
     const comments = defineComments({})
-    expect((await resolveCommentsIdentity(comments, request())).member).toBe(true)
-    installViteHubSiteVisitor(async () => ({ ...ada, kind: "guest" as const }))
-    expect((await resolveCommentsIdentity(comments, request())).member).toBeUndefined()
+    installViteHubSiteVisitor(async () => ({ ...ada, commentsAgent }))
+    expect((await resolveCommentsIdentity(comments, request())).commentsAgent).toEqual(commentsAgent)
+    installViteHubSiteVisitor(async () => ({ ...ada, commentsAgent, kind: "guest" }))
+    expect((await resolveCommentsIdentity(comments, request())).commentsAgent).toBeUndefined()
   })
 
   it("prefers the Site access person to the Auth user of the app", async () => {

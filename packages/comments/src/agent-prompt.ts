@@ -1,22 +1,18 @@
 export interface CommentsAgentPromptInput {
-  /** The page with the comments, as a full URL. */
   url: string
-  /** The open threads on the page. */
-  count: number
-  /** The ViteHub MCP that reads the app for the person, such as `https://console.vitehub.dev/mcp/account`. */
+  threadIds: readonly string[]
   mcp: string
+  project: { id: string, teamId: string, url: string }
+  resolve: boolean
 }
 
-/**
- * The prompt of **Copy prompt** in the comment pill: three lines that send the person's agent to the open threads of a
- * page through the ViteHub MCP of the Console, and ask it to resolve each thread with a reply.
- */
-export function commentsAgentPrompt({ count, mcp, url }: CommentsAgentPromptInput): string {
-  const page = new URL(url)
-  const threads = count === 1 ? "the open ViteHub comment" : `the ${count} open ViteHub comments`
+export function commentsAgentPrompt({ mcp, project, resolve, threadIds, url }: CommentsAgentPromptInput): string {
+  const threads = threadIds.length === 1 ? "the open ViteHub comment" : `the ${threadIds.length} open ViteHub comments`
   return [
-    `Fix ${threads} on ${page.href}`,
-    `Read them with the ViteHub MCP (${mcp}): list_apps finds the app ${page.origin}, then read_operation comments.threads with page "${page.pathname}".`,
-    "After each fix, resolve the thread with run_operation comments.resolve and a reply that says what changed.",
+    `Fix ${threads} on ${new URL(url).href}`,
+    `In the ViteHub MCP (${mcp}), use list_apps to verify team ${project.teamId} and app ${project.url} (id: ${project.id}). If the team is different, ask me to switch to that team in the Console; if the app is missing, ask me to check the link. Only after both match, call read_operation with the app id, operation "comments.get", and input { threadId } for each ID in ${JSON.stringify(threadIds)}.`,
+    resolve
+      ? 'After each fix, use run_operation with the app id, operation "comments.resolve", and input { threadId, reply }. In the reply, say what changed.'
+      : "Report the fixes to me without resolving the threads.",
   ].join("\n")
 }
