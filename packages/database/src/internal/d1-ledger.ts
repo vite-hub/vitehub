@@ -133,9 +133,8 @@ export async function applyD1MigrationFiles(
       await query(pending.map(file => `${normalizeSqlLineEndings(file.sql())}\n;\n${insert(file.name)}`).join("\n"), undefined, "write")
     }
     catch (error) {
-      const names = pending.map(file => file.name)
-      const listed = await query(`SELECT name FROM ${table} WHERE name IN (${names.map(() => "?").join(", ")})`, names)
-      if (listed.length === names.length) continue
+      const listed = new Set((await query(`SELECT name FROM ${table}`)).map(row => String(readRowValue(row, "name", 0))))
+      if (pending.every(file => listed.has(file.name))) continue
       throw error
     }
     for (const file of pending) onApplied(file.name)

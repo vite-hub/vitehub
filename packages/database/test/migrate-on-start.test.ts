@@ -40,6 +40,20 @@ const init = { sql: "CREATE TABLE `users` (\n\t`id` integer PRIMARY KEY NOT NULL
 const seed = { sql: "INSERT INTO `users` (`id`, `name`) VALUES (7, 'Ada');", tag: "20231114221321_seed", when: 1_700_000_001_000 }
 const dropLegacy = { sql: "DROP TABLE `legacy`;", tag: "20231114221322_drop_legacy", when: 1_700_000_002_000 }
 
+function cascadeMigrations() {
+  const migration = (name: string, when: number, statements: string[]) => ({ dataLoss: findDataLoss(statements, new Map()), hash: name, name, statements, when })
+  return [
+    migration("0000_accounts", 1, ["CREATE TABLE `accounts` (`id` integer PRIMARY KEY NOT NULL);"]),
+    migration("0001_parent", 2, [
+      "CREATE TABLE `parent` (`id` integer PRIMARY KEY NOT NULL);",
+      "ALTER TABLE `accounts` ADD `parent_id` integer REFERENCES parent(id) ON DELETE cascade;",
+      "INSERT INTO `parent` (`id`) VALUES (1);",
+      "UPDATE `accounts` SET `parent_id` = 1;",
+    ]),
+    migration("0002_drop_parent", 3, ["DROP TABLE `parent`;"]),
+  ]
+}
+
 async function createProject() {
   const root = await mkdtemp(join(packageRoot, ".vitest-migrate-on-start-"))
   roots.push(root)
@@ -457,6 +471,25 @@ describe("database.migrateOnStart", () => {
     }
   })
 
+  it("refuses to drop a new table whose foreign key cascades into older SQLite rows", async () => {
+    const url = `file:${join(await createProject(), "app.sqlite")}`
+    const client = createClient({ url })
+    try {
+      await client.execute("PRAGMA foreign_keys = ON")
+      const migrations = cascadeMigrations()
+      await migrateOnStart([{ db: drizzle({ client }), dialect: "sqlite" as const, migrations: migrations.slice(0, 1), name: "default" }], { log: () => {} })
+      await client.execute("INSERT INTO accounts (id) VALUES (1)")
+      await expect(migrateOnStart([{ db: drizzle({ client }), dialect: "sqlite" as const, migrations, name: "default" }], { log: () => {} })).rejects.toMatchObject({
+        code: "DATABASE_MIGRATION_DATA_LOSS",
+        message: expect.stringContaining("0002_drop_parent: drops table \"parent\""),
+      })
+      expect((await client.execute("SELECT id FROM accounts")).rows.map(row => row.id)).toEqual([1])
+    }
+    finally {
+      client.close()
+    }
+  })
+
   it("adds the plugin only to production Node builds of the Vite integration", async () => {
     const root = await createProject()
     await writeMigrations(root, [init])
@@ -712,6 +745,50 @@ describe("migrateOnStart with Cloudflare D1 over HTTP", () => {
       await d1.rows("INSERT INTO legacy (id) VALUES (1)")
       await expect(migrateOnStart([d1Database("default", d1.url, [init, dropLegacy], query)], { log: () => {} })).rejects.toMatchObject({ code: "DATABASE_MIGRATION_DATA_LOSS" })
       await expect(d1.rows("SELECT id FROM legacy")).resolves.toEqual([[1]])
+    }
+    finally {
+      await d1.close()
+    }
+  })
+
+  it("refuses to drop a new D1 table whose foreign key cascades into older rows", async () => {
+    const root = await createD1Project()
+    const d1 = await startD1Proxy(root)
+    try {
+      await d1.rows("PRAGMA foreign_keys = ON")
+      const query = createD1QueryAt(d1.url, "proxy-token", problem => new Error(problem))
+      const files = cascadeMigrations().map(migration => ({ sql: migration.statements.join("\n"), tag: migration.name, when: migration.when }))
+      await migrateOnStart([d1Database("default", d1.url, files.slice(0, 1), query)], { log: () => {} })
+      await d1.rows("INSERT INTO accounts (id) VALUES (1)")
+      await expect(migrateOnStart([d1Database("default", d1.url, files, query)], { log: () => {} })).rejects.toMatchObject({ code: "DATABASE_MIGRATION_DATA_LOSS" })
+      await expect(d1.rows("SELECT id FROM accounts")).resolves.toEqual([[1]])
+      await expect(d1.rows("SELECT name FROM d1_migrations")).resolves.toEqual([["0000_migration.sql"]])
+    }
+    finally {
+      await d1.close()
+    }
+  })
+
+  it("goes on when another server applied a batch of more than 100 files first", async () => {
+    const root = await createD1Project()
+    const d1 = await startD1Proxy(root)
+    try {
+      const fillers = Array.from({ length: 100 }, (_, index) => ({ sql: `CREATE TABLE filler_${index} (id integer);`, tag: `filler_${index}`, when: init.when }))
+      const database = d1Database("default", d1.url, [init, ...fillers, dropLegacy], async () => [])
+      const direct = createD1QueryAt(d1.url, "proxy-token", problem => new Error(problem))
+      let olderServerApplied = false
+      const olderServerAppliesAllFirst: D1Query = async (sql, params = [], mode) => {
+        if (params.length > 100) throw new Error("D1 allows 100 bound parameters")
+        if (!olderServerApplied && sql.includes("DROP TABLE `legacy`")) {
+          olderServerApplied = true
+          await direct(sql, undefined, "write")
+        }
+        return direct(sql, params, mode)
+      }
+      const log: string[] = []
+      await migrateOnStart([{ ...database, db: { $client: { ...database.db.$client, query: olderServerAppliesAllFirst } } }], { log: message => log.push(message) })
+      expect(log).toEqual([])
+      await expect(d1.rows("SELECT count(*) FROM d1_migrations")).resolves.toEqual([[102]])
     }
     finally {
       await d1.close()

@@ -123,6 +123,36 @@ describe("migration data loss", () => {
 
     const createNotes = ["CREATE TABLE `notes` (`id` integer PRIMARY KEY NOT NULL, `body` text);"]
 
+    const createParent = ["CREATE TABLE `parent` (`id` integer PRIMARY KEY NOT NULL);"]
+
+    it("keeps the loss on a new table that a table with older rows references with a foreign key of the run", () => {
+      const addReference = ["ALTER TABLE `accounts` ADD `parent_id` integer REFERENCES parent(id) ON DELETE cascade;", "INSERT INTO `parent` (`id`) VALUES (1);", "UPDATE `accounts` SET `parent_id` = 1;"]
+      expect(runLosses(createParent, addReference, ["DROP TABLE `parent`;"])).toEqual(["drops table \"parent\""])
+      expect(runLosses(createParent, addReference, ["DELETE FROM `parent`;"])).toEqual(["deletes every row of \"parent\""])
+      const rebuildAccounts = [
+        "CREATE TABLE `__new_accounts` (`id` integer PRIMARY KEY, `parent_id` integer, FOREIGN KEY (`parent_id`) REFERENCES `parent`(`id`) ON DELETE cascade);",
+        "INSERT INTO `__new_accounts`(\"id\") SELECT \"id\" FROM `accounts`;",
+        "DROP TABLE `accounts`;",
+        "ALTER TABLE `__new_accounts` RENAME TO `accounts`;",
+      ]
+      expect(runLosses(createParent, rebuildAccounts, ["DROP TABLE `parent`;"])).toContain("drops table \"parent\"")
+    })
+
+    it("accepts a drop of a new table that only new tables reference", () => {
+      const createChild = ["CREATE TABLE `child` (`id` integer PRIMARY KEY, `parent_id` integer REFERENCES `parent`(`id`) ON DELETE cascade);"]
+      expect(runLosses(createParent, createChild, ["DROP TABLE `child`;", "DROP TABLE `parent`;"])).toEqual([])
+      expect(runLosses(createParent, createChild, ["DELETE FROM `parent`;"])).toEqual([])
+    })
+
+    it("keeps the loss on a new table that an older table references in the previous snapshot", () => {
+      const references = new Map([["parent", [{ table: "accounts", columns: ["parent_id"], onDelete: "CASCADE" }]]])
+      for (const statement of ["DROP TABLE `parent`;", "DELETE FROM `parent`;"]) {
+        const dataLoss = findDataLoss([statement], new Map(), references)
+        expect(dataLoss[0]).toMatchObject({ reason: expect.stringContaining("deletes the rows of \"accounts\".\"parent_id\" (ON DELETE CASCADE)"), tables: ["parent", "accounts"] })
+        expect(withoutNewTableDataLoss([{ dataLoss: [], statements: createParent }, { dataLoss, statements: [statement] }])[1]!.dataLoss).toHaveLength(1)
+      }
+    })
+
     it("accepts data loss on tables that an earlier migration of the run created", () => {
       expect(runLosses(createNotes, ["INSERT INTO `notes` (`id`) VALUES (1);", "DROP TABLE `notes`;"])).toEqual([])
       expect(runLosses(createNotes, ["ALTER TABLE `notes` DROP COLUMN `body`;", "DELETE FROM notes;"])).toEqual([])
