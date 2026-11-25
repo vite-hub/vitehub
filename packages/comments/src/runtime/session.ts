@@ -4,6 +4,8 @@ import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 
 import { normalizeCommentPage } from "../page.ts"
 
+import type { ViteHubSiteVisitor } from "@vite-hub/internal/runtime/page-tools"
+
 import type { Comments } from "../index.ts"
 import type { CommentsPolicyGate } from "../operations-core/define.ts"
 import type { CommentsRequestEvent, CommentSubject, CommentsUser } from "../types.ts"
@@ -19,18 +21,23 @@ export interface CommentsSessionOptions {
 export interface CommentsIdentity {
   user: CommentsUser | null
   gate: CommentsPolicyGate
+  commentsAgent?: ViteHubSiteVisitor["commentsAgent"]
 }
 
 /**
  * The person that Site access in the ViteHub Console signed in to the app, with their roles in `role`, as
  * `commentsRoleAllows()` reads them. A Console member has `comments-*` roles, a guest the roles of the invite.
  */
-async function siteUser(event: CommentsRequestEvent): Promise<CommentsUser | null> {
+async function siteUser(event: CommentsRequestEvent): Promise<CommentsIdentity | null> {
   const read = viteHubSiteVisitorReader()
   if (!read) return null
   const visitor = await read(getStandardContext(event).req).catch(() => undefined)
   if (!visitor) return null
-  return { id: visitor.id, name: visitor.name, ...(visitor.email ? { email: visitor.email } : {}), ...(visitor.image ? { image: visitor.image } : {}), role: visitor.roles.join(",") }
+  return {
+    user: { id: visitor.id, name: visitor.name, ...(visitor.email ? { email: visitor.email } : {}), ...(visitor.image ? { image: visitor.image } : {}), role: visitor.roles.join(",") },
+    gate: {},
+    ...(visitor.kind === "member" && visitor.commentsAgent ? { commentsAgent: visitor.commentsAgent } : {}),
+  }
 }
 
 /**
@@ -45,8 +52,9 @@ export async function resolveCommentsIdentity(comments: Comments, event: Comment
     getStandardContext(event)
     return { user: await comments.options.identify({ event }) ?? null, gate: {} }
   }
-  const user = await siteUser(event)
-    ?? await options.session?.(event).catch(() => null)
+  const site = await siteUser(event)
+  if (site) return site
+  const user = await options.session?.(event).catch(() => null)
     ?? await options.githubLogin?.user(event).catch(() => null)
   return { user: user ?? null, gate: {} }
 }

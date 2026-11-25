@@ -134,6 +134,11 @@ test("hosted Comments sign in through a new tab and comment through the Console 
     assert.equal(await page.locator("vitehub-hosted-comments-pill").count(), 1)
   })
 
+  await t.test("the first tab comes back as the person left it, with the Comments window closed", async () => {
+    await page.getByTitle("Comment on the page (C)").waitFor({ timeout: 20_000 })
+    assert.equal(await page.locator("vitehub-window").count(), 0)
+  })
+
   await t.test("the signed-in person comments on selected text, with the token only in the frame", async () => {
     await page.locator("vitehub-comments [data-slot='comment-layer']").waitFor({ state: "attached", timeout: 20_000 })
     const box = await page.locator("#first").boundingBox()

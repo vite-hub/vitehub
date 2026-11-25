@@ -1,6 +1,7 @@
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { installRequestStandardContext } from "@vite-hub/runtime/internal/h3"
+import { configuredConsoleOrigin } from "@vite-hub/runtime/internal/console"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 import * as v from "valibot"
 
@@ -328,6 +329,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): { fetch(
     const signIn = !user && !comments.options.identify && github ? { provider: "github" as const, url: `${route}/auth/github` } : undefined
     const signOut = user && user.github && github ? `${route}/auth/sign-out` : undefined
     const send = Boolean(comments.options.send && user && !user.guest && comment && await commentSendOf(comments))
+    const agent = identity.commentsAgent && read ? { ...identity.commentsAgent, mcp: `${configuredConsoleOrigin()}/mcp/account` } : undefined
     return json({
       data: {
         user: user ? authorOf(user) : null,
@@ -340,6 +342,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): { fetch(
         ...(options.presence === false ? { presence: false } : {}),
         content: Boolean(options.content),
         ...(send ? { send: true } : {}),
+        ...(agent ? { agent } : {}),
         ...(subject ? { subject } : {}),
         ...(revision === undefined ? {} : { revision }),
       },

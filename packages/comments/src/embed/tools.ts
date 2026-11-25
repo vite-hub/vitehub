@@ -60,9 +60,13 @@ function backendOf(frame: Promise<EmbedFrame>): CommentsOverlayBackend {
   }
 }
 
-/** Shows the page tools with Comments, which reach the Console only through the embed frame. */
-export async function mountHostedComments(frame: Promise<EmbedFrame>, open = false): Promise<void> {
-  if (open) stopViteHubPageTools()
+/**
+ * Shows the page tools with Comments, which reach the Console only through the embed frame. A second call, after a
+ * sign-in, replaces the tools of the first with tools for the new account. It does not open them: the page stays as the
+ * person left it, and they choose when to comment.
+ */
+export async function mountHostedComments(frame: Promise<EmbedFrame>): Promise<void> {
+  stopViteHubPageTools()
   useCommentsOverlayBackend(backendOf(frame))
   await loadViteHubPageTools({
     pill: {
@@ -73,7 +77,6 @@ export async function mountHostedComments(frame: Promise<EmbedFrame>, open = fal
       dock: "vitehub-hosted-comments-dock",
       initialDock: { edge: "right", at: 85 },
     },
-    ...(open ? { open: "comments" } : {}),
     session: async () => session,
     load: () => import("../overlay/index.ts"),
   })
