@@ -221,8 +221,8 @@ export async function applyD1Migrations(
   onApplied: (name: string) => void,
   onAdopted: (migration: AdoptedMigration) => void,
 ): Promise<void> {
-  const files = recordD1MigrationNames(migrationsDir).map(file => ({ name: file.name, sql: () => readFileSync(file.source, "utf8") }))
-  await applyD1MigrationFiles(query, ledger, files, onApplied, onAdopted)
+  const batches = recordD1MigrationNames(migrationsDir).map(file => [{ name: file.name, sql: () => readFileSync(file.source, "utf8") }])
+  await applyD1MigrationFiles(query, ledger, batches, onApplied, onAdopted)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

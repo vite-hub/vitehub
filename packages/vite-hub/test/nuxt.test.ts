@@ -1115,9 +1115,9 @@ describe("ViteHub Nuxt integration", () => {
     const modules = config.modules as Array<typeof content.nitro>
     const module = modules.find(candidate => candidate.name === content.nitro.name)
     expect(module).toBeDefined()
-    const options = { rollupConfig: { plugins: [] as Plugin[] } }
+    const options = { dev: true, rollupConfig: { plugins: [] as Plugin[] } }
     module!.setup({ options })
-    const plugin = options.rollupConfig.plugins.find(candidate => candidate.name === "@vite-hub/content/nitro-kv")!
+    const plugin = options.rollupConfig.plugins.find(candidate => candidate.name === "@vite-hub/content/nitro")!
     const transform = typeof plugin.transform === "function" ? plugin.transform : plugin.transform!.handler
     expect(await Reflect.apply(transform, {}, ["export default {}", file])).toMatchObject({ code: expect.stringContaining("__vitehubRegisterContentKV(__vitehubContentKV, ") })
   })

@@ -4,7 +4,7 @@ import { H3 } from "h3"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createDrizzleWebhookEndpointStore, createDrizzleWebhookStore, webhooksTables } from "../../webhooks/src/database.ts"
-import { createMemberEndpoint, getMemberEndpoint, listMemberDeliveries } from "../../webhooks/src/index.ts"
+import { createMemberEndpoint, getMemberEndpoint, listMemberDeliveries, removeMemberEndpoints } from "../../webhooks/src/index.ts"
 import { deliverWebhookWake, getWebhookDelivery, installWebhooks, listWebhookDeliveries, redeliverWebhookDelivery } from "../../webhooks/src/runtime.ts"
 import { defineComments } from "../src/index.ts"
 import { installComments } from "../src/install.ts"
@@ -472,6 +472,26 @@ describe("sends", () => {
     expect(status).not.toHaveProperty("sent")
   })
 
+  it("lets the member read a send by its id before the webhook acknowledges delivery, and keeps it out of the list", async () => {
+    const { call, comments, comment, connect, page } = await setup()
+    const thread = await comment("ana", "Shorten the introduction")
+    let own: Awaited<ReturnType<typeof comments.readSend>> | undefined
+    let other: Awaited<ReturnType<typeof comments.readSend>> | undefined
+    let listed: Awaited<ReturnType<typeof comments.listSends>> | undefined
+    receive = async ({ body }) => {
+      other = await comments.readSend(people.bob!, body.send)
+      listed = await comments.listSends(people.ana!)
+      own = await comments.readSend(people.ana!, body.send)
+    }
+    const { allowed } = await connect()
+    expect(allowed.body.data.status).toBe("sent")
+    expect(other?.[0]?.code).toBe("COMMENTS_NOT_FOUND")
+    expect(listed).toEqual([undefined, []])
+    expect(own?.[1]).toMatchObject({ send: { id: allowed.body.data.id, state: "working" }, threads: [{ id: thread.id, role: "ask" }] })
+    const status = (await call(`/send/status?page=${page}`, { as: "ana" })).body.data
+    expect(status.working).toEqual({ id: allowed.body.data.id })
+  })
+
   it("limits a member to 30 sends an hour", async () => {
     vi.useFakeTimers({ toFake: ["Date"] })
     const start = Date.now()
@@ -612,10 +632,18 @@ describe("sends", () => {
   })
 
   it("keeps a batch retryable when preparing the payload fails", async () => {
-    const payload = vi.fn().mockRejectedValueOnce(new Error("prepare failed")).mockResolvedValue(null)
-    const { call, comment, connect, page } = await setup({ payload })
+    const preparationReads: unknown[] = []
+    const { call, comments, comment, connect, page } = await setup({
+      payload: async ({ user, send }) => {
+        if (preparationReads.length) return null
+        const [error] = await comments.readSend(user, send)
+        preparationReads.push(error?.code)
+        throw new Error("prepare failed")
+      },
+    })
     await comment("ana", "Hello")
     expect((await connect()).allowed.body.data.status).toBe("failed")
+    expect(preparationReads).toEqual(["COMMENTS_NOT_FOUND"])
     expect(deliveries).toHaveLength(0)
     expect((await call(`/send/status?page=${page}`, { as: "ana" })).body.data.count).toBe(1)
     expect((await call(`/send?page=${page}`, { method: "POST", as: "ana" })).body.data.status).toBe("sent")
@@ -644,7 +672,7 @@ describe("sends", () => {
     receiverStatus = 503
     const { allowed } = await connect()
     const send = allowed.body.data
-    expect(send.status).toBe("pending")
+    expect(send).toMatchObject({ status: "pending", inbox: false })
     const again = await call(`/send?page=${page}`, { method: "POST", as: "ana" })
     expect(again.body.data).toEqual(send)
     expect(deliveries).toHaveLength(1)
@@ -753,6 +781,32 @@ describe("the server API of Send", () => {
     await comments.resolve(quote.id, { by: { id: "ana" } })
     await comments.reopen(quote.id)
     expect(await status()).not.toHaveProperty("sent")
+  })
+
+  it("tells where a stored send went, whatever agent the member has now", async () => {
+    const { call, comment, connect, page } = await setup()
+    const status = async () => (await call(`/send/status?page=${page}`, { as: "ana" })).body.data
+    const pairInbox = async () => {
+      const started = await call(`/send/start?page=${page}`, { method: "POST", as: "ana" })
+      const code: string = started.body.data.code
+      await call("/send/pair", { json: { code, inbox: "Codex" }, origin: null })
+      return (await call(`/send/allow?page=${page}`, { json: { code, selection: started.body.data.selection }, as: "ana" })).body.data
+    }
+    await comment("ana", "Fix the date")
+    const inbox = await pairInbox()
+    expect(inbox).toMatchObject({ status: "sent", inbox: true })
+    expect((await removeMemberEndpoints("ana"))[0]).toBeUndefined()
+    const disconnected = await status()
+    expect(disconnected.sent).toEqual({ id: inbox.id, inbox: true })
+    expect(disconnected).not.toHaveProperty("agent")
+
+    await comment("ana", "Add a map")
+    const { allowed } = await connect()
+    expect(allowed.body.data).toEqual({ status: "sent", id: allowed.body.data.id, inbox: false })
+    await pairInbox()
+    const repaired = await status()
+    expect(repaired.sent).toEqual({ id: allowed.body.data.id, inbox: false })
+    expect(repaired.agent).toEqual({ name: "Codex", logo: "codex" })
   })
 
   it("lets the member send a reopened ask to the webhook again without resending its quote", async () => {

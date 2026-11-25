@@ -353,6 +353,15 @@ export async function listMemberDeliveries(owner: string, options: { address?: s
 
 /** Reads only the state of a known member delivery, never its body. */
 export async function getMemberDeliveryState(id: string): Promise<WebhookDeliveryState | undefined> {
+  return (await getMemberDelivery(id))?.state
+}
+
+/**
+ * Reads the state of a known member delivery, and whether it waits in an inbox, never its body. `inbox` stays true after
+ * the member removes the endpoint, so it tells where an old delivery went.
+ */
+export async function getMemberDelivery(id: string): Promise<{ state: WebhookDeliveryState, inbox: boolean } | undefined> {
   const row = await requireMemberEndpoints().store.get(id)
-  return row?.webhook.startsWith(memberWebhookPrefix) ? row.state : undefined
+  if (!row?.webhook.startsWith(memberWebhookPrefix)) return undefined
+  return { state: row.state, inbox: row.state === "sent" && row.lastStatus === null }
 }
