@@ -16,7 +16,7 @@ export interface AuthRequestOutcome {
   /** `success` for a completed sign-in or sign-up, `failure` for a Better Auth error, `refused` for an Auth guard. */
   outcome: "success" | "failure" | "refused"
   status?: number
-  /** Better Auth's error code, the `error` of an OAuth callback redirect, or the code of an Auth guard refusal. */
+  /** Better Auth's error code, the `error` of an OAuth error body or callback redirect, or the code of an Auth guard refusal. */
   code?: string
   userId?: string
 }
@@ -54,20 +54,25 @@ export function setAuthOutcome(request: object | undefined, outcome: AuthRequest
 
 /**
  * Sets `auth` from a Better Auth response when no endpoint set it, such as a refusal of Better Auth's rate limit or
- * origin check. The code comes from Better Auth's JSON error body.
+ * origin check. The code comes from the JSON error body: Better Auth's `code`, else an OAuth `error` such as `invalid_grant`.
  */
 export async function setAuthResponseOutcome(request: object, response: Response): Promise<void> {
   if (response.status < 400 || recorded.has(request) || !requestLog(request)) return
   let code: string | undefined
   if (response.headers.get("content-type")?.includes("json")) {
     const body: unknown = await response.clone().json().catch(() => undefined)
-    code = errorCode(body !== null && typeof body === "object" ? Reflect.get(body, "code") : undefined)
+    code = bodyCode(body)
   }
   setAuthOutcome(request, { outcome: "failure", status: response.status, ...(code ? { code } : {}) })
 }
 
 function errorCode(value: unknown): string | undefined {
   return typeof value === "string" && /^[\w.-]{1,100}$/.test(value) ? value : undefined
+}
+
+function bodyCode(body: unknown): string | undefined {
+  if (body === null || typeof body !== "object") return undefined
+  return errorCode(Reflect.get(body, "code")) ?? errorCode(Reflect.get(body, "error"))
 }
 
 const signInPath = /^\/(?:sign-in|sign-up|callback|oauth2\/callback|magic-link\/verify|passkey\/verify-authentication|siwe\/verify|two-factor\/verify-|email-otp\/verify-email)/
@@ -107,7 +112,7 @@ async function endpointOutcome(ctx: GenericEndpointContext, createdUserId: strin
   const returned: unknown = Reflect.get(ctx.context, "returned")
   const redirect = isAPIError(returned) && returned.status === "FOUND"
   if (isAPIError(returned) && !redirect) {
-    const code = errorCode(returned.body?.code)
+    const code = bodyCode(returned.body)
     return { ...fields, outcome: "failure", status: returned.statusCode, ...(code ? { code } : {}) }
   }
   const session = ctx.context.newSession

@@ -118,6 +118,7 @@ test("Send in the ViteHub pill walks every state", { timeout: 180_000 }, async (
     await shot(ana, "4-sending")
     await waitState(ana, "sent")
     await shot(ana, "5-sent")
+    assert.equal((await api.readDelivery()).status, 200)
     await waitState(ana, "working")
     assert.match(await segment(ana).textContent(), /Working/)
     await shot(ana, "6-working")
@@ -145,6 +146,7 @@ test("Send in the ViteHub pill walks every state", { timeout: 180_000 }, async (
     api.control.fail = false
     await segment(ana).locator("[data-action='retry']").click()
     await waitState(ana, "sent")
+    assert.equal((await api.readDelivery()).status, 200)
     await waitState(ana, "working")
   })
 
