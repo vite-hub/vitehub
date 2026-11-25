@@ -1413,14 +1413,16 @@ describe("Database Nuxt integration", () => {
       const { hooks, nuxt } = createNuxt({ buildDir, dev, nitro: { preset: "node-server" }, rootDir, serverDir, vite: {} })
       await hubDatabase({ connection: { authToken: "dev-token", url: "libsql://dev.example.com" } })(undefined, nuxt)
 
-      const nitroConfig: Record<string, unknown> = {}
+      const nitroConfig: Record<string, unknown> = { traceDeps: ["existing"] }
       await callHook(hooks, "nitro:config", nitroConfig)
+      expect(nitroConfig.traceDeps).toEqual(dev ? ["existing"] : ["existing", "@libsql/client", "libsql*"])
       expect(nitroConfig.alias).toEqual({
         "@vite-hub/database/runtime/registry": runtimeFile,
         ...(dev ? { "#vitehub/database/definition-defaults": join(dirname(runtimeFile), "definition-defaults.mjs") } : {}),
       })
       if (dev) {
         await expect(readFile(join(dirname(runtimeFile), "definition-defaults.mjs"), "utf8")).resolves.toContain('"dev":true')
+        await expect(readFile(runtimeFile, "utf8")).resolves.toContain(`}, definitionDefaults, ${JSON.stringify(rootDir)})`)
       }
       await expect(readFile(runtimeFile, "utf8")).resolves.toMatch(
         /databases\/analytics\/index\.ts[\s\S]+"connection":\{"authToken":"dev-token","url":"libsql:\/\/dev\.example\.com"\}[\s\S]+\["analytics"\]:[\s\S]+export const databases[\s\S]+export const db[\s\S]+export const schema/,

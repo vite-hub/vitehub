@@ -1,9 +1,12 @@
+import { resolve } from "node:path"
+import { pathToFileURL } from "node:url"
+
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 import { localSqlite } from "#vitehub/database/libsql"
 
 import { createDrizzleSqliteAdapter } from "./drizzle-adapter.ts"
 import { postgresConnectionUrl } from "./postgres-connection.ts"
-import { runtimeConfig } from "./definition-config.ts"
+import { defaultUrl, runtimeConfig } from "./definition-config.ts"
 import { warnIgnoredUrlVariable } from "./url-variables.ts"
 
 import type { AnyRelations } from "drizzle-orm"
@@ -12,8 +15,9 @@ import type { DatabaseDefinition, RuntimeDrizzleDatabase, RuntimeDrizzleDatabase
 export function createDefinitionRuntime<TSchema extends Record<string, unknown>, TRelations extends AnyRelations>(
   definition: DatabaseDefinition<TSchema, TRelations>,
   defaults?: Pick<DatabaseDefinition, "cloudflare" | "connection">,
+  projectRoot?: string,
 ): RuntimeDrizzleDatabase<TSchema, TRelations> {
-  return createConfiguredDatabase(runtimeConfig(definition, defaults), definition.relations)
+  return createConfiguredDatabase(runtimeConfig(definition, defaults), definition.relations, undefined, projectRoot)
 }
 
 /** The Drizzle database of a resolved config. A local file opens with libSQL, or with SQLite WASM in a WebContainer. */
@@ -21,13 +25,17 @@ export function createConfiguredDatabase<TSchema extends Record<string, unknown>
   config: RuntimeDrizzleDatabaseConfig,
   relations: TRelations,
   migrationsDir?: string,
+  projectRoot?: string,
 ): RuntimeDrizzleDatabase<TSchema, TRelations> {
   if (localSqlite) warnIgnoredUrlVariable(config)
+  const resolveLocalUrl = localSqlite?.resolveLocalUrl
   const database = createDrizzleSqliteAdapter<TSchema, TRelations>(config, relations, {
     libsql: localSqlite,
     missingConnection: localSqlite ? "a Cloudflare D1 binding or `connection.url`" : "a Cloudflare D1 binding or `cloudflare.http`",
     requireRemoteUrl: false,
-    resolveLocalUrl: localSqlite?.resolveLocalUrl,
+    resolveLocalUrl: resolveLocalUrl && (url => resolveLocalUrl(projectRoot && url === defaultUrl(config.name)
+      ? pathToFileURL(resolve(projectRoot, url.slice("file:".length))).href
+      : url)),
   })
   return withTestDatabase(config.name, relations, migrationsDir, database)
 }

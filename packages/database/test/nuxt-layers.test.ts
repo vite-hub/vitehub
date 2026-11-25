@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { access, cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
@@ -130,7 +130,7 @@ describe("Database Definitions in Nuxt layers", () => {
     expect(runtime).toContain(`import schemaSource_0_1 from ${JSON.stringify(pathToFileURL(app.layerDefinition("accounts")).href)}`)
     expect(runtime).toContain("const schema_0 = { ...schemaSource_0_0.schema, ...schemaSource_0_1.schema }")
     expect(runtime).toContain("const relations_0 = mergeDatabaseRelations(\"default\", schema_0, [schemaSource_0_0.relations, schemaSource_0_1.relations])")
-    expect(runtime).toContain("db: createDefinitionRuntime({ ...definition_0, schema: schema_0, relations: relations_0 }, definitionDefaults),")
+    expect(runtime).toContain(`db: createDefinitionRuntime({ ...definition_0, schema: schema_0, relations: relations_0 }, definitionDefaults, ${JSON.stringify(app.appDir)}),`)
     expect(nitroConfig.alias).toEqual({
       "#vitehub/database/definition-defaults": join(app.appDir, ".nuxt/vitehub/database/definition-defaults.mjs"),
       "@vite-hub/database/runtime/registry": join(app.appDir, ".nuxt/vitehub/database/local-runtime.mjs"),
@@ -276,8 +276,9 @@ describe("Database Definitions in Nuxt layers", () => {
     expect(Object.keys(generated.relations.users!.relations)).toEqual(["posts"])
 
     const { createDefinitionRuntime } = await import("../src/runtime/definition-local.ts")
-    const db = createDefinitionRuntime({ connection: { url: `file:${join(app.appDir, "app.db")}` }, name: "default", relations: generated.relations, schema: generated.schema })
+    const db = createDefinitionRuntime({ name: "default", relations: generated.relations, schema: generated.schema }, {}, app.appDir)
     await db.run(drizzleSql`CREATE TABLE users (id INTEGER PRIMARY KEY, email TEXT NOT NULL)`)
+    await expect(access(join(app.appDir, ".vitehub/data/database/sqlite.db"))).resolves.toBeUndefined()
     await db.run(drizzleSql`CREATE TABLE posts (id INTEGER PRIMARY KEY, author_id INTEGER NOT NULL, title TEXT NOT NULL)`)
     await db.run(drizzleSql`INSERT INTO users VALUES (1, 'ada@example.com')`)
     if (replaceUsers) {
@@ -310,7 +311,7 @@ describe("Database Definitions in Nuxt layers", () => {
     for (const hook of hooks["nitro:config"] ?? []) await hook(nitroConfig)
     const runtime = await readFile(join(app.appDir, ".nuxt/vitehub/database/local-runtime.mjs"), "utf8")
     expect(runtime).toContain("const relations_0 = mergeDatabaseRelations(\"default\", schema_0, [schemaSource_0_0.relations, schemaSource_0_1.relations, schemaSource_0_2.relations])")
-    expect(runtime).toContain("db: createDefinitionRuntime({ ...definition_0, schema: schema_0, relations: relations_0 }, definitionDefaults),")
+    expect(runtime).toContain(`db: createDefinitionRuntime({ ...definition_0, schema: schema_0, relations: relations_0 }, definitionDefaults, ${JSON.stringify(app.appDir)}),`)
 
     const route = join(app.appDir, "server/api/posts.ts")
     await writeModule(route, [

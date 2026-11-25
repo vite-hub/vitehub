@@ -347,6 +347,10 @@ export function hubDatabase(options: DatabaseNuxtIntegrationOptions = {}): Datab
           if (!runtimeProvider) {
             // Nuxt CLI clears buildDir after nitro:config, before compiling the generated runtime.
             const localRuntime = await installNitroLocalDatabaseRuntime(config, root, provisionRoot, resolve(root, ".vitehub"), runtimeOptions, serverDirs, d1, contributions, startDatabases.length ? runtime : undefined)
+            if (localRuntime?.databaseNames.some(name => localRuntime.databases[name]?.dialect === "sqlite")) {
+              const traceDeps: unknown[] = Array.isArray(config.traceDeps) ? config.traceDeps : []
+              config.traceDeps = [...new Set([...traceDeps, "@libsql/client", "libsql*"])]
+            }
             if (migrateOnStart && startDatabases.length && localRuntime) await installNitroMigrateOnStart(config, root, localRuntime, migrateOnStart, startDatabases)
           }
           else if (nodeD1Http && migrateOnStart && startDatabases.length) await installNitroMigrateOnStart(config, root, nodeD1Http, migrateOnStart, startDatabases)
@@ -569,7 +573,7 @@ async function installNitroLocalDatabaseRuntime(
     `  [${JSON.stringify(definition.name)}]: {`,
     runtime.databases[definition.name]?.dialect === "postgresql"
       ? `    db: ${renderPostgresDatabaseExpression(definition.name, runtime, `definition_${index}`, merged(index) ? `schema_${index}` : `definition_${index}.schema`, `relations_${index}`, dev)},`
-      : `    db: createDefinitionRuntime({ ...definition_${index}, ${merged(index) ? `schema: schema_${index}, ` : ""}relations: relations_${index} }, definitionDefaults),`,
+      : `    db: createDefinitionRuntime({ ...definition_${index}, ${merged(index) ? `schema: schema_${index}, ` : ""}relations: relations_${index} }, definitionDefaults${dev ? `, ${JSON.stringify(root)}` : ""}),`,
     `    relations: relations_${index},`,
     `    schema: ${merged(index) ? `schema_${index}` : `definition_${index}.schema`},`,
     "  },",
