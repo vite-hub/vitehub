@@ -386,6 +386,8 @@ pnpm vitehub database migrate
 - Model and field remapping (`modelName`, `fields`, `fieldName`) fails with `AUTH_C0056`. Each table keeps its Better Auth key.
 - Without the tables, the adapter fails with `AUTH_R0019`. It never falls back to the in-memory store.
 
+If you upgrade an existing app and want to keep the Admin columns, add `admin()` before running `vitehub database generate`. Otherwise, the generated migration drops those columns and `vitehub database migrate` refuses to apply it by default. If you intend to drop them, review the generated SQL and follow the [data-loss migration instructions](/docs/database/configure#apply-migrations).
+
 ### Add fields and plugin tables
 
 Auth also adds a column for each `additionalFields` entry, and the tables and columns of the plugins that `server/auth.ts` and its local imports call:

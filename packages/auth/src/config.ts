@@ -80,6 +80,10 @@ function resolveLocalModule(importer: string, specifier: string): string | undef
 
 const nameOf = (node: { type: string, name?: string, value?: unknown }): string => node.type === "Identifier" ? node.name! : String(node.value)
 
+function staticMemberName(member: Extract<Node, { type: "MemberExpression" }>): string | undefined {
+  return member.computed ? staticString(member.property as Expression) : member.property.type === "Identifier" ? member.property.name : undefined
+}
+
 /** What one module needs from another: some export names, or the whole module. */
 type ModuleNeeds = "all" | Set<string>
 
@@ -89,7 +93,7 @@ interface ModuleBindings {
   /** Value imports from local modules, by local name. `*` is a namespace import. */
   imports: Map<string, { file: string, imported: string }>
   /** Local names and re-exports, by export name. */
-  exports: Map<string, { local: string } | { file: string, imported: string } | { plugin: AuthSchemaPlugin }>
+  exports: Map<string, { local: string } | { file: string, imported: string } | { plugin: AuthSchemaPlugin | undefined }>
   /** The local modules of `export * from`. */
   exportAll: string[]
   exportAllFactories: Array<Readonly<Record<string, AuthSchemaPlugin>>>
@@ -151,7 +155,7 @@ function readModuleBindings(module: ScannedModule): ModuleBindings {
         const local = nameOf(specifier.local)
         if (statement.source) {
           if (file) bindings.exports.set(nameOf(specifier.exported), { file, imported: local })
-          else if (factories && Object.hasOwn(factories, local)) bindings.exports.set(nameOf(specifier.exported), { plugin: factories[local]! })
+          else bindings.exports.set(nameOf(specifier.exported), { plugin: factories && Object.hasOwn(factories, local) ? factories[local] : undefined })
         }
         else bindings.exports.set(nameOf(specifier.exported), { local })
       }
@@ -161,9 +165,8 @@ function readModuleBindings(module: ScannedModule): ModuleBindings {
       const factories = statement.exported ? undefined : pluginFactoriesOf(statement.source.value)
       if (factories) bindings.exportAllFactories.push(factories)
       const file = localFile(statement.source.value)
-      if (!file) continue
-      if (statement.exported) bindings.exports.set(nameOf(statement.exported), { file, imported: "*" })
-      else bindings.exportAll.push(file)
+      if (statement.exported) bindings.exports.set(nameOf(statement.exported), file ? { file, imported: "*" } : { plugin: undefined })
+      else if (file) bindings.exportAll.push(file)
     }
     else if (statement.type === "ExportDefaultDeclaration") {
       declare("default", statement.declaration as Node)
@@ -185,38 +188,51 @@ function readModuleNeeds(module: ScannedModule, needs: ModuleNeeds, exportedFact
   const bindings = readModuleBindings(module)
   const plugins = new Set<AuthSchemaPlugin>()
   const imports: Array<[string, ModuleNeeds]> = []
-  const need = (file: string, imported: string) => imports.push([file, imported === "*" ? "all" : new Set([imported])])
+  const need = (file: string, imported: string) => imports.push([file, new Set([imported])])
+  const needImport = ({ file, imported }: { file: string, imported: string }) => imported === "*" ? imports.push([file, "all"]) : need(file, imported)
   const calledFactory = (callee: Node): AuthSchemaPlugin | undefined => {
     if (callee.type === "Identifier") {
       const imported = bindings.imports.get(callee.name)
       return bindings.pluginFactories.get(callee.name) ?? (imported && imported.imported !== "*" ? exportedFactory(imported.file, imported.imported) : undefined)
     }
     if (callee.type !== "MemberExpression" || callee.object.type !== "Identifier") return undefined
-    const property = callee.computed ? staticString(callee.property as Expression) : callee.property.type === "Identifier" ? callee.property.name : undefined
+    const property = staticMemberName(callee)
     if (property === undefined) return undefined
     const factories = bindings.pluginNamespaces.get(callee.object.name)
     if (factories) return Object.hasOwn(factories, property) ? factories[property] : undefined
     const imported = bindings.imports.get(callee.object.name)
     return imported?.imported === "*" ? exportedFactory(imported.file, property) : undefined
   }
-  const collectCalls = (node: Node, references?: Set<string>) => walk(node, (child) => {
+  const collectCalls = (node: Node, references: Set<string>) => walk(node, (child, parent) => {
     if (child.type === "ImportDeclaration") return false
     const plugin = child.type === "CallExpression" ? calledFactory(child.callee as Node) : undefined
     if (plugin) plugins.add(plugin)
-    if (child.type === "Identifier") references?.add(child.name)
+    if (child.type !== "Identifier") return
+    if (parent?.type === "MemberExpression") {
+      if (parent.property === child && !parent.computed) return
+      if (parent.object === child) {
+        const imported = bindings.imports.get(child.name)
+        const member = staticMemberName(parent)
+        if (imported?.imported === "*" && member !== undefined) {
+          need(imported.file, member)
+          return
+        }
+      }
+    }
+    references.add(child.name)
   })
   if (needs === "all") {
     const references = new Set<string>()
     collectCalls(module.program, references)
-    for (const [name, { file, imported }] of bindings.imports) if (references.has(name)) need(file, imported)
-    for (const [, target] of bindings.exports) if ("file" in target) need(target.file, target.imported)
+    for (const [name, imported] of bindings.imports) if (references.has(name)) needImport(imported)
+    for (const target of bindings.exports.values()) if ("file" in target) needImport(target)
     return { plugins: [...plugins], imports }
   }
   const locals: string[] = []
   for (const name of needs) {
     const target = bindings.exports.get(name)
     if (!target) for (const file of bindings.exportAll) need(file, name)
-    else if ("file" in target) need(target.file, target.imported)
+    else if ("file" in target) needImport(target)
     else if ("local" in target) locals.push(target.local)
   }
   const reached = new Set<string>()
@@ -224,7 +240,7 @@ function readModuleNeeds(module: ScannedModule, needs: ModuleNeeds, exportedFact
     if (reached.has(local)) continue
     reached.add(local)
     const imported = bindings.imports.get(local)
-    if (imported) need(imported.file, imported.imported)
+    if (imported) needImport(imported)
     const references = new Set<string>()
     for (const declaration of bindings.declarations.get(local) ?? []) collectCalls(declaration, references)
     for (const reference of references) if (bindings.declarations.has(reference) || bindings.imports.has(reference)) locals.push(reference)
