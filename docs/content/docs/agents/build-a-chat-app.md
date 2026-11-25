@@ -55,24 +55,24 @@ The checkout has the finished files to read and edit. Paths start from `fixtures
     "test:journey": "node --test test/journey.test.mjs"
   },
   "dependencies": {
-    "@ai-sdk/vue": "4.0.130",
-    "@iconify-json/lucide": "1.2.139",
+    "@ai-sdk/vue": "4.0.179",
+    "@iconify-json/lucide": "1.2.158",
     "@iconify-json/ph": "1.2.2",
-    "@nuxt/ui": "4.11.3",
+    "@nuxt/ui": "4.13.0",
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/ui": "workspace:*",
-    "ai": "7.0.130",
+    "ai": "7.0.179",
     "h3": "2.0.8",
-    "nuxt": "npm:nuxt-nightly@5.0.0-2611052317-a04317f",
-    "tailwindcss": "4.3.3",
+    "nuxt": "npm:nuxt-nightly@5.0.0-2611222336-0ed8910",
+    "tailwindcss": "4.3.5",
     "vite-hub": "workspace:*",
-    "vue": "3.5.44",
+    "vue": "3.5.46",
     "zod": "4.6.7"
   },
   "devDependencies": {
-    "@types/node": "24.19.1",
+    "@types/node": "24.19.2",
     "typescript": "6.0.3",
-    "vue-tsc": "3.3.12"
+    "vue-tsc": "3.3.14"
   },
   "engines": { "node": "^24.15.0 || >=26.0.0" }
 }

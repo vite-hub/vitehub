@@ -18,9 +18,9 @@ export interface ConsoleAccountProject {
   url: string
   label: string | null
   /** The Ed25519 public key of the link, base64url. */
-  publicKey: string
+  publicKey: string | null
   /** The variable of the app that keeps `publicKey`, such as `VITEHUB_CONSOLE_KEY_CONSOLE_3F9A12BC`. */
-  keyVariable: string
+  keyVariable: string | null
 }
 
 export interface ConsoleAccountTeam {
@@ -288,7 +288,7 @@ export async function revokeConsoleApiKey(id: string): Promise<void> {
  * or old), it answers but not as a Console app (`unconfigured`: no `console: true`, or another error), or
  * the Console cannot reach it.
  */
-export type ConsoleAccountAppStatus = "checking" | "connected" | "setup" | "unconfigured" | "unreachable"
+export type ConsoleAccountAppStatus = "checking" | "connected" | "setup" | "unconfigured" | "unreachable" | "site"
 
 /** What each status says, in the sidebar and on Home. */
 export const accountAppStatusLabels: Record<ConsoleAccountAppStatus, string> = {
@@ -297,6 +297,7 @@ export const accountAppStatusLabels: Record<ConsoleAccountAppStatus, string> = {
   setup: "Variable not set",
   unconfigured: "Not connected",
   unreachable: "Not reachable",
+  site: "Hosted Comments",
 }
 
 /** What a check of a linked app found. `setup` means the app refuses the signature, so its variable is missing or old. */
@@ -334,8 +335,8 @@ export async function checkConsoleAccountProject(id: string): Promise<ConsoleAcc
 }
 
 /** Link an app to the active team. The answer names the variable and the public key to set on the app. */
-export async function linkConsoleAccountProject(url: string, label?: string): Promise<ConsoleAccountProject> {
-  const { project } = await json<{ project: ConsoleAccountProject }>("/api/projects", { body: JSON.stringify({ url, ...(label ? { label } : {}) }), method: "POST" })
+export async function linkConsoleAccountProject(url: string, label?: string, kind?: "site"): Promise<ConsoleAccountProject> {
+  const { project } = await json<{ project: ConsoleAccountProject }>("/api/projects", { body: JSON.stringify({ url, label, kind }), method: "POST" })
   return project
 }
 
@@ -347,7 +348,7 @@ export async function renameConsoleAccountProject(id: string, label: string): Pr
 }
 
 export async function unlinkConsoleAccountProject(id: string): Promise<void> {
-  const response = await fetch(`/api/projects/${encodeURIComponent(id)}`, { credentials: "same-origin", method: "DELETE" })
+  const response = await fetch(`/api/projects/${encodeURIComponent(id)}?deleteHostedComments=true`, { credentials: "same-origin", method: "DELETE" })
   if (!response.ok && response.status !== 404) throw failure({ status: response.status }, `The Console answered ${response.status}.`)
 }
 

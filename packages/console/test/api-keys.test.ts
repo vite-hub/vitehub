@@ -16,6 +16,7 @@ const { createConsoleApiKey, listConsoleApiKeys, revokeConsoleApiKey, verifyCons
 const { createConsoleProjectStore } = await import("../src/projects.ts")
 const { default: listProjects } = await import("../server/api/projects/index.get.ts")
 const { default: linkProject } = await import("../server/api/projects/index.post.ts")
+const { default: unlinkProject } = await import("../server/api/projects/[id]/index.delete.ts")
 const { default: whoami } = await import("../server/api/whoami.get.ts")
 const { default: revoke } = await import("../server/api/api-keys/[id].delete.ts")
 
@@ -52,6 +53,17 @@ async function setup() {
 const bearer = (key: string, init: RequestInit & { path?: string } = {}) => new Request(`https://console.test${init.path ?? "/api/projects"}`, { ...init, headers: { authorization: `Bearer ${key}`, "content-type": "application/json" } })
 
 describe("Console API keys", () => {
+  it("requires explicit confirmation to unlink a project", async () => {
+    const { db, link } = await setup()
+    const docs = await link("t-ada", "https://docs.example.com")
+    const team = (await createConsoleApiKey(db, { userId: "u-ada", teamId: "t-ada", name: "Team" }))!
+    const path = `/api/projects/${docs.id}`
+    expect((await unlinkProject.fetch(bearer(team.key, { path, method: "DELETE" }))).status).toBe(409)
+    expect(await createConsoleProjectStore(db, consoleSecret, "t-ada").get(docs.id)).toBeDefined()
+    expect((await unlinkProject.fetch(bearer(team.key, { path: `${path}?deleteHostedComments=true`, method: "DELETE" }))).status).toBe(204)
+    expect(await createConsoleProjectStore(db, consoleSecret, "t-ada").get(docs.id)).toBeUndefined()
+  })
+
   it("keeps only a hash, and shows the key in no list", async () => {
     const { client, db } = await setup()
     const created = (await createConsoleApiKey(db, { userId: "u-ada", teamId: "t-ada", name: "CI" }))!

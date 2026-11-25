@@ -14,7 +14,6 @@ const codes = [
   "VITE_HUB_CONSOLE_AUTH_PLUGIN_MISSING",
   "VITE_HUB_CONSOLE_INVOCATION_FILES_LIMIT",
   "VITE_HUB_CONSOLE_JSON_INVALID",
-  "VITE_HUB_CONSOLE_MCP_LIST_INCOMPLETE",
   "VITE_HUB_CONSOLE_NUMBER_REQUIRED",
   "VITE_HUB_LOGS_FILTER_UNSUPPORTED",
   "VITE_HUB_LOGS_SOURCE_PAGE_TOO_LARGE",
@@ -23,8 +22,8 @@ const codes = [
 describe("vite-hub marked error codes", () => {
   it.each(codes)("%s has a fix and its own docs page", (code) => {
     // Each code takes its own params. One object that has all of them fits every code.
-    const create = viteHubErrorDiagnostics[code] as (params: { filter: "text", limit: "entries", reason: "repeated-cursor", subject: "This value" }) => Error & { docs?: string, fix?: string }
-    const error = create({ filter: "text", limit: "entries", reason: "repeated-cursor", subject: "This value" })
+    const create = viteHubErrorDiagnostics[code] as (params: { filter: "text", limit: "entries", subject: "This value" }) => Error & { docs?: string, fix?: string }
+    const error = create({ filter: "text", limit: "entries", subject: "This value" })
     expect(error.message).toMatch(/\S/)
     expect(error.fix).toMatch(/\S/)
     expect(error.docs).toBe(`https://vitehub.dev/docs/development/diagnostics/${code.toLowerCase()}`)

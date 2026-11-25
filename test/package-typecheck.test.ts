@@ -12,7 +12,7 @@ import { packageTypecheckCompiler } from "./package-typecheck.mjs"
 describe("package typecheck compiler", () => {
   it.each([
     ["darwin", "arm64"], ["darwin", "x64"],
-    ["linux", "arm64"], ["linux", "x64"], ["win32", "x64"],
+    ["linux", "arm64"], ["linux", "x64"], ["win32", "arm64"], ["win32", "x64"],
   ])("uses tsrs on %s %s", (platform, arch) => {
     expect(packageTypecheckCompiler(platform, arch).href).toBe(
       new URL("./bin/tsrs", import.meta.resolve("tsrs/package.json")).href,
@@ -20,7 +20,7 @@ describe("package typecheck compiler", () => {
   })
 
   it.each([
-    ["win32", "arm64"], ["linux", "arm"], ["freebsd", "x64"],
+    ["linux", "arm"], ["freebsd", "x64"],
   ])("retains an available native compiler on %s %s", (platform, arch) => {
     const manifest = new URL(import.meta.resolve("typescript-native/package.json"))
     expect(packageTypecheckCompiler(platform, arch).href).toBe(new URL("./bin/tsc", manifest).href)
@@ -30,7 +30,7 @@ describe("package typecheck compiler", () => {
 
   it.each([
     ["package launcher", new URL("./package-typecheck.mjs", import.meta.url)],
-    ["fallback compiler", packageTypecheckCompiler("win32", "arm64")],
+    ["fallback compiler", packageTypecheckCompiler("linux", "arm")],
   ])("%s checks the requested project without emitting and reports errors", (_, compiler) => {
     const root = mkdtempSync(join(tmpdir(), "vitehub-typecheck-"))
     try {

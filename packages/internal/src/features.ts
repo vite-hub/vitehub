@@ -348,7 +348,7 @@ ${name === "default" ? "" : `  name: ${JSON.stringify(name)},\n`}  schema: {
   }),
   i18n: feature({
     docs: "/docs/i18n",
-    hosts: everywhere("nitro", "Nitro 3", "Requires Nitro 3 with request async context, or Nuxt 5. Nuxt 4 and Nitro 2 are unsupported."),
+    hosts: everywhere("nitro", "Nitro 3", "Requires Nitro 3 with request async context: Nuxt 4.7 or newer with the nitro package, Nuxt 5, or Vite with Nitro 3. On Nuxt 4, use i18n without i18n.workspace. Nitro 2 and Nuxt before 4.7 are unsupported."),
     id: "i18n",
     packages: ["@vite-hub/i18n"],
     requiredOptions: [{ option: "i18n.locales", detail: "Pass a nonempty JSON array of locale names or set locales in your I18n config." }],
@@ -600,7 +600,7 @@ const vercelProviderPackages = {
   workflow: ["@vercel/functions"],
 } as const
 
-const drizzleRange = "1.0.0-rc.5 || ^1.0.0"
+const drizzleRange = "1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0"
 
 const installRanges: Readonly<Record<string, string>> = {
   "drizzle-kit": drizzleRange,
@@ -608,7 +608,7 @@ const installRanges: Readonly<Record<string, string>> = {
 }
 
 /**
- * The package manager argument that installs `name`, such as `drizzle-orm@1.0.0-rc.5 || ^1.0.0`. Drizzle tags 0.x as
+ * The package manager argument that installs `name`, such as `drizzle-orm@1.0.0-rc.5 || 1.0.0-rc.6 || ^1.0.0`. Drizzle tags 0.x as
  * `latest` and the next 1.0 candidate as `rc`, so a plain name installs a version that ViteHub cannot import. npm saves
  * the range as written, and an exact version would be saved as `^1.0.0-rc.5`, which also matches later candidates.
  * Other packages keep their name. Feature catalogs, status, and removal use the plain name.

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { consoleInitials } from "../client/format";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
-import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
 import { consoleMcpAccount, consoleMcpPromptSchema, consoleMcpToolHints, requestConsoleMcp } from "../client/mcp-client";
 import ConsoleMcpContent from "./console-mcp-content.vue";
@@ -47,7 +46,6 @@ const templateUri = ref("");
 const runAs = ref<string[]>([props.connection.id]);
 const results = ref<Record<string, Result>>({});
 let request: AbortController | undefined;
-const maximumListPages = 1_000;
 
 const nouns = { prompts: "prompts", resources: "resources", tools: "tools" } as const;
 const action = computed(() => ({ prompts: "Get prompt", resources: "Read", tools: "Run" })[props.kind]);
@@ -92,20 +90,9 @@ async function load(): Promise<void> {
   error.value = undefined;
   try {
     const pages = async (kind: ConsoleMcpListKind) => {
-      const all: Item[] = [];
-      const cursors = new Set<string>();
-      let cursor: string | undefined;
-      for (let page = 0; page < maximumListPages && !controller.signal.aborted; page++) {
-        const response = await requestConsoleMcp("mcp-client.items", { id: props.connection.id, kind, ...(cursor ? { cursor } : {}) }, controller.signal);
-        all.push(...response.items);
-        emit("connection", response.connection);
-        cursor = response.nextCursor;
-        if (!cursor) break;
-        if (cursors.has(cursor)) throw viteHubErrorDiagnostics.VITE_HUB_CONSOLE_MCP_LIST_INCOMPLETE({ reason: "repeated-cursor" });
-        cursors.add(cursor);
-        if (page + 1 === maximumListPages) throw viteHubErrorDiagnostics.VITE_HUB_CONSOLE_MCP_LIST_INCOMPLETE({ reason: "too-many-pages" });
-      }
-      return all;
+      const response = await requestConsoleMcp("mcp-client.items", { id: props.connection.id, kind }, controller.signal);
+      emit("connection", response.connection);
+      return response.items;
     };
     // Both lists use one grant. Finish one before the other can rotate its refresh token.
     const list = await pages(props.kind);

@@ -8,7 +8,6 @@ import { expect, it } from "vitest"
 
 import { vitehub } from "vite-hub"
 
-// The released pkce-challenge exports, without the `workerd` target that this repository patches in.
 const pkceChallengeManifest = {
   name: "pkce-challenge",
   version: "5.0.1",

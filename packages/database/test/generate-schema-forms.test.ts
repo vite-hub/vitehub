@@ -79,7 +79,7 @@ async function generateMigration(rootDir: string) {
   const config = resolveDBViteConfig(undefined, rootDir)!
   await writeGeneratedDatabaseArtifacts(config)
   await execFileAsync(process.execPath, [
-    join(import.meta.dirname, "../node_modules/drizzle-kit/bin.cjs"),
+    join(import.meta.dirname, "../node_modules/drizzle-kit/bin.js"),
     "generate",
     "--config",
     config.generatedDrizzleConfigFile,
