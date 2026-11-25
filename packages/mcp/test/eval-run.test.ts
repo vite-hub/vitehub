@@ -23,7 +23,7 @@ const handler = createMcpHandler({
   tools: {
     "search-docs": defineMcpTool({
       description: "Search the docs.",
-      input: z.object({ query: z.string() }),
+      input: z.strictObject({ query: z.string() }),
       annotations: { readOnlyHint: true },
       handler: () => searchText,
     }),
@@ -46,19 +46,23 @@ async function serve(input: string | URL | Request, init?: RequestInit): Promise
 
 const usage = { inputTokens: { total: 100, noCache: 80, cacheRead: 20, cacheWrite: undefined }, outputTokens: { total: 10, text: 10, reasoning: undefined } }
 
-function docsModel() {
+function docsModel(followUpError?: Error) {
   return new MockLanguageModelV4({
-    doGenerate: async ({ prompt }) => prompt.at(-1)?.role === "tool"
-      ? { content: [{ type: "text", text: "Queue retries are in /docs/queue." }], finishReason: { unified: "stop", raw: "stop" }, usage, warnings: [] }
-      : {
-          content: [
-            { type: "tool-call", toolCallId: "call-1", toolName: "search-docs", input: JSON.stringify({ query: "queue retries" }) },
-            { type: "tool-call", toolCallId: "call-2", toolName: "delete-page", input: JSON.stringify({ path: "/docs/queue" }) },
-          ],
-          finishReason: { unified: "tool-calls", raw: "tool_use" },
-          usage,
-          warnings: [],
-        },
+    doGenerate: async ({ prompt }) => {
+      if (prompt.at(-1)?.role === "tool") {
+        if (followUpError) throw followUpError
+        return { content: [{ type: "text", text: "Queue retries are in /docs/queue." }], finishReason: { unified: "stop", raw: "stop" }, usage, warnings: [] }
+      }
+      return {
+        content: [
+          { type: "tool-call", toolCallId: "call-1", toolName: "search-docs", input: JSON.stringify({ query: "queue retries" }) },
+          { type: "tool-call", toolCallId: "call-2", toolName: "delete-page", input: JSON.stringify({ path: "/docs/queue" }) },
+        ],
+        finishReason: { unified: "tool-calls", raw: "tool_use" },
+        usage,
+        warnings: [],
+      }
+    },
   })
 }
 
@@ -96,6 +100,41 @@ afterEach(async () => {
 })
 
 describe("runMcpEval", () => {
+  it("rejects redirects for MCP requests with custom authentication", async () => {
+    const fetchMcp = vi.fn(serve)
+    vi.stubGlobal("fetch", fetchMcp)
+
+    const report = await runMcpEval({ server: { url: "https://docs.example.com/mcp", headers: { "x-api-key": "test-key" } }, cases, models: {}, argv: ["--dry-run"] })
+
+    expect(report.exitCode).toBe(0)
+    expect(fetchMcp).toHaveBeenCalled()
+    for (const [input, init] of fetchMcp.mock.calls) {
+      const request = new Request(input, init)
+      expect(request.headers.get("x-api-key")).toBe("test-key")
+      expect(request.redirect).toBe("error")
+    }
+  })
+
+  it("falls back to legacy initialization when discovery reports a legacy version", async () => {
+    const methods: string[] = []
+    vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
+      const request = new Request(input, init)
+      const rpc = await request.clone().json()
+      if (!rpc || typeof rpc !== "object" || !("method" in rpc) || typeof rpc.method !== "string") throw new Error("Expected an MCP request")
+      methods.push(rpc.method)
+      if (rpc.method === "server/discover") {
+        if (!("id" in rpc)) throw new Error("Expected a request id")
+        return Response.json({ jsonrpc: "2.0", id: rpc.id, error: { code: -32022, message: "Unsupported protocol version", data: { supported: ["2025-11-25"] } } })
+      }
+      return serve(request)
+    })
+
+    const report = await runMcpEval({ server: { url: "https://docs.example.com/mcp" }, cases, models: {}, argv: ["--dry-run"] })
+
+    expect(report.exitCode).toBe(0)
+    expect(methods).toEqual(["server/discover", "initialize", "notifications/initialized", "tools/list"])
+  })
+
   it("runs read-only tools, records the other calls without running them, and writes the results", async () => {
     const model = docsModel()
     const report = await runMcpEval({ server: { url: "https://docs.example.com/mcp" }, cases, models: { mock: model }, argv: ["--out", out] })
@@ -131,7 +170,7 @@ describe("runMcpEval", () => {
     expect(tools.tools.map((tool: { name: string }) => tool.name)).toEqual(["search-docs", "delete-page"])
     const summary = await readFile(join(out, "summary.md"), "utf8")
     expect(summary).toContain("| queue-retries | bad | 2 | 100% | pass |")
-    expect(summary).toContain("| control | 0 | 1 | 0 |")
+    expect(summary).toContain("| control | 0 | 1 | 0 | 0 |")
     expect(summary).toContain("- Tool calls: 8")
   })
 
@@ -161,5 +200,39 @@ describe("runMcpEval", () => {
 
     expect(report.cases.map(result => [result.id, result.samples.length])).toEqual([["queue-retries", 1]])
     expect(report.exitCode).toBe(0)
+  })
+
+  it("preserves completed tool calls and charges usage when a later step fails", async () => {
+    const model = docsModel(new Error("Provider unavailable"))
+    const report = await runMcpEval({ server: { url: "https://docs.example.com/mcp" }, cases, models: { mock: model }, argv: ["--out", out, "--case", "queue-retries", "--samples", "3", "--max-tokens", "150"] })
+
+    expect(model.doGenerateCalls).toHaveLength(3)
+    const samples = report.cases[0]?.samples
+    expect(samples).toHaveLength(2)
+    expect(samples?.[0]).toMatchObject({ error: "Provider unavailable", pass: false, usage: { input: 100, output: 10, cacheRead: 20 }, calls: [{ tool: "search-docs", executed: true }, { tool: "delete-page", executed: false }] })
+    expect(samples?.[0]?.steps).toHaveLength(1)
+    expect(report.cases[0]?.passRate).toBe(0)
+    expect(report.exitCode).toBe(1)
+  })
+
+  it("reports an incomplete case when the budget skips a required sample", async () => {
+    const report = await runMcpEval({ server: { url: "https://docs.example.com/mcp" }, cases, models: { mock: docsModel() }, argv: ["--out", out, "--case", "queue-retries", "--samples", "2", "--max-tokens", "150"] })
+
+    expect(report.cases[0]).toMatchObject({ status: "incomplete", passRate: 1, samples: [{ pass: true }] })
+    expect(await readFile(join(out, "summary.md"), "utf8")).toContain("| queue-retries | bad | 1 | 100% | incomplete |")
+    expect(report.exitCode).toBe(1)
+    expect(process.exitCode).toBe(1)
+  })
+
+  it("does not pass when the budget cuts off the last sample's tool follow-up", async () => {
+    const model = docsModel()
+    const report = await runMcpEval({
+      server: { url: "https://docs.example.com/mcp" }, cases: [{ ...cases[0]!, expect: { maxCalls: 2 } }], models: { mock: model },
+      argv: ["--out", out, "--samples", "1", "--max-tokens", "100"],
+    })
+
+    expect(model.doGenerateCalls).toHaveLength(1)
+    expect(report.cases[0]?.status).toBe("incomplete")
+    expect(report.exitCode).toBe(1)
   })
 })

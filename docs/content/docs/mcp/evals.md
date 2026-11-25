@@ -8,7 +8,7 @@ icon: i-lucide-clipboard-check
 
 An MCP eval connects to a running MCP server, gives its live tool list to a model, and sends fixed prompts. It then scores the tool calls and the final text. Use it to find tool names, descriptions, and results that make a model pick the wrong tool, skip a tool, or read too much.
 
-The eval works with any MCP server over HTTP, not only a ViteHub server.
+The eval works with any MCP server over HTTP, not only a ViteHub server. Use the final endpoint URL: the eval does not follow redirects.
 
 ## Write the cases
 
@@ -72,12 +72,12 @@ The model sees all tools. The eval runs only tools with `readOnlyHint: true`. Fo
 | `--case <id>` | Run only this case. You can give it more than one time. |
 | `--samples <n>` | Run each case `n` times. |
 | `--dry-run` | Check the cases against the live tool list. Make no model call. |
-| `--max-tokens <n>` | Stop before the next sample when the run used more than `n` tokens. |
+| `--max-tokens <n>` | Stop before the next model step or sample when the run used more than `n` tokens. |
 | `--out <dir>` | The output folder. The default is `.data/mcp-eval/<time>`. |
 
 ## Read the result
 
-Without `--samples`, each case runs 2 samples, and a 3rd sample when the first two do not agree. A sample with an error does not count in the pass rate. A case fails when its pass rate is 0.5 or less. The script exits with code `1` when a case fails or has only errors.
+Without `--samples`, each case runs 2 samples, and a 3rd sample when the first two do not agree. A sample with an error does not count in the pass rate, but its completed steps still count toward the token budget. A case fails when its pass rate is 0.5 or less. The script exits with code `1` when a case fails, has only errors, or does not finish within the token budget.
 
 The output folder has three files:
 
@@ -102,7 +102,7 @@ await runMcpEval({
 
 The summary and the dry run show the findings. Findings do not change the exit code.
 
-A dry run fails with exit code `1` when a case names a tool that is not in the list, or an argument key that is not in the tool's input schema.
+A dry run fails with exit code `1` when a case names a tool that is not in the list, or an argument key that the tool's input schema rules out.
 
 ## Limits
 

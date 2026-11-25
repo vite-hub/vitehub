@@ -103,7 +103,7 @@ describe("cases", () => {
   })
 
   it("names expected tools and argument keys that the tool list does not have", () => {
-    const tools = [{ name: "get-page", inputSchema: { type: "object", properties: { path: { type: "string" }, options: { type: "object", properties: { lang: { type: "string" } } } } } }]
+    const tools = [{ name: "get-page", inputSchema: { type: "object", additionalProperties: false, properties: { path: { type: "string" }, options: { type: "object", additionalProperties: false, properties: { lang: { type: "string" } } } } } }]
     const base = { kind: "bad" as const, origin: {}, prompt: "p" }
     expect(validateCasesAgainstTools([
       { ...base, id: "ok", expect: { calls: [{ tool: "get-page", args: { "path": "~q", "options.lang": "en" } }] } },
@@ -114,5 +114,24 @@ describe("cases", () => {
       "bad: expect.calls names \"find\", which is not in tools/list.",
       "bad: expect.notCalls names \"drop\", which is not in tools/list.",
     ])
+  })
+
+  it("accepts dotted paths allowed by open schemas and checks typed additional properties", () => {
+    const tools = [{
+      name: "search",
+      inputSchema: {
+        properties: {
+          filters: { properties: { query: { type: "string" } }, additionalProperties: { type: "string" } },
+          options: { properties: {} },
+          regional: { properties: {}, patternProperties: { "^x-": { type: "string" } }, additionalProperties: false },
+          groups: { additionalProperties: { properties: { query: {} }, additionalProperties: false } },
+        },
+      },
+    }]
+    const base = { kind: "bad" as const, origin: {}, prompt: "Search" }
+    expect(validateCasesAgainstTools([
+      { ...base, id: "open", expect: { calls: [{ tool: "search", args: { "filters.locale": "en", "options.locale": "en", "regional.x-locale": "en", "groups.docs.query": "help" } }] } },
+      { ...base, id: "closed", expect: { calls: [{ tool: "search", args: { "groups.docs.slug": "q" } }] } },
+    ], tools)).toEqual(["closed: \"groups.docs.slug\" is not in the input schema of \"search\"."])
   })
 })

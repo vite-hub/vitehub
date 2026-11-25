@@ -128,11 +128,17 @@ export async function loadCases(source: string | URL | McpEvalCase[]): Promise<{
 function schemaHasPath(schema: unknown, path: string): boolean {
   let current = schema
   for (const key of path.split(".")) {
-    if (!isRecord(current) || !isRecord(current.properties)) return true
-    if (!Object.hasOwn(current.properties, key)) return false
-    current = current.properties[key]
+    if (current === false) return false
+    if (!isRecord(current)) return true
+    if (isRecord(current.properties) && Object.hasOwn(current.properties, key)) {
+      current = current.properties[key]
+    }
+    else {
+      if (isRecord(current.patternProperties) && Object.keys(current.patternProperties).length) return true
+      current = current.additionalProperties
+    }
   }
-  return true
+  return current !== false
 }
 
 export function validateCasesAgainstTools(cases: McpEvalCase[], tools: McpEvalTool[]): string[] {

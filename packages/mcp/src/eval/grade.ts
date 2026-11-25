@@ -36,7 +36,7 @@ export interface McpEvalCheck {
   reason: string
 }
 
-export type McpEvalCaseStatus = "pass" | "fail" | "error"
+export type McpEvalCaseStatus = "pass" | "fail" | "error" | "incomplete"
 
 export function readPath(value: unknown, path: string): unknown {
   let current = value

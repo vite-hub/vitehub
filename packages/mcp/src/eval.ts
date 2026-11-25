@@ -3,8 +3,8 @@ import { mkdir, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { parseArgs } from "node:util"
 
-import { createMCPClient, type ListToolsResult } from "@ai-sdk/mcp"
-import { generateText, isStepCount, type LanguageModel, type LanguageModelUsage, type StopCondition, type ToolSet } from "ai"
+import { createMCPClient, MCPClientError, type ListToolsResult } from "@ai-sdk/mcp"
+import { generateText, type LanguageModel, type LanguageModelUsage, type StopCondition, type ToolSet } from "ai"
 
 import { loadCases, validateCasesAgainstTools, type McpEvalTool } from "./eval/cases.ts"
 import { caseVerdict, gradeSample, needsAnotherSample, type McpEvalCall, type McpEvalCase, type McpEvalCaseStatus, type McpEvalCheck } from "./eval/grade.ts"
@@ -67,7 +67,7 @@ export interface McpEvalReport {
 }
 
 export interface McpEvalOptions<MODELS extends Record<string, LanguageModel>> {
-  /** The remote MCP server. `headers` go with every request, such as `Authorization`. */
+  /** The final MCP endpoint URL. Redirects are not followed. `headers` go with every request. */
   server: { url: string | URL, headers?: Record<string, string> }
   /** An ndjson file path or URL with one case per line, or the cases. */
   cases: string | URL | McpEvalCase[]
@@ -171,6 +171,20 @@ async function listAllTools(client: Awaited<ReturnType<typeof createMCPClient>>)
   return { ...first, tools }
 }
 
+async function connect(url: string, headers?: Record<string, string>) {
+  const transport = { type: "http", url, headers, redirect: "error" } as const
+  try {
+    return await createMCPClient({ transport })
+  }
+  catch (error) {
+    if (!MCPClientError.isInstance(error) || error.code !== -32022) throw error
+    const data = error.data
+    if (!data || typeof data !== "object" || !("supported" in data) || !Array.isArray(data.supported)
+      || !data.supported.some(version => version === "2025-11-25" || version === "2025-06-18")) throw error
+    return createMCPClient({ transport, protocolVersionDiscovery: false })
+  }
+}
+
 function printList(title: string, lines: string[]) {
   if (!lines.length) return
   console.log(`\n${title}:`)
@@ -206,13 +220,13 @@ function summarize(input: { url: string, model: string, toolList: McpEvalToolLis
     "",
     "## By kind",
     "",
-    "| Kind | Pass | Fail | Error |",
-    "| --- | --- | --- | --- |",
+    "| Kind | Pass | Fail | Error | Incomplete |",
+    "| --- | --- | --- | --- | --- |",
     ...(["bad", "guard", "control"] as const).flatMap((kind) => {
       const ofKind = input.results.filter(result => result.kind === kind)
       if (!ofKind.length) return []
       const count = (status: McpEvalCaseStatus) => ofKind.filter(result => result.status === status).length
-      return [`| ${kind} | ${count("pass")} | ${count("fail")} | ${count("error")} |`]
+      return [`| ${kind} | ${count("pass")} | ${count("fail")} | ${count("error")} | ${count("incomplete")} |`]
     }),
     "",
     "## Usage",
@@ -240,7 +254,7 @@ function count(value: number, noun: string): string {
 /**
  * Runs tool-use evals against a remote MCP server. It reads the live `tools/list`, gives every tool to the model,
  * runs only the tools with `readOnlyHint: true`, and grades the calls and the final text of each case.
- * It writes `results.jsonl`, `tools.json`, and `summary.md` to `--out`, and sets `process.exitCode` to 1 when a case fails.
+ * It writes `results.jsonl`, `tools.json`, and `summary.md` to `--out`, and sets `process.exitCode` to 1 when a case does not pass.
  * `--dry-run` checks the cases against the tool list without a model call.
  */
 export async function runMcpEval<MODELS extends Record<string, LanguageModel>>(options: McpEvalOptions<MODELS>): Promise<McpEvalReport> {
@@ -264,7 +278,7 @@ export async function runMcpEval<MODELS extends Record<string, LanguageModel>>(o
   const url = String(options.server.url)
   let client: Awaited<ReturnType<typeof createMCPClient>>
   try {
-    client = await createMCPClient({ transport: { type: "http", url, headers: options.server.headers, redirect: "follow" } })
+    client = await connect(url, options.server.headers)
   }
   catch (error) {
     report.problems.push(`Cannot connect to ${url}: ${message(error)}`)
@@ -292,7 +306,10 @@ export async function runMcpEval<MODELS extends Record<string, LanguageModel>>(o
 
     let spent = 0
     let stopped: string | undefined
-    const overBudget = () => flags.maxTokens !== undefined && spent > flags.maxTokens
+    const overBudget = (tokens: number) => flags.maxTokens !== undefined && tokens > flags.maxTokens
+    const stopForBudget = (tokens: number) => {
+      stopped = `--max-tokens ${flags.maxTokens} reached after ${tokens} tokens.`
+    }
 
     const runSample = async (testCase: McpEvalCase, sample: number): Promise<McpEvalSample> => {
       const chars = new Map<string, number>()
@@ -307,22 +324,29 @@ export async function runMcpEval<MODELS extends Record<string, LanguageModel>>(o
           },
         }
       }
-      const budget: StopCondition<ToolSet> = ({ steps }) => flags.maxTokens !== undefined
-        && spent + steps.reduce((total, step) => total + (step.usage.inputTokens ?? 0) + (step.usage.outputTokens ?? 0), 0) > flags.maxTokens
       const row: McpEvalSample = { id: testCase.id, kind: testCase.kind, model: modelKey, sample, pass: false, checks: [], calls: [], finalText: "", usage: { input: 0, output: 0 }, steps: [] }
+      const stepLimit = testCase.maxSteps ?? options.maxSteps ?? 8
+      const stopWhen: StopCondition<ToolSet> = ({ steps }) => {
+        if (steps.length === stepLimit) return true
+        const tokens = spent + steps.reduce((total, step) => total + (step.usage.inputTokens ?? 0) + (step.usage.outputTokens ?? 0), 0)
+        if (!overBudget(tokens)) return false
+        stopForBudget(tokens)
+        return true
+      }
       try {
-        const result = await generateText({ model, system, prompt: testCase.prompt, tools, stopWhen: [isStepCount(testCase.maxSteps ?? options.maxSteps ?? 8), budget] })
-        row.steps = result.steps.map(step => ({
-          calls: step.toolCalls.map(call => ({
-            tool: call.toolName,
-            args: call.input,
-            executed: readOnly.has(call.toolName) && chars.has(call.toolCallId),
-            ...(chars.has(call.toolCallId) ? { resultChars: chars.get(call.toolCallId) } : {}),
-          })),
-          usage: toUsage(step.usage),
-        }))
-        row.calls = row.steps.flatMap(step => step.calls)
-        row.usage = sumUsage(row.steps.map(step => step.usage))
+        const result = await generateText({
+          model, system, prompt: testCase.prompt, tools, stopWhen,
+          onStepEnd: (step) => {
+            const calls = step.toolCalls.map(call => ({
+              tool: call.toolName,
+              args: call.input,
+              executed: readOnly.has(call.toolName) && chars.has(call.toolCallId),
+              ...(chars.has(call.toolCallId) ? { resultChars: chars.get(call.toolCallId) } : {}),
+            }))
+            row.steps.push({ calls, usage: toUsage(step.usage) })
+            row.calls.push(...calls)
+          },
+        })
         row.finalText = result.text
         row.checks = gradeSample(testCase.expect, row.calls, row.finalText)
         row.pass = row.checks.every(check => check.pass)
@@ -330,15 +354,17 @@ export async function runMcpEval<MODELS extends Record<string, LanguageModel>>(o
       catch (error) {
         row.error = message(error)
       }
+      row.usage = sumUsage(row.steps.map(step => step.usage))
       spent += row.usage.input + row.usage.output
       return row
     }
 
     for (const testCase of cases) {
+      if (stopped) break
       const samples: McpEvalSample[] = []
       while (!stopped && needsAnotherSample(samples, flags.samples)) {
-        if (overBudget()) {
-          stopped = `--max-tokens ${flags.maxTokens} reached after ${spent} tokens.`
+        if (overBudget(spent)) {
+          stopForBudget(spent)
           break
         }
         const row = await runSample(testCase, samples.length + 1)
@@ -348,7 +374,8 @@ export async function runMcpEval<MODELS extends Record<string, LanguageModel>>(o
         console.log(`${testCase.id} #${row.sample}: ${outcome} (${row.calls.length} calls, ${row.usage.input + row.usage.output} tokens)`)
       }
       if (!samples.length) break
-      report.cases.push({ id: testCase.id, kind: testCase.kind, samples, ...caseVerdict(samples) })
+      const verdict = caseVerdict(samples)
+      report.cases.push({ id: testCase.id, kind: testCase.kind, samples, ...verdict, status: stopped ? "incomplete" : verdict.status })
     }
 
     const summary = summarize({ url, model: modelKey, toolList, instructions: Boolean(client.instructions), findings: report.findings, results: report.cases, stopped })
