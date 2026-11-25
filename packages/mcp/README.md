@@ -46,3 +46,8 @@ Turn it on with `vitehub({ auth: true, mcp: true })` and `mcpOAuth()` from `vite
 | `@vite-hub/mcp` | `defineMcpTool()`, `defineMcpPrompt()`, `defineMcpResource()`, `defineMcpHooks()`, and their types. Apps import it as `vite-hub/mcp`. |
 | `@vite-hub/mcp/vite` | `hubMcp()`, the Vite plugin that `vitehub({ mcp })` adds, and `discoverMcpTools()`. |
 | `@vite-hub/mcp/runtime` | `createMcpHandler()` and `createMcpOAuthDiscoveryHandler()`, which the generated server entry imports. |
+| `@vite-hub/mcp/eval` | `runMcpEval()`, which scores the tool use of a model against the live tools of any MCP server. Apps import it as `vite-hub/mcp/eval`. It needs the optional peers `ai` and `@ai-sdk/mcp`. The other imports do not load them. |
+
+## Tool-use evals
+
+`runMcpEval({ server, cases, models, system?, check? })` connects to an MCP server over HTTP and reads its live `tools/list` and server instructions. It sends each case prompt to a model with those tools, runs only the tools with `readOnlyHint: true`, and records every call. The checks of a case are `calls` (partial arguments: exact value, `~` substring, `re:` regular expression, dotted keys), `notCalls`, `maxCalls`, `finalTextMust`, and `finalTextMustNot`. Each case runs 2 samples, plus a 3rd when the first two do not agree, and fails at a pass rate of 0.5 or less. The flags are `--model`, `--case`, `--samples`, `--dry-run`, `--max-tokens`, and `--out`. The run writes `results.jsonl`, `tools.json`, and `summary.md`, and exits with code `1` when a case fails or has only errors. `@ai-sdk/mcp` adds `additionalProperties: false` to each input schema that the model sees. See [MCP tool-use evals](https://vitehub.dev/docs/mcp/evals).
