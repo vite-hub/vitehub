@@ -256,7 +256,7 @@ VITEHUB_RETRIES=3
 VITEHUB_API_TOKEN=
 ```
 
-This uses the restricted `env-spec-v1` profile shared with the [Nuxt module](https://nuxt-safe-runtime-config.onmax.me). Its [@env-spec syntax](https://varlock.dev/env-spec/reference/) parser reads static metadata. It does not run Varlock, load developer `.env` files, or evaluate expansions and functions.
+This uses the restricted [`env-spec-v1` profile](https://vitehub.dev/docs/env/env-spec). Its [@env-spec syntax](https://varlock.dev/env-spec/reference/) parser reads static metadata. It does not run Varlock, load developer `.env` files, or evaluate expansions and functions.
 
 A nonempty assignment is a real default. `KEY=` has no default; `KEY=""` is an explicit empty string. Put documentation samples in `@example`, which never supplies a value. Review existing example assignments before opting in. All fields default to required and sensitive; the default type is always string, so `CODE=00123` preserves its zeroes.
 
