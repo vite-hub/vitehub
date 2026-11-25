@@ -1,19 +1,29 @@
-import { readFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { runInNewContext } from "node:vm"
 
-import { envSchema } from "@vite-hub/env/vite"
-import { describe, expect, it } from "vitest"
+import { env, SecretEnv } from "@vite-hub/env"
+import { resolveServerEnv } from "@vite-hub/env/server"
+import { createRuntimeEnvRegistry, envSchema } from "@vite-hub/env/vite"
+import { end, parseProgram, start } from "@vite-hub/internal/ast"
+import * as v from "valibot"
+import { z } from "zod"
+import { z as z3 } from "zod/v3"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { formatReport, runCodemod } from "../src/index.ts"
 import { planFromEnvFile, readEnvFileKeys } from "../src/nuxt-safe-runtime-config/env-file.ts"
 import { looksSecret, nuxtVariableName } from "../src/nuxt-safe-runtime-config/fields.ts"
+import { planFromJsonSchema, schemaIssues, schemaToJsonSchema } from "../src/nuxt-safe-runtime-config/schema.ts"
 import { withVersionPlaceholder } from "./fixture-version.ts"
 
 const fixtures = fileURLToPath(new URL("./fixtures/", import.meta.url))
 
 describe.each([
   ["valibot-schema", "an inline Valibot $schema"],
+  ["valibot-schema-module", "a Valibot $schema module with rules on the defaults"],
   ["zod-schema-module", "a Zod $schema module in a Nuxt 3 layout"],
   ["env-schema", "an envSchema .env.example in module options"],
 ])("nuxt-safe-runtime-config with %s", (name, label) => {
@@ -102,5 +112,192 @@ describe("names", () => {
     for (const path of [["apiBase"], ["maxRetries"], ["siteUrl"], ["region"], ["keyboardLayout"]]) {
       expect(looksSecret(path), path.join(".")).toBe(false)
     }
+  })
+})
+
+describe("defaults that the field schema rejects", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  function migratedServerEnv(code: string) {
+    const exported = parseProgram(code).program.body.find(node => node.type === "ExportDefaultDeclaration")
+    if (exported?.type !== "ExportDefaultDeclaration") throw new Error("Missing migrated config")
+    const config: { vitehub: { env: { server: Parameters<typeof createRuntimeEnvRegistry>[0] } } } = runInNewContext(code.slice(start(exported.declaration), end(exported.declaration)), { defineNuxtConfig: (options: unknown) => options, env })
+    return { ...config.vitehub.env.server }
+  }
+
+  async function migrateSchemaConfig(config: string, schema: string, dependencies: Record<string, string> = { "nuxt-safe-runtime-config": "0.3.2" }, installed?: string) {
+    const cwd = await mkdtemp(join(tmpdir(), "vitehub-codemod-defaults-"))
+    try {
+      await Promise.all([
+        writeFile(join(cwd, "package.json"), JSON.stringify({ dependencies })),
+        writeFile(join(cwd, "nuxt.config.ts"), config),
+        writeFile(join(cwd, "schema.ts"), `import * as v from ${JSON.stringify(fileURLToPath(import.meta.resolve("valibot")))}\nexport default ${schema}`),
+      ])
+      if (installed) {
+        await mkdir(join(cwd, "node_modules/nuxt-safe-runtime-config"), { recursive: true })
+        await writeFile(join(cwd, "node_modules/nuxt-safe-runtime-config/package.json"), JSON.stringify({ name: "nuxt-safe-runtime-config", version: installed }))
+      }
+      const run = await runCodemod("nuxt-safe-runtime-config", { cwd, dryRun: true })
+      return { code: run.result.edits.find(edit => edit.path === "nuxt.config.ts")?.after ?? "", report: formatReport(run) }
+    }
+    finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  }
+
+  it("keeps runtime-coerced defaults and passes strings to string-input transforms", async () => {
+    const { code } = await migrateSchemaConfig(`export default defineNuxtConfig({
+      modules: ['nuxt-safe-runtime-config'],
+      safeRuntimeConfig: { $schema: './schema', validateAtRuntime: true },
+      runtimeConfig: { retryCount: process.env.COUNT ?? '3', featureEnabled: 'false', port: '3000' },
+    })`, "v.object({ retryCount: v.number(), featureEnabled: v.boolean(), port: v.pipe(v.string(), v.transform(Number), v.number()) })")
+    for (const name of ["COUNT", "NUXT_RETRY_COUNT", "VITEHUB_RETRY_COUNT", "NUXT_FEATURE_ENABLED", "VITEHUB_FEATURE_ENABLED", "NUXT_PORT", "VITEHUB_PORT"]) vi.stubEnv(name, undefined)
+    expect(resolveServerEnv(createRuntimeEnvRegistry(migratedServerEnv(code), { prefix: false }))).toMatchObject({ retryCount: 3, featureEnabled: false, port: 3000 })
+  })
+
+  it.each([
+    ["top-level warn", "'nuxt-safe-runtime-config'", "onError: 'warn'"],
+    ["tuple ignore overriding throw", "['nuxt-safe-runtime-config', { onError: 'ignore' }]", "onError: 'throw'"],
+  ])("keeps defaults under %s", async (_label, moduleEntry, options) => {
+    const { code, report } = await migrateSchemaConfig(`export default defineNuxtConfig({
+      modules: [${moduleEntry}],
+      safeRuntimeConfig: { $schema: './schema', validateAtRuntime: true, ${options} },
+      runtimeConfig: { region: 'x', apiSecret: 'x' },
+    })`, "v.object({ region: v.pipe(v.string(), v.minLength(3)), apiSecret: v.pipe(v.string(), v.minLength(3)) })")
+    expect(code).toContain("region: env({ default: 'x', source: env.source('NUXT_REGION') })")
+    expect(code).toContain("apiSecret: env({ secret: true, source: env.source('NUXT_API_SECRET') })")
+    expect(report).not.toContain("which its $schema rejects")
+  })
+
+  const buildCheckOff = `export default defineNuxtConfig({
+      modules: ['nuxt-safe-runtime-config'],
+      safeRuntimeConfig: { $schema: './schema', validateAtBuild: false },
+      runtimeConfig: { apiSecret: '' },
+    })`
+  const secretSchema = "v.object({ apiSecret: v.pipe(v.string(), v.minLength(16)) })"
+
+  it.each([
+    ["0.4.0", { "nuxt-safe-runtime-config": "0.4.0" }, undefined],
+    ["^0.4.0", { "nuxt-safe-runtime-config": "^0.4.0" }, undefined],
+    ["an unreadable range", { "nuxt-safe-runtime-config": "catalog:" }, undefined],
+    ["no declared version", {}, undefined],
+    ["installed 0.4.0", { "nuxt-safe-runtime-config": "^0.3.2 || ^0.4.0" }, "0.4.0"],
+  ])("requires a variable that module %s checks when the server starts with validateAtBuild: false", async (_label, dependencies, installed) => {
+    const { code, report } = await migrateSchemaConfig(buildCheckOff, secretSchema, dependencies, installed)
+    expect(code).toContain("apiSecret: env({ secret: true, source: env.source('NUXT_API_SECRET') })")
+    expect(report).toContain("which its $schema rejects")
+  })
+
+  it.each([
+    ["0.3.2", { "nuxt-safe-runtime-config": "0.3.2" }, undefined],
+    ["^0.3.2", { "nuxt-safe-runtime-config": "^0.3.2" }, undefined],
+    ["installed 0.3.2", { "nuxt-safe-runtime-config": "^0.3.2 || ^0.4.0" }, "0.3.2"],
+  ])("keeps a default that module %s never checked with validateAtBuild: false", async (_label, dependencies, installed) => {
+    const { code, report } = await migrateSchemaConfig(buildCheckOff, secretSchema, dependencies, installed)
+    expect(code).toContain("apiSecret: env({ default: '', secret: true, source: env.source('NUXT_API_SECRET') })")
+    expect(report).not.toContain("which its $schema rejects")
+  })
+
+  it("requires a variable whose empty default failed the schema at boot", async () => {
+    const run = await runCodemod("nuxt-safe-runtime-config", { cwd: join(fixtures, "valibot-schema-module/input"), dryRun: true })
+    const code = run.result.edits.find(edit => edit.path === "nuxt.config.ts")?.after ?? ""
+    expect(code).toContain("apiSecret: env({ secret: true, source: env.source('NUXT_API_SECRET') })")
+    expect(code).toContain("webhookSecret: env({ default: '', secret: true, source: env.source('NUXT_WEBHOOK_SECRET') })")
+    const server = migratedServerEnv(code)
+
+    vi.stubEnv("NUXT_API_SECRET", undefined)
+    vi.stubEnv("VITEHUB_API_SECRET", undefined)
+    vi.stubEnv("NUXT_WEBHOOK_SECRET", undefined)
+    vi.stubEnv("VITEHUB_WEBHOOK_SECRET", undefined)
+    expect(() => resolveServerEnv(createRuntimeEnvRegistry(server, { prefix: false }))).toThrow(expect.objectContaining({ code: "ENV_REQUIRED_MISSING", message: expect.stringContaining("NUXT_API_SECRET") }))
+
+    vi.stubEnv("NUXT_API_SECRET", "0123456789abcdef")
+    const resolved = resolveServerEnv(createRuntimeEnvRegistry(server, { prefix: false }))
+    expect(resolved.apiSecret).toBeInstanceOf(SecretEnv)
+    expect(resolved.webhookSecret instanceof SecretEnv ? resolved.webhookSecret.unseal() : resolved.webhookSecret).toBe("")
+  })
+
+  async function planned(schema: unknown, key: string, value: string) {
+    return planFromJsonSchema({ schema, jsonSchema: await schemaToJsonSchema(schema), issues: schemaIssues(schema), runtimeConfig: new Map([[key, { literal: value }]]) })
+  }
+
+  it.each([
+    ["Valibot minLength", v.object({ apiSecret: v.pipe(v.string(), v.minLength(16)) }), "apiSecret", ""],
+    ["Valibot url", v.object({ siteUrl: v.pipe(v.string(), v.url()) }), "siteUrl", ""],
+    ["Valibot custom check", v.object({ siteUrl: v.pipe(v.string(), v.check(value => value.startsWith("https://"))) }), "siteUrl", "http://example.com"],
+    ["optional Valibot email", v.object({ contact: v.optional(v.pipe(v.string(), v.email())) }), "contact", ""],
+    ["Zod min", z.object({ apiSecret: z.string().min(16) }), "apiSecret", ""],
+    ["Zod refine", z.object({ region: z.string().refine(value => value !== "none") }), "region", "none"],
+    ["Zod 3 regex", z3.object({ region: z3.string().regex(/^[a-z]+-\d$/) }), "region", "eu"],
+  ])("drops a %s default and requires the variable", async (_label, schema, key, value) => {
+    const plan = await planned(schema, key, value)
+    expect(plan.fields[0]).toMatchObject({ configPath: [key], required: true })
+    expect(plan.fields[0]).not.toHaveProperty("default")
+    expect(plan.followUps.map(entry => entry.message)).toContainEqual(expect.stringContaining(`which its $schema rejects`))
+  })
+
+  it.each([
+    ["Valibot string", v.object({ apiSecret: v.string() }), "apiSecret", ""],
+    ["Valibot minLength", v.object({ title: v.pipe(v.string(), v.minLength(3)) }), "title", "Docs"],
+    ["Zod string", z.object({ apiSecret: z.string() }), "apiSecret", ""],
+    ["Zod 3 string", z3.object({ apiSecret: z3.string() }), "apiSecret", ""],
+  ])("keeps a %s default that the schema accepts", async (_label, schema, key, value) => {
+    const plan = await planned(schema, key, value)
+    expect(plan.fields[0]).toMatchObject({ configPath: [key], default: value })
+  })
+
+  it("checks nested and public fields against their own schema", async () => {
+    const schema = v.object({
+      stripe: v.object({ secretKey: v.pipe(v.string(), v.startsWith("sk_")) }),
+      public: v.object({ apiBase: v.pipe(v.string(), v.url()) }),
+    })
+    const plan = await planFromJsonSchema({
+      schema,
+      jsonSchema: await schemaToJsonSchema(schema),
+      issues: schemaIssues(schema),
+      runtimeConfig: new Map([["stripe.secretKey", { literal: "" }], ["public.apiBase", { literal: "/api" }]]),
+    })
+    expect(plan.fields.map(field => [field.section, field.envPath.join("."), field.default])).toEqual([
+      ["server", "stripe.secretKey", undefined],
+      ["public", "apiBase", undefined],
+    ])
+  })
+
+  it.each([
+    ["Valibot", v.object({ group: v.lazy(() => v.object({ region: v.pipe(v.string(), v.check(value => value !== "none")) })) })],
+    ["Zod", z.object({ group: z.lazy(() => z.object({ region: z.string().refine(value => value !== "none") })) })],
+  ])("checks child defaults within a lazy %s object", async (_label, schema) => {
+    const plan = await planned(schema, "group.region", "none")
+    expect(plan.fields[0]).toMatchObject({ configPath: ["group", "region"], required: true })
+    expect(plan.fields[0]).not.toHaveProperty("default")
+  })
+
+  it.each([
+    [{ type: "string", minLength: 16 }, ""],
+    [{ type: "string", pattern: "^sk_" }, "pk_1"],
+    [{ type: "string", format: "uri" }, "not a url"],
+    [{ type: "string", format: "email" }, ""],
+    [{ type: "number", minimum: 1 }, 0],
+    [{ type: "integer" }, 1.5],
+    [{ type: "number", multipleOf: 2 }, 3],
+  ])("falls back to the JSON Schema rules %j without a field schema", async (node, value) => {
+    const plan = await planFromJsonSchema({
+      jsonSchema: { type: "object", required: ["value"], properties: { value: node } },
+      issues: new Map(),
+      runtimeConfig: new Map([["value", { literal: value }]]),
+    })
+    expect(plan.fields[0]).not.toHaveProperty("default")
+    expect(plan.fields[0]?.required).toBe(true)
+  })
+
+  it.each([[0.3, 0.1], [-3e-8, 1e-8], [0.35, 0.1], [3, 0.5]])("keeps %s with multipleOf %s because the fallback cannot prove a rejection", async (value, multipleOf) => {
+    const plan = await planFromJsonSchema({
+      jsonSchema: { type: "object", required: ["value"], properties: { value: { type: "number", multipleOf } } },
+      issues: new Map(),
+      runtimeConfig: new Map([["value", { literal: value }]]),
+    })
+    expect(plan.fields[0]?.default).toBe(value)
   })
 })
