@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { installViteHubPageTools, registerViteHubPageTool, respondViteHubPageSession, viteHubSiteVisitorReader } from "@vite-hub/internal/runtime/page-tools"
 import { readViteHubPageSession } from "@vite-hub/internal/runtime/page-tools-shared"
-import { siteStateHash, signSiteToken } from "@vite-hub/internal/site-token"
+import { signSiteHandoff, siteStateHash, signSiteToken } from "@vite-hub/internal/site-token"
 
 import { defineComments } from "../../comments/dist/index.js"
 import { createCommentsHandler, defineCommentsPlugin } from "../../comments/dist/runtime/index.js"
@@ -14,7 +14,7 @@ import { installConsoleSections } from "../src/console/runtime/server/sections.t
 import siteAccessRoute from "../src/console/runtime/server/site.ts"
 import { consoleEntryRoute, siteEntryPage, siteEntryRoute } from "../src/console/runtime/server/site-entry.ts"
 import { consoleRoutes } from "../src/console/runtime/server/routes.ts"
-import { readConsoleSiteVisitor } from "../src/console/runtime/server/site-visitor.ts"
+import { readConsoleSiteVisitor, siteCookieNames } from "../src/console/runtime/server/site-visitor.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 import { consoleTestKey, signedRpcRequest } from "./support/console-signature.ts"
 import { operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
@@ -89,6 +89,30 @@ afterEach(() => {
 })
 
 describe("GET /_vitehub/site?return=", () => {
+  it("uses the configured Console for app visits and the signed issuer for handoffs", async () => {
+    vi.stubGlobal("__VITEHUB_CONSOLE_URL__", "https://self-hosted.example.com")
+    expect((await startVisit()).location.origin).toBe("https://self-hosted.example.com")
+    const app = `${origin}/portal`
+    const issuer = "https://console.vitehub.dev"
+    const url = await signSiteHandoff({ app, issuer, project: "hosted-project", path: "/docs?tab=1", key: key.key })
+    expect(url).toBeDefined()
+    const response = await siteAccessRoute.fetch(new Request(url!))
+    expect(response.status).toBe(303)
+    const location = new URL(response.headers.get("location")!)
+    const names = await siteCookieNames("/portal")
+    const state = cookieValue(setCookies(response)[names.state])
+    expect(state).toMatch(/^[\w-]{43}$/)
+    expect(`${location.origin}${location.pathname}`).toBe(`${issuer}/visit`)
+    expect(Object.fromEntries(location.searchParams)).toEqual({ app, project: "hosted-project", return: "/docs?tab=1", state: await siteStateHash(state) })
+
+    for (const [name, value] of [["issuer", "https://other.example.com"], ["project", "other-project"], ["return", "/other"]] as const) {
+      const tampered = new URL(url!)
+      tampered.searchParams.set(name, value)
+      expect((await siteAccessRoute.fetch(new Request(tampered))).status).toBe(400)
+    }
+    expect((await siteAccessRoute.fetch(new Request(`${app}/_vitehub/site?issuer=${encodeURIComponent(issuer)}`))).status).toBe(400)
+  })
+
   it("keeps a state in a cookie and sends the browser to the Console visit URL with the hash of the state", async () => {
     const { response, state, location } = await startVisit("/docs?tab=1")
     expect(response.status).toBe(303)

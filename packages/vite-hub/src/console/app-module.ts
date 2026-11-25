@@ -27,8 +27,6 @@ function resolveConsoleRuntimeRoot(): string {
   return root
 }
 export const consoleRuntimeRoot: string = resolveConsoleRuntimeRoot()
-/** The ViteHub skill and its well-known index, which the Console serves at `/_vitehub/.well-known/skills`. */
-export const consoleSkillsRoot: string = join(consoleRuntimeRoot, "public/skills")
 
 /**
  * The Console access policy that generated output installs. The Console route checks it.
@@ -153,7 +151,6 @@ function renderConsoleAppModule(
   const agentsEnabled = sections.includes("agents")
   const blobEnabled = sections.includes("blob")
   const databaseEnabled = sections.includes("databases")
-  const mcpClientEnabled = sections.includes("mcp-client")
   const schedulesEnabled = sections.includes("schedules")
   const runnableSchedules = (invoke ? catalog.manualSchedules ?? [] : [])
     .map(schedule => ` [${JSON.stringify(schedule.name)}]: () => import(${JSON.stringify(pathToFileURL(schedule.handler).href)}),`)
@@ -170,8 +167,6 @@ function renderConsoleAppModule(
   const runtimeImports = [
     { bindings: "installConsoleOperations", module: generatedModules.consoleOperations },
     ...operations.map((operation, index) => ({ bindings: `${operation.export}: vitehubConsoleOperations${index}`, module: operation.module })),
-    // The MCP client SDK loads only for apps that turn the section on.
-    ...(mcpClientEnabled ? [{ bindings: "consoleMcpClientOperations: vitehubConsoleMcpClientOperations", module: "vite-hub/console/mcp-client" }] : []),
     ...(blobEnabled ? [{ bindings: "installConsoleBlob", module: generatedModules.consoleBlob }, { bindings: "blob: vitehubConsoleBlob", module: "vite-hub/blob" }] : []),
     ...(definitionsEnabled ? [{ bindings: `installConsoleDefinitions${schedulesEnabled ? ", installConsoleSchedules" : ""}`, module: generatedModules.consoleDefinitions }] : []),
     ...(definitionsEnabled ? runtimeReaders.map((reader, index) => ({ bindings: `${reader.export}: vitehubConsoleRuntimeReader${index}`, module: reader.module })) : []),
@@ -186,7 +181,7 @@ function renderConsoleAppModule(
   const runtimeInstall = [
     ...(blobEnabled ? [`installConsoleBlob(${JSON.stringify(projectRoot)}, vitehubConsoleBlob, ${JSON.stringify(blobStores)})`] : []),
     ...(sections.includes("env") ? [`installConsoleEnv(${JSON.stringify(projectRoot)}, describeServerEnv())`] : []),
-    `installConsoleOperations([${[...(mcpClientEnabled ? ["{ operations: vitehubConsoleMcpClientOperations, plugin: \"vite-hub\" }"] : []), ...operations.map((operation, index) => `{ operations: vitehubConsoleOperations${index}, plugin: ${JSON.stringify(operation.plugin)} }`)].join(", ")}], { invoke: ${invoke}, site: ${sections.includes("site")} })`,
+    `installConsoleOperations([${operations.map((operation, index) => `{ operations: vitehubConsoleOperations${index}, plugin: ${JSON.stringify(operation.plugin)} }`).join(", ")}], { invoke: ${invoke}, site: ${sections.includes("site")} })`,
     ...(definitionsEnabled ? [`installConsoleDefinitions(${JSON.stringify(projectRoot)}, ${JSON.stringify(catalog.content)}, ${JSON.stringify(contributedSections)}${runtimeReaders.length ? `, { ${runtimeReaders.map((reader, index) => `${JSON.stringify(reader.section)}: vitehubConsoleRuntimeReader${index}`).join(", ")} }` : ""})`] : []),
     ...(schedulesEnabled ? [`installConsoleSchedules(${JSON.stringify(projectRoot)}, {${runnableSchedules}})`] : []),
     ...(databaseEnabled ? [`installConsoleDatabase(${JSON.stringify(projectRoot)}, vitehubConsoleDatabases, ${JSON.stringify(catalog.content.databases?.kind === "definition-catalog" ? catalog.content.databases.definitions.map(definition => definition.name) : [])})`] : []),

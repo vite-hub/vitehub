@@ -13,9 +13,11 @@ import { installConsoleDevelopment } from "../src/console/runtime/server/develop
 import { bindConsoleAccess, consoleRealtimeAccess, installConsoleAccess, withConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { consoleOperationRegistry, handleConsoleRpcRequest } from "../src/console/runtime/server/rpc.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
-import { consoleVitePlugin, resolveConsoleAccessBuild, resolveConsoleOptions } from "../src/console/vite.ts"
+import { consoleVitePlugin, resolveConsoleAccessBuild, resolveConsoleOptions, resolveConsoleUrl } from "../src/console/vite.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 import { handleConsoleRpcRequest as handleGuardedRpcRequest } from "./support/console-rpc.ts"
+
+import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 
 import type { ResolvedAuthViteConfig } from "@vite-hub/auth"
 import type { ConsoleAuthorize } from "../src/console/auth.ts"
@@ -104,6 +106,7 @@ describe("Console access policies", () => {
     { option: { auth: {} }, fix: "was removed" },
     { option: { origins: ["https://console.vitehub.dev"] }, fix: "console.origins was removed. Apps take no Console calls from browsers." },
     { option: { mcp: { resource: "https://app.example.com/_vitehub/mcp" } }, fix: "console.mcp was removed. Apps do not serve a Console MCP at /_vitehub/mcp. Agents use the ViteHub MCP of the Console at https://console.vitehub.dev/mcp." },
+    { option: { mcpClient: true }, fix: "console.mcpClient was removed. Apps do not run an MCP client." },
     { option: { signInPage: "/sign-in" }, fix: "console.signInPage was removed." },
     { option: { embed: true }, fix: "console.embed was removed." },
   ])("refuses the removed option $option with its fix", ({ option, fix }) => {
@@ -113,6 +116,42 @@ describe("Console access policies", () => {
   it("refuses an unknown console.auth value", () => {
     expect(() => resolveConsoleOptions({ auth: "public" })).toThrow(expect.objectContaining({ code: "VITE_HUB_B0004" }))
     expect(() => resolveConsoleOptions("yes")).toThrow(expect.objectContaining({ code: "VITE_HUB_B0004" }))
+  })
+
+  it("takes console.url as the origin of a self-hosted Console", () => {
+    expect(resolveConsoleUrl(resolveConsoleOptions(true))).toBeUndefined()
+    expect(resolveConsoleUrl(resolveConsoleOptions({ url: "https://console.example.com" }))).toBe("https://console.example.com")
+    expect(resolveConsoleUrl(resolveConsoleOptions({ url: "https://Console.Example.com:8443/" }))).toBe("https://console.example.com:8443")
+    expect(resolveConsoleUrl(resolveConsoleOptions({ url: "http://localhost:3000" }))).toBe("http://localhost:3000")
+    expect(resolveConsoleUrl(resolveConsoleOptions({ url: "http://[::1]:3000" }))).toBe("http://[::1]:3000")
+    for (const url of ["http://console.example.com", "https://console.example.com/console", "https://console.example.com/?a=1", "https://user@console.example.com", "console.example.com", "ftp://console.example.com", 42]) {
+      expect(() => resolveConsoleOptions({ url })).toThrow(expect.objectContaining({ code: "VITE_HUB_B0004", message: expect.stringContaining("console.url must be") }))
+    }
+    expect(() => resolveConsoleOptions({ url: "https://admin:secret@console.example.com" })).toThrow(expect.objectContaining({ message: expect.not.stringContaining("secret") }))
+  })
+
+  it.each([false, true])("builds console.url into the app, with the Nitro config context %s", async (nitroContext) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-url-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      const plugin = consoleVitePlugin({ console: { auth: false, url: "https://console.example.com" }, sections: [] })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      const config: { nitro?: { replace?: Record<string, string> }, root: string, [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean } = { root, ...(nitroContext ? { [VITEHUB_NITRO_CONFIG_CONTEXT]: true } : {}) }
+      const result: unknown = await Reflect.apply(configHandler, {}, [config, { command: "serve", mode: "development" }])
+      expect(result).toEqual({ define: { __VITEHUB_CONSOLE_URL__: JSON.stringify("https://console.example.com") } })
+      expect(config.nitro?.replace).toEqual(nitroContext ? { __VITEHUB_CONSOLE_URL__: JSON.stringify("https://console.example.com") } : undefined)
+
+      const hosted = consoleVitePlugin({ console: { auth: false }, sections: [] })
+      const hostedHook = hosted.config
+      if (!hostedHook) throw new TypeError("Expected a console config hook.")
+      const hostedHandler = "handler" in hostedHook ? hostedHook.handler : hostedHook
+      await expect(Reflect.apply(hostedHandler, {}, [{ root }, { command: "serve", mode: "development" }])).resolves.toBeUndefined()
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("hides the sections that console.sections turns off, and accepts only false", () => {

@@ -136,13 +136,15 @@ export function consoleMockRPC(): Plugin {
     name: "vitehub-console-playground-rpc",
     configureServer(server) {
       server.middlewares.use((request, response, next) => {
-        if (request.method !== "POST" || request.url?.split("?")[0] !== operationRpcPath) {
+        const path = request.url?.split("?")[0] ?? ""
+        const mcpPath = path === "/mcp-client" || path.endsWith("/mcp-client")
+        if (request.method !== "POST" || (path !== operationRpcPath && !mcpPath)) {
           next()
           return
         }
         void (async () => {
           const call = readOperationRpcCall(JSON.parse(await readBody(request)))
-          if (!call) {
+          if (!call || mcpPath !== call.m.startsWith("mcp-client.")) {
             response.statusCode = 400
             response.setHeader("content-type", "application/json")
             response.end(JSON.stringify(operationRpcRefusal({ code: "CONSOLE_REQUEST_INVALID", message: "Invalid Console request.", status: 400 })))

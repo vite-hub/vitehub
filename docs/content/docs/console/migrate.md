@@ -1,6 +1,6 @@
 ---
 title: Move the Console from earlier releases
-description: Replace removed Console options, such as auth app, Console Auth, the app MCP at /_vitehub/mcp, and console.databaseUrl, with what now does the same job.
+description: Replace removed Console options, such as auth app, Console Auth, the app MCP route, console.mcpClient, and console.databaseUrl, with what replaces them.
 navigation.title: Move from earlier releases
 navigation.order: 41
 navigation.group: Reference
@@ -28,6 +28,21 @@ Live Content editing, the Content page preview, Env management and the Connectio
 ## Move from the MCP of the app
 
 The per-app Console MCP at `/_vitehub/mcp`, with OAuth from `consoleMcpOAuth()`, is removed. Connect the agent to `https://console.vitehub.dev/mcp/account`, link the app in the Console, and remove `consoleMcpOAuth()` and `console.mcp`.
+
+## Move from the app MCP client
+
+`console.mcpClient` is removed, and so are `vite-hub/console/mcp-client`, `VITEHUB_CONSOLE_MCP_KEY` and the `/_vitehub/mcp-client/callback` page. The [MCP client section](/docs/console/mcp-client) now runs on the ViteHub Console server and keeps its connections there.
+
+1. Remove `mcpClient` from `console`.
+2. Remove `VITEHUB_CONSOLE_MCP_KEY` from the app. Its KV entries below `vitehub:console:mcp-client:` are no longer read, so you can delete them.
+3. Remove `@modelcontextprotocol/sdk` from the app if nothing else uses it.
+4. Connect again in the Console. When an MCP server needs a fixed OAuth callback, register `<console origin>/mcp-client/callback`, such as `https://console.vitehub.dev/mcp-client/callback`.
+
+Apps also stop serving the ViteHub skill at `/_vitehub/.well-known/skills`. Install it [from the Console](/docs/getting-started/ai-resources/agent-instructions-skills#install-from-the-console).
+
+## Use a self-hosted Console
+
+Apps link to `https://console.vitehub.dev`. Set [`console.url`](/docs/console/get-started#self-host-the-console) to send `/_vitehub`, Console links, the Site access sign-in and the Comments pill to your own Console.
 
 ## Move the Agent journal options
 

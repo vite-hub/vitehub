@@ -6,7 +6,6 @@ import { pathToFileURL } from "node:url"
 import { runInNewContext } from "node:vm"
 
 import { setResolvedFeatureOptions } from "@vite-hub/internal/build/vite"
-import { hubKV } from "@vite-hub/kv/vite"
 import { desc } from "drizzle-orm"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -177,7 +176,7 @@ describe("Agent invocation console", () => {
         nitro?: {
           handlers: Array<{ handler: string, route: string }>
           plugins: string[]
-          publicAssets: Array<{ baseURL: string, dir: string }>
+          publicAssets?: Array<{ baseURL: string, dir: string }>
         }
         root: string
       } = { root }
@@ -189,9 +188,7 @@ describe("Agent invocation console", () => {
         "/_vitehub",
         "/_vitehub/rpc",
       ])
-      expect(config.nitro.publicAssets).toEqual([
-        expect.objectContaining({ baseURL: "/_vitehub/.well-known/skills", dir: expect.stringContaining("public/skills"), fallthrough: false }),
-      ])
+      expect(config.nitro.publicAssets).toBeUndefined()
       expect(consoleAppFile(plugin)).toBe(resolve(root, ".vitehub/nitro/console/app.mjs"))
       expect(config.nitro.plugins).toEqual([expect.stringMatching(/runtime\/operation-loader\.js$/)])
       await expect(readFile(consoleAppFile(plugin), "utf8")).resolves.toContain(`installConsoleSections(${JSON.stringify(root)}, ["agents","usage","blob","kv"])`)
@@ -313,7 +310,7 @@ describe("Agent invocation console", () => {
     { base: "/portal/", nitro: { baseURL: "/portal/", handlers: [], plugins: [], publicAssets: [] }, mount: "" },
     { base: "https://cdn.example/portal/", mount: "" },
     { base: "https://cdn.example/assets/", __vitehubAppBaseURL: "/portal/", mount: "/portal" },
-  ])("mounts Nitro Console routes and assets at the application base: %j", async ({ mount, ...bases }) => {
+  ])("mounts the Nitro Console route at the application base: %j", async ({ mount, ...bases }) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-base-host-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
@@ -321,7 +318,7 @@ describe("Agent invocation console", () => {
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook
-      const config: { base: string, nitro?: { handlers: Array<{ handler: string, route: string }>, plugins: string[], publicAssets: Array<{ baseURL: string, dir: string }> }, root: string } = { ...bases, root }
+      const config: { base: string, nitro?: { handlers: Array<{ handler: string, route: string }>, plugins: string[], publicAssets?: Array<{ baseURL: string, dir: string }> }, root: string } = { ...bases, root }
 
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
@@ -330,9 +327,7 @@ describe("Agent invocation console", () => {
         `${mount}/_vitehub`,
         `${mount}/_vitehub/rpc`,
       ])
-      expect(config.nitro?.publicAssets).toEqual([
-        expect.objectContaining({ baseURL: `${mount}/_vitehub/.well-known/skills`, dir: expect.stringContaining("public/skills"), fallthrough: false }),
-      ])
+      expect(config.nitro?.publicAssets ?? []).toEqual([])
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -349,9 +344,10 @@ describe("Agent invocation console", () => {
       if (!configHook || !configResolvedHook) throw new TypeError("Expected Console Vite hooks.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook
       const configResolvedHandler = "handler" in configResolvedHook ? configResolvedHook.handler : configResolvedHook
-      const config: { base: string, nitro?: { handlers: Array<{ handler: string, route: string }>, plugins: string[], publicAssets: Array<{ baseURL: string, dir: string }> }, root: string, vitehubCliDiscovery: true } = { base: "/early/", root, vitehubCliDiscovery: true }
+      const config: { base: string, nitro?: { handlers: Array<{ handler: string, route: string }>, plugins: string[], publicAssets?: Array<{ baseURL: string, dir: string }> }, root: string, vitehubCliDiscovery: true } = { base: "/early/", root, vitehubCliDiscovery: true }
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
-      config.nitro?.publicAssets.push({ baseURL: "/portal/_vitehub/assets", dir: "/user-owned-assets" })
+      if (!config.nitro) throw new TypeError("Expected the console Nitro configuration.")
+      config.nitro.publicAssets = [{ baseURL: "/portal/_vitehub/assets", dir: "/user-owned-assets" }]
 
       const resolvedConfig = { ...config, base: "/portal/", logger: { warn: () => undefined } }
       await Reflect.apply(configResolvedHandler, {}, [resolvedConfig])
@@ -361,9 +357,8 @@ describe("Agent invocation console", () => {
         "/portal/_vitehub",
         "/portal/_vitehub/rpc",
       ])
-      // The app keeps its own assets below /_vitehub. No Console assets remain at the earlier base.
+      // The app keeps its own assets below /_vitehub. The Console adds none.
       expect(resolvedConfig.nitro?.publicAssets).toEqual([
-        expect.objectContaining({ baseURL: "/portal/_vitehub/.well-known/skills", dir: expect.stringContaining("public/skills") }),
         { baseURL: "/portal/_vitehub/assets", dir: "/user-owned-assets" },
       ])
     }
@@ -528,49 +523,6 @@ describe("Agent invocation console", () => {
       expect(generated).not.toContain("installConsoleInvocations")
       expect(generated).not.toContain("hidden.agent")
     } finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  })
-
-  it.each([
-    ["node", "before", true],
-    ["node", "after", true],
-    ["cloudflare", "before", true],
-    ["cloudflare", "after", true],
-    ["cloudflare", "after", false],
-  ] as const)("uses standalone KV for sealed MCP storage on %s, ordered %s, enabled %s", async (host, order, enabled) => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-console-standalone-kv-"))
-    try {
-      await writeFile(join(root, "package.json"), "{}\n")
-      const plugins = vitehub({
-        console: { ...productionConsole, mcpClient: true },
-        env: false,
-        host,
-      })
-      // SAFETY: Vite plugin options form a recursive array; narrow the flattened candidates by name.
-      const candidates = (plugins as unknown[]).flat(Infinity)
-      const plugin = candidates.find((candidate): candidate is Plugin => Boolean(candidate && typeof candidate === "object" && "name" in candidate && candidate.name === "vite-hub/console"))
-      if (!plugin) throw new TypeError("Expected the ViteHub Console plugin.")
-      const kvPlugin = hubKV(enabled ? { driver: host === "cloudflare" ? "cloudflare" : "fs-lite" } : false)
-      const configuredPlugins: unknown[] = [kvPlugin]
-      if (order === "before") configuredPlugins.push(plugin)
-      else configuredPlugins.unshift(plugin)
-      const config = {
-        root,
-        plugins: configuredPlugins,
-      }
-      await callPluginHook(kvPlugin.config, {}, [config, { command: "build", mode: "production" }])
-      await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
-      await callPluginHook(kvPlugin.configResolved, {}, [config])
-      await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
-
-      const generated = await readFile(resolve(root, ".vitehub/nitro/console/app.mjs"), "utf8")
-      const sections = generated.match(/installConsoleSections\([^,\n]+, (\[[^\n]*?\])\)/)?.[1]
-      expect(sections).toBeDefined()
-      expect(JSON.parse(sections!)).toContain("mcp-client")
-      expect(JSON.parse(sections!).includes("kv")).toBe(enabled)
-    }
-    finally {
       await rm(root, { force: true, recursive: true })
     }
   })

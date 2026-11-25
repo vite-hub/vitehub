@@ -123,14 +123,13 @@ const plugins = [
 ]
 
 const publicAssets = [
-  "/_vitehub/.well-known/skills console/public/skills",
   "/_vitehub/comments/assets @vite-hub/comments/dist/overlay",
   "/_vitehub/page/assets @vite-hub/comments/dist/page",
 ]
 
 describe("Nitro routes of a production build with every Console section on", () => {
   it("serves the Console routes, /_vitehub/rpc and /_vitehub, and the app features that stay", async () => {
-    const inventory = await nitroInventory({ invoke: true, mcpClient: true })
+    const inventory = await nitroInventory({ invoke: true })
     expect(inventory).toEqual({ handlers: [...consoleRoutes, ...appRoutes].sort(), plugins, publicAssets })
   }, 120_000)
 

@@ -150,7 +150,7 @@ const router = createRouter({
         sectionsBase,
       },
     },
-    // Authorization servers send the browser here after an MCP sign-in (`consoleMcpCallbackPath`).
+    // Authorization servers send the browser here after an MCP sign-in (`<Console origin>/mcp-client/callback`).
     {
       component: ConsoleMcpCallback,
       name: "vitehub-console-mcp-client-callback",

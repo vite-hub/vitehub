@@ -1,7 +1,7 @@
 import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
-import { hostedConsoleOrigin } from "./hosted-console-origin.ts"
+import { configuredConsoleOrigin, hostedConsoleOrigin } from "./hosted-console-origin.ts"
 
-export { hostedConsoleOrigin }
+export { configuredConsoleOrigin, hostedConsoleOrigin }
 
 const loopbackHosts = new Set(["localhost", "127.0.0.1", "[::1]"])
 const pathBase = "https://console.invalid"
@@ -53,12 +53,13 @@ export function normalizeConsoleProjectUrl(projectUrl: string): string | undefin
  *
  * `projectUrl` is the app origin with its application mount, such as `https://app.example.com/portal`. `path` is the
  * Console path, such as `/agents/bot/invocations/abc`. The hosted Console switches to the project when this browser
- * linked it, or asks the person to link it first. The URL holds no secret.
+ * linked it, or asks the person to link it first. The URL holds no secret. `consoleOrigin` defaults to the Console of
+ * `vitehub({ console: { url } })`, else `https://console.vitehub.dev`.
  *
  * Throws `RUNTIME_CONSOLE_PROJECT_URL_INVALID` when `projectUrl` is not `https:` (or `http:` on a loopback host), and
  * `RUNTIME_CONSOLE_PATH_INVALID` when `path` is not a Console path.
  */
-export function hostedConsoleUrl(projectUrl: string, path: string, consoleOrigin: string = hostedConsoleOrigin): string {
+export function hostedConsoleUrl(projectUrl: string, path: string, consoleOrigin: string = configuredConsoleOrigin()): string {
   const project = normalizeConsoleProjectUrl(projectUrl)
   if (!project) throw runtimeErrorDiagnostics.RUNTIME_CONSOLE_PROJECT_URL_INVALID({ value: projectUrl })
   const consolePath = normalizeConsolePath(path)

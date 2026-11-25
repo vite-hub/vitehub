@@ -145,7 +145,7 @@ describe("a Console app without Comments", () => {
     }
   })
 
-  it("serves no page tools route and no public /_vitehub assets but the skills", async () => {
+  it("serves no page tools route or public /_vitehub assets", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-page-routes-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
@@ -160,7 +160,7 @@ describe("a Console app without Comments", () => {
         const config = await nitro(options)
         expect(config?.handlers?.map(handler => handler.route)).not.toContain("/_vitehub/page/tools")
         expect((config?.plugins ?? []).map(plugin => basename(plugin))).toEqual(["operation-loader.js"])
-        expect((config?.publicAssets ?? []).map(asset => asset.baseURL)).toEqual(options.rpcOnly ? [] : ["/_vitehub/.well-known/skills"])
+        expect(config?.publicAssets ?? []).toEqual([])
       }
     }
     finally {

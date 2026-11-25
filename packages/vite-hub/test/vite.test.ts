@@ -1056,13 +1056,6 @@ describe("vitehub", () => {
     expect(assertFeaturePackages).toHaveBeenLastCalledWith(["connections"], {}, false)
   })
 
-  it("checks the MCP SDK only when the Console MCP client is on", () => {
-    vitehub({ host: "node", console: { auth: false } })
-    expect(vi.mocked(assertFeaturePackages).mock.lastCall?.[0]).not.toContain("console mcp-client")
-    vitehub({ host: "node", console: { auth: false, mcpClient: true } })
-    expect(vi.mocked(assertFeaturePackages).mock.lastCall?.[0]).toContain("console mcp-client")
-  })
-
   it.each([
     [{ blob: true }, ["blob"]],
     [{ host: "cloudflare", browser: true }, ["browser"]],

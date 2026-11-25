@@ -1,5 +1,5 @@
 import { registerViteHubPageAccount, registerViteHubPageTool, installViteHubSiteVisitor, viteHubPageGrants } from "@vite-hub/internal/runtime/page-tools"
-import { hostedConsoleOrigin } from "@vite-hub/runtime/internal/console"
+import { configuredConsoleOrigin } from "@vite-hub/runtime/internal/console"
 import { installRequestStandardContext } from "@vite-hub/runtime/internal/h3"
 
 import type { ViteHubPageAccount, ViteHubSiteVisitor, ViteHubSiteVisitorReader } from "@vite-hub/internal/runtime/page-tools"
@@ -31,10 +31,11 @@ export function consolePageAccount(visitor: ViteHubSiteVisitor, signOut: string)
 
 /**
  * The URL of the Console segment script on the ViteHub Console, such as
- * `https://console.vitehub.dev/page/0.4.0/page-tool.js?base=/portal`. The script reads the app base from `base`.
+ * `https://console.vitehub.dev/page/0.4.0/page-tool.js?base=/portal`, or the same path on the Console of
+ * `vitehub({ console: { url } })`. The script reads the app base from `base`.
  */
 export function consolePillScript(version: string, base = "/"): string {
-  return `${hostedConsoleOrigin}/page/${encodeURIComponent(version)}/page-tool.js?${new URLSearchParams({ base: base.replace(/\/+$/, "") })}`
+  return `${configuredConsoleOrigin()}/page/${encodeURIComponent(version)}/page-tool.js?${new URLSearchParams({ base: base.replace(/\/+$/, "") })}`
 }
 
 /**

@@ -545,8 +545,8 @@ export default defineConfig({
       dts: { entry: runtimeEntries.filter(entry => !["src/index.ts", "src/nuxt.ts"].includes(entry)) },
       plugins: [
         {
-          // Emit the skills and the well-known index that `npx skills add <app>/_vitehub` reads. The pack task owns dist,
-          // so the task cache can replay it. A write to a folder outside dist made the build uncacheable.
+          // Emit the skills and the well-known index that the Console serves to `npx skills add <console>`. The pack task
+          // owns dist, so the task cache can replay it. A write to a folder outside dist made the build uncacheable.
           name: "vite-hub-console-skills",
           generateBundle() {
             const skills = consoleSkills.map((name) => {
@@ -557,14 +557,11 @@ export default defineConfig({
               if (field("name") !== name || !description) throw new TypeError(`docs/skills/${name}/SKILL.md needs the name "${name}" and a description.`);
               const files = readdirSync(root, { recursive: true, withFileTypes: true }).filter(entry => entry.isFile()).map(entry => relative(root, resolve(entry.parentPath, entry.name))).sort();
               for (const file of files) {
-                const source = readFileSync(resolve(root, file));
-                this.emitFile({ type: "asset", fileName: `console/runtime/public/skills/${name}/${file}`, source });
-                // Also publish it at `node_modules/vite-hub/dist/skills/<name>/`, where `npx skills add` and agents find it.
-                this.emitFile({ type: "asset", fileName: `skills/${name}/${file}`, source });
+                this.emitFile({ type: "asset", fileName: `console-skills/${name}/${file}`, source: readFileSync(resolve(root, file)) });
               }
               return { name, description, files };
             });
-            this.emitFile({ type: "asset", fileName: "console/runtime/public/skills/index.json", source: `${JSON.stringify({ skills }, null, 2)}\n` });
+            this.emitFile({ type: "asset", fileName: "console-skills/index.json", source: `${JSON.stringify({ skills }, null, 2)}\n` });
           },
         },
         {
@@ -651,7 +648,6 @@ export default defineConfig({
           delete exports["./console/runtime/server/entry-site-access"];
           delete exports["./console/runtime/server/env"];
           delete exports["./console/runtime/server/logs.get"];
-          delete exports["./console/runtime/server/mcp-client-operations"];
           delete exports["./console/runtime/server/access-policy"];
           delete exports["./console/runtime/server/agent-console"];
           delete exports["./console/runtime/operation-loader"];
@@ -680,7 +676,6 @@ export default defineConfig({
           return normalizePackageExports({
             ...frameworkPackageManifest.exports,
             ...exports,
-            "./console/mcp-client": "./dist/console/runtime/server/mcp-client-operations.js",
             // A browser script, not a module: no types and no `import` condition.
             "./page/pill.js": { default: "./dist/page/pill.iife.js" },
             "./ui/styles.css": "./dist/ui/styles.css",

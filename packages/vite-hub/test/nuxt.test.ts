@@ -1811,11 +1811,7 @@ describe("ViteHub Nuxt integration", () => {
     // Apps serve no Console page, client script, or page assets. The hosted Console reads the endpoints, and
     // `/_vitehub` and `/_vitehub/<page>` only go back to a page of the app, through the Console when needed.
     expect(nitroOptions(development.nuxt).handlers).toContainEqual(expect.objectContaining({ route: "/_vitehub/**", handler: expect.stringMatching(/server\/entry\.js$/) }))
-    expect(nitroOptions(development.nuxt).publicAssets).toEqual([{
-      baseURL: "/_vitehub/.well-known/skills",
-      dir: expect.stringMatching(/console\/runtime\/public\/skills$/),
-      fallthrough: false,
-    }])
+    expect(nitroOptions(development.nuxt).publicAssets ?? []).toEqual([])
     expect(development.nuxt.options.nitro).toMatchObject({
       handlers: [{ route: "/_vitehub/**" }, { route: "/_vitehub" }, { route: "/_vitehub/rpc" }],
       alias: { "#vitehub/console/app": `${tmp}/vitehub-nuxt/.vitehub/nitro/console/app-dev.mjs` },
@@ -2327,13 +2323,13 @@ describe("ViteHub Nuxt integration", () => {
     Object.assign(production.nuxt.options, { app: { baseURL } })
     await viteHubNuxtModule({ console: productionConsole, host: "vercel" }, production.nuxt)
 
-    // SAFETY: The Console adds Nitro handler and public asset records; the assertions read their paths.
-    const { handlers, publicAssets } = nitroOptions(production.nuxt) as { handlers: Array<{ route: string }>, publicAssets: Array<{ baseURL?: string }> }
+    // SAFETY: The Console adds Nitro handler records; the assertions read their paths.
+    const { handlers, publicAssets = [] } = nitroOptions(production.nuxt) as { handlers: Array<{ route: string }>, publicAssets?: Array<{ baseURL?: string }> }
     const paths = [...handlers.map(handler => handler.route), ...publicAssets.map(asset => asset.baseURL)]
     expect(paths.filter(path => path?.includes("//"))).toEqual([])
     if (mount) expect(paths.filter(path => path?.startsWith(mount))).toEqual([])
     expect(handlers).toContainEqual(expect.objectContaining({ route: "/_vitehub/**" }))
-    expect(publicAssets).toContainEqual(expect.objectContaining({ baseURL: "/_vitehub/.well-known/skills" }))
+    expect(publicAssets).not.toContainEqual(expect.objectContaining({ baseURL: "/_vitehub/.well-known/skills" }))
   })
 
   it.each([false, true])("keeps one Console route below the Nuxt base after config replay (dev: %s)", async (dev) => {
@@ -3317,7 +3313,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     expect(mocks.objectHook).toHaveBeenCalledWith(expect.objectContaining({ __vitehubAppBaseURL: "/portal/" }), expect.anything())
     expect(nitroHandlerRoutes(config)).toContain("/_vitehub/**")
     expect(nitroHandlerRoutes(config).filter(route => route?.startsWith("/portal"))).toEqual([])
-    expect(config.publicAssets).not.toContainEqual(expect.objectContaining({ baseURL: "/_vitehub/assets" }))
+    expect(config.publicAssets ?? []).not.toContainEqual(expect.objectContaining({ baseURL: "/_vitehub/assets" }))
     const app = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/app.mjs`, "utf8")
     expect(app).not.toContain("installConsolePageTool")
     expect(app).not.toContain("export default")
@@ -3326,6 +3322,18 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
   it.each([false, true])("rejects console.pill %j with the change that replaces it", async (pill) => {
     const withPill = { ...productionConsole, pill }
     await expect(viteHubNuxtModule({ console: withPill, host: "node" }, createNuxt(false).nuxt)).rejects.toThrow("Remove console.pill")
+  })
+
+  it("sets the self-hosted Console origin from console.url in the Vite define and the Nitro replace", async () => {
+    const { nuxt, runNitroConfigHook } = createNuxt(false)
+    await viteHubNuxtModule({ console: { ...productionConsole, url: "https://console.example.com/" }, host: "node" }, nuxt)
+    const nitroConfig = { replace: { __VITEHUB_EXISTING_REPLACEMENT__: "existing" } }
+    await runNitroConfigHook(nitroConfig)
+    expect(nuxt.options.vite.define).toMatchObject({ __VITEHUB_CONSOLE_URL__: JSON.stringify("https://console.example.com") })
+    expect(nitroConfig.replace).toMatchObject({
+      __VITEHUB_CONSOLE_URL__: JSON.stringify("https://console.example.com"),
+      __VITEHUB_EXISTING_REPLACEMENT__: "existing",
+    })
   })
 
   it.each([false, undefined] as const)("leaves application OAuth discovery routes alone with console.auth %j", async (auth) => {

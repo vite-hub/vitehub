@@ -195,6 +195,38 @@ export function siteVisitUrl(input: { console: string, app: string, state: strin
   return `${input.console.replace(/\/+$/, "")}/visit?${query}`
 }
 
+function siteHandoffBytes(app: string, issuer: string, project: string, path: string, key: string, expires: string) {
+  return encoder.encode(JSON.stringify(["vitehub-site-handoff-v1", app, issuer, project, path, key, expires]))
+}
+
+function isSiteIssuer(issuer: string): boolean {
+  const url = URL.parse(issuer)
+  return url !== null && url.origin === issuer && (url.protocol === "https:"
+    || (url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)))
+}
+
+export async function signSiteHandoff(input: { app: string, issuer: string, project: string, path: string, key: ConsoleSigningKey }): Promise<string | undefined> {
+  if (!isSiteIssuer(input.issuer)) return undefined
+  const expires = String(Math.floor(Date.now() / 1_000) + siteTokenLifetimeSeconds)
+  const { app, issuer, project, path, key } = input
+  const signature = await signConsoleBytes(key, siteHandoffBytes(app, issuer, project, path, key.name, expires))
+  const query = new URLSearchParams({ return: path, project, issuer, handoff: `${key.name}.${expires}.${signature}` })
+  return `${app}${siteRoute}?${query}`
+}
+
+export async function verifySiteHandoff(input: { app: string, issuer: string, project: string, path: string, handoff: string, keys: ReadonlyMap<string, Uint8Array<ArrayBuffer>> }): Promise<boolean> {
+  const { app, issuer, project, path, handoff, keys } = input
+  if (!isSiteIssuer(issuer)) return false
+  const match = /^([A-Z0-9_]{1,64})\.(\d{1,12})\.([\w-]{86})$/.exec(handoff)
+  if (!match || match[0] !== handoff) return false
+  const [, key, expires, signature] = match
+  if (!key || !expires || !signature) return false
+  const remaining = Number(expires) - Math.floor(Date.now() / 1_000)
+  const publicKey = keys.get(key)
+  return publicKey !== undefined && remaining > 0 && remaining <= siteTokenLifetimeSeconds
+    && await verifyConsoleBytes(publicKey, signature, siteHandoffBytes(app, issuer, project, path, key, expires))
+}
+
 /**
  * Sign a token with the private key of a link: `vst1.<key name>.<claims as base64url JSON>.<Ed25519 signature>`. The
  * signature covers `vst1.<key name>.<claims>`. `claims.state` is the hash that the app sent, not the state. It throws
