@@ -148,6 +148,7 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
   let step = 0
   let timer: ReturnType<typeof setTimeout> | undefined
   let run = 0
+  let lastStep: "pair" | "allow" | "send" = "send"
 
   const notify = (): void => {
     for (const listener of listeners) listener()
@@ -241,6 +242,7 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
     set({ status: "sent", count, inbox: inbox() })
     later(sentFor, update?.done ? finish : working)
   }
+  const drop = (dropped: string): void => void transport.cancel(dropped).catch(() => undefined)
   const deliver = async (request: () => Promise<CommentSendResult>, paired?: { code: string, agent: CommentSendAgent }): Promise<void> => {
     const revision = countRevision
     pushed = transport.subscribe ? new Map<string, { thread?: string, done?: boolean }>() : undefined
@@ -253,10 +255,11 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
     catch (error) {
       result = { status: "failed", reason: reasonOf(error) }
     }
-    if (at === step) settle(result, revision, paired)
+    if (at !== step) return
+    settle(result, revision, paired)
+    if (paired && (result.status === "failed" || result.status === "limited")) drop(paired.code)
   }
 
-  const drop = (dropped: string): void => void transport.cancel(dropped).catch(() => undefined)
   const poll = (): void => {
     later(pairingInterval, async () => {
       if (state.status !== "pairing" || !code) return
@@ -272,6 +275,7 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
   const pair = async (copy: CommentSendCopy | undefined): Promise<void> => {
     if (fetching) return
     fetching = true
+    lastStep = "pair"
     const at = ++step
     try {
       const pairing = transport.startPairing()
@@ -370,7 +374,10 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
     async send(copy) {
       if (fetching || (state.status !== "idle" && state.status !== "failed" && state.status !== "working")) return
       if (state.status !== "failed" && count === 0) return
+      if (state.status === "failed" && lastStep === "pair") return pair(copy)
+      if (state.status === "failed" && lastStep === "allow") return refresh(idle)
       if (!agent) return pair(copy)
+      lastStep = "send"
       return deliver(() => transport.send())
     },
     async pairAnother(copy) {
@@ -381,6 +388,7 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
       if (state.status !== "confirm" || !code) return
       const used = code
       code = undefined
+      lastStep = "allow"
       return deliver(() => transport.allow(used, selection), { code: used, agent: state.agent })
     },
     async copyAgain(copy) {
