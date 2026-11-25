@@ -1,4 +1,6 @@
-import { createServer, request } from "node:http"
+import { createServer, IncomingMessage, request } from "node:http"
+import { Socket } from "node:net"
+import { resolveConfig } from "vite"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
@@ -11,7 +13,7 @@ import {
 import { assertViteHubDevRequestGrant, isViteHubDevHostAllowed, registerViteHubDevEndpoint, validateViteHubDevRequest } from "../src/dev-endpoint.ts"
 import { isViteHubSecretEqual } from "../src/secret.ts"
 
-import type { IncomingMessage, Server, ServerResponse } from "node:http"
+import type { Server, ServerResponse } from "node:http"
 import type { ViteHubDevTargetArgs } from "../src/cli.ts"
 import type { ViteHubDevEndpointOptions, ViteHubDevEndpointServer } from "../src/dev-endpoint.ts"
 
@@ -343,6 +345,23 @@ describe("guarded dev endpoint", () => {
     await new Promise<void>(resolve => http!.close(() => resolve()))
     const all = await listen({ server: { allowedHosts: true } })
     expect(await requestWithHost(all.url, `attacker.example:${new URL(all.url).port}`)).toEqual([200, "handled"])
+  })
+
+  it.each([
+    { host: "socket.test", server: { hmr: false, ws: { host: "socket.test" } } },
+    { host: "legacy-socket.test", server: { hmr: { host: "legacy-socket.test" } } },
+    { host: "origin.test", server: { origin: "https://origin.test:8443/app" } },
+  ])("accepts $host from Vite's resolved allowlist", async ({ host, server }) => {
+    const config = await resolveConfig({ configFile: false, logLevel: "silent", server }, "serve")
+    expect(config.server.allowedHosts).toContain(host)
+    const check = (requestHost: string) => {
+      const req = new IncomingMessage(new Socket())
+      req.method = "GET"
+      req.headers = { host: `${requestHost}:5173`, [endpoint.header]: endpoint.headerValue }
+      return validateViteHubDevRequest({ config, resolvedUrls: null }, req, { ...endpoint, label: "Test Dev" })
+    }
+    expect(check(host).grant?.label).toBe("Test Dev")
+    expect(check("unlisted.test").rejection?.status).toBe(403)
   })
 
   it("matches Vite host validation rules", () => {
