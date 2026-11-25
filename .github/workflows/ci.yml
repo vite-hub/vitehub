@@ -571,8 +571,9 @@ jobs:
           elif git diff --quiet "$BASE_REF...HEAD" -- \
             test/consumer/nuxt-primitives test/consumer/nuxt-primitives.test.ts test/consumer/packed-app.ts test/consumer/vitest.config.ts \
             test/layers.ts test/utils/release-artifacts.ts packages/internal packages/ui/src \
-            packages/agent packages/auth packages/blob packages/bundle packages/channels packages/choices packages/cli packages/connections \
-            packages/database packages/env packages/forms packages/gateways packages/kv packages/markdown-template packages/mcp packages/queue \
+            packages/agent packages/auth packages/blob packages/bundle packages/channels packages/choices packages/cli packages/cms \
+            packages/connections packages/content packages/database packages/env packages/forge packages/forms packages/gateways \
+            packages/i18n packages/kv packages/markdown-template packages/mcp packages/queue \
             packages/rate-limit packages/realtime packages/runtime packages/sandbox packages/schedule packages/source packages/sync \
             packages/vite-hub packages/web-container packages/workflow packages/workspace \
             package.json pnpm-workspace.yaml pnpm-lock.yaml vite.config.ts .github/workflows/ci.yml .github/actions/setup .github/actions/setup-deno; then
