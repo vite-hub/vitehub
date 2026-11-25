@@ -10,7 +10,7 @@ icon: i-lucide-rocket
 
 In this tutorial, you render a project name field with ui-sdk parts and kit styles, then let an Agent rename the project on the open page.
 
-You need Node.js 24.15 or newer and pnpm. For Nuxt, use Node.js 24.15 or newer on 24.x, or 26 or newer, and Nuxt 5, which is only in the nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`. To try the parts without installing anything, open the [Playground](/playground?template=ui).
+You need Node.js 24.15 or newer and pnpm. For Nuxt, use Node.js 24.15 or newer on 24.x, or 26 or newer, and follow the [Nuxt module installation](/docs/frameworks-hosts/nuxt#install-the-module) for Nuxt 4.7 or Nuxt 5. To try the parts without installing anything, open the [Playground](/playground?template=ui).
 
 ::tutorial-step{title="Install"}
 ## Install
@@ -18,7 +18,7 @@ You need Node.js 24.15 or newer and pnpm. For Nuxt, use Node.js 24.15 or newer o
 :::tabs{sync="vue-app"}
 ::::tabs-item{label="Nuxt"}
 ```bash [commands/install-nuxt]
-pnpm add @ui-sdk/vue @ui-sdk/core @vite-hub/kit vite-hub
+pnpm add @ui-sdk/vue @ui-sdk/core @vite-hub/kit
 ```
 
 ```ts [nuxt.config.ts]

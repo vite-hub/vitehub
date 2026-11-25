@@ -32,7 +32,15 @@ Create a folder for the site. Add a `package.json` with the two scripts that Nux
 }
 ```
 
-Install Nuxt 5, Nuxt UI, Tailwind CSS, Comark with its Vue and HTML renderers, `comark-ui`, and the docs module. `vite-hub` gives the module its `vite-hub/docs/nuxt` path. Nuxt 5 is only in nightly builds for now:
+Install Nuxt, Nuxt UI, Tailwind CSS, Comark with its Vue and HTML renderers, `comark-ui`, and the docs module. `vite-hub` gives the module its `vite-hub/docs/nuxt` path.
+
+On Nuxt 4.7, add the `nitro` package, and use ViteHub 0.5.1 or newer:
+
+```bash pm [commands/install-nuxt-47]
+pnpm add vite-hub@^0.5.1 @vite-hub/docs@^0.5.1 nuxt@^4.7.0 nitro @nuxt/ui tailwindcss comark @comark/vue @comark/html comark-ui
+```
+
+Nuxt 5 is only in nightly builds for now:
 
 ```bash pm [commands/install]
 pnpm add vite-hub @vite-hub/docs nuxt@npm:nuxt-nightly@5x @nuxt/ui tailwindcss comark @comark/vue @comark/html comark-ui

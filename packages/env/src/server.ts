@@ -4,6 +4,7 @@ import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflar
 import { deriveViteHubSecret, readViteHubSecret, viteHubSecretMinimumLength } from "@vite-hub/internal/secret"
 import { isViteHubError } from "@vite-hub/runtime"
 import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
+import { standardResultIssues } from "@vite-hub/internal/standard-schema"
 
 import {
   asyncServerEnvRequired,
@@ -13,6 +14,7 @@ import {
   missingRequiredEnv,
 } from "./core/errors.ts"
 import { SecretEnv } from "./secret.ts"
+import { formatStandardIssues, hasResultValue, readStandardValidate } from "./schema.ts"
 import { cloudflareEnv, processEnv, runtimeEnv, type RuntimeEnv } from "./internal/runtime-env.ts"
 import { isRecord, isRuntimeEnvEntry, isRuntimeLiteralEntry, isRuntimeProviderEntry, runtimeRegistryEntries } from "./core/registry.ts"
 import type { RuntimeEnvEntry, RuntimeProviderEntry } from "./core/registry.ts"
@@ -112,11 +114,7 @@ function missingRuntimeValueMessage(entry: RuntimeEnvEntry | RuntimeProviderEntr
   return `${path} is required and has no value. Server Env checks every declared value together, so this fails even when code reads only another value. ${fix}`
 }
 
-interface BoundStandardSchema {
-  "~standard": { validate: (value: unknown) => unknown }
-}
-
-const boundSchemas = new WeakMap<object, BoundStandardSchema>()
+const boundSchemas = new WeakMap<object, (input: unknown) => unknown>()
 
 /**
  * Attach the schemas that `env.schemaFrom()` declarations name. The generated `#vitehub/env/server` module imports
@@ -128,23 +126,18 @@ export function bindServerEnvSchemas(registry: EnvRuntimeRegistry, modules: Read
     const reference = entry.schemaModule
     const module = Object.hasOwn(modules, reference.module) ? modules[reference.module] : undefined
     const schema = module && Object.hasOwn(module, reference.export) ? module[reference.export] : undefined
-    if (!isBoundStandardSchema(schema)) {
+    const validate = readStandardValidate(schema, path)
+    if (!validate) {
       throw invalidEnvDeclaration(path, `${path} uses env.schemaFrom(${JSON.stringify(reference.module)}, ${JSON.stringify(reference.export)}), but that export is not a Standard Schema.`)
     }
-    boundSchemas.set(entry, schema)
+    boundSchemas.set(entry, validate)
   }
-}
-
-function isBoundStandardSchema(value: unknown): value is BoundStandardSchema {
-  if ((typeof value !== "object" && typeof value !== "function") || value === null) return false
-  const standard = (value as { "~standard"?: unknown })["~standard"]
-  return typeof standard === "object" && standard !== null && typeof (standard as { validate?: unknown }).validate === "function"
 }
 
 function parseRuntimeValue(entry: RuntimeEnvEntry | RuntimeProviderEntry, value: unknown, path: string): EnvValueParseResult {
   if (!entry.schemaModule) return parseEnvValue(entry.schema ?? stringValueSchema, value)
-  const schema = boundSchemas.get(entry)
-  if (!schema) {
+  const validate = boundSchemas.get(entry)
+  if (!validate) {
     throw invalidEnvDeclaration(path, `${path} uses env.schemaFrom(), but no schema module was loaded for it. Only env.server declarations of hubEnv() support env.schemaFrom().`)
   }
   let input = value
@@ -155,7 +148,7 @@ function parseRuntimeValue(entry: RuntimeEnvEntry | RuntimeProviderEntry, value:
   }
   let result: unknown
   try {
-    result = schema["~standard"].validate(input)
+    result = validate(input)
   }
   catch (error) {
     return { message: `The schema threw: ${error instanceof Error ? error.message : String(error)}`, success: false }
@@ -164,24 +157,14 @@ function parseRuntimeValue(entry: RuntimeEnvEntry | RuntimeProviderEntry, value:
     Promise.resolve(result).catch(() => undefined)
     return { message: "The schema is async. Server Env runs schemas synchronously.", success: false }
   }
-  const issues = isRecord(result) ? result.issues : undefined
-  if (Array.isArray(issues) && issues.length) return { message: formatSchemaIssues(issues), success: false }
-  if (!isRecord(result) || !("value" in result)) return { message: "The schema returned no value.", success: false }
+  const issues = standardResultIssues(result)
+  if (issues) return { message: formatStandardIssues(issues), success: false }
+  if (!hasResultValue(result)) return { message: "The schema returned no value.", success: false }
   return { data: result.value, success: true }
 }
 
 function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
   return (typeof value === "object" || typeof value === "function") && value !== null && typeof (value as { then?: unknown }).then === "function"
-}
-
-function formatSchemaIssues(issues: readonly unknown[]): string {
-  return issues.map((issue) => {
-    const message = isRecord(issue) && typeof issue.message === "string" ? issue.message : "Invalid value."
-    const segments = isRecord(issue) && Array.isArray(issue.path)
-      ? issue.path.map(segment => isRecord(segment) ? segment.key : segment).filter(segment => typeof segment === "string" || typeof segment === "number")
-      : []
-    return segments.length ? `${segments.join(".")}: ${message}` : message
-  }).join("; ")
 }
 
 function resolvedRuntimeValue(entry: RuntimeEnvEntry | RuntimeProviderEntry, value: unknown, found: boolean, path: string, snapshot = false): unknown {
