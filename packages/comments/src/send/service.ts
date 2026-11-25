@@ -256,9 +256,13 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
   const insecure = (origin: string): [ResultError<"COMMENTS_SEND_INSECURE">, undefined] | undefined => isSecureOrigin(origin) ? undefined : [commentsErrors.COMMENTS_SEND_INSECURE({ origin }), undefined]
 
   const deliveryFailed = "The agent's receiver did not take the send."
+  async function deliveryOf(row: SendRow) {
+    return row.delivery ? await (await webhooks()).getMemberDelivery(row.delivery) : undefined
+  }
+
   async function reconcile(row: SendRow): Promise<SendRow> {
     if (row.state !== "pending") return row
-    const delivery = row.delivery ? (await (await webhooks()).getMemberDelivery(row.delivery))?.state : undefined
+    const delivery = (await deliveryOf(row))?.state
     const state = delivery === "sent" ? "sent"
       : delivery === "dead" || delivery === "cancelled" || (!delivery && Date.now() - row.updatedAt > 60_000) ? "failed"
         : "pending"
@@ -266,11 +270,6 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
     const error = state === "failed" ? deliveryFailed : null
     if (!await store.setSendState(row.id, ["pending"], state, Date.now(), { error })) return await store.send(row.id) ?? row
     return { ...row, state, error }
-  }
-
-  async function inboxOf(row: SendRow): Promise<{ inbox?: true }> {
-    const delivery = row.delivery ? await (await webhooks()).getMemberDelivery(row.delivery) : undefined
-    return delivery?.inbox ? { inbox: true } : {}
   }
 
   async function readable(caller: CommentSendCaller, user: CommentsUser): Promise<CommentThread[]> {
@@ -372,9 +371,9 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
     const now = Date.now()
     const endpoint = paired ?? await endpointOf(user.id, await addressOf(caller, user))
     if (!endpoint) return { status: "failed", reason: "No agent is paired. Press Send to pair one." }
-    const inbox = endpoint.kind === "inbox" ? { inbox: true as const } : {}
+    const inbox = endpoint.kind === "inbox"
     const resultOf = (row: SendRow): CommentSendResult => row.state === "failed" ? { status: "failed", reason: row.error ?? deliveryFailed }
-      : { status: row.state === "pending" ? "pending" : "sent", id: row.id, ...(row.thread ? { thread: row.thread } : {}), ...inbox }
+      : { status: row.state === "pending" ? "pending" : "sent", id: row.id, ...(row.thread ? { thread: row.thread } : {}), inbox }
     const live = ["pending", "sent", "working", "done"] as const
     const ready = confirmed ?? await waiting(caller, user)
     const threads = [...ready.waiting].sort((left, right) => left.id < right.id ? -1 : 1)
@@ -455,7 +454,7 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       const current = await store.send(id)
       if (current) return resultOf(current)
     }
-    return { status, id, ...(thread ? { thread } : {}), ...inbox }
+    return { status, id, ...(thread ? { thread } : {}), inbox }
   }
 
   return {
@@ -476,7 +475,7 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
         const byId = new Map(open.map(thread => [thread.id, thread]))
         if (!finished(latest, id => byId.get(id))) {
           const send = { id: latest.id, ...(latest.thread ? { thread: latest.thread } : {}) }
-          last = latest.state === "sent" ? { sent: { ...send, ...await inboxOf(latest) } } : { working: send }
+          last = latest.state === "sent" ? { sent: { ...send, inbox: (await deliveryOf(latest))?.inbox ?? false } } : { working: send }
         }
         else await store.setSendState(latest.id, ["sent", "working"], "done", now)
       }
@@ -586,7 +585,12 @@ export function createCommentSendService(options: CreateCommentSendOptions): Com
       const found = id ? await store.send(id) : await store.latestSend(user.id, undefined, ["pending", "sent"])
       if (found?.member !== user.id) return undefined
       const row = await reconcile(found)
-      if (row.state === "failed" || (!id && row.state === "pending")) return undefined
+      if (row.state === "failed") return undefined
+      if (row.state === "pending") {
+        if (!id) return undefined
+        const delivery = (await deliveryOf(row))?.state
+        if (delivery !== "sending" && delivery !== "sent") return undefined
+      }
       return view(row, user, policy)
     },
 

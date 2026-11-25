@@ -474,13 +474,13 @@ describe("createCommentSend", () => {
     await flush()
     expect(send.state).toEqual({ status: "sent", count: 1, inbox: true, agent: t3 })
 
-    server.setStatus({ count: 1, agent: codex, sent: { id: "send-1" } })
+    server.setStatus({ count: 1, agent: codex, sent: { id: "send-1", inbox: false } })
     await send.refresh()
     expect(send.state).toEqual({ status: "sent", count: 1, inbox: false, agent: codex })
 
-    server.results.push({ status: "sent", id: "send-2", inbox: true })
+    server.results.push({ status: "sent", id: "send-2", inbox: false })
     await send.send()
-    expect(send.state).toEqual({ status: "sent", count: 0, inbox: true, agent: codex })
+    expect(send.state).toEqual({ status: "sent", count: 0, inbox: false, agent: codex })
   })
 
   it("shows a send that the agent has not read on load", async () => {
@@ -488,6 +488,19 @@ describe("createCommentSend", () => {
     send.start()
     await flush()
     expect(send.state).toEqual({ status: "sent", count: 0, inbox: false, agent: t3 })
+  })
+
+  it("uses the agent for a legacy transport that omits the destination", async () => {
+    const codex: CommentSendAgent = { name: "Codex", logo: "codex" }
+    const server = fakeTransport({ count: 1, agent: codex, sent: { id: "send-1" } })
+    const send = createCommentSend(server.transport)
+    send.start()
+    await flush()
+    expect(send.state).toEqual({ status: "sent", count: 1, inbox: true, agent: codex })
+
+    server.results.push({ status: "sent", id: "send-2" })
+    await send.send()
+    expect(send.state).toEqual({ status: "sent", count: 0, inbox: true, agent: codex })
   })
 
   it.each(["pairing", "confirm", "sending"])("reconciles server status after stopping in %s", async (interrupted) => {

@@ -632,10 +632,18 @@ describe("sends", () => {
   })
 
   it("keeps a batch retryable when preparing the payload fails", async () => {
-    const payload = vi.fn().mockRejectedValueOnce(new Error("prepare failed")).mockResolvedValue(null)
-    const { call, comment, connect, page } = await setup({ payload })
+    const preparationReads: unknown[] = []
+    const { call, comments, comment, connect, page } = await setup({
+      payload: async ({ user, send }) => {
+        if (preparationReads.length) return null
+        const [error] = await comments.readSend(user, send)
+        preparationReads.push(error?.code)
+        throw new Error("prepare failed")
+      },
+    })
     await comment("ana", "Hello")
     expect((await connect()).allowed.body.data.status).toBe("failed")
+    expect(preparationReads).toEqual(["COMMENTS_NOT_FOUND"])
     expect(deliveries).toHaveLength(0)
     expect((await call(`/send/status?page=${page}`, { as: "ana" })).body.data.count).toBe(1)
     expect((await call(`/send?page=${page}`, { method: "POST", as: "ana" })).body.data.status).toBe("sent")
@@ -664,7 +672,7 @@ describe("sends", () => {
     receiverStatus = 503
     const { allowed } = await connect()
     const send = allowed.body.data
-    expect(send.status).toBe("pending")
+    expect(send).toMatchObject({ status: "pending", inbox: false })
     const again = await call(`/send?page=${page}`, { method: "POST", as: "ana" })
     expect(again.body.data).toEqual(send)
     expect(deliveries).toHaveLength(1)
@@ -794,10 +802,10 @@ describe("the server API of Send", () => {
 
     await comment("ana", "Add a map")
     const { allowed } = await connect()
-    expect(allowed.body.data).toEqual({ status: "sent", id: allowed.body.data.id })
+    expect(allowed.body.data).toEqual({ status: "sent", id: allowed.body.data.id, inbox: false })
     await pairInbox()
     const repaired = await status()
-    expect(repaired.sent).toEqual({ id: allowed.body.data.id })
+    expect(repaired.sent).toEqual({ id: allowed.body.data.id, inbox: false })
     expect(repaired.agent).toEqual({ name: "Codex", logo: "codex" })
   })
 

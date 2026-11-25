@@ -20,9 +20,9 @@ export interface CommentSendStatus {
   working?: { id: string, thread?: string }
   /**
    * The member's last send, delivered and not read by the agent yet. An inbox send stays here until the agent reads it.
-   * `inbox` tells that this send went to an inbox, whatever agent the member has now.
+   * `inbox` tells where this send went. If omitted, the client uses `agent` to tell whether it went to an inbox.
    */
-  sent?: { id: string, thread?: string, inbox?: true }
+  sent?: { id: string, thread?: string, inbox?: boolean }
   /** The last delivery is still being attempted. */
   pending?: boolean
   /** While the member may not send, the time in ms when the next send may go. */
@@ -57,7 +57,7 @@ export type CommentSendPairingCheck =
  * threads are not the ones that the member confirmed, and keeps the code for the new `count`.
  */
 export type CommentSendResult =
-  | { status: "sent" | "pending", id: string, thread?: string, inbox?: true }
+  | { status: "sent" | "pending", id: string, thread?: string, inbox?: boolean }
   | { status: "failed", reason: string }
   | { status: "limited", retryAt: number }
   | { status: "changed", count: number, selection: string }
@@ -208,7 +208,7 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
     if (status.pending) return pending()
     const last = status.working ?? status.sent
     if (last) {
-      if (status.sent) sentInbox = Boolean(status.sent.inbox)
+      if (status.sent) sentInbox = status.sent.inbox ?? inbox()
       const hold = holdingSent() && sendId === last.id
       sendId = last.id
       thread = hold ? thread ?? last.thread : last.thread
@@ -259,7 +259,7 @@ export function createCommentSend(transport: CommentSendTransport, options: Comm
     const update = updates?.get(result.id)
     thread = update?.thread ?? result.thread
     if (revision === countRevision) count = 0
-    sentInbox = Boolean(result.inbox)
+    sentInbox = result.inbox ?? inbox()
     set(sentState())
     sentUntil = Date.now() + sentFor
     later(sentFor, update?.done ? finish : update ? working : () => void refresh(sent))

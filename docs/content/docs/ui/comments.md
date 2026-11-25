@@ -487,6 +487,8 @@ export const send = createCommentSend(transport);
 </template>
 ```
 
+Set `inbox: true` for an inbox or `inbox: false` for a webhook in `status().sent` and the successful `send()` and `allow()` results. This tells the pill where that send went, even if the paired agent changes. If you omit `inbox`, the pill uses the paired agent instead.
+
 With Comments `send: true`, the server has these routes already: `createCommentSendTransport({ page })` of `vite-hub/comments/client` is the transport, and the ViteHub pill uses the same one. See [Send comments to your agent](/docs/comments/send).
 
 A member without an agent pairs one in place. **Send 2** copies a setup prompt and says where to paste it. The agent uses the one-time code in the prompt, and the pill asks once: **Allow and send 2**. `×` or `Esc` stops it, and nothing is saved. `startPairing()` returns `count` and `selection`, the threads that the member sees, and `allow(code, selection)` passes them back. When the threads changed, a server that answers `{ status: "changed", count, selection }` keeps the code, and the pill asks again with the new count.
