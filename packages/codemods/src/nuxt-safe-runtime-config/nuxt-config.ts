@@ -14,6 +14,9 @@ export const moduleName = "nuxt-safe-runtime-config"
 export interface StaticOptions {
   envSchema?: { file: string, paths: Record<string, string> }
   schemaPath?: string
+  onError?: string
+  validateAtBuild?: boolean
+  validateAtRuntime?: boolean
   /** `$schema` is an inline expression; the evaluated config supplies it. */
   inlineSchema: boolean
   /** An option could not be read without running the config. */
@@ -35,7 +38,7 @@ function readStaticPaths(node: Node | undefined): Record<string, string> | undef
   return paths
 }
 
-/** Reads `envSchema` and `$schema` from one options object without running code. */
+/** Reads the schema and validation options without running code. */
 export function readStaticOptions(options: Node | undefined): StaticOptions {
   const result: StaticOptions = { inlineSchema: false, dynamic: false }
   if (!options) return result
@@ -47,6 +50,12 @@ export function readStaticOptions(options: Node | undefined): StaticOptions {
       continue
     }
     const key = keyName(property.key, property.computed)
+    if (key === "onError" || key === "validateAtBuild" || key === "validateAtRuntime") {
+      const value = literalValue(property.value)
+      if (key === "onError" && typeof value === "string") result.onError = value
+      else if (key !== "onError" && typeof value === "boolean") result[key] = value
+      else result.dynamic = true
+    }
     if (key === "envSchema") {
       const literal = literalValue(property.value)
       const value = unwrapExpression(property.value)
@@ -136,7 +145,6 @@ export function readRuntimeConfig(config: NuxtConfigFile): { object?: ObjectExpr
 /** Imports a module that default-exports a schema, resolved from the project directory. */
 export async function loadSchemaModule(cwd: string, specifier: string): Promise<unknown> {
   try {
-    // Default interop would return a Zod schema's `default` method instead of the schema.
     const jiti = createJiti(join(cwd, "codemod.loader.mjs"), { moduleCache: false, fsCache: false, interopDefault: false })
     return defaultExport(await jiti.import(jiti.esmResolve(specifier)))
   }
