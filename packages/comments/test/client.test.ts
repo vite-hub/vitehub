@@ -77,6 +77,18 @@ describe("createCommentsClient", () => {
     }
   });
 
+  it("without an outbox, sends picked files with the deferred ones once they arrive", async () => {
+    const { client, store } = setup()
+    const create = vi.spyOn(store, "create")
+    const later = deferred<Blob[]>()
+    const sending = client.create({ subject, anchor, body: "Both", files: [new Blob(["picked"])], deferredFiles: later.promise })
+    await Promise.resolve()
+    expect(create).not.toHaveBeenCalled()
+    later.resolve([new Blob(["later"])])
+    await sending
+    expect(await Promise.all(create.mock.calls[0]![0].files!.map(file => file.text()))).toEqual(["picked", "later"])
+  })
+
   it("numbers threads, keeps them in the cache, and tells listeners", async () => {
     const { client } = setup()
     const changes = vi.fn()

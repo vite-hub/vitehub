@@ -938,6 +938,35 @@ describe("the comments outbox", () => {
     expect(server.creates[1]!.files ?? []).toHaveLength(0)
   })
 
+  it("saves picked files at once and adds deferred ones when they arrive", async () => {
+    const { server, client, store } = setup()
+    await vi.waitFor(() => expect(client.status).toBe("ready"))
+    let deliver!: (files: Blob[]) => void
+    const deferredFiles = new Promise<Blob[]>(resolve => deliver = resolve)
+    await client.create({ subject, anchor, body: "Picked and later", files: [new Blob(["picked"])], deferredFiles })
+    await vi.waitFor(async () => expect(await store.list(ana.id)).toMatchObject([{ files: [expect.any(Blob)], awaitingFiles: true }]))
+    await settle()
+    expect(server.creates).toHaveLength(0)
+    deliver([new Blob(["later"])])
+    await vi.waitFor(() => expect(server.creates).toHaveLength(1))
+    expect(await Promise.all(server.creates[0]!.files!.map(file => file.text()))).toEqual(["picked", "later"])
+  })
+
+  it("keeps picked files through a reload while deferred ones are on their way", async () => {
+    const browser = createBrowser()
+    const server = createServer()
+    const store = createMemoryOutboxStore()
+    const before = setup({ browser, server, store })
+    await vi.waitFor(() => expect(before.client.status).toBe("ready"))
+    await before.client.create({ subject, anchor, body: "Reloaded", files: [new Blob(["picked"])], deferredFiles: new Promise<Blob[]>(() => undefined) })
+    await vi.waitFor(async () => expect(await store.list(ana.id)).toHaveLength(1))
+    before.stop()
+
+    setup({ browser, server, store })
+    await vi.waitFor(() => expect(server.creates).toHaveLength(1))
+    expect(await Promise.all(server.creates[0]!.files!.map(file => file.text()))).toEqual(["picked"])
+  })
+
   it("clears every entry of the account", async () => {
     const { browser, client } = setup()
     browser.online = false

@@ -106,7 +106,8 @@ export interface CommentsClient {
   readonly outbox: CommentsOutbox | undefined
 }
 
-async function filesArrived<T extends CommentsClientFiles>({ files, ...input }: T) {
+async function filesArrived<T extends CommentsClientFiles>({ files, deferredFiles, ...input }: T) {
+  if (deferredFiles) return { ...input, files: [...(files ?? []), ...await deferredFiles] }
   return { ...input, ...(files ? { files: await files } : {}) }
 }
 
