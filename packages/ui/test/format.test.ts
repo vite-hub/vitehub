@@ -1,7 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { formatDuration, initials } from "../src/internal/format.ts";
 
 describe("display formatters", () => {
+  it("loads and formats in a browser without Intl.DurationFormat", async () => {
+    vi.stubGlobal("Intl", Object.create(Intl, { DurationFormat: { value: undefined } }));
+    vi.resetModules();
+    try {
+      const fresh = await import("../src/internal/format.ts");
+      expect(fresh.formatDuration(95_000)).toBe("1m 35s");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it.each([
     [0, "0ms"],
     [320, "320ms"],

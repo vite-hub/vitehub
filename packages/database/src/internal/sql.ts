@@ -167,7 +167,7 @@ function openPostgres(target: Extract<ExportTarget, { kind: "postgres" }>, optio
 async function openPglite(path: string, projectRoot: string, description: string): Promise<SqlConnectionResult> {
   let PGlite: typeof import("@electric-sql/pglite").PGlite
   try {
-    // Drizzle Kit and `vitehub database migrate` load PGlite from the project too.
+    // `vitehub database migrate` loads PGlite from the project too.
     ({ PGlite } = createRequire(join(projectRoot, "package.json"))("@electric-sql/pglite") as typeof import("@electric-sql/pglite"))
   }
   catch {

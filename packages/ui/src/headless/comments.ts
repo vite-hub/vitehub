@@ -37,7 +37,6 @@ import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { createCommentVisibility, type CommentVisibility } from "./comment-visibility.ts";
 import { hasDirtyComposer, shakeDirtyComposers } from "../internal/comment-outside.ts";
 import { useSelectedComment } from "../internal/comment-selection.ts";
-import { repliedSinceResolved } from "../internal/comment-status.ts";
 import { commentsKey, injectComments } from "../internal/comments-context.ts";
 
 /**
@@ -199,16 +198,17 @@ export interface CommentsState {
   cancelDraft: () => void;
   /**
    * Sends the draft. Resolves with the new thread, or `undefined` when there is nothing to send or the send failed. With
-   * an outbox it resolves, and the draft closes, once the comment is saved, before the server answers. `files` go with
-   * the comment, for a client with an outbox.
+   * an outbox the draft closes at once and the comment shows as pending, so the next draft can start while it is saved
+   * and sent; a failure shows on that comment. Without one, the draft is `busy` until the server answers. `files` go
+   * with the comment; with an outbox they may be a promise, such as a screenshot that renders after Send.
    */
-  send: (options?: { files?: Blob[] }) => Promise<CommentThread | undefined>;
+  send: (options?: { files?: Blob[] | Promise<Blob[]> }) => Promise<CommentThread | undefined>;
   open: (thread: CommentThread | string, options?: { scroll?: boolean }) => void;
   /** Closes the thread, returning false when unsent text prevents closing or navigation. */
   close: () => boolean;
   /** Starts a thread on the subject. The anchor defaults to the whole page. */
-  create: (input: { body: string; mentions?: string[]; attachments?: string[]; files?: Blob[]; anchor?: CommentAnchor }) => Promise<CommentThread>;
-  reply: (threadId: string, body: string, mentions?: string[], attachments?: string[], files?: Blob[]) => Promise<CommentThread>;
+  create: (input: { body: string; mentions?: string[]; attachments?: string[]; files?: Blob[] | Promise<Blob[]>; anchor?: CommentAnchor }) => Promise<CommentThread>;
+  reply: (threadId: string, body: string, mentions?: string[], attachments?: string[], files?: Blob[] | Promise<Blob[]>) => Promise<CommentThread>;
   edit: (threadId: string, messageId: string, body: string, mentions?: string[]) => Promise<CommentThread>;
   remove: (threadId: string, messageId?: string) => Promise<CommentThread | null>;
   resolve: (threadId: string) => Promise<CommentThread>;
@@ -226,8 +226,8 @@ export interface CommentsState {
 export const draftPositionKey = "draft";
 
 const uiSelector = "[data-comments-ui]";
+const draftComposerSelector = "[data-draft] [data-slot='comment-composer']";
 
-// The comment UI may sit in a shadow root, so an element is also in it when its shadow host is.
 function defaultIgnore(element: Element): boolean {
   for (let node: Element | null = element; node; ) {
     if (node.closest(uiSelector)) return true;
@@ -237,7 +237,6 @@ function defaultIgnore(element: Element): boolean {
   return false;
 }
 
-// Events from a shadow root are retargeted to its host, so the real element is the first one of the composed path.
 const elementsOf = (event: Event): Element[] => event.composedPath().filter((node): node is Element => node instanceof Element);
 
 function sameSubject(a: CommentSubject, b: CommentSubject): boolean {
@@ -252,6 +251,8 @@ function samePosition(a: AnchorPosition | undefined, b: AnchorPosition | undefin
 
 const editableSelector = "input, textarea, select, [contenteditable]:not([contenteditable='false']), [role='textbox'], [role='combobox'], [role='searchbox']";
 const isEditable = (path: readonly Element[]): boolean => path.some(element => element.matches(editableSelector));
+
+const someFiles = (files: Blob[] | Promise<Blob[]> | undefined): files is Blob[] | Promise<Blob[]> => files !== undefined && (!Array.isArray(files) || files.length > 0);
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : "The comment could not be sent. Try again.";
@@ -297,7 +298,7 @@ export function useComments(options: UseCommentsOptions): CommentsState {
   const listOpen = ref(false);
   const blocked = ref(0);
 
-  const isOpen = (thread: CommentThread): boolean => thread.status === "open" || repliedSinceResolved(thread);
+  const isOpen = (thread: CommentThread): boolean => thread.status === "open";
   const passes = (thread: CommentThread): boolean => {
     const shown = (filters.open && isOpen(thread)) || (filters.resolved && thread.status === "resolved");
     if (!shown) return false;
@@ -326,7 +327,6 @@ export function useComments(options: UseCommentsOptions): CommentsState {
   watch(visibility, value => seen.set(value), { flush: "sync" });
   watch(openId, id => seen.open(id), { flush: "sync" });
   watch(hoverId, id => seen.hover(id), { flush: "sync" });
-  // Open panels and active flashes keep their marks even when a filter would hide them.
   const marked = computed(() => {
     void seenChanges.value;
     const ids = new Set(pageThreads.value.map(thread => thread.id));
@@ -359,7 +359,7 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     if (!same) positions.value = next;
   }
 
-  const hasText = (): boolean => (draft.value?.body.trim().length ?? 0) > 0 || hasDirtyComposer(uiRoot());
+  const hasText = (): boolean => (draft.value?.body.trim().length ?? 0) > 0 || hasDirtyComposer(uiRoot(), draft.value ? undefined : draftComposerSelector);
   const block = (escape = false): void => {
     blocked.value++;
     shakeDirtyComposers(uiRoot(), escape);
@@ -371,15 +371,12 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     if (selection && !selection.isCollapsed && selection.rangeCount > 0) {
       const container = selection.getRangeAt(0).commonAncestorContainer;
       const element = container instanceof Element ? container : container.parentElement;
-      // A selection that the page removed since, such as after a router swapped the body, has nothing to anchor to.
       if (element?.isConnected && !ignore(element)) {
         const rect = selection.getRangeAt(0).getBoundingClientRect();
         try {
           startDraft(selection, { point: { x: rect.left, y: rect.top } });
           selection.removeAllRanges();
-        } catch {
-          // Comment mode stays on, and a click drops the pin.
-        }
+        } catch {}
       }
     }
   }
@@ -412,7 +409,6 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     const anchor = createAnchor(target, { root: root(), ignore, ...anchorOptions });
     let point = anchorOptions.point ?? { x: 0, y: 0 };
     if (target === "page") {
-      // A comment on the whole page has no spot, so its composer opens near the top.
       point = { x: Math.max(16, window.innerWidth / 2 - 180), y: 96 };
     } else if ("nodeType" in target) {
       const box = target.getBoundingClientRect();
@@ -424,25 +420,39 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     measure();
   }
 
-  async function send(sendOptions: { files?: Blob[] } = {}): Promise<CommentThread | undefined> {
+  async function send(sendOptions: { files?: Blob[] | Promise<Blob[]> } = {}): Promise<CommentThread | undefined> {
     const current = draft.value;
     const body = current?.body.trim() ?? "";
-    const files = sendOptions.files ?? [];
-    if (!current || current.busy || (!body && current.attachments.length === 0 && files.length === 0)) return undefined;
+    const files = sendOptions.files;
+    const hasFiles = someFiles(files);
+    if (!current || current.busy || (!body && current.attachments.length === 0 && !hasFiles)) return undefined;
     const submittedBody = current.body;
     const mentions = [...current.mentions];
     const attachments = [...current.attachments];
-    current.busy = true;
+    const input = {
+      subject: subject.value,
+      anchor: toRaw(current.anchor),
+      body,
+      mentions,
+      ...(attachments.length > 0 ? { attachments } : {}),
+      ...(hasFiles ? { files } : {}),
+    };
     current.error = undefined;
+    if (client.outbox) {
+      draft.value = null;
+      try {
+        const thread = await client.create(input);
+        flash(thread.id);
+        return thread;
+      } catch (error) {
+        current.error = describeError(error);
+        if (!draft.value) draft.value = current;
+        return undefined;
+      }
+    }
+    current.busy = true;
     try {
-      const thread = await client.create({
-        subject: subject.value,
-        anchor: toRaw(current.anchor),
-        body,
-        mentions,
-        ...(attachments.length > 0 ? { attachments } : {}),
-        ...(files.length > 0 ? { files } : {}),
-      });
+      const thread = await client.create(input);
       current.busy = false;
       flash(thread.id);
       if (draft.value === current && current.body === submittedBody && current.mentions.length === mentions.length && current.mentions.every((id, index) => id === mentions[index])) draft.value = null;
@@ -454,7 +464,6 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     }
   }
 
-  // The element may not be on the page yet, for example while a route renders. Try for a few seconds, then give up.
   let revealTimer: ReturnType<typeof setTimeout> | undefined;
   function reveal(id: string): void {
     clearTimeout(revealTimer);
@@ -490,7 +499,6 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     const base = options.subjectUrl?.(thread.subject) ?? (thread.subject.kind === "page" ? thread.subject.id : location.href);
     const url = new URL(base, location.origin);
     url.searchParams.set(param, String(thread.n));
-    // URL normalization can produce a pathname that reparses as a protocol-relative link.
     const pathname = url.pathname.startsWith("//") ? `/%2F${url.pathname.slice(2)}` : url.pathname;
     return `${pathname}${url.search}${url.hash}`;
   }
@@ -504,7 +512,6 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     if (!Number.isInteger(n) || n < 1) return;
     const thread = threads.value.find(entry => entry.n === n && onPage(entry));
     if (!thread) return;
-    // A deep link shows its thread, even a resolved one that a filter hides.
     if (thread.status === "resolved") filters.resolved = true;
     filters.mine = false;
     open(thread, { scroll: true });
@@ -520,14 +527,11 @@ export function useComments(options: UseCommentsOptions): CommentsState {
       return;
     }
     if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || isEditable(path)) return;
-    // The keyboard way to drop a pin: in comment mode, Enter on the focused element comments on it.
     if (event.key === "Enter" && active.value && origin && !path.some(ignore) && origin !== document.body && origin !== document.documentElement) {
       event.preventDefault();
       try {
         startDraft(origin);
-      } catch {
-        // Nothing of the page to comment on.
-      }
+      } catch {}
       return;
     }
     if (hotkey === false || event.key.toLowerCase() !== hotkey) return;
@@ -537,7 +541,6 @@ export function useComments(options: UseCommentsOptions): CommentsState {
 
   function start(): () => void {
     const stops: Array<() => void> = [];
-    // Set before `client.start()`: a new query makes an answer that is still on its way stale.
     client.query = scope.value === "page" ? { subject: subject.value } : {};
     stops.push(client.onChange(() => {
       status.value = client.status;
@@ -560,7 +563,6 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     };
     window.addEventListener("scroll", schedule, { capture: true, passive: true });
     window.addEventListener("resize", schedule);
-    // Images and fonts that load later move the page.
     window.addEventListener("load", schedule, { capture: true });
     document.fonts?.addEventListener("loadingdone", schedule);
     const onPopstate = (): void => {
@@ -568,9 +570,7 @@ export function useComments(options: UseCommentsOptions): CommentsState {
       applyDeepLink();
     };
     window.addEventListener("popstate", onPopstate);
-    // Hosts with History API routing can supply a reactive location without synthesizing browser events.
     stops.push(watch(() => options.location?.().search, onPopstate));
-    // The comment UI changes the DOM too, and measuring after that would never settle. Only changes that move things count.
     const observer = new MutationObserver(records => {
       if (records.every(record => record.target instanceof Element && defaultIgnore(record.target))) return;
       schedule();
@@ -584,11 +584,9 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     stops.push(watch(root, value => {
       observer.disconnect();
       observer.observe(document.documentElement, observeOptions);
-      // Shadow mutations do not cross the host. Keep watching the outer layout as well.
       if (value !== document) observer.observe(value, observeOptions);
       schedule();
     }, { immediate: true, flush: "post" }));
-    // A box that resizes without a DOM change, such as one that follows its container, moves its pins.
     const resizes = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(schedule);
     const watched = new Set<Element>();
     const follow = (): void => {
@@ -627,7 +625,6 @@ export function useComments(options: UseCommentsOptions): CommentsState {
       { flush: "post" },
     ));
     stops.push(watch(() => status.value === "ready", ready => ready && applyDeepLink(), { immediate: true }));
-    // By value: a parent that re-renders with a new `{ kind, id }` object for the same page must not reset the draft.
     stops.push(watch(() => `${subject.value.kind}\u0000${subject.value.id}\u0000${scope.value}`, () => {
       client.query = scope.value === "page" ? { subject: subject.value } : {};
       cancelDraft();
@@ -720,12 +717,12 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     open,
     close,
     create: async ({ anchor = { kind: "page" }, attachments, body, files, mentions }) => {
-      const thread = await client.create({ subject: subject.value, anchor, body, mentions, ...(attachments?.length ? { attachments } : {}), ...(files?.length ? { files } : {}) });
+      const thread = await client.create({ subject: subject.value, anchor, body, mentions, ...(attachments?.length ? { attachments } : {}), ...(someFiles(files) ? { files } : {}) });
       flash(thread.id);
       return thread;
     },
     reply: async (threadId, body, mentions, attachments, files) => {
-      const thread = await client.reply({ threadId, body, mentions, ...(attachments?.length ? { attachments } : {}), ...(files?.length ? { files } : {}) });
+      const thread = await client.reply({ threadId, body, mentions, ...(attachments?.length ? { attachments } : {}), ...(someFiles(files) ? { files } : {}) });
       flash(threadId);
       return thread;
     },

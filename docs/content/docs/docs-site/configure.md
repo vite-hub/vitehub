@@ -390,7 +390,7 @@ export default defineNuxtConfig({
 })
 ```
 
-The docs sidebar starts with the brand and search. At its foot, `github` adds a GitHub link with the star count when available. `socials` adds community links, followed by the color mode button. Other pages and phones show these controls in the header. `footer` links site pages, such as About and Privacy, at the end of every docs page. `banner` shows one line above every docs page.
+The docs sidebar starts with the brand and search. At its foot, `github` adds a GitHub link with the star count when available. `socials` adds community links, followed by the color mode button. Other pages and phones show these controls in the header. `footer` adds links to site pages, such as About and Privacy, below the catalog. Every docs page ends with a "Built with ViteHub Docs" line. Set `builtWith: false` to remove that line. `banner` shows one line above every docs page.
 
 ## Design
 
@@ -628,7 +628,7 @@ export default defineNuxtConfig({
 
 ## Search
 
-`⌘K` opens search. It finds text under each `h2` and `h3` heading of every page. The index loads from `/api/_docs/search.json` when the dialog first opens. It skips agent-only content.
+`⌘K` opens search. It finds text under each `h2` and `h3` heading of every page. A production page loads the index from `/api/_docs/search.json` once it is idle. With Save-Data on, and in development, it loads when the dialog first opens. It skips agent-only content.
 
 ## Comments
 

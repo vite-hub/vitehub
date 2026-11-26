@@ -8,11 +8,10 @@ import { computed, createApp, defineComponent, h, nextTick, onBeforeUnmount, onM
 
 import { createAnchor, fieldAttribute, fieldElementOf, selectorOf } from "../anchor.ts"
 import { anchorRange, createCommentsClient } from "../client.ts"
-import { base64 } from "../client-files.ts"
 import { commentsAgentPrompt } from "../agent-prompt.ts"
 import { createCommentSend } from "../client-send.ts"
 import { commentRoom, commentsApiRoute, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "../page.ts"
-import { api, createOverlaySendTransport, createOverlayTransport, readGuest, saveGuest } from "./api.ts"
+import { api, createOverlaySendTransport, createOverlayTransport, overlayOutboxNamespace, readGuest, saveGuest } from "./api.ts"
 import { captureContext } from "./context.ts"
 import { createInlineEdit } from "./edit.ts"
 import { captureMarked, markerBox, markerColors, markerTips, startMarker } from "./marker.ts"
@@ -20,11 +19,13 @@ import { overlayStyles, panelStyles } from "./styles.ts"
 
 import type { ViteHubPageToolContext } from "@vite-hub/internal/runtime/page-tools-loader"
 import type { RealtimeRoom } from "@vite-hub/realtime/client"
+import type { CommentStatusSlotScope } from "@vite-hub/ui/comments"
 import type { CommentCan, CommentVisibility } from "@vite-hub/ui/headless"
 import type { MotionList } from "@vite-hub/ui/motion"
 import type { App, VNode } from "vue"
+import type { CommentsClientFiles } from "../client.ts"
 import type { RestCommentThread } from "../rest-transport.ts"
-import type { CommentAnchor, CommentContext, CommentEvent, CommentMessage, CommentStatus, CommentSubject, CommentUser } from "../types.ts"
+import type { CommentAnchor, CommentContext, CommentCreateInput, CommentEvent, CommentMessage, CommentStatus, CommentSubject, CommentUser } from "../types.ts"
 import type { CommentsApiError, CommentsSession } from "./api.ts"
 import type { MarkerBox, MarkerColor, MarkerSession, MarkerTip } from "./marker.ts"
 
@@ -158,6 +159,13 @@ function colorOf(id: string): string {
   let hash = 0
   for (let index = 0; index < id.length; index++) hash = Math.imul(31, hash) + id.charCodeAt(index) | 0
   return colors[Math.abs(hash) % colors.length]!
+}
+
+function withPicture<T extends CommentsClientFiles>(input: T, picture: Promise<File[]>): Omit<T, "files" | "deferredFiles"> & CommentsClientFiles {
+  const { files, deferredFiles, ...rest } = input
+  const after = (first: Promise<Blob[]>) => Promise.all([first, picture]).then(lists => lists.flat())
+  if (files !== undefined && !Array.isArray(files)) return { ...rest, files: after(files) }
+  return { ...rest, ...(files ? { files } : {}), deferredFiles: deferredFiles ? after(deferredFiles) : picture }
 }
 
 /** Follows the host's theme classes, `data-theme`, or `color-scheme`, then the system preference. */
@@ -304,15 +312,14 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const panelOpen = ref(false)
   const panelTarget = shallowRef<HTMLElement>()
   const editing = ref(false)
-  /** The ink being drawn, how much there is, the tip and color, and whether Done is taking the screenshot. */
   let marker: MarkerSession | undefined
   const marking = ref(false)
   const marks = ref(0)
   const markTip = ref<MarkerTip>("marker")
   const markColor = ref<MarkerColor>("pink")
-  const finishing = ref(false)
   /** Strokes that stay on the page while their comment is written, and that comment. */
   let ink: { session: MarkerSession, draft: unknown } | undefined
+  const pictures = new WeakMap<CommentAnchor, { files: Promise<File[]>, sent: boolean }>()
   const hover = shallowRef<Element>()
   const drafted = ref(new Set<string>())
   const naming = ref(false)
@@ -372,6 +379,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const can: CommentCan = (action, { thread, message }) => {
     const user = me.value
     if (!user || needsName.value) return false
+    // A comment that waits in this browser's outbox is this person's, also a guest's, until it reaches the server.
+    if (message?.delivery && (action === "edit" || action === "delete")) return true
     const allowed = (thread as RestCommentThread).can ?? { comment: canComment.value, resolve: Boolean(pageCan.value?.resolve), delete: Boolean(pageCan.value?.delete) }
     if (action === "reply") return thread.status === "open" && allowed.comment
     if (action === "resolve") return allowed.resolve
@@ -386,8 +395,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   }
 
   const transport = createOverlayTransport({
-    contextOf: input => contexts.get(input.anchor) ?? captureContext(undefined),
-    revisionOf: () => revision,
     onPeople(people) {
       const next = new Map(known.value.map(person => [person.id, person]))
       for (const person of people) next.set(person.id, person)
@@ -395,17 +402,42 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     },
     onChange: () => room?.setLocal("commentsChange", crypto.randomUUID()),
   })
-  const client = createCommentsClient({
-    transport: {
-      ...transport,
-      // Realtime tells this page when someone else changed its threads, and polling covers the server API.
-      subscribe(listener) {
-        listeners.add(listener)
-        return () => listeners.delete(listener)
+  /**
+   * A client for the person who writes. Its outbox shows a comment at once and sends it in the background, so it keeps
+   * the comments of that person only: a guest who gives a name gets a new client.
+   */
+  function createClient(user: CommentUser | undefined) {
+    const namespace = overlayOutboxNamespace()
+    const next = createCommentsClient({
+      transport: {
+        ...transport,
+        // Realtime tells this page when someone else changed its threads, and polling covers the server API.
+        subscribe(listener) {
+          listeners.add(listener)
+          return () => listeners.delete(listener)
+        },
       },
-    },
-    ...(account() ? { user: account()! } : {}),
-  })
+      user,
+      ...(user ? { outbox: { account: user.id, namespace } } : {}),
+    })
+    // The outbox may send a saved copy later, so a new thread takes the page context and the version shown at Send.
+    const create = next.create
+    next.create = (input) => {
+      const shown = input.revision ?? revision
+      const picture = pictures.get(input.anchor)
+      pictures.delete(input.anchor)
+      if (picture) picture.sent = true
+      const sent: CommentCreateInput & CommentsClientFiles & { context?: CommentContext } = {
+        ...(picture ? withPicture(input, picture.files) : input),
+        context: contexts.get(input.anchor) ?? captureContext(undefined),
+        ...(shown === undefined ? {} : { revision: shown }),
+      }
+      return create(sent)
+    }
+    return next
+  }
+  const client = shallowRef(createClient(me.value))
+  watch(() => me.value?.id, () => (client.value = createClient(me.value)))
   const refresh = () => {
     for (const listener of listeners) listener({ type: "reconnected" })
   }
@@ -421,8 +453,16 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const copied = await navigator.clipboard?.writeText(prompt).then(() => true, () => false)
     showToast(copied ? { text: "Prompt copied. Paste it in your agent.", kind: "info" } : { text: "Could not copy the prompt. Allow clipboard access and try again.", kind: "error" })
   }
-  const upload = async (files: File[]) => await Promise.all(files.map(async file =>
-    (await transport.upload({ name: file.name, type: file.type, data: await base64(file), subject: subject.value })).key))
+  /** How a comment that has not reached the server is doing, with Retry when the server refused it. */
+  const delivery = ({ delivery: { status, error }, retry }: CommentStatusSlotScope): VNode[] => {
+    const failed = status === "failed"
+    const held = error?.status === 401 || error?.status === 402
+    const label = failed ? "Not sent." : error ? "Waiting to send." : "Sending…"
+    return [
+      h("span", { class: "delivery", "data-failed": failed ? "true" : undefined }, error ? `${label} ${error.why}` : label),
+      ...(retry && (failed || held) ? [h(UButton, { color: "neutral", label: "Retry", onClick: () => void retry(), size: "xs", variant: "ghost" })] : []),
+    ]
+  }
 
   const edit = createInlineEdit({
     page: () => page.value,
@@ -491,7 +531,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       tip: () => markTip.value,
       color: () => markerColors[markColor.value],
       onChange: () => (marks.value = marker?.strokes().length ?? 0),
-      onSubmit: () => void finishMarking(),
+      onSubmit: finishMarking,
     })
     marks.value = 0
     marking.value = true
@@ -507,46 +547,48 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     ink = undefined
   }
   /**
-   * Done: a screenshot of the screen with the strokes on it, then a new comment on the area they cover, as in Drop. The
-   * screenshot starts in the comment's box as an attached file, and the strokes stay on the page while it is written.
+   * Done: a new comment on the area the strokes cover, as in Drop, and a screenshot of the screen with the strokes on
+   * it. The box opens at once and the strokes stay on the page while it is written. The screenshot reads the page as
+   * it is at Done and draws the strokes from their points, and the comment sends with it once it is taken.
    */
-  async function finishMarking() {
+  function finishMarking() {
     const session = marker
     // A label being typed goes down as it is.
     session?.commit()
     const strokes = session?.strokes() ?? []
     const box = markerBox(strokes)
-    if (!session || !box || finishing.value) return
-    finishing.value = true
+    if (!session || !box) return
     session.freeze()
+    const shot = captureMarked(strokes, node => node instanceof Element && ignored(node))
+    marker = undefined
+    marking.value = false
+    marks.value = 0
+    const before = state.draft.value
+    const element = areaContainer(box, markerTips.marker.width / 2 + 1)
     try {
-      const shot = await captureMarked(strokes, node => node instanceof Element && ignored(node))
-      // Cancel or Esc while the screenshot was taken.
-      if (marker !== session) return
-      marker = undefined
-      marking.value = false
-      marks.value = 0
-      if (!shot) showToast({ text: "This page could not be drawn as a picture. The comment marks the area without one.", kind: "info" })
-      const files = shot ? [new File([shot], "highlight.webp", { type: shot.type })] : []
-      const before = state.draft.value
-      const element = areaContainer(box, markerTips.marker.width / 2 + 1)
-      try {
-        if (element) {
-          const area = clip(box, element)
-          state.startDraft(element, { area, point: { x: area.left, y: area.top }, files })
-        }
-        else state.startDraft("page", { files })
+      if (element) {
+        const area = clip(box, element)
+        state.startDraft(element, { area, point: { x: area.left, y: area.top } })
       }
-      catch {
-        // The area is outside the page.
-      }
-      // A box that still holds text keeps its draft, and the strokes go.
-      if (state.draft.value === before) session.remove()
-      else ink = { session, draft: state.draft.value }
+      else state.startDraft("page")
     }
-    finally {
-      finishing.value = false
+    catch {
+      // The area is outside the page.
     }
+    const draft = state.draft.value
+    if (!draft || draft === before) {
+      session.remove()
+      return
+    }
+    ink = { session, draft }
+    const picture = {
+      files: shot.then(blob => blob ? [new File([blob], "highlight.webp", { type: blob.type })] : [], () => []),
+      sent: false,
+    }
+    pictures.set(toRaw(draft.anchor), picture)
+    void picture.files.then((files) => {
+      if (!files.length && (picture.sent || state.draft.value === draft)) showToast({ text: "This page could not be drawn as a picture. The comment marks the area without one.", kind: "info" })
+    })
   }
 
   // The Realtime client, with Yjs, is a chunk of its own: only a site with presence loads it, after the threads.
@@ -602,7 +644,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     pageWindow.show()
   }
 
-  function nameGuest(name: string) {
+  async function nameGuest(name: string) {
     guest.value = saveGuest(name)
     naming.value = false
     void joinRoom(true)
@@ -610,6 +652,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     namedMode.value = "comment"
     const quote = namedQuote
     namedQuote = undefined
+    // A first name gives the guest an account, so the overlay starts again on its client before the action resumes.
+    await nextTick()
     if (quote?.startContainer.isConnected) {
       const selection = getSelection()
       selection?.removeAllRanges()
@@ -730,7 +774,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       const submit = (event: Event) => {
         event.preventDefault()
         const value = input.value?.value.trim()
-        if (value) nameGuest(value)
+        if (value) void nameGuest(value)
         else input.value?.focus()
       }
       return () => h("form", { class: "card", role: "dialog", "aria-label": "Your name", onSubmit: submit, onKeydown: (event: KeyboardEvent) => event.key === "Escape" && (naming.value = false) }, [
@@ -747,7 +791,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     name: "CommentsOverlay",
     setup() {
       state = useComments({
-        client,
+        client: client.value,
         subject: () => subject.value,
         location: () => ({ href: location.href, origin: location.origin, search: search.value }),
         user: () => me.value,
@@ -805,7 +849,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       // are found again then.
       watch([pageChanges, state.pageThreads, state.openId, state.hoverId, () => state.draft.value?.anchor, state.shown], paintHighlights, { flush: "post" })
       watch(() => state.draft.value, trackSelection)
-      // The strokes go once their comment is sent or closed.
       watch(() => state.draft.value, (draft) => {
         if (ink && draft !== ink.draft) dropInk()
       })
@@ -813,7 +856,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       return () => {
         const nodes: Array<VNode | null> = []
         if (pageCan.value?.read && !resolving.value) {
-          nodes.push(h(CommentLayer, { comments: state, readOnly: !me.value, upload: canAttach.value ? upload : undefined, attachmentUrl: transport.attachmentUrl }, { default: () => [] }))
+          nodes.push(h(CommentLayer, { comments: state, readOnly: !me.value, queueFiles: canAttach.value, attachmentUrl: transport.attachmentUrl }, { default: () => [], status: delivery }))
           nodes.push(h("div", { class: "cursors", ref: cursorLayer }, cursors()))
           nodes.push(h("div", { class: "outlines" }, outlines()))
           nodes.push(options.areas ? h(Teleport, { to: options.areas }, areas()) : h("div", { class: "areas" }, areas()))
@@ -853,13 +896,13 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
               status: panelStatus.value,
               "onUpdate:status": (value: CommentStatus) => (panelStatus.value = value),
               title: page.value,
-              upload: canAttach.value ? upload : undefined,
+              queueFiles: canAttach.value,
               // The thread opens in the list. Its spot on the page comes into view.
               onSelect: (thread: { id: string }) => {
                 const position = state.positions.value.get(thread.id)
                 if (position && !position.detached) position.element?.scrollIntoView({ block: "center", behavior: "smooth" })
               },
-            })))
+            }, { status: delivery })))
           }
         }
         // The toolbar stays while the subject of a new page loads, so its buttons do not jump.
@@ -886,7 +929,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
 
   /** While the person highlights: the tips, the colors, Undo, Cancel, and Done, as Drop's Marker controls. */
   function markerToolbar(): VNode {
-    const busy = finishing.value
     // A press on a color keeps the focus in the label being typed, so the color goes to that label.
     const keepFocus = (event: MouseEvent) => event.preventDefault()
     return h("div", { class: "toolbar", role: "group", "aria-label": "Highlight" }, [
@@ -898,7 +940,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         "aria-keyshortcuts": markerTips[tip].key,
         "aria-pressed": String(markTip.value === tip),
         title: `${markerTips[tip].label} (${markerTips[tip].key})`,
-        disabled: busy,
         onClick: () => pickTip(tip),
       }, tipIcons[tip]()))),
       h("span", { class: "sep" }),
@@ -908,7 +949,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         type: "button",
         "aria-label": `${name[0]!.toUpperCase()}${name.slice(1)} ink`,
         "aria-pressed": String(markColor.value === name),
-        disabled: busy,
         onMousedown: keepFocus,
         onClick: () => {
           markColor.value = name
@@ -916,9 +956,9 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         },
       }, h("span", { style: { background: markerColors[name] } })))),
       h("span", { class: "sep" }),
-      h("button", { type: "button", class: "icon", "aria-label": "Undo", "aria-keyshortcuts": "Meta+Z Control+Z", title: "Undo", disabled: busy || marks.value === 0, onClick: () => marker?.undo() }, undoIcon()),
-      h("button", { type: "button", disabled: busy, onClick: () => setMode("view"), title: "Cancel (Esc)" }, "Cancel"),
-      h("button", { type: "button", class: "done", "aria-keyshortcuts": "Enter", "aria-busy": busy ? "true" : undefined, disabled: !busy && marks.value === 0, onClick: () => void finishMarking(), title: "Comment on the highlighted area (Enter)" }, busy ? "Taking picture…" : "Done"),
+      h("button", { type: "button", class: "icon", "aria-label": "Undo", "aria-keyshortcuts": "Meta+Z Control+Z", title: "Undo", disabled: marks.value === 0, onClick: () => marker?.undo() }, undoIcon()),
+      h("button", { type: "button", onClick: () => setMode("view"), title: "Cancel (Esc)" }, "Cancel"),
+      h("button", { type: "button", class: "done", "aria-keyshortcuts": "Enter", disabled: marks.value === 0, onClick: finishMarking, title: "Comment on the highlighted area (Enter)" }, "Done"),
     ])
   }
 
@@ -942,7 +982,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
    */
   function toolbar(): VNode {
     void tick.value
-    if (marking.value || finishing.value) return markerToolbar()
+    if (marking.value) return markerToolbar()
     const signOutUrl = session?.signOut
     const github = signOutUrl ? session?.github : undefined
     const people = showPresence ? others(room?.people() ?? [], me.value?.id) : []
@@ -1079,7 +1119,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     return nodes
   }
 
-  const app = createApp(Overlay)
+  // A new client is a new comments state, so the overlay mounts again for each person who writes.
+  const app = createApp({ render: () => h(Overlay, { key: me.value?.id ?? "" }) })
   registerStandaloneUI(app)
   app.mount(root)
   if (session && !session.can.read) {
@@ -1152,10 +1193,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       page.value = next
       search.value = location.search
       panelThread.value = null
-      // Strokes mark the screen of the old page.
       if (marking.value) setMode("view")
       dropInk()
-      // The Retry of the previous page does not apply here.
       clearRetry()
       // Comment mode pauses until the subject is known: in it, Enter on an element starts a comment.
       paused.value = paused.value || state.active.value
@@ -1202,7 +1241,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         const tip = tipOfKey(event)
         if (tip) pickTip(tip)
         else if (event.key === "Escape") setMode("view")
-        else if (event.key === "Enter") void finishMarking()
+        else if (event.key === "Enter") finishMarking()
         else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") marker?.undo()
         // The ink stays where it was drawn, so the keys do not scroll the page either.
         else if (![" ", "PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown"].includes(event.key)) return

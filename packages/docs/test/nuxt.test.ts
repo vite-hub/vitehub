@@ -452,6 +452,11 @@ describe("docs Nuxt setup", () => {
     expect(templates.get("docs/comark-css.mjs")?.()).toBe(`export default ${JSON.stringify(file)}\nexport const names = ["zoom","include","mermaid","issues"]\n`)
   })
 
+  it("credits ViteHub Docs unless builtWith is false", async () => {
+    expect((await setupDocs({})).runtimeConfig.public.docs.builtWith).toBe(true)
+    expect((await setupDocs({ builtWith: false })).runtimeConfig.public.docs.builtWith).toBe(false)
+  })
+
   it("gives app pages a Markdown copy unless markdownPages is false", async () => {
     const markdown = (handler: { route?: string, handler?: string }) => handler.handler?.endsWith("runtime/server/markdown.js")
     expect((await setupDocs({})).runtimeConfig.public.docs.markdownPages).toBe(true)
