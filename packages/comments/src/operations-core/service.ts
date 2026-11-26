@@ -94,13 +94,13 @@ export interface CommentsRuntime {
   /** Work that runs after the answer, such as `onMention`. `flush()` of the server API waits for it. */
   background?: (task: Promise<unknown>) => void
   /** Tells the open pages of a thread that it changed, such as through a Realtime notice to its page room. */
-  changed?: (thread: CommentThread) => void
+  changed?: (thread: CommentThread) => Promise<void>
 }
 
 /** Runs the hooks that follow a change of a thread: the pull request sync and the notice to its open pages. */
-export function threadChanged(runtime: CommentsRuntime, thread: CommentThread): void {
+export async function threadChanged(runtime: CommentsRuntime, thread: CommentThread): Promise<void> {
   runtime.forge?.changed(thread.id)
-  runtime.changed?.(thread)
+  await runtime.changed?.(thread).catch(() => undefined)
 }
 
 /** An error with the HTTP status that the operation RPC answers. */
@@ -429,7 +429,7 @@ export async function createThread(runtime: CommentsRuntime, input: CreateThread
   // A retry won the race: the first call stored the thread and sent its notifications.
   if (created.id !== threadId) return retried(created, input, options.canRead)
   await announce(runtime, created, created.messages[0], mentioned, mentioned, { comment: true, ...(options.request ? { request: options.request } : {}), ...(options.waitUntil ? { waitUntil: options.waitUntil } : {}) })
-  threadChanged(runtime, created)
+  await threadChanged(runtime, created)
   return created
 }
 
@@ -492,7 +492,7 @@ export async function replyToThread(runtime: CommentsRuntime, thread: CommentThr
   }
   const message = next.messages.find(entry => entry.id === id)!
   await announce(runtime, next, message, mentioned, mentioned, { comment: true, ...(options.request ? { request: options.request } : {}), ...(options.waitUntil ? { waitUntil: options.waitUntil } : {}) })
-  threadChanged(runtime, next)
+  await threadChanged(runtime, next)
   return { message, thread: next }
 }
 
@@ -505,7 +505,7 @@ export async function editMessage(runtime: CommentsRuntime, thread: CommentThrea
   const next = await runtime.store.editMessage(thread.id, target.id, { body, mentions: mentioned.map(person => person.id), now: Date.now() })
   const fresh = mentioned.filter(person => !target.mentions.includes(person.id))
   await announce(runtime, next, next.messages.find(entry => entry.id === target.id), mentioned, fresh, { comment: false, ...(options.waitUntil ? { waitUntil: options.waitUntil } : {}) })
-  threadChanged(runtime, next)
+  await threadChanged(runtime, next)
   return next
 }
 

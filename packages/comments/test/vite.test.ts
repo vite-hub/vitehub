@@ -88,7 +88,7 @@ describe("hubComments", () => {
     expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain(pathToFileURL(definition).href)
     expect(await plugin.vitehub.databases({ root, rootDir: root, projectRoot: root })).toEqual([expect.objectContaining({ name: "comments", reason: "Stores the comment threads of `vitehub({ comments })`." })])
     const realtime = await plugin.api.contributeRealtime({ driver: "memory", directory: join(root, ".vitehub/realtime"), projectRoot: root })
-    expect(realtime?.definitions).toEqual([expect.objectContaining({ name: "comments" })])
+    expect(realtime?.definitions).toEqual([expect.objectContaining({ name: "comments" }), expect.objectContaining({ name: "comments-notices" })])
     expect(await readFile(join(root, ".vitehub/realtime/comments.mjs"), "utf8")).toContain(pathToFileURL(definition).href)
     // The Console, the CLI, and MCP get the comment operations too.
     const operations = async (target: ReturnType<typeof hubComments>) => {
@@ -397,7 +397,11 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
     const plugin = hubComments()
     const directory = join(root, ".vitehub/nitro/realtime")
     const contribution = await plugin.api.contributeRealtime({ driver: "memory", directory, projectRoot: root })
-    expect(contribution).toEqual({ definitions: [{ handler: join(directory, "comments.mjs"), name: "comments" }] })
+    expect(contribution).toEqual({ definitions: [
+      { handler: join(directory, "comments.mjs"), name: "comments" },
+      { handler: join(directory, "comments-notices.mjs"), name: "comments-notices" },
+    ] })
+    expect(await readFile(join(directory, "comments-notices.mjs"), "utf8")).toContain('commentsRealtime(comments, { session: undefined, githubLogin }, "notices")')
     // Without Auth or the Console, the people of the rooms are the people signed in with GitHub.
     expect(await readFile(join(directory, "comments.mjs"), "utf8")).toContain("export default commentsRealtime(comments, { session: undefined, githubLogin })")
     await configure(plugin, root)

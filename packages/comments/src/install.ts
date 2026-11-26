@@ -104,7 +104,7 @@ export function installComments(comments: Comments, install: InstallCommentsOpti
     ...(install.rateLimit ? { rateLimit: install.rateLimit } : {}),
   }
   const realtime = install.realtime
-  if (realtime && !install.tenant) runtime.changed = thread => track(realtime().then(module => module.notifyCommentsChange(thread)))
+  if (realtime && !install.tenant) runtime.changed = async thread => (await realtime()).notifyCommentsChange(thread)
   let sync: Installed["sync"]
   if (comments.options.forge) {
     const forge = createForgeSync(comments.options.forge, { database: install.database, store, waitUntil: track, ...(install.tables?.commentForge ? { table: install.tables.commentForge } : {}) })

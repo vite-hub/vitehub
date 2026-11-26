@@ -381,11 +381,11 @@ export const commentActions = {
     if (deletesThread) {
       const deleted = await who.runtime.store.deleteThread(found.id, owns ? ownerId : undefined)
       if (deleted === false) throw fail(commentsErrorDiagnostics.COMMENTS_R0009({ action: "delete" }), 403)
-      threadChanged(who.runtime, found)
+      await threadChanged(who.runtime, found)
       return null
     }
     const next = await who.runtime.store.deleteMessage(found.id, target.id, Date.now())
-    threadChanged(who.runtime, next)
+    await threadChanged(who.runtime, next)
     return next
   },
 
@@ -393,7 +393,7 @@ export const commentActions = {
     const found = await load(who, input.threadId)
     await allow(who, "resolve", { thread: found })
     const next = await who.runtime.store.setStatus(found.id, status, author(who), Date.now(), status === "resolved" ? who.actor : undefined)
-    threadChanged(who.runtime, next)
+    await threadChanged(who.runtime, next)
     return next
   },
 
@@ -426,7 +426,7 @@ export const commentActions = {
         }
         if (thread.status !== "resolved" || thread.messages.some(message => message.createdAt > (thread.resolvedAt ?? 0))) {
           thread = await who.runtime.store.setStatus(thread.id, "resolved", by, Date.now(), who.actor)
-          threadChanged(who.runtime, thread)
+          await threadChanged(who.runtime, thread)
         }
         resolved.push(thread)
       }

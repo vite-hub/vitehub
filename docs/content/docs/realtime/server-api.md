@@ -498,6 +498,7 @@ room.onNotice(() => void loadOrders())
 
 - Every browser in the room gets the notice. A room without a browser drops it.
 - It needs no `requests: true`, and it never throws.
+- Set `awareness: false` on a presence definition when its rooms should carry notices without sharing presence or cursors.
 - On Cloudflare the notice goes to the Durable Object that holds the rooms. With Redis or Postgres it also reaches browsers on the other instances.
 - A definition with `scope: "user"` needs `{ user }`, as with requests.
 

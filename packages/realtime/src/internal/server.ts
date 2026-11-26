@@ -1897,7 +1897,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     const access = (mode: "read" | "write", id: string | null = workspaceEvents ? null : documentId) =>
       allows(definition, { definition: definitionName, documentId: id, event, mode, request: event.req, user })
     const scope = roomScope(definition, user?.id ?? null)
-    return { access, definitionName, documentId, fields, resolved, scope, searchParams, user, workspaceEvents }
+    const awareness = definition.document !== false || definition.awareness !== false
+    return { access, awareness, definitionName, documentId, fields, resolved, scope, searchParams, user, workspaceEvents }
   }
 
   function logRefusal(event: H3Event, error: unknown, upgrade: boolean): void {
@@ -2180,6 +2181,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
           return
         }
         if (messageType === messageAwareness) {
+          if (!request.awareness) return
           let update: Uint8Array
           try {
             update = decoding.readVarUint8Array(decoder)

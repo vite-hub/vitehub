@@ -1,4 +1,5 @@
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
+import runtime from "#vitehub/realtime/availability"
 
 import { isRealtimeAvailable } from "./availability.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
@@ -211,7 +212,7 @@ export async function notifyRealtimeRoom(definition: string, documentId: string,
     const room = documentId.split("/").map(encodeURIComponent).join("/")
     try {
       await binding.get(binding.idFromName(durableRoomsInstance)).fetch(new Request(
-        `https://vitehub.internal${routePrefix}${encodeURIComponent(definition)}/${room}?notice=1`,
+        `https://vitehub.internal${runtime.noticeBase ?? ""}${routePrefix}${encodeURIComponent(definition)}/${room}?notice=1`,
         {
           method: "POST",
           headers: { [internalRequestHeader]: "1", "content-type": "application/json" },
