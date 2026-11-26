@@ -83,6 +83,54 @@ it("cleans up a running ring when reduced motion turns on", () => {
   expect(button.style.boxShadow).toBe(shadow);
 });
 
+function fieldGroup(): { group: HTMLElement; copy: HTMLButtonElement; more: HTMLButtonElement } {
+  const group = document.createElement("div");
+  group.dataset.orientation = "horizontal";
+  const copy = document.createElement("button");
+  copy.style.borderRadius = "6px 0 0 6px";
+  const more = document.createElement("button");
+  more.style.borderRadius = "0 6px 6px 0";
+  group.append(copy, more);
+  document.body.append(group);
+  return { group, copy, more };
+}
+
+it("rings the whole field group, rounded like its buttons, for a joined button", () => {
+  const { group, copy, more } = fieldGroup();
+  ring(copy);
+  tick(3);
+  expect(ringing(copy)).toBe(true);
+  expect(group.style.boxShadow).toContain("0 0 0");
+  expect(group.style.borderRadius).toBe("6px");
+  expect(copy.style.boxShadow).toBe("");
+  expect(more.style.boxShadow).toBe("");
+  tick(framesUntilIdle());
+  expect(ringing(copy)).toBe(false);
+  expect(group.hasAttribute("style")).toBe(false);
+});
+
+it("rings a lone button in a field group by itself", () => {
+  const group = document.createElement("div");
+  group.dataset.orientation = "horizontal";
+  const button = document.createElement("button");
+  button.style.borderRadius = "6px";
+  group.append(button);
+  document.body.append(group);
+  ring(button);
+  tick(3);
+  expect(button.style.boxShadow).toContain("0 0 0");
+  expect(group.style.boxShadow).toBe("");
+});
+
+it("does not ring a joined field group under reduced motion", () => {
+  const { group, copy } = fieldGroup();
+  forceReducedMotion(true);
+  ring(copy);
+  tick(3);
+  expect(group.hasAttribute("style")).toBe(false);
+  expect(ringing(copy)).toBe(false);
+});
+
 describe("createMotionList", () => {
   it("starts a moved item where it was, then springs it to its new place and clears what it wrote", () => {
     const { container, items } = list(3);

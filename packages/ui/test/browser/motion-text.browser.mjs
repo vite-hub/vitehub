@@ -329,6 +329,28 @@ describe("icon swap", () => {
     await context.close()
   })
 
+  test("a CopyButton joined in a UFieldGroup rings the whole group with its rounded corners", async () => {
+    const { context, errors, page } = await open()
+    const trace = await sample(page, "[data-test=copy-group]", element => ({
+      group: element.style.boxShadow,
+      radius: getComputedStyle(element).borderRadius,
+      button: element.querySelector("[data-test=copy-joined]").style.boxShadow,
+      edge: getComputedStyle(element.querySelector("[data-test=copy-joined]")).borderTopLeftRadius,
+    }))
+    await page.locator("[data-test=copy-joined]").click()
+    await page.waitForTimeout(900)
+    const values = (await trace.stop()).map(([, value]) => value)
+    const ringing = values.filter(value => value.group)
+    assert.ok(ringing.length > 0, "the group rings")
+    assert.ok(values.every(value => value.button === ""), "the button itself does not ring")
+    assert.ok(Number.parseFloat(ringing[0].radius) > 0, `the ring is rounded: ${ringing[0].radius}`)
+    assert.equal(ringing[0].radius, ringing[0].edge)
+    assert.equal(values.at(-1).group, "", "the ring is gone after")
+    assert.equal(await page.locator("[data-test=copy-group]").getAttribute("style"), null)
+    assert.deepEqual(errors, [])
+    await context.close()
+  })
+
   test("a press of an icon-only CopyButton squashes its SwapIcon by 15% and keeps the button still", async () => {
     const { context, page } = await open()
     const box = await page.locator("[data-test=copy]").boundingBox()
