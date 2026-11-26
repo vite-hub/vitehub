@@ -324,7 +324,6 @@
   "packages/vite-hub/test/cache-stale-if-error.test.ts": 7,
   "packages/vite-hub/test/cache-tags-build.test.ts": 2,
   "packages/vite-hub/test/cache-tags.test.ts": 5,
-  "packages/vite-hub/test/cli-docs.test.ts": 5,
   "packages/vite-hub/test/cloudflare-custom-domain.test.ts": 1,
   "packages/vite-hub/test/cloudflare-observability.test.ts": 1,
   "packages/vite-hub/test/cloudflare-redirects.test.ts": 1,
