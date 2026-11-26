@@ -307,7 +307,9 @@ function outcomeOf(status: number): "wait" | "hold" | "fail" {
 export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutboxHost): CommentsOutboxEngine {
   const { account, namespace } = options
   const scopedChannel = namespace === undefined ? channel : `${channel}:${JSON.stringify(namespace)}`
-  const store = options.store ?? (!options.environment && !globalThis.navigator?.locks ? createMemoryOutboxStore() : indexedDBOutboxStore(scopedChannel))
+  const hasLocks = Boolean(options.environment || globalThis.navigator?.locks)
+  const stageFiles = Boolean(options.store && !hasLocks)
+  const store = options.store ?? (hasLocks ? indexedDBOutboxStore(scopedChannel) : createMemoryOutboxStore())
   const environment = options.environment ?? createBrowserEnvironment({ channel: scopedChannel, isMessage: isOutboxMessage })
   const queue = namespace === undefined ? account : JSON.stringify([namespace, account])
   const storeKey = options.store ? queue : account
@@ -568,7 +570,7 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
         return
       }
       if ("files" in selected) {
-        if (arriving.has(selected.files)) return
+        if (stageFiles || arriving.has(selected.files)) return
         await Promise.race([environment.lock(filesLock(selected.files), async () => undefined), aborted(signal)])
         if (signal.aborted) return
         await update((drafts) => {
@@ -666,6 +668,18 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
     local.write = write
     return write
   }
+  const flushStaged = (): void => {
+    const locals = [...unsaved.values()]
+    if (locals.some(local => local.write)) return
+    const next = locals.find(local => !local.saved && !local.parked && local.entry.status === "pending")
+    if (next && !next.entry.awaitingFiles) void save(next.entry.id).then(flushStaged)
+  }
+  const queueSave = (local: UnsavedDraft): Promise<void> => {
+    if (!stageFiles) return save(local.entry.id)
+    local.parked = false
+    flushStaged()
+    return local.write ?? Promise.resolve()
+  }
   const add = (entry: CommentsOutboxEntry, files: Blob[] | Promise<Blob[]> | undefined) => {
     const later = files !== undefined && !Array.isArray(files)
     const order = Math.max(Date.now(), lastOrder + 1, ...entries.map(other => other.order + 1))
@@ -675,7 +689,7 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
     unsaved.set(entry.id, local)
     if (later) arrive(entry.id, Promise.resolve(files))
     merge()
-    return { local, write: save(entry.id) }
+    return { local, write: queueSave(local) }
   }
   const queueEntry = (entry: CommentsOutboxEntry, files: Blob[] | Promise<Blob[]> | undefined) => {
     const existing = entries.find(draft => keyOf(draft) === keyOf(entry))
@@ -692,6 +706,7 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
       if (local && !local.saved) {
         local.entry = settled(local.entry)
         merge()
+        if (stageFiles) flushStaged()
         return
       }
       while (arriving.has(id)) {
@@ -815,7 +830,7 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
       if (local) {
         local.entry = { ...local.entry, status: "pending", error: undefined }
         merge()
-        await save(local.entry.id)
+        await queueSave(local)
         return
       }
       await update((drafts) => {
@@ -836,6 +851,7 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
           for (const reply of drafts.values()) if (reply.kind === "reply" && reply.input.threadId === id) drafts.delete(reply.id)
         })
         await changed()
+        if (stageFiles) flushStaged()
         kick()
         return true
       }
@@ -863,7 +879,7 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
         // SAFETY: `input` keeps the kind of the entry.
         local.entry = { ...local.entry, input, status: "pending", error: undefined } as CommentsOutboxEntry
         merge()
-        await save(id)
+        await queueSave(local)
         return true
       }
       const edited = await update((drafts) => {

@@ -753,6 +753,34 @@ describe("the comments outbox", () => {
     expect(await server.creates[0]!.files![0]!.text()).toBe("pixels")
   })
 
+  it("does not expose drafts awaiting files to a shared store without Web Locks", async () => {
+    vi.stubGlobal("window", new EventTarget())
+    vi.stubGlobal("document", Object.assign(new EventTarget(), { visibilityState: "visible" }))
+    const navigator = { onLine: false }
+    vi.stubGlobal("navigator", navigator)
+    const store = createMemoryOutboxStore()
+    const server = createServer()
+    const open = () => {
+      const client = createCommentsClient({ transport: server.transport, user: ana, query: { page: "/pricing" }, outbox: { account: ana.id, store } })
+      stops.push(client.start())
+      return client
+    }
+    const producer = open()
+    const files = deferred<Blob[]>()
+    await producer.create({ subject, anchor, body: "With picture", files: files.promise })
+    await producer.create({ subject, anchor, body: "After picture" })
+    await settle()
+    navigator.onLine = true
+    const consumer = open()
+    await vi.waitFor(() => expect(consumer.status).toBe("ready"))
+    expect(await store.list(ana.id)).toEqual([])
+    expect(server.creates).toHaveLength(0)
+
+    files.resolve([new Blob(["pixels"])])
+    await vi.waitFor(() => expect(server.creates.map(input => input.body)).toEqual(["With picture", "After picture"]))
+    expect(await server.creates[0]!.files![0]!.text()).toBe("pixels")
+  })
+
   it("checkpoints a parked reply's files after its parent's retry captures the batch", async () => {
     const memory = createMemoryOutboxStore()
     const captured = gate()
