@@ -8,7 +8,10 @@ type DocsSearch = ReturnType<typeof createDocsSearch>
 let loading: Promise<DocsSearch> | undefined
 
 function loadDocsSearch(url: string): Promise<DocsSearch> {
-  return loading ??= $fetch<DocsSearchSection[]>(url).then(createDocsSearch).catch((error: unknown) => {
+  if (!import.meta.dev && loading) return loading
+  const request = $fetch<DocsSearchSection[]>(url).then(createDocsSearch)
+  if (import.meta.dev) return request
+  return loading = request.catch((error: unknown) => {
     loading = undefined
     throw error
   })
@@ -21,7 +24,6 @@ function savesData(): boolean {
 </script>
 
 <script setup lang="ts">
-// A result shows the page path over its heading. One line, "Page > Section > Heading", cut off the heading on a phone.
 const { appBase } = useDocsConfig()
 const manifest = useDocsManifest()
 const icons = useDocsIcons()
@@ -58,10 +60,8 @@ async function search(query: string, options?: { limit?: number }) {
   return rank?.(query, options?.limit ?? 30) ?? []
 }
 
-// The section list helps before the first key press. After it, the ranked results are the whole list.
 const searchTerm = ref("")
 
-// Nuxt UI builds the prefix as "Page > Section >".
 function searchPath(prefix: string) {
   return prefix.replace(/\s*>$/, "").split(" > ").join(" / ")
 }
