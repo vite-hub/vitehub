@@ -725,45 +725,44 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
   }
 
   async function sendWithFallback(context: CallContext, providerRequest: ProviderRequest, init: SendInit, fallback: { connections?: ConnectionStore, key: string }): Promise<Response> {
-    let owner: string | undefined
     if (fallback.connections?.refreshLeases) {
-      owner = await claimMutationLease(context.name)
-    }
-    try {
-      if (owner && await fallback.connections!.state.get(context.name) !== undefined) {
-        throw connectionsErrorDiagnostics.CONNECTIONS_NEEDS_RECONNECT({ connection: context.name })
-      }
-      const operationId = crypto.randomUUID()
-      const record = async (outcome: EnvActivity["outcome"]) => {
-        await fallback.connections?.access.append({
-          action: "use",
-          actor: envActor(context.actor),
-          id: crypto.randomUUID(),
-          key: tokenKey(context.name),
-          operation: providerRequest.action,
-          operationId,
-          outcome,
-          revision: FALLBACK_GRANT,
-          timestamp: new Date(now()).toISOString(),
-          traceId: context.options.traceId,
-          invocationId: context.options.invocationId,
-        })
-      }
-      await record("started")
-      let response: Response
+      const owner = await claimMutationLease(context.name)
       try {
-        response = await checkResponse(providerRequest, await dispatch(context, providerRequest, init, { accessToken: fallback.key, tokenType: "api-key" }))
+        if (await fallback.connections.state.get(context.name) !== undefined) {
+          throw connectionsErrorDiagnostics.CONNECTIONS_NEEDS_RECONNECT({ connection: context.name })
+        }
       }
-      catch (error) {
-        await record("failed").catch(() => undefined)
-        throw error
+      finally {
+        await fallback.connections.refreshLeases.release(context.name, owner).catch(() => undefined)
       }
-      await record("succeeded")
-      return response
     }
-    finally {
-      if (owner) await fallback.connections!.refreshLeases!.release(context.name, owner).catch(() => undefined)
+    const operationId = crypto.randomUUID()
+    const record = async (outcome: EnvActivity["outcome"]) => {
+      await fallback.connections?.access.append({
+        action: "use",
+        actor: envActor(context.actor),
+        id: crypto.randomUUID(),
+        key: tokenKey(context.name),
+        operation: providerRequest.action,
+        operationId,
+        outcome,
+        revision: FALLBACK_GRANT,
+        timestamp: new Date(now()).toISOString(),
+        traceId: context.options.traceId,
+        invocationId: context.options.invocationId,
+      })
     }
+    await record("started")
+    let response: Response
+    try {
+      response = await checkResponse(providerRequest, await dispatch(context, providerRequest, init, { accessToken: fallback.key, tokenType: "api-key" }))
+    }
+    catch (error) {
+      await record("failed").catch(() => undefined)
+      throw error
+    }
+    await record("succeeded")
+    return response
   }
 
   async function send(context: CallContext, providerRequest: ProviderRequest, init: SendInit = {}): Promise<Response> {

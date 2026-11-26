@@ -50,6 +50,24 @@ describe("API key fallback", () => {
     expect(JSON.stringify(activity)).not.toContain(ENV_KEY)
   })
 
+  it("sends concurrent fallback requests while an earlier one is still waiting for the provider", async () => {
+    let releaseSlow!: () => void
+    const slow = new Promise<void>((resolve) => { releaseSlow = resolve })
+    const runtime = createConnectionsRuntime({
+      definitions: { executor: defineConnection({ provider: apiKey({ origins: ["https://api.example.com"], fallback: () => ENV_KEY }) }) },
+      fetch: async (input) => {
+        if (String(input).endsWith("/slow")) await slow
+        return Response.json({ ok: true })
+      },
+      store: createStore(),
+    })
+    const client = runtime.client("executor", {})
+    const pending = client.fetch("https://api.example.com/slow")
+    expect((await client.fetch(URL_ITEMS)).status).toBe(200)
+    releaseSlow()
+    expect((await pending).status).toBe(200)
+  })
+
   it("unseals a sealed Server Env secret", async () => {
     const test = harness(async () => new SecretEnv(ENV_KEY))
     await test.runtime.client("executor", {}).fetch(URL_ITEMS)
