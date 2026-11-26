@@ -466,20 +466,22 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const copied = await navigator.clipboard?.writeText(commentsAgentPrompt(promptInput(threads))).then(() => true, () => false)
     showToast(copied ? { text: "Prompt copied. Paste it in your agent.", kind: "info" } : { text: "Could not copy the prompt. Allow clipboard access and try again.", kind: "error" })
   }
-  /** "Open in T3 Code" and Copy for the threads: the same prompt, in a new T3 Code thread or on the clipboard. */
-  const promptActions = (threads: readonly CommentThread[], copy: { label: string, action: string }): VNode[] => [
-    h(UButton, {
-      color: "neutral",
-      "data-action": "open-in-t3-code",
-      label: "Open in T3 Code",
-      rel: "noopener noreferrer",
-      size: "xs",
-      target: "_blank",
-      to: commentsT3CodeLink(promptInput(threads), pageRepository.value),
-      variant: "ghost",
-    }, () => h(UIcon, { name: "i-lucide-arrow-up-right" })),
-    h(UButton, { color: "neutral", "data-action": copy.action, icon: "i-lucide-copy", label: copy.label, onClick: () => void copyPrompt(threads), size: "xs", variant: "ghost" }),
-  ]
+  const promptActions = (threads: readonly CommentThread[], copy: { label: string, action: string }): VNode[] => {
+    const link = commentsT3CodeLink(promptInput(threads), pageRepository.value)
+    return [
+      link ? h(UButton, {
+        color: "neutral",
+        "data-action": "open-in-t3-code",
+        label: "Open in T3 Code",
+        rel: "noopener noreferrer",
+        size: "xs",
+        target: "_blank",
+        to: link,
+        variant: "ghost",
+      }, () => h(UIcon, { name: "i-lucide-arrow-up-right" })) : h("small", "Too long for T3 Code. Copy the prompt instead."),
+      h(UButton, { color: "neutral", "data-action": copy.action, icon: "i-lucide-copy", label: copy.label, onClick: () => void copyPrompt(threads), size: "xs", variant: "ghost" }),
+    ]
+  }
   const threadActions = ({ thread }: { thread: CommentThread }): VNode[] =>
     thread.status === "open" && !thread.delivery ? promptActions([thread], { label: "Copy", action: "copy-prompt" }) : []
   const listActions = (): VNode[] => {

@@ -34,7 +34,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-async function site(visitor: ViteHubSiteVisitor, threads: number, build?: { repository: string }) {
+async function site(visitor: ViteHubSiteVisitor, openThreads: number, { resolvedThreads = 0, build }: { resolvedThreads?: number, build?: { repository: string } } = {}) {
   installViteHubSiteVisitor(async () => visitor)
   const subject = { kind: "drop", id: "42" }
   const server = await serveComments({
@@ -42,20 +42,27 @@ async function site(visitor: ViteHubSiteVisitor, threads: number, build?: { repo
     page: ({ url }) => url.pathname === "/pricing" ? subject : undefined,
   }, build ? { build } : {})
   const ids: string[] = []
-  let resolvedId: string | undefined
-  for (let index = 0; index < threads; index++) {
+  for (let index = 0; index < openThreads + resolvedThreads; index++) {
     const author = { id: "grace", name: "Grace" }
     const [, thread] = await server.comments.create({ subject, anchor, body: `Fix ${index}`, author })
-    if (index === 1) {
-      await server.comments.resolve(thread!.id, { by: author })
-      resolvedId = thread!.id
+    if (index >= openThreads) {
+      const [resolveError, resolved] = await server.comments.resolve(thread!.id, { by: author })
+      expect(resolveError).toBeUndefined()
+      const now = vi.spyOn(Date, "now").mockReturnValue(resolved!.resolvedAt! + 1)
+      try {
+        const [error] = await server.comments.reply(thread!.id, { body: "Still needs work", author }, { allowResolved: true })
+        expect(error).toBeUndefined()
+      }
+      finally {
+        now.mockRestore()
+      }
     }
-    else ids.push(thread!.id)
+    ids.push(thread!.id)
   }
   const tools = pageTools()
   await startOverlay(tools)
   await vi.waitFor(() => expect(commentsButton(tools.bar)).not.toBeNull())
-  return { ...tools, ids, resolvedId, server }
+  return { ...tools, ids, server }
 }
 
 function clipboard() {
@@ -82,7 +89,7 @@ const promptOf = (href: string) => new URL(href).searchParams.get("prompt")
 describe("Open in T3 Code and Copy on a thread", () => {
   it("gives a Console member the thread's text and the ViteHub MCP steps, both ways", async () => {
     const writeText = clipboard()
-    const tools = await site(member, 1, { repository: "acme/pricing" })
+    const tools = await site(member, 1, { build: { repository: "acme/pricing" } })
     const actions = await openedThread(tools)
     const open = actions.querySelector<HTMLAnchorElement>('a[data-action="open-in-t3-code"]')!
     expect(open.textContent).toContain("Open in T3 Code")
@@ -116,9 +123,9 @@ describe("Open in T3 Code and Copy on a thread", () => {
 })
 
 describe("Copy open in the panel header", () => {
-  it("copies the open threads of the page, without the resolved one", async () => {
+  it("copies the open threads of the page, without the resolved thread with a later reply", async () => {
     const writeText = clipboard()
-    const tools = await site(member, 3)
+    const tools = await site(member, 2, { resolvedThreads: 1 })
     const panel = await listed(tools)
     await vi.waitFor(() => expect(panel.querySelector('[data-slot="comment-panel-actions"] button[data-action="copy-open-prompt"]')).toBeTruthy())
     const open = panel.querySelector<HTMLAnchorElement>('[data-slot="comment-panel-actions"] a[data-action="open-in-t3-code"]')!
@@ -127,8 +134,10 @@ describe("Copy open in the panel header", () => {
     const prompt = writeText.mock.calls[0]![0]
     expect(promptOf(open.href)).toBe(prompt)
     expect(prompt).toContain(`Fix these 2 comments on ${location.origin}/pricing`)
-    for (const id of tools.ids) expect(prompt).toContain(id)
-    expect(prompt).not.toContain(tools.resolvedId)
+    const [firstOpen, secondOpen, resolved] = tools.ids
+    for (const value of [firstOpen, secondOpen, project.url, project.teamId, "comments.get", "comments.resolve"]) expect(prompt).toContain(value)
+    expect(prompt).not.toContain(resolved)
+    expect(prompt).not.toContain("Still needs work")
   })
 
   it("is not there while the page has no open threads", async () => {
@@ -136,6 +145,49 @@ describe("Copy open in the panel header", () => {
     await openList(tools.bar)
     await vi.waitFor(() => expect(tools.panel()?.querySelector('[data-slot="comment-panel-empty"]')).toBeTruthy())
     expect(tools.panel()!.querySelector('[data-action="copy-open-prompt"]')).toBeNull()
+  })
+
+  it("hides both prompt actions while the next page is loading", async () => {
+    const tools = await site(member, 1)
+    await listed(tools)
+    const actions = () => tools.panel()?.querySelector('[data-slot="comment-panel-actions"]')
+    await vi.waitFor(() => expect(actions()?.querySelector('[data-action="copy-open-prompt"]')).toBeTruthy())
+    expect(actions()?.querySelector('[data-action="open-in-t3-code"]')).toBeTruthy()
+    const fetchComments = tools.server.fetch.getMockImplementation()!
+    let endSession = () => {}
+    const session = new Promise<void>((resolve) => { endSession = resolve })
+    let loading = false
+    tools.server.fetch.mockImplementation(async (input, init) => {
+      if (String(input).includes("/session")) {
+        loading = true
+        await session
+      }
+      return fetchComments(input, init)
+    })
+    try {
+      history.pushState(null, "", "/details")
+      await vi.waitFor(() => expect(loading).toBe(true))
+      await vi.waitFor(() => expect(actions()).toBeFalsy())
+    }
+    finally {
+      endSession()
+    }
+    await vi.waitFor(() => expect(tools.panel()?.querySelector('[data-slot="comment-panel-empty"]')).toBeTruthy())
+    expect(actions()?.querySelector('[data-action="copy-open-prompt"], [data-action="open-in-t3-code"]')).toBeFalsy()
+  })
+
+  it("offers the full copy instead of an oversized T3 Code link", async () => {
+    const writeText = clipboard()
+    const url = `${project.url}/${"x".repeat(t3CodeLinkLimit)}`
+    const tools = await site({ ...member, commentsAgent: { project: { ...project, url }, resolve: true } }, 3)
+    const panel = await listed(tools)
+    const actions = panel.querySelector('[data-slot="comment-panel-actions"]')!
+    expect(actions.querySelector('[data-action="open-in-t3-code"]')).toBeNull()
+    expect(actions.textContent).toContain("Copy the prompt instead.")
+    actions.querySelector<HTMLButtonElement>('[data-action="copy-open-prompt"]')!.click()
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalledOnce())
+    const prompt = writeText.mock.calls[0]![0]
+    for (const value of [url, ...tools.ids, "comments.resolve"]) expect(prompt).toContain(value)
   })
 })
 
@@ -195,16 +247,16 @@ describe("commentsT3CodeLink()", () => {
   })
 
   it("opens a new T3 Code thread with the prompt, in the repository when it is a GitHub owner/name", () => {
-    const link = new URL(commentsT3CodeLink(input("Fix it"), "acme/site.web"))
+    const link = new URL(commentsT3CodeLink(input("Fix it"), "acme/site.web")!)
     expect(link.origin + link.pathname).toBe("https://app.t3.codes/new")
     expect(link.searchParams.get("prompt")).toBe(commentsAgentPrompt(input("Fix it")))
     expect(link.searchParams.get("repo")).toBe("acme/site.web")
-    for (const repository of [undefined, "", "acme", "acme/..", "-acme/site", "acme/site/extra"]) expect(new URL(commentsT3CodeLink(input("Fix it"), repository)).searchParams.has("repo")).toBe(false)
+    for (const repository of [undefined, "", "acme", "acme/..", "-acme/site", "acme/site/extra"]) expect(new URL(commentsT3CodeLink(input("Fix it"), repository)!).searchParams.has("repo")).toBe(false)
   })
 
   it(`keeps a long prompt under ${t3CodeLinkLimit} characters, with its steps and shorter messages`, () => {
     const body = "The title wraps on a phone. ".repeat(600)
-    const href = commentsT3CodeLink(input(body), "acme/site")
+    const href = commentsT3CodeLink(input(body), "acme/site")!
     expect(href.length).toBeLessThanOrEqual(t3CodeLinkLimit)
     const prompt = promptOf(href)!
     expect(prompt).toContain("Fix this comment on https://app.example.com/pricing")
@@ -212,36 +264,43 @@ describe("commentsT3CodeLink()", () => {
     expect(prompt).toContain("comments.resolve")
   })
 
-  it.each([
-    { name: "short IDs", id: (index: number) => `thread-${index}` },
-    { name: "IDs too long for the link", id: (index: number) => `thread-${index}-${"x".repeat(120)}` },
-  ])(`keeps every step and every thread of 100 open threads with $name in ${t3CodeLinkLimit} characters`, ({ id }) => {
-    const threads = input("A long comment. ".repeat(50), 100).threads.map((thread, index) => ({ ...thread, id: id(index) }))
-    const href = commentsT3CodeLink({ ...input("", 0), threads }, "acme/site")
+  it("keeps the anchor excerpt and MCP steps for a long text selection", () => {
+    const data = input("Fix it")
+    const [thread] = data.threads
+    const exact = "字".repeat(900)
+    const href = commentsT3CodeLink({ ...data, threads: [{ ...thread!, anchor: { kind: "text", selector: "main", exact, prefix: "", suffix: "" } }] })!
+    expect(href.length).toBeLessThanOrEqual(t3CodeLinkLimit)
+    const prompt = promptOf(href)!
+    expect(prompt).toContain('on the text "字')
+    expect(prompt).not.toContain(exact)
+    expect(prompt).toContain("comments.get")
+    expect(prompt).toContain("comments.resolve")
+  })
+
+  it(`keeps every ID and MCP step of a batch of 60 with replies in ${t3CodeLinkLimit} characters`, () => {
+    const data = input("Fix it", 60)
+    const threads = data.threads.map(thread => ({ ...thread, messages: [...thread.messages, { author: "Lin", body: "On mobile too." }] }))
+    const href = commentsT3CodeLink({ ...data, threads }, "acme/site")!
     expect(href.length).toBeLessThanOrEqual(t3CodeLinkLimit)
     const prompt = promptOf(href)!
     expect(prompt).toContain("call read_operation with the app id")
     expect(prompt).toContain("operation \"comments.resolve\"")
-    const everyId = threads.every(thread => prompt.includes(thread.id))
-    const listed = prompt.startsWith("Fix the 100 open comments on https://app.example.com/pricing") && prompt.includes("operation \"comments.list\", and input { page: \"https://app.example.com/pricing\", status: \"open\"")
-    expect(everyId || listed).toBe(true)
-    expect(prompt).not.toContain("A long comment. A long comment.")
+    expect(prompt).toContain(JSON.stringify(threads.map(thread => thread.id)))
   })
 
-  it("lists the open threads through the ViteHub MCP when the thread IDs do not fit", () => {
+  it("makes no link when the thread IDs or the page URL do not fit", () => {
     const threads = input("Fix it", 100).threads.map((thread, index) => ({ ...thread, id: `thread-${index}-${"x".repeat(120)}` }))
-    const prompt = promptOf(commentsT3CodeLink({ ...input("", 0), threads }))!
-    expect(prompt).toMatch(/^Fix the 100 open comments on https:\/\/app\.example\.com\/pricing\n/)
-    expect(prompt).toContain("operation \"comments.list\"")
-    expect(prompt).not.toContain(threads[0]!.id)
+    expect(commentsT3CodeLink({ ...input("", 0), threads })).toBeUndefined()
+    expect(commentsT3CodeLink({ ...input("Fix it"), url: `https://app.example.com/${"x".repeat(t3CodeLinkLimit)}` })).toBeUndefined()
   })
 
-  it("gives a guest a short title per thread, or the count, and still asks for a report", () => {
+  it("gives a guest a short title per thread and still asks for a report", () => {
     const { threads, url } = input("A long comment. ".repeat(50), 100)
-    const href = commentsT3CodeLink({ url, threads })
+    const href = commentsT3CodeLink({ url, threads })!
     expect(href.length).toBeLessThanOrEqual(t3CodeLinkLimit)
     const prompt = promptOf(href)!
     expect(prompt).not.toMatch(/MCP|comments\.(get|list|resolve)/)
     expect(prompt.endsWith("When you are done, tell me what you changed.")).toBe(true)
+    for (const thread of threads) expect(prompt).toContain(`${thread.id}:`)
   })
 })
