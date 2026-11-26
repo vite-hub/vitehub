@@ -199,16 +199,17 @@ export interface CommentsState {
   cancelDraft: () => void;
   /**
    * Sends the draft. Resolves with the new thread, or `undefined` when there is nothing to send or the send failed. With
-   * an outbox it resolves, and the draft closes, once the comment is saved, before the server answers. `files` go with
-   * the comment, for a client with an outbox.
+   * an outbox the draft closes at once and the comment shows as pending, so the next draft can start while it is saved
+   * and sent; a failure shows on that comment. Without one, the draft is `busy` until the server answers. `files` go
+   * with the comment; with an outbox they may be a promise, such as a screenshot that renders after Send.
    */
-  send: (options?: { files?: Blob[] }) => Promise<CommentThread | undefined>;
+  send: (options?: { files?: Blob[] | Promise<Blob[]> }) => Promise<CommentThread | undefined>;
   open: (thread: CommentThread | string, options?: { scroll?: boolean }) => void;
   /** Closes the thread, returning false when unsent text prevents closing or navigation. */
   close: () => boolean;
   /** Starts a thread on the subject. The anchor defaults to the whole page. */
-  create: (input: { body: string; mentions?: string[]; attachments?: string[]; files?: Blob[]; anchor?: CommentAnchor }) => Promise<CommentThread>;
-  reply: (threadId: string, body: string, mentions?: string[], attachments?: string[], files?: Blob[]) => Promise<CommentThread>;
+  create: (input: { body: string; mentions?: string[]; attachments?: string[]; files?: Blob[] | Promise<Blob[]>; anchor?: CommentAnchor }) => Promise<CommentThread>;
+  reply: (threadId: string, body: string, mentions?: string[], attachments?: string[], files?: Blob[] | Promise<Blob[]>) => Promise<CommentThread>;
   edit: (threadId: string, messageId: string, body: string, mentions?: string[]) => Promise<CommentThread>;
   remove: (threadId: string, messageId?: string) => Promise<CommentThread | null>;
   resolve: (threadId: string) => Promise<CommentThread>;
@@ -226,6 +227,7 @@ export interface CommentsState {
 export const draftPositionKey = "draft";
 
 const uiSelector = "[data-comments-ui]";
+const draftComposerSelector = "[data-draft] [data-slot='comment-composer']";
 
 // The comment UI may sit in a shadow root, so an element is also in it when its shadow host is.
 function defaultIgnore(element: Element): boolean {
@@ -252,6 +254,9 @@ function samePosition(a: AnchorPosition | undefined, b: AnchorPosition | undefin
 
 const editableSelector = "input, textarea, select, [contenteditable]:not([contenteditable='false']), [role='textbox'], [role='combobox'], [role='searchbox']";
 const isEditable = (path: readonly Element[]): boolean => path.some(element => element.matches(editableSelector));
+
+/** Whether there are files to send. A promise, such as of a screenshot, counts: it settles after Send. */
+const someFiles = (files: Blob[] | Promise<Blob[]> | undefined): files is Blob[] | Promise<Blob[]> => files !== undefined && (!Array.isArray(files) || files.length > 0);
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : "The comment could not be sent. Try again.";
@@ -359,7 +364,8 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     if (!same) positions.value = next;
   }
 
-  const hasText = (): boolean => (draft.value?.body.trim().length ?? 0) > 0 || hasDirtyComposer(uiRoot());
+  // Without a draft, the composer of one that was just sent or closed is on its way out of the DOM, and holds nothing.
+  const hasText = (): boolean => (draft.value?.body.trim().length ?? 0) > 0 || hasDirtyComposer(uiRoot(), draft.value ? undefined : draftComposerSelector);
   const block = (escape = false): void => {
     blocked.value++;
     shakeDirtyComposers(uiRoot(), escape);
@@ -424,25 +430,41 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     measure();
   }
 
-  async function send(sendOptions: { files?: Blob[] } = {}): Promise<CommentThread | undefined> {
+  async function send(sendOptions: { files?: Blob[] | Promise<Blob[]> } = {}): Promise<CommentThread | undefined> {
     const current = draft.value;
     const body = current?.body.trim() ?? "";
-    const files = sendOptions.files ?? [];
-    if (!current || current.busy || (!body && current.attachments.length === 0 && files.length === 0)) return undefined;
+    const files = sendOptions.files;
+    const hasFiles = someFiles(files);
+    if (!current || current.busy || (!body && current.attachments.length === 0 && !hasFiles)) return undefined;
     const submittedBody = current.body;
     const mentions = [...current.mentions];
     const attachments = [...current.attachments];
-    current.busy = true;
+    const input = {
+      subject: subject.value,
+      anchor: toRaw(current.anchor),
+      body,
+      mentions,
+      ...(attachments.length > 0 ? { attachments } : {}),
+      ...(hasFiles ? { files } : {}),
+    };
     current.error = undefined;
+    if (client.outbox) {
+      // The outbox shows the comment at once and keeps it until it is sent, so the draft closes now and the next one can start.
+      draft.value = null;
+      try {
+        const thread = await client.create(input);
+        flash(thread.id);
+        return thread;
+      } catch (error) {
+        // Nothing was queued. The text comes back, unless another draft took its place.
+        current.error = describeError(error);
+        if (!draft.value) draft.value = current;
+        return undefined;
+      }
+    }
+    current.busy = true;
     try {
-      const thread = await client.create({
-        subject: subject.value,
-        anchor: toRaw(current.anchor),
-        body,
-        mentions,
-        ...(attachments.length > 0 ? { attachments } : {}),
-        ...(files.length > 0 ? { files } : {}),
-      });
+      const thread = await client.create(input);
       current.busy = false;
       flash(thread.id);
       if (draft.value === current && current.body === submittedBody && current.mentions.length === mentions.length && current.mentions.every((id, index) => id === mentions[index])) draft.value = null;
@@ -720,12 +742,12 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     open,
     close,
     create: async ({ anchor = { kind: "page" }, attachments, body, files, mentions }) => {
-      const thread = await client.create({ subject: subject.value, anchor, body, mentions, ...(attachments?.length ? { attachments } : {}), ...(files?.length ? { files } : {}) });
+      const thread = await client.create({ subject: subject.value, anchor, body, mentions, ...(attachments?.length ? { attachments } : {}), ...(someFiles(files) ? { files } : {}) });
       flash(thread.id);
       return thread;
     },
     reply: async (threadId, body, mentions, attachments, files) => {
-      const thread = await client.reply({ threadId, body, mentions, ...(attachments?.length ? { attachments } : {}), ...(files?.length ? { files } : {}) });
+      const thread = await client.reply({ threadId, body, mentions, ...(attachments?.length ? { attachments } : {}), ...(someFiles(files) ? { files } : {}) });
       flash(threadId);
       return thread;
     },

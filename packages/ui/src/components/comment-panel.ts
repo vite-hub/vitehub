@@ -164,7 +164,7 @@ export const CommentPanel = defineComponent({
         [...rowsOf].find((row) => row.dataset.threadId === id)?.focus();
       });
     }
-    const { enabled: attachmentsOn, prepare } = useCommentAttachments(state, props);
+    const { enabled: attachmentsOn, prepare, queued } = useCommentAttachments(state, props);
 
     // The page box belongs to one subject. Another subject starts with an empty, ready box, and a send that is still on
     // its way for the old subject no longer touches it.
@@ -182,9 +182,29 @@ export const CommentPanel = defineComponent({
     async function send(submit: CommentComposerSubmit) {
       if (busy.value) return;
       const run = ++sending;
-      busy.value = true;
       failure.value = undefined;
       const submitted = { body: body.value, files: files.value, mentions: mentions.value };
+      // With an outbox, the box empties at once and the comment shows as pending, so the next one can be written.
+      const queuedFiles = queued(submit.files);
+      if (queuedFiles) {
+        body.value = "";
+        mentions.value = [];
+        files.value = [];
+        try {
+          await state.create({ files: queuedFiles, body: submit.body, mentions: submit.mentions });
+        } catch (cause) {
+          if (run !== sending) return;
+          failure.value = reason(cause);
+          // Nothing was queued, so the text comes back, unless the person already started another comment.
+          if (!body.value && !files.value.length) {
+            body.value = submitted.body;
+            mentions.value = submitted.mentions;
+            files.value = submitted.files;
+          }
+        }
+        return;
+      }
+      busy.value = true;
       try {
         const attached = await prepare(submit.files);
         // A comment written on one page never goes to the next one, even when the subject changed during the upload.

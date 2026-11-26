@@ -154,7 +154,12 @@ test("hosted Comments sign in through a new tab and comment through the Console 
     await composer.fill("Say which airport")
     await composer.press("Enter")
     await page.waitForFunction(() => CSS.highlights.get("vh-comment")?.size === 1, undefined, { timeout: 10_000 })
-    const [thread] = await api.threads()
+    // The comment shows at once and goes out through the frame after.
+    let thread
+    for (let tries = 0; !thread && tries < 100; tries++) {
+      [thread] = await api.threads()
+      if (!thread) await new Promise(resolve => setTimeout(resolve, 100))
+    }
     assert.equal(thread.messages[0].body, "Say which airport")
     assert.equal(thread.author.id, "u1")
     assert.equal(thread.context.url, `${siteOrigin}/guide`)

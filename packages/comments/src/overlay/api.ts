@@ -8,7 +8,7 @@ import type { CommentsAgentPromptInput } from "../agent-prompt.ts"
 import type { CommentSendTransport } from "../client-send.ts"
 
 import type { CommentsRestAnswer, RestTransport } from "../rest-transport.ts"
-import type { CommentContext, CommentCreateInput, CommentsGitHubAccess, CommentSubject, CommentUser } from "../types.ts"
+import type { CommentsGitHubAccess, CommentSubject, CommentUser } from "../types.ts"
 
 export interface CommentsSession {
   user: CommentUser | null
@@ -116,10 +116,6 @@ export const api = {
 }
 
 export interface OverlayTransportOptions {
-  /** The page context of a new thread, which the overlay read when the draft started. */
-  contextOf: (input: CommentCreateInput) => CommentContext | undefined
-  /** The version of the subject that `/session` gave for the page. A new thread starts on it. */
-  revisionOf?: () => number | undefined
   /** The people that an answer named, so their mentions get names. */
   onPeople: (people: readonly CommentUser[]) => void
   /** After each change, so the other people on the page read the threads again. */
@@ -128,8 +124,8 @@ export interface OverlayTransportOptions {
 
 /**
  * The comment parts' transport: `createRestTransport()` over the Comments API of the page, with the guest of this
- * browser. A new thread also sends the page context that the overlay read, and each change tells the other people on
- * the page.
+ * browser. Each change tells the other people on the page. A new thread sends the `context` and `revision` that the
+ * overlay put on its input at Send, because the outbox may send a saved copy of it later.
  */
 export function createOverlayTransport(options: OverlayTransportOptions): RestTransport {
   const onAnswer = (answer: CommentsRestAnswer<unknown>) => answer.people.length && options.onPeople(answer.people)
@@ -141,12 +137,7 @@ export function createOverlayTransport(options: OverlayTransportOptions): RestTr
   }
   return {
     ...rest,
-    create: changed((input: CommentCreateInput) => {
-      const context = options.contextOf(input)
-      const revision = input.revision ?? options.revisionOf?.()
-      // SAFETY: `POST /threads` takes the page context of the overlay next to the input of `comments.create`.
-      return rest.create({ ...input, ...(context ? { context } : {}), ...(revision === undefined ? {} : { revision }) } as CommentCreateInput)
-    }),
+    create: changed(rest.create),
     reply: changed(rest.reply),
     edit: changed(rest.edit),
     delete: changed(rest.delete),

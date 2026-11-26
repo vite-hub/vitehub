@@ -8,7 +8,6 @@ import { computed, createApp, defineComponent, h, nextTick, onBeforeUnmount, onM
 
 import { createAnchor, fieldAttribute, fieldElementOf, selectorOf } from "../anchor.ts"
 import { anchorRange, createCommentsClient } from "../client.ts"
-import { base64 } from "../client-files.ts"
 import { commentsAgentPrompt } from "../agent-prompt.ts"
 import { createCommentSend } from "../client-send.ts"
 import { commentRoom, commentsApiRoute, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "../page.ts"
@@ -20,11 +19,13 @@ import { overlayStyles, panelStyles } from "./styles.ts"
 
 import type { ViteHubPageToolContext } from "@vite-hub/internal/runtime/page-tools-loader"
 import type { RealtimeRoom } from "@vite-hub/realtime/client"
+import type { CommentStatusSlotScope } from "@vite-hub/ui/comments"
 import type { CommentCan, CommentVisibility } from "@vite-hub/ui/headless"
 import type { MotionList } from "@vite-hub/ui/motion"
 import type { App, VNode } from "vue"
+import type { CommentsClientFiles } from "../client.ts"
 import type { RestCommentThread } from "../rest-transport.ts"
-import type { CommentAnchor, CommentContext, CommentEvent, CommentMessage, CommentStatus, CommentSubject, CommentUser } from "../types.ts"
+import type { CommentAnchor, CommentContext, CommentCreateInput, CommentEvent, CommentMessage, CommentStatus, CommentSubject, CommentUser } from "../types.ts"
 import type { CommentsApiError, CommentsSession } from "./api.ts"
 import type { MarkerBox, MarkerColor, MarkerSession, MarkerTip } from "./marker.ts"
 
@@ -372,6 +373,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const can: CommentCan = (action, { thread, message }) => {
     const user = me.value
     if (!user || needsName.value) return false
+    // A comment that waits in this browser's outbox is this person's, also a guest's, until it reaches the server.
+    if (message?.delivery && (action === "edit" || action === "delete")) return true
     const allowed = (thread as RestCommentThread).can ?? { comment: canComment.value, resolve: Boolean(pageCan.value?.resolve), delete: Boolean(pageCan.value?.delete) }
     if (action === "reply") return thread.status === "open" && allowed.comment
     if (action === "resolve") return allowed.resolve
@@ -386,8 +389,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   }
 
   const transport = createOverlayTransport({
-    contextOf: input => contexts.get(input.anchor) ?? captureContext(undefined),
-    revisionOf: () => revision,
     onPeople(people) {
       const next = new Map(known.value.map(person => [person.id, person]))
       for (const person of people) next.set(person.id, person)
@@ -395,17 +396,37 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     },
     onChange: () => room?.setLocal("commentsChange", crypto.randomUUID()),
   })
-  const client = createCommentsClient({
-    transport: {
-      ...transport,
-      // Realtime tells this page when someone else changed its threads, and polling covers the server API.
-      subscribe(listener) {
-        listeners.add(listener)
-        return () => listeners.delete(listener)
+  /**
+   * A client for the person who writes. Its outbox shows a comment at once and sends it in the background, so it keeps
+   * the comments of that person only: a guest who gives a name gets a new client.
+   */
+  function createClient(user: CommentUser | undefined) {
+    const next = createCommentsClient({
+      transport: {
+        ...transport,
+        // Realtime tells this page when someone else changed its threads, and polling covers the server API.
+        subscribe(listener) {
+          listeners.add(listener)
+          return () => listeners.delete(listener)
+        },
       },
-    },
-    ...(account() ? { user: account()! } : {}),
-  })
+      ...(user ? { user, outbox: { account: user.id } } : {}),
+    })
+    // The outbox may send a saved copy later, so a new thread takes the page context and the version shown at Send.
+    const create = next.create
+    next.create = (input) => {
+      const shown = input.revision ?? revision
+      const sent: CommentCreateInput & CommentsClientFiles & { context?: CommentContext } = {
+        ...input,
+        context: contexts.get(input.anchor) ?? captureContext(undefined),
+        ...(shown === undefined ? {} : { revision: shown }),
+      }
+      return create(sent)
+    }
+    return next
+  }
+  const client = shallowRef(createClient(me.value))
+  watch(() => me.value?.id, () => (client.value = createClient(me.value)))
   const refresh = () => {
     for (const listener of listeners) listener({ type: "reconnected" })
   }
@@ -421,8 +442,13 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const copied = await navigator.clipboard?.writeText(prompt).then(() => true, () => false)
     showToast(copied ? { text: "Prompt copied. Paste it in your agent.", kind: "info" } : { text: "Could not copy the prompt. Allow clipboard access and try again.", kind: "error" })
   }
-  const upload = async (files: File[]) => await Promise.all(files.map(async file =>
-    (await transport.upload({ name: file.name, type: file.type, data: await base64(file), subject: subject.value })).key))
+  /** How a comment that has not reached the server is doing, with Retry when the server refused it. */
+  const delivery = ({ delivery: { status, error }, retry }: CommentStatusSlotScope): VNode[] => status === "failed"
+    ? [
+        h("span", { class: "delivery", "data-failed": "true" }, error ? `Not sent. ${error.why}` : "Not sent."),
+        ...(retry ? [h(UButton, { color: "neutral", label: "Retry", onClick: () => void retry(), size: "xs", variant: "ghost" })] : []),
+      ]
+    : [h("span", { class: "delivery" }, error ? `Waiting to send. ${error.why}` : "Sending…")]
 
   const edit = createInlineEdit({
     page: () => page.value,
@@ -602,7 +628,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     pageWindow.show()
   }
 
-  function nameGuest(name: string) {
+  async function nameGuest(name: string) {
     guest.value = saveGuest(name)
     naming.value = false
     void joinRoom(true)
@@ -610,6 +636,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     namedMode.value = "comment"
     const quote = namedQuote
     namedQuote = undefined
+    // A first name gives the guest an account, so the overlay starts again on its client before the action resumes.
+    await nextTick()
     if (quote?.startContainer.isConnected) {
       const selection = getSelection()
       selection?.removeAllRanges()
@@ -730,7 +758,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       const submit = (event: Event) => {
         event.preventDefault()
         const value = input.value?.value.trim()
-        if (value) nameGuest(value)
+        if (value) void nameGuest(value)
         else input.value?.focus()
       }
       return () => h("form", { class: "card", role: "dialog", "aria-label": "Your name", onSubmit: submit, onKeydown: (event: KeyboardEvent) => event.key === "Escape" && (naming.value = false) }, [
@@ -747,7 +775,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     name: "CommentsOverlay",
     setup() {
       state = useComments({
-        client,
+        client: client.value,
         subject: () => subject.value,
         location: () => ({ href: location.href, origin: location.origin, search: search.value }),
         user: () => me.value,
@@ -813,7 +841,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       return () => {
         const nodes: Array<VNode | null> = []
         if (pageCan.value?.read && !resolving.value) {
-          nodes.push(h(CommentLayer, { comments: state, readOnly: !me.value, upload: canAttach.value ? upload : undefined, attachmentUrl: transport.attachmentUrl }, { default: () => [] }))
+          nodes.push(h(CommentLayer, { comments: state, readOnly: !me.value, queueFiles: canAttach.value, attachmentUrl: transport.attachmentUrl }, { default: () => [], status: delivery }))
           nodes.push(h("div", { class: "cursors", ref: cursorLayer }, cursors()))
           nodes.push(h("div", { class: "outlines" }, outlines()))
           nodes.push(options.areas ? h(Teleport, { to: options.areas }, areas()) : h("div", { class: "areas" }, areas()))
@@ -853,13 +881,13 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
               status: panelStatus.value,
               "onUpdate:status": (value: CommentStatus) => (panelStatus.value = value),
               title: page.value,
-              upload: canAttach.value ? upload : undefined,
+              queueFiles: canAttach.value,
               // The thread opens in the list. Its spot on the page comes into view.
               onSelect: (thread: { id: string }) => {
                 const position = state.positions.value.get(thread.id)
                 if (position && !position.detached) position.element?.scrollIntoView({ block: "center", behavior: "smooth" })
               },
-            })))
+            }, { status: delivery })))
           }
         }
         // The toolbar stays while the subject of a new page loads, so its buttons do not jump.
@@ -1079,7 +1107,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     return nodes
   }
 
-  const app = createApp(Overlay)
+  // A new client is a new comments state, so the overlay mounts again for each person who writes.
+  const app = createApp({ render: () => h(Overlay, { key: me.value?.id ?? "" }) })
   registerStandaloneUI(app)
   app.mount(root)
   if (session && !session.can.read) {

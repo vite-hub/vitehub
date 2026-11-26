@@ -142,7 +142,7 @@ export const CommentLayer = defineComponent({
     watch(() => state.draft.value, (next, previous) => {
       if (next !== previous) draftFiles.value = next?.files ? [...next.files] : [];
     });
-    const { enabled: attachmentsOn, prepare } = useCommentAttachments(state, props);
+    const { enabled: attachmentsOn, prepare, queued } = useCommentAttachments(state, props);
 
     const user = computed(() => state.user.value);
     const pinned = computed(() => state.threads.value.filter(thread =>
@@ -381,9 +381,16 @@ export const CommentLayer = defineComponent({
         layout: "row",
         onSubmit: async (submit: CommentComposerSubmit) => {
           if (draft.busy || uploadingDraft.value === draft || state.draft.value !== draft) return;
-          uploadingDraft.value = draft;
           draft.error = undefined;
           draft.mentions = submit.mentions;
+          // With an outbox, the draft closes at once and its comment shows as pending, so the next one can start.
+          const files = queued(submit.files);
+          if (files) {
+            draft.attachments = [];
+            await state.send({ files });
+            return;
+          }
+          uploadingDraft.value = draft;
           const submitted = draftFiles.value;
           const body = draft.body;
           const mentions = draft.mentions;
@@ -574,6 +581,7 @@ export const CommentLayer = defineComponent({
                 author: thread.author,
                 "data-shape": pinShape(thread.anchor.kind),
                 "data-thread-id": thread.id,
+                ...deliveryAttributes(thread.delivery),
                 excerpt: excerpt(thread.messages[0]?.body ?? ""),
                 // A comment in the outbox has no number yet, as a draft.
                 ...(thread.n ? { n: thread.n } : {}),

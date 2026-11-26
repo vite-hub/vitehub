@@ -44,6 +44,15 @@ function commentsApi() {
       })
     },
     threads: async () => (await comments.list())[1],
+    /** The threads once `ready` holds for them: a new comment shows at once and goes out after. */
+    async stored(ready) {
+      for (let tries = 0; tries < 100; tries++) {
+        const threads = (await comments.list())[1]
+        if (ready(threads)) return threads
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
+      return (await comments.list())[1]
+    },
     files,
   }
 }
@@ -136,7 +145,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     assert.deepEqual({ ...bubble, font: bubble.font.split(",")[0] }, { outline: "none", neutral: true, font: "\"Geist Variable\"" })
     await composer.press("Enter")
     await page.waitForFunction(() => CSS.highlights.get("vh-comment")?.size === 1, undefined, { timeout: 5000 })
-    const [thread] = await api.threads()
+    const [thread] = await api.stored(threads => threads.length === 1)
     assert.equal(thread.anchor.kind, "text")
     assert.match(thread.anchor.exact, /^Most of you/)
   })
@@ -206,7 +215,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     await composer.fill("This paragraph is too long")
     await composer.press("Enter")
     await page.waitForFunction(() => document.querySelector("vitehub-comment-areas")?.shadowRoot.querySelector("[data-slot='comment-mark-area']"), undefined, { timeout: 5000 })
-    const threads = await api.threads()
+    const threads = await api.stored(threads => threads.length === 2)
     assert.equal(threads.length, 2)
     assert.ok(threads.some(thread => thread.anchor.kind === "area"))
   })
@@ -408,7 +417,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     await composer.press("Enter")
     await composer.waitFor({ state: "detached", timeout: 10000 })
     await page.locator("vitehub-marker").waitFor({ state: "detached", timeout: 5000 })
-    const thread = (await api.threads()).find(item => item.messages[0].body === "This flight is wrong")
+    const thread = (await api.stored(threads => threads.some(item => item.messages[0].body === "This flight is wrong"))).find(item => item.messages[0].body === "This flight is wrong")
     assert.equal(thread.anchor.kind, "area")
     const [key] = thread.messages[0].attachments
     const file = api.files.get(key)

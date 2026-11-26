@@ -442,6 +442,59 @@ describe("the Comments overlay on the comment parts", () => {
     expect((await comments.list())[1]![0]).toMatchObject({ subject: { kind: "drop", id: "pricing" }, revision: 4 })
   })
 
+  it("closes the composer on Send, takes the next comment while the first goes out, and keeps a refused one for Retry", async () => {
+    const confirm = vi.fn(() => false)
+    vi.stubGlobal("confirm", confirm)
+    const { shadow, comments, fetch, context } = await site()
+    // Each new thread waits until the test answers it: with the server, or with a refusal.
+    const served = fetch.getMockImplementation()!
+    const held: Array<(answer?: Response) => void> = []
+    fetch.mockImplementation(async (input, init = {}) => {
+      if (init.method !== "POST" || !String(input).endsWith("/threads")) return await served(input, init)
+      const answer = await new Promise<Response | undefined>(resolve => held.push(resolve))
+      return answer ?? await served(input, init)
+    })
+    const pins = () => [...shadow.querySelectorAll<HTMLElement>("[data-slot='comment-pin'][data-thread-id]")]
+
+    press(document.body, "c")
+    await clickPage(shadow, 60, 20)
+    await vi.waitFor(() => expect(composer(shadow, "Comment")).not.toBeNull())
+    await type(composer(shadow, "Comment")!, "The first note")
+    press(composer(shadow, "Comment")!, "Enter")
+    await vi.waitFor(() => expect(composer(shadow, "Comment")).toBeNull())
+    await vi.waitFor(() => expect(pins().map(pin => pin.dataset.pending)).toEqual(["true"]))
+    await vi.waitFor(() => expect(held).toHaveLength(1))
+
+    // The first one still goes out, and the next comment starts and sends.
+    await clickPage(shadow, 300, 200)
+    await vi.waitFor(() => expect(composer(shadow, "Comment")).not.toBeNull())
+    await type(composer(shadow, "Comment")!, "The second note")
+    press(composer(shadow, "Comment")!, "Enter")
+    await vi.waitFor(() => expect(composer(shadow, "Comment")).toBeNull())
+    await vi.waitFor(() => expect(pins().map(pin => pin.dataset.pending)).toEqual(["true", "true"]))
+    // Waiting comments are saved, so leaving asks nothing.
+    const beforeExit = (context.beforeExit.mock.calls as unknown as Array<[() => boolean]>)[0]![0]
+    expect(beforeExit()).toBe(true)
+    expect(confirm).not.toHaveBeenCalled()
+
+    held[0]!(Response.json({ error: { code: "COMMENTS_TEST", why: "The page is locked." } }, { status: 422 }))
+    await vi.waitFor(() => expect(held).toHaveLength(2))
+    held[1]!()
+    await vi.waitFor(async () => expect((await comments.list())[1]!.map(thread => thread.messages[0]!.body)).toEqual(["The second note"]))
+    await vi.waitFor(() => expect(shadow.querySelector("[data-slot='comment-pin'][data-failed='true']")).not.toBeNull())
+
+    shadow.querySelector<HTMLElement>("[data-slot='comment-pin'][data-failed='true']")!.click()
+    await vi.waitFor(() => expect(shadow.querySelector("[data-slot='comment-thread']:not([data-preview])")?.textContent).toContain("The first note"))
+    const thread = shadow.querySelector("[data-slot='comment-thread']:not([data-preview])")!
+    expect(thread.textContent).toContain("The page is locked.")
+    const retry = [...thread.querySelectorAll("button")].find(button => button.textContent?.trim() === "Retry")!
+    retry.click()
+    await vi.waitFor(() => expect(held).toHaveLength(3))
+    held[2]!()
+    await vi.waitFor(async () => expect((await comments.list())[1]!.map(thread => thread.messages[0]!.body).sort()).toEqual(["The first note", "The second note"]))
+    await vi.waitFor(() => expect(shadow.querySelector("[data-slot='comment-pin'][data-pending], [data-slot='comment-pin'][data-failed]")).toBeNull())
+  })
+
   it("keeps comments paused and offers Retry when the session of the new page fails", async () => {
     const session = api.session
     let fail = true
