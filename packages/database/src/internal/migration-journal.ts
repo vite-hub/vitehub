@@ -4,7 +4,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { join } from "pathe"
 
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
-import { findDataLoss, hasNoTransactionMarker, migrationParts, noTransactionStatements, splitSqlStatements } from "./migration-sql.ts"
+import { findDataLoss, isNoTransactionMigration, migrationParts, splitSqlStatements } from "./migration-sql.ts"
 import { readOldMigrationsLayout } from "./migrations-layout.ts"
 
 import type { DatabaseDialect } from "../types.ts"
@@ -101,8 +101,8 @@ function readSnapshotTables(migrationsDir: string, tag: string): { columns: Tabl
 /** Reads one migration with the parts that Drizzle runs one by one, see `migrationParts()`, and the statements that lose data. */
 export function readPendingMigration(migrationsDir: string, tag: string, entries: readonly MigrationEntry[], dialect: DatabaseDialect): PendingMigration {
   const sql = readFileSync(migrationSqlFile(migrationsDir, tag), "utf8")
-  const noTransaction = dialect === "postgresql" && hasNoTransactionMarker(sql)
-  const statements = noTransaction ? noTransactionStatements(sql) : migrationParts(sql, dialect)
+  const noTransaction = dialect === "postgresql" && isNoTransactionMigration(sql)
+  const statements = noTransaction ? splitSqlStatements(sql, dialect) : migrationParts(sql, dialect)
   // A hand-written D1 migration has no folder, so there is no previous snapshot to compare a rebuild with.
   const index = entries.findIndex(entry => entry.tag === tag)
   let before: TableColumns | undefined = index < 0 ? undefined : new Map<string, string[]>()
@@ -114,9 +114,9 @@ export function readPendingMigration(migrationsDir: string, tag: string, entries
     if (before) break
     // Index-only SQL cannot change table columns. Anything else leaves the schema unknown;
     // never carry a stale snapshot across arbitrary contributed DDL.
-    const intervening = splitSqlStatements(readFileSync(migrationSqlFile(migrationsDir, entries[previous]!.tag), "utf8"))
+    const intervening = splitSqlStatements(readFileSync(migrationSqlFile(migrationsDir, entries[previous]!.tag), "utf8"), dialect)
     if (!intervening.every(statement => /^\s*(?:CREATE\s+(?:UNIQUE\s+)?INDEX\s|DROP\s+INDEX\s)/i.test(statement))) break
     before = new Map<string, string[]>()
   }
-  return { dataLoss: findDataLoss(statements, before, references), name: tag, ...noTransaction && { noTransaction }, statements }
+  return { dataLoss: findDataLoss(statements, before, references, dialect), name: tag, ...noTransaction && { noTransaction }, statements }
 }

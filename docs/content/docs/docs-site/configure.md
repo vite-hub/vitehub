@@ -628,7 +628,7 @@ export default defineNuxtConfig({
 
 ## Search
 
-`⌘K` opens search. It finds text under each `h2` and `h3` heading of every page. The index loads from `/api/_docs/search.json` when the dialog first opens. It skips agent-only content.
+`⌘K` opens search. It finds text under each `h2` and `h3` heading of every page. A production page loads the index from `/api/_docs/search.json` once it is idle. With Save-Data on, and in development, it loads when the dialog first opens. It skips agent-only content.
 
 ## Comments
 

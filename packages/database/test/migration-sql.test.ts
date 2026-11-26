@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite"
 
 import { describe, expect, it } from "vitest"
 
-import { addStatementBreakpoints, findDataLoss, hasNoTransactionMarker, noTransactionStatements, splitSqlStatements, withoutNewTableDataLoss } from "../src/internal/migration-sql.ts"
+import { addStatementBreakpoints, findDataLoss, isNoTransactionMigration, splitSqlStatements, withoutNewTableDataLoss } from "../src/internal/migration-sql.ts"
 
 it("preserves same-line statements in a whole script with existing breakpoints", () => {
   const sql = "CREATE TABLE notes (id INTEGER);\n--> statement-breakpoint\nINSERT INTO notes VALUES (1); INSERT INTO notes VALUES (2);"
@@ -13,31 +13,43 @@ it("preserves same-line statements in a whole script with existing breakpoints",
   expect(database.prepare("SELECT id FROM notes ORDER BY id").all()).toEqual([{ id: 1 }, { id: 2 }])
 })
 
-describe("-- vitehub:no-transaction", () => {
-  it("reads the marker only on the first non-blank line", () => {
-    expect(hasNoTransactionMarker("\n  -- vitehub:no-transaction  \nCREATE INDEX CONCURRENTLY a ON t (id);")).toBe(true)
-    expect(hasNoTransactionMarker("-- vitehub:no-transaction\r\nVACUUM t;")).toBe(true)
-    expect(hasNoTransactionMarker("CREATE TABLE t (id int);\n-- vitehub:no-transaction")).toBe(false)
-    expect(hasNoTransactionMarker("-- vitehub:no-transactions\nVACUUM t;")).toBe(false)
-  })
+it("keeps a Postgres dollar-quoted body in one statement", () => {
+  const fn = "CREATE FUNCTION f() RETURNS integer LANGUAGE plpgsql AS $body$ BEGIN PERFORM 'a;b'; RETURN 1; END; $body$;"
+  const trigger = "CREATE TRIGGER t BEFORE UPDATE ON notes FOR EACH ROW EXECUTE FUNCTION f();"
+  expect(splitSqlStatements(`${fn}\n${trigger}\nSELECT $$;$$;`, "postgresql")).toEqual([fn, trigger, "SELECT $$;$$;"])
+  expect(addStatementBreakpoints(`${trigger}\n${fn}`, "postgresql").split("--> statement-breakpoint")).toHaveLength(2)
+  expect(splitSqlStatements("SELECT $1; SELECT 2;", "postgresql")).toEqual(["SELECT $1;", "SELECT 2;"])
+})
 
-  it("splits a marked file into single statements, across breakpoints, and keeps dollar-quoted bodies whole", () => {
-    const sql = [
-      "-- vitehub:no-transaction",
-      "CREATE INDEX CONCURRENTLY IF NOT EXISTS a ON t (id); VACUUM t;",
-      "--> statement-breakpoint",
-      "DO $body$ BEGIN PERFORM 1; RAISE NOTICE 'a;b'; END $body$;",
-      "CREATE FUNCTION f() RETURNS int AS $$ SELECT 1; $$ LANGUAGE sql;",
-      "SELECT 'it''s; fine', price$1 FROM t;",
-    ].join("\n")
-    expect(noTransactionStatements(sql)).toEqual([
-      "CREATE INDEX CONCURRENTLY IF NOT EXISTS a ON t (id);",
-      "VACUUM t;",
-      "DO $body$ BEGIN PERFORM 1; RAISE NOTICE 'a;b'; END $body$;",
-      "CREATE FUNCTION f() RETURNS int AS $$ SELECT 1; $$ LANGUAGE sql;",
-      "SELECT 'it''s; fine', price$1 FROM t;",
-    ])
-  })
+it("does not mistake dollar signs in SQLite identifiers for quotes", () => {
+  const sql = "CREATE TABLE café$archive$ (id INTEGER); CREATE TABLE notes (id INTEGER);"
+  expect(addStatementBreakpoints(sql)).toContain(";\n--> statement-breakpoint\n CREATE TABLE notes")
+  expect(splitSqlStatements(sql)).toHaveLength(2)
+})
+
+it("reads -- vitehub:no-transaction only on the first line that is not blank", () => {
+  expect(isNoTransactionMigration("\n  -- vitehub:no-transaction\nCREATE INDEX CONCURRENTLY i ON t (c);")).toBe(true)
+  expect(isNoTransactionMigration("CREATE TABLE t (c integer);\n-- vitehub:no-transaction")).toBe(false)
+  expect(isNoTransactionMigration("-- vitehub:no-transaction later")).toBe(false)
+  expect(isNoTransactionMigration("-- vitehub:no-transaction\r\nVACUUM t;")).toBe(true)
+})
+
+it("splits a -- vitehub:no-transaction file into single statements across breakpoints", () => {
+  const sql = [
+    "-- vitehub:no-transaction",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS a ON t (id); VACUUM t;",
+    "--> statement-breakpoint",
+    "DO $body$ BEGIN PERFORM 1; RAISE NOTICE 'a;b'; END $body$;",
+    "CREATE FUNCTION f() RETURNS int AS $$ SELECT 1; $$ LANGUAGE sql;",
+    "SELECT 'it''s; fine', price$1 FROM t;",
+  ].join("\n")
+  expect(splitSqlStatements(sql, "postgresql")).toEqual([
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS a ON t (id);",
+    "VACUUM t;",
+    "DO $body$ BEGIN PERFORM 1; RAISE NOTICE 'a;b'; END $body$;",
+    "CREATE FUNCTION f() RETURNS int AS $$ SELECT 1; $$ LANGUAGE sql;",
+    "SELECT 'it''s; fine', price$1 FROM t;",
+  ])
 })
 
 function reasons(sql: string | string[], before?: Map<string, string[]>) {
