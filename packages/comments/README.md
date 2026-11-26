@@ -93,7 +93,7 @@ An edit reads the draft, changes one string field, and saves the document with `
 
 ### Add Hosted Comments
 
-Register your site in the Console with **Hosted Comments only**, then copy the script into your page HTML. For a connected app, copy it from **Settings** > **Connection** > **Hosted Comments**. The Console signs reviewers in and stores their page threads. Confirming an unlink permanently deletes that project's hosted threads and replies.
+Register your site in the Console with **Hosted Comments only**, then copy the script into your page HTML. For a connected app, copy it from **Settings** > **Connection** > **Hosted Comments**. The Console signs reviewers in and stores their page threads. Send shows a comment at once and sends it in the background, with one outbox for each project. Confirming an unlink permanently deletes that project's hosted threads and replies.
 
 ## Server API
 
@@ -255,7 +255,16 @@ A reply takes a `requestId` too. A second reply with the same `requestId` in the
 
 ### Outbox
 
-`createCommentsClient({ ..., outbox: { account } })` saves each new comment and reply in IndexedDB before it sends. Drafts show with `delivery: { status: "pending" }` and survive a reload. The outbox checks the author on each write and stores progress so another tab can resume. See [Write comments offline](https://vitehub.dev/docs/comments/offline).
+`createCommentsClient({ ..., outbox: { account } })` saves each new comment and reply in IndexedDB before it sends. `create` and `reply` show the draft with `delivery: { status: "pending" }` in `threads` and `outbox.entries` the moment you call them, and `onChange` fires before the save ends. The draft goes out, and other tabs see it, once it is saved. Drafts go out in the order you wrote them and survive a reload. If the save fails, as when the disk is full, the draft stays on the page as `failed` with its body and files, and `outbox.retry(id)` saves and sends it. The outbox checks the author on each write and stores progress so another tab can resume. When one origin serves more than one Comments API, give each its own `namespace`: entries saved under one never go out under another. See [Write comments offline](https://vitehub.dev/docs/comments/offline).
+
+With an outbox, `files` may be a promise, such as of a screenshot that renders after Send:
+
+```ts fragment
+const files = renderScreenshot().then(blob => [blob]);
+await client.create({ subject, anchor, body, files }); // Shows and saves now; sends once `files` settles.
+```
+
+The draft holds the queue until the files arrive, then goes out with them. If saving the files fails, Retry saves them again. If the promise rejects, the draft goes out without them. If the page reloads first, the next page sends a saved draft without them. Without Web Locks, the default outbox stays in memory. With a custom store and no locks, drafts wait in memory until their files arrive and can be saved in send order.
 
 If a comment write gets no answer, retry it to recover the server copy. A later refusal does not make the draft safe to edit or dismiss. A lost upload or thread lookup answer does not lock the draft on its own.
 

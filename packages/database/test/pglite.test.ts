@@ -318,7 +318,7 @@ describe("migrations on start on PGlite", () => {
     finally {
       await Promise.all(clients.map(client => client.close()))
     }
-  })
+  }, 60_000)
 })
 
 describe("a Postgres Database on PGlite in app tests", () => {

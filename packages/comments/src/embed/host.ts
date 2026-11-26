@@ -116,7 +116,7 @@ async function start(projectId: string, consoleOrigin: string): Promise<void> {
     void redeem(data.code).then((done) => {
       if (done) {
         channel.postMessage({ type: "redeemed", code: data.code } satisfies EmbedRelay)
-        void tools.then(({ mountHostedComments }) => mountHostedComments(frame))
+        void tools.then(({ mountHostedComments }) => mountHostedComments(frame, { id: projectId, console: consoleOrigin }))
       }
     }, () => undefined)
   })
@@ -126,7 +126,7 @@ async function start(projectId: string, consoleOrigin: string): Promise<void> {
     return
   }
   const { mountHostedComments } = await tools
-  await mountHostedComments(frame)
+  await mountHostedComments(frame, { id: projectId, console: consoleOrigin })
 }
 
 const script = document.querySelector<HTMLScriptElement>("script[data-vitehub-comments]")

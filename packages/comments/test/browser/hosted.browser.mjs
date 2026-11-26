@@ -50,6 +50,7 @@ async function fakeConsole() {
   const comments = await createComments()
   const handler = createCommentsHandler({ comments, realtime: false, session: async () => ({ id: "u1", name: "Maxi" }) })
   const seen = { challenges: [], codes: new Map(), api: [] }
+  const hold = { threads: undefined }
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, consoleOrigin)
     const script = /^\/(hosted-comments\.js|hosted-comments\/[\w.-]+\.js)$/.exec(url.pathname)
@@ -82,15 +83,16 @@ async function fakeConsole() {
       if (!challenge || base64url(input.verifier) !== challenge || req.headers.cookie) return send(res, 400, { "content-type": "application/json" }, JSON.stringify({ error: { code: "TEST_REDEEM", why: "Wrong code." } }))
       return send(res, 200, { "content-type": "application/json" }, JSON.stringify({ token }))
     }
-    seen.api.push({ path: url.pathname, authorization: req.headers.authorization, cookie: req.headers.cookie })
+    seen.api.push({ method: req.method, path: url.pathname, authorization: req.headers.authorization, cookie: req.headers.cookie })
     if (req.headers.authorization !== `Bearer ${token}`) return send(res, 401, { "content-type": "application/json" }, JSON.stringify({ error: { code: "TEST_UNAUTHORIZED", why: "Sign in." } }))
+    if (req.method === "POST" && route[2] === "api/threads") await hold.threads
     const headers = new Headers(Object.entries(req.headers).filter(([name]) => !["host", "origin", "cookie", "authorization"].includes(name)))
     const forwarded = new Request(`${project}/_vitehub/comments/${route[2].slice("api/".length)}${url.search}`, { method: req.method, headers, body: await body(req) })
     const response = await handler.fetch(forwarded)
     send(res, response.status, Object.fromEntries(response.headers), Buffer.from(await response.arrayBuffer()))
   })
   await new Promise(resolve => server.listen(consolePort, "127.0.0.1", resolve))
-  return { server, vite, seen, threads: async () => (await comments.list())[1] }
+  return { server, vite, seen, hold, threads: async () => (await comments.list())[1] }
 }
 
 async function fakeSite() {
@@ -152,9 +154,24 @@ test("hosted Comments sign in through a new tab and comment through the Console 
     const composer = page.locator("vitehub-comments textarea[aria-label='Comment']")
     await composer.waitFor({ timeout: 5000 })
     await composer.fill("Say which airport")
-    await composer.press("Enter")
-    await page.waitForFunction(() => CSS.highlights.get("vh-comment")?.size === 1, undefined, { timeout: 10_000 })
-    const [thread] = await api.threads()
+    let release
+    api.hold.threads = new Promise(resolve => release = resolve)
+    try {
+      await composer.press("Enter")
+      await composer.waitFor({ state: "detached", timeout: 2000 })
+      await page.waitForFunction(() => CSS.highlights.get("vh-comment")?.size === 1, undefined, { timeout: 10_000 })
+      for (let tries = 0; !api.seen.api.some(request => request.method === "POST" && request.path === "/comments/p-1/api/threads") && tries < 100; tries++) await new Promise(resolve => setTimeout(resolve, 100))
+      assert.deepEqual(await api.threads(), [])
+    }
+    finally {
+      api.hold.threads = undefined
+      release()
+    }
+    let thread
+    for (let tries = 0; !thread && tries < 100; tries++) {
+      [thread] = await api.threads()
+      if (!thread) await new Promise(resolve => setTimeout(resolve, 100))
+    }
     assert.equal(thread.messages[0].body, "Say which airport")
     assert.equal(thread.author.id, "u1")
     assert.equal(thread.context.url, `${siteOrigin}/guide`)
