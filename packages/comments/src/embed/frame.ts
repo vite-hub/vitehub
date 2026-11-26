@@ -1,13 +1,13 @@
 import { Diagnostic } from "nostics"
 
 import { commentsUnansweredError } from "../client-diagnostics.ts"
-import { hostedCommentNoticeRoom, hostedCommentsNoticeDefinition } from "../page.ts"
+import { hostedCommentNoticeRoom, hostedCommentsEndedNotice, hostedCommentsNoticeDefinition } from "../page.ts"
 import { createCommentsRestRequest, createRestTransport } from "../rest-transport.ts"
 import { embedChangedEvent, embedConnectType, isEmbedRequest } from "./protocol.ts"
 
 import type { CommentsSession } from "../overlay/api.ts"
 import type { RestTransport } from "../rest-transport.ts"
-import type { CommentCreateInput, CommentGetInput, CommentListQuery, CommentReplyInput, CommentStatusInput, CommentUser } from "../types.ts"
+import type { CommentCreateInput, CommentGetInput, CommentListQuery, CommentReplyInput, CommentStatusInput, CommentSubject, CommentUser } from "../types.ts"
 import type { EmbedAnswer, EmbedFailure, EmbedRequest } from "./protocol.ts"
 
 const memory = new Map<string, string>()
@@ -51,6 +51,14 @@ function text(value: unknown): string {
   return value
 }
 
+function noticeSubject(body: unknown): CommentSubject | undefined {
+  const subject: unknown = body !== null && typeof body === "object" ? Reflect.get(body, "subject") : undefined
+  if (subject === null || typeof subject !== "object") return undefined
+  const kind: unknown = Reflect.get(subject, "kind")
+  const id: unknown = Reflect.get(subject, "id")
+  return typeof kind === "string" && typeof id === "string" ? { kind, id } : undefined
+}
+
 function failure(error: unknown): EmbedFailure {
   const known = error instanceof Diagnostic ? error : commentsUnansweredError(0, error)
   const status: unknown = Reflect.get(known, "status")
@@ -80,21 +88,34 @@ function serve(origin: string, projectId: string): void {
     return token ? { authorization: `Bearer ${token}` } : {}
   }
   let port: MessagePort | undefined
-  let notices: { room: string, leave: () => void } | undefined
+  let notices: { room: string, token: string, leave: () => void } | undefined
+  let subject: CommentSubject | undefined
+
+  function noticed(body: unknown): void {
+    if (Reflect.get(Object(body), "type") === hostedCommentsEndedNotice.type) {
+      write(tokenKey, undefined)
+      void listen(undefined)
+      port?.postMessage({ event: embedChangedEvent })
+      return
+    }
+    const changed = noticeSubject(body)
+    if (changed && subject && changed.kind === subject.kind && changed.id === subject.id) port?.postMessage({ event: embedChangedEvent })
+  }
 
   async function listen(value: CommentsSession | undefined): Promise<void> {
     const token = read(tokenKey)
-    const room = value?.realtime && value.user && value.subject && token ? hostedCommentNoticeRoom(projectId, value.subject) : undefined
-    if (notices?.room === room) return
+    subject = value?.subject
+    const room = value?.realtime && value.user && token ? hostedCommentNoticeRoom(projectId) : undefined
+    if (notices && notices.room === room && notices.token === token) return
     notices?.leave()
     notices = undefined
     if (!room || !token) return
-    const current = { room, leave: () => {} }
+    const current = { room, token, leave: () => {} }
     notices = current
     const realtime = await import("@vite-hub/realtime/client").catch(() => undefined)
     if (!realtime || notices !== current) return
     const joined = realtime.connectRealtimeRoom(hostedCommentsNoticeDefinition, room, { baseURL: "/", params: { token } })
-    joined.onNotice(() => port?.postMessage({ event: embedChangedEvent }))
+    joined.onNotice(noticed)
     current.leave = () => joined.destroy()
   }
 
