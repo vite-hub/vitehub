@@ -1,11 +1,13 @@
 import { defineDiagnostics, Diagnostic } from "nostics"
 
-// The codes that the browser client raises, so a page with `createCommentsClient()` or `createAnchor()` does not load
-// the whole Comments catalog. `commentsErrorDiagnostics` has them too.
 export const commentsClientCodes = {
   COMMENTS_OUTBOX_ACCOUNT_CHANGED: {
     why: "The current author is not the author of this queued comment.",
     fix: "Sign in as the original author and retry the outbox.",
+  },
+  COMMENTS_OUTBOX_RESOLVE_BLOCKED: {
+    why: "Queued delivery must resume before the thread can close.",
+    fix: "Go online, then retry or dismiss any blocked comments and resolve the thread again.",
   },
   COMMENTS_OUTBOX_SENDING: {
     why: "The server may already have this comment, so the draft cannot change.",

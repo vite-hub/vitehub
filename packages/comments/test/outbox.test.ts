@@ -10,7 +10,6 @@ const ana: CommentUser = { id: "ana", name: "Ana Ruiz" }
 const subject = { kind: "page", id: "/pricing" }
 const anchor = { kind: "element", selector: "#cta", x: 500, y: 500 } as const
 
-/** One browser: tabs that share one lock and one channel, one network switch, and timers that run when the test says. */
 function createBrowser() {
   let now = Date.now()
   vi.spyOn(Date, "now").mockImplementation(() => now)
@@ -28,7 +27,6 @@ function createBrowser() {
       online = value
       for (const listener of listeners) listener(value ? "online" : "offline")
     },
-    /** Runs every timer that is due. */
     runTimers() {
       const ready = timers.splice(0).filter(timer => !timer.cancelled)
       now += Math.max(0, ...ready.map(timer => timer.ms))
@@ -44,7 +42,6 @@ function createBrowser() {
         isVisible: () => true,
         isOnline: () => online,
         lock: (_name, task) => task(),
-        // One lock for the whole browser, granted in request order, as Web Locks do.
         lead(_name, task) {
           const controller = new AbortController()
           const previous = lock
@@ -81,7 +78,6 @@ function createBrowser() {
 type Failure = Error & { status?: number, retryAfter?: number }
 const failure = (status: number, retryAfter?: number): Failure => Object.assign(new Error(`Status ${status}`), { status, ...(retryAfter === undefined ? {} : { retryAfter }) })
 
-/** A memory transport whose next calls fail as the test says. `lost` stores the comment and then loses the answer. */
 function createServer() {
   const memory = createMemoryTransport({ user: ana, users: [ana] })
   const plan: Array<Failure | "lost" | Promise<void>> = []
@@ -211,7 +207,6 @@ describe("the comments outbox", () => {
     await expect(client.edit({ threadId: draft.id, messageId: draft.id, body: "Corrected" })).rejects.toMatchObject({ code: "COMMENTS_OUTBOX_SENDING" })
     await expect(client.outbox.dismiss(draft.id)).resolves.toBe(false)
 
-    // The server has it. A refresh lists it while the outbox still waits to resend.
     await client.refresh()
     expect(server.memory.threads).toHaveLength(1)
     expect(client.threads).toHaveLength(1)
@@ -370,7 +365,6 @@ describe("the comments outbox", () => {
     await vi.waitFor(() => expect(first.client.outbox.entries).toHaveLength(0))
     await vi.waitFor(() => expect(second.client.outbox.entries).toHaveLength(0))
     expect(server.creates).toHaveLength(1)
-    // The tab that did not send hears the server copy.
     expect(second.client.threads).toHaveLength(1)
     expect(second.client.threads[0]).toMatchObject({ n: 1 })
     expect(second.client.threads[0]!.delivery).toBeUndefined()
@@ -386,7 +380,6 @@ describe("the comments outbox", () => {
     expect(thread.messages[0]!.delivery!.files).toHaveLength(1)
     before.stop()
 
-    // A reload: a new page with the same store.
     const after = setup({ store, server })
     await vi.waitFor(() => expect(server.memory.threads).toHaveLength(1))
     await vi.waitFor(() => expect(after.client.outbox.entries).toHaveLength(0))
@@ -708,26 +701,40 @@ describe("the comments outbox", () => {
     expect(await resolved).toMatchObject({ status: "resolved", messages: [{ body: "Open" }, { body: "Before Resolve" }] })
   })
 
+  it("reports a diagnostic without resolving a thread with a failed reply", async () => {
+    const { server, client } = setup()
+    const thread = await server.memory.create({ subject, anchor, body: "Open" })
+    await client.refresh()
+    server.plan.push(failure(422))
+    await client.reply({ threadId: thread.id, body: "Keep this reply" })
+    await vi.waitFor(() => expect(client.outbox.failures).toHaveLength(1))
+    await expect(client.resolve({ threadId: thread.id })).rejects.toMatchObject({ code: "COMMENTS_OUTBOX_RESOLVE_BLOCKED" })
+    expect((await server.memory.get({ threadId: thread.id }))?.status).toBe("open")
+  })
+
   it("returns the first draft on a replay before the other client's snapshot loads", async () => {
     const { browser, client, store, server } = setup()
     browser.online = false
     const first = await client.create({ subject, anchor, requestId: "one", body: "First body" })
     const other = setup({ browser, store, server }).client
     const replay = other.create({ subject, anchor, requestId: "one", body: "Other body" })
+    const repeatedReplay = other.create({ subject, anchor, requestId: "one", body: "Also ignored" })
     const provisional = other.outbox.entries[0]?.id
     expect(provisional).toBeDefined()
     const reply = other.reply({ threadId: provisional!, requestId: "two", body: "A reply" })
     expect(await replay).toMatchObject({ id: first.id, messages: [{ body: "First body" }] })
+    expect(await repeatedReplay).toMatchObject({ id: first.id, messages: [{ body: "First body" }] })
     await reply
     await vi.waitFor(async () => expect(await store.list(ana.id)).toMatchObject([
       { id: first.id, input: { body: "First body" } },
       { input: { threadId: first.id, body: "A reply" } },
     ]))
     const third = setup({ browser, store, server }).client
-    expect(await third.reply({ threadId: first.id, requestId: "two", body: "Ignore this replay" })).toMatchObject({
-      id: first.id,
-      messages: [{ body: "First body" }, { body: "A reply" }],
-    })
+    const replyReplay = third.reply({ threadId: first.id, requestId: "two", body: "Ignore this replay" })
+    const repeatedReplyReplay = third.reply({ threadId: first.id, requestId: "two", body: "Also ignored" })
+    for (const result of [replyReplay, repeatedReplyReplay]) {
+      expect(await result).toMatchObject({ id: first.id, messages: [{ body: "First body" }, { body: "A reply" }] })
+    }
   })
 
   it("retains deferred bytes when their checkpoint fails and sends them on retry", async () => {

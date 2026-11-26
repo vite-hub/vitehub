@@ -1,5 +1,3 @@
-// The saved outbox of `createCommentsClient({ outbox })`. A new comment or reply shows at once and sends once stored, or stays `failed` for
-// `retry` if the store refuses it. Entries go out one at a time, in call order, with `requestId` as the retry key, from one tab.
 import { backoffDelay, createBrowserEnvironment, randomUUID } from "@vite-hub/internal/browser-environment"
 
 import { failedCommentPreparation } from "./client-files.ts"
@@ -28,19 +26,13 @@ export type CommentsOutboxMessage =
 export type CommentsOutboxEnvironment = BrowserEnvironment<CommentsOutboxMessage>
 
 interface CommentsOutboxEntryBase {
-  /** The local thread or message id. Use it for outbox actions. */
   id: string
-  /** The retry key that the server gets. */
   requestId: string
   account: string
   files: Blob[]
-  /** Milliseconds since the epoch. */
   createdAt: number
-  /** The place in the queue. */
   order: number
-  /** `sending` while one tab sends it. `failed` when the server refused it: it waits for `retry` or a safe `edit` or `dismiss`. */
   status: "pending" | "sending" | "failed"
-  /** Why the last try did not go out. */
   error?: CommentDeliveryError
   uncertain?: boolean
   claim?: string
@@ -154,7 +146,6 @@ function isOutboxMessage(value: unknown): value is CommentsOutboxMessage {
   return type === "sent" && (kind === "create" || kind === "reply") && typeof Reflect.get(value, "id") === "string" && typeof Reflect.get(value, "key") === "string" && Boolean(Reflect.get(value, "thread"))
 }
 
-// Entries are plain data: JSON fields and Blobs. A copy keeps the caller's objects, which may be reactive proxies, out of the store.
 function copyEntry(entry: CommentsOutboxEntry): CommentsOutboxEntry {
   // SAFETY: `JSON.parse` returns what `JSON.stringify` wrote, which has the shape of `input`.
   const input: CommentsOutboxEntry["input"] = JSON.parse(JSON.stringify(entry.input))
@@ -225,7 +216,6 @@ function openDatabase(name: string): Promise<IDBDatabase> {
     }
     request.onsuccess = () => {
       const database = request.result
-      // A newer format in another tab must not wait for this tab to close.
       database.onversionchange = () => database.close()
       resolve(database)
     }
@@ -291,7 +281,6 @@ function indexedDBOutboxStore(name: string): CommentsOutboxStore {
   }
 }
 
-/** The error of a try, as plain data that the store keeps. */
 function deliveryError(error: unknown): CommentDeliveryError & { retryAfter?: number } {
   const field = (name: string): unknown => error && typeof error === "object" ? Reflect.get(error, name) : undefined
   const status = field("status")
@@ -308,7 +297,6 @@ function deliveryError(error: unknown): CommentDeliveryError & { retryAfter?: nu
   }
 }
 
-/** `wait`: try again later. `hold`: wait for `retry()`, such as after a sign-in or a plan upgrade. `fail`: the server refused this entry. */
 function outcomeOf(status: number): "wait" | "hold" | "fail" {
   if (status === 401 || status === 402) return "hold"
   if (status === 408 || status === 429) return "wait"
@@ -343,14 +331,12 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
   const replyKey = (threadId: string, requestId: string): string => JSON.stringify([threadId, requestId])
   let replyIds = new Map<string, string>()
   let loading: Promise<void> = Promise.resolve()
-  // The run of `kick` that leads or waits for the lock. Its `giveUp` stops it.
   let leading: { giveUp: () => void } | undefined
   let again = false
   let stopped = false
   let cancelWait: (() => void) | undefined
 
   const post = (message: CommentsOutboxMessage): void => environment.post(message)
-  // Loads run one after another, so after `await reload()` the entries hold every write made before it.
   const reload = (): Promise<void> => loading = loading.catch(() => undefined).then(async () => {
     const landed = [...unsaved].flatMap(([id, local]) => local.saved ? [id] : [])
     const pending = await store.list(account)
@@ -398,7 +384,6 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
     for (const thread of host.threads()) if (thread.id === id) return thread
     return undefined
   }
-  /** The server id of a thread that the client may still name by its local id. */
   const realId = (threadId: string): string => {
     const id = entryId(threadId)
     return sent.get(id)?.id ?? id
@@ -432,7 +417,6 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
     const withReplies = (thread: CommentThread): CommentThread => {
       const waiting = replies.get(thread.id)
       if (!waiting) return thread
-      // A reply that the server has, whose answer was lost, shows once.
       const have = new Set(thread.messages.filter(message => message.author.id === account).map(message => message.id))
       const added = waiting.filter((entry) => {
         const id = thread.delivery ? undefined : replyIds.get(replyKey(thread.id, entry.requestId))
@@ -470,7 +454,6 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
     }
   }
 
-  /** The first entry that may go out now. A reply waits while its comment has not gone out. */
   const next = (list: readonly CommentsOutboxEntry[]): CommentsOutboxEntry | undefined => {
     const waiting = new Set([...list, ...[...unsaved.values()].map(local => local.entry)].flatMap(entry => entry.kind === "create" ? [entry.id] : []))
     return list.find(entry => entry.status !== "failed" && !(entry.kind === "reply" && waiting.has(entry.input.threadId)))
@@ -599,7 +582,6 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
     }
   }
 
-  /** Sends what waits, in the tab that holds the lock. */
   function kick(): void {
     if (stopped) return
     if (leading) {
@@ -693,6 +675,12 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
     merge()
     return { local, write: save(entry.id) }
   }
+  const queueEntry = (entry: CommentsOutboxEntry, files: Blob[] | Promise<Blob[]> | undefined) => {
+    const existing = entries.find(draft => keyOf(draft) === keyOf(entry))
+    if (!existing) return { entry, ...add(entry, files) }
+    const local = unsaved.get(existing.id)
+    return { entry: existing, local, write: local?.write }
+  }
   const arrive = (id: string, files: Promise<Blob[]>): void => {
     const arrival = environment.lock(filesLock(id), async () => {
       const arrived = await files.then(list => [...list], () => [])
@@ -783,17 +771,14 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
       const receipt = () => receipts.get(keyOf(entry)) ?? [...host.threads()].find(thread => matchesCreate(entry, thread))
       const earlier = receipt()
       if (earlier) return earlier
-      const existing = entries.find(draft => keyOf(draft) === keyOf(entry))
-      if (existing?.kind === "create") return localThread(existing)
-      const added = add(entry, files)
+      const queued = queueEntry(entry, files)
       if (requestId !== undefined) {
-        await added.write
+        await queued.write
         const confirmed = receipt()
         if (confirmed) return confirmed
-        if (added.local.duplicate?.kind === "create") return localThread(added.local.duplicate)
       }
-      const shown = entries.find(draft => draft.id === entry.id)
-      return localThread(shown?.kind === "create" ? shown : entry)
+      const saved = queued.local?.duplicate ?? entries.find(draft => draft.id === queued.entry.id) ?? queued.entry
+      return localThread(saved.kind === "create" ? saved : entry)
     },
     async reply({ files, requestId, subject, ...input }) {
       const threadId = realId(input.threadId)
@@ -803,19 +788,17 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
       const entry = { ...fields(requestId, files), kind: "reply" as const, input: { ...input, threadId }, ...(target ? { subject: target } : {}) }
       const earlier = receipts.get(keyOf(entry))
       if (earlier) return serverThread(earlier.id) ?? earlier
-      let saved = entries.find(draft => keyOf(draft) === keyOf(entry))
-      if (!saved) {
-        const added = add(entry, files)
-        if (requestId !== undefined) await added.write
-        const confirmed = receipts.get(keyOf(added.local.entry))
-        if (confirmed) return serverThread(confirmed.id) ?? confirmed
-        saved = added.local.duplicate ?? added.local.entry
-      }
-      const thread = serverThread(realId(threadId)) ?? cached
+      const queued = queueEntry(entry, files)
+      if (requestId !== undefined) await queued.write
+      const saved = queued.local?.duplicate ?? queued.local?.entry ?? queued.entry
+      const confirmed = receipts.get(keyOf(saved))
+      if (confirmed) return serverThread(confirmed.id) ?? confirmed
+      const resolvedId = realId(threadId)
+      const thread = serverThread(resolvedId) ?? cached
       if (thread) return overlay([thread]).server[0] ?? thread
-      const local = overlay([]).local.find(local => local.id === threadId)
+      const local = overlay([]).local.find(local => local.id === resolvedId)
       if (local) return local
-      return { id: threadId, scope: "", n: 0, subject: target ?? { kind: "", id: "" }, anchor: { kind: "page" }, status: "open", author: author(), messages: [localMessage(saved, threadId)], createdAt: entry.createdAt, updatedAt: entry.createdAt }
+      return { id: resolvedId, scope: "", n: 0, subject: target ?? { kind: "", id: "" }, anchor: { kind: "page" }, status: "open", author: author(), messages: [localMessage(saved, resolvedId)], createdAt: entry.createdAt, updatedAt: entry.createdAt }
     },
     async retry(id) {
       if (id !== undefined) {
