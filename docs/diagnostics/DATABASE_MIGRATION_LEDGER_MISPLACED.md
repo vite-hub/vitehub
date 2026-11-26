@@ -1,5 +1,5 @@
 ---
-description: "Fix DATABASE_MIGRATION_LEDGER_MISPLACED in ViteHub. Let the role read the Drizzle migrations table in the schema drizzle, so applied migrations do not run again."
+description: "Fix DATABASE_MIGRATION_LEDGER_MISPLACED in ViteHub. Let the role read the Drizzle migrations table in drizzle, so applied migrations do not run again."
 seo.title: "DATABASE_MIGRATION_LEDGER_MISPLACED"
 ---
 
