@@ -1,6 +1,6 @@
 ---
 description: "Fix DATABASE_MIGRATION_SCHEMA_DENIED in ViteHub. Grant the Postgres role USAGE or CREATE for the migrations table, or set migrationsSchema."
-seo.title: "DATABASE_MIGRATION_SCHEMA_DENIED: no privilege on the migrations schema"
+seo.title: "DATABASE_MIGRATION_SCHEMA_DENIED"
 ---
 
 The Postgres role cannot use the schema of Drizzle's migrations table. ViteHub checks this before it reads the table, and stops before any change, on start, in `vitehub database migrate`, and in `--dry-run`. `error.why` names the role and the missing privilege:
