@@ -17,8 +17,8 @@ Before you design, change, review, or document anything here, read the [ViteHub 
 ViteHub has Server Primitives, Agent Definitions, Drivers, Invocations, Capabilities, Workspaces, Sources, framework integrations, and generated host output. Use these names consistently.
 
 - Runtime policy belongs in its owner package. Console code may inspect runtime behavior but must not own it.
-- Console features, such as comments, keep their data in ViteHub's own database. They never write to the app's backend or database.
-- The `vitehub` CLI and the ViteHub MCP expose the same operations, one to one. When you add one, add the other.
+- Keep Console-owned data, such as Hosted Comments, in the Console database. The Console can call signed app operations to change app-owned data under the app's access rules.
+- The `vitehub` CLI and the ViteHub MCP expose the same operations by default. Document exceptions and why they exist.
 
 ## Native first
 
