@@ -361,6 +361,25 @@ describe("-- vitehub:no-transaction migrations on PGlite", () => {
     }
   })
 
+  it("runs BEGIN, COMMIT, and an unnamed CREATE INDEX CONCURRENTLY in a marked migration", async () => {
+    const { PGlite } = await import("@electric-sql/pglite")
+    const { drizzle } = await import("drizzle-orm/pglite")
+    const client = new PGlite("memory://")
+    try {
+      await migrateOnStart([{ db: drizzle({ client }), dialect: "postgresql", migrations: [
+        init,
+        migration("marked", 2, ["BEGIN", "INSERT INTO \"notes\" (\"title\") VALUES ('c')", "COMMIT", "CREATE INDEX CONCURRENTLY ON \"notes\" (\"title\")"], true),
+      ], name: "default" }], { log: () => {} })
+
+      await expect(client.query("select count(*)::int as count from notes")).resolves.toMatchObject({ rows: [{ count: 3 }] })
+      await expect(client.query("select indisvalid from pg_index where indrelid = 'notes'::regclass and not indisprimary")).resolves.toMatchObject({ rows: [{ indisvalid: true }] })
+      await expect(client.query("select name from drizzle.__drizzle_migrations order by id")).resolves.toMatchObject({ rows: [{ name: "init" }, { name: "marked" }] })
+    }
+    finally {
+      await client.close()
+    }
+  })
+
   it("reports that marked SQL stays applied when its ledger write fails", async () => {
     const { PGlite } = await import("@electric-sql/pglite")
     const { drizzle } = await import("drizzle-orm/pglite")
@@ -371,7 +390,7 @@ describe("-- vitehub:no-transaction migrations on PGlite", () => {
       await run([init])
       await client.exec("alter table drizzle.__drizzle_migrations add constraint only_init check (name = 'init')")
       await expect(run([init, migration("body", 2, ["ALTER TABLE notes ADD COLUMN body text"], true)]))
-        .rejects.toMatchObject({ code: "DATABASE_MIGRATION_PARTLY_APPLIED", why: expect.stringContaining("the ledger write failed after all statements ran") })
+        .rejects.toMatchObject({ code: "DATABASE_MIGRATION_PARTLY_APPLIED", why: expect.stringContaining("the ledger write failed after all its statements ran") })
       await expect(client.query("select body from notes")).resolves.toMatchObject({ rows: [{ body: null }, { body: null }] })
       await expect(client.query("select name from drizzle.__drizzle_migrations")).resolves.toMatchObject({ rows: [{ name: "init" }] })
     }

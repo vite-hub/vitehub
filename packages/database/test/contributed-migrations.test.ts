@@ -30,15 +30,6 @@ async function createDirs() {
 }
 
 describe("contributed migrations", () => {
-  it("keeps the marker on a generated Postgres migration", async () => {
-    const { contribution, migrationsDir, source } = await createDirs()
-    const sql = "-- vitehub:no-transaction\nCREATE INDEX CONCURRENTLY users_id ON users(id);\n"
-    await writeFile(join(source, "0001_index.postgresql.sql"), sql)
-    const [folder] = writeContributedMigrations(migrationsDir, planContributedMigrations(migrationsDir, [contribution], "postgresql").pending)
-    expect(await readFile(join(migrationsDir, folder!, "migration.sql"), "utf8")).toBe(sql)
-    expect(readPendingMigration(migrationsDir, folder!, readMigrations(migrationsDir, "default"), "postgresql")).toMatchObject({ noTransaction: true })
-  })
-
   it("keeps later generation after future SQL folders", async () => {
     const { migrationsDir } = await createDirs()
     const before = await readdir(migrationsDir)

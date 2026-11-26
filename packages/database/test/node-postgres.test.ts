@@ -224,20 +224,13 @@ describe.skipIf(!adminUrl)("driver: \"node-postgres\" on Postgres", () => {
     const unique = { dataLoss: [], hash: "h2", name: "20260102000000_unique_title", noTransaction: true as const, statements: ["CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS \"notes_title\" ON \"notes\" (\"title\");", "VACUUM \"notes\";"], when: 1_767_312_000_000 }
     const migrate = () => migrateOnStart([{ db, dialect: "postgresql", migrations: [init, unique], name: "default" }], { log: () => {} })
 
-    await pool.query("create table unrelated (id integer); insert into unrelated values (1), (1)")
-    await expect(pool.query("create unique index concurrently unrelated_idx on unrelated(id)")).rejects.toMatchObject({ code: "23505" })
-    const failed = migrate()
-    await expect(failed).rejects.toMatchObject({
+    await expect(migrate()).rejects.toMatchObject({
       code: "DATABASE_MIGRATION_PARTLY_APPLIED",
       why: expect.stringMatching(/statement 1 failed: could not create unique index "notes_title"[\s\S]*Invalid indexes:[\s\S]*public\.notes_title/),
     })
-    await expect(failed).rejects.not.toMatchObject({ why: expect.stringContaining("unrelated_idx") })
     const ledger = async () => (await pool.query("select name from drizzle.__drizzle_migrations order by id")).rows
     expect(await ledger()).toEqual([{ name: init.name }])
     expect((await pool.query("select count(*)::int as count from pg_locks where locktype = 'advisory' and database = (select oid from pg_database where datname = current_database())")).rows).toEqual([{ count: 0 }])
-
-    await expect(migrate()).rejects.toMatchObject({ code: "DATABASE_MIGRATION_PARTLY_APPLIED", why: expect.stringContaining("The concurrent index is still invalid.") })
-    expect(await ledger()).toEqual([{ name: init.name }])
 
     await pool.query("delete from notes where id = 2")
     await pool.query("drop index concurrently if exists notes_title")

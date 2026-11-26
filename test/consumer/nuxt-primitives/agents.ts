@@ -11,16 +11,8 @@ const emulatorPackages = { "@emulators/ai": "0.14.0", "@emulators/core": "0.14.0
 const greeting = "Hello from the AI emulator."
 
 async function startEchoServer() {
-  const inbox = new Set<string>()
   const server = createServer((request, response) => {
     response.setHeader("content-type", "application/json")
-    const url = new URL(request.url ?? "/", "http://localhost")
-    const text = url.searchParams.get("text")
-    if (url.pathname === "/inbox" && text !== null) {
-      if (request.method === "POST") inbox.add(text)
-      response.end(JSON.stringify({ received: inbox.has(text) }))
-      return
-    }
     response.end(JSON.stringify({ authorization: request.headers.authorization ?? null, path: request.url }))
   })
   server.listen(0, "127.0.0.1")
@@ -111,6 +103,10 @@ export const agents: PrimitiveRow[] = [
     id: "channels",
     packages: ["@vite-hub/agent", "@vite-hub/channels"],
     files: {
+      "server/utils/primitive-inbox.ts": `
+        const store = globalThis as typeof globalThis & { primitiveInbox?: string[] }
+        export const primitiveInbox = store.primitiveInbox ??= []
+      `,
       "server/channels/alerts.ts": `
         import { defineChannel } from "vite-hub/channels"
 
@@ -136,25 +132,26 @@ export const agents: PrimitiveRow[] = [
       `,
       "server/agents/ticketing.ts": `
         import { defineAgent } from "vite-hub/agent"
+        import { primitiveInbox } from "../utils/primitive-inbox"
 
         export default defineAgent({
           channels: ["tickets"],
           runtime: false,
           driver: {
-            run: async ({ prompt }) => {
-              const signal = await fetch(${JSON.stringify(`${echoOrigin}/inbox?text=`)} + encodeURIComponent(String(prompt)), { method: "POST" })
-              if (!signal.ok) throw new Error("Could not record the invocation.")
-              await signal.text()
+            run: ({ prompt }) => {
+              primitiveInbox.push(String(prompt))
               return { text: "received" }
             },
           },
         })
       `,
       "server/api/primitives/channels.ts": `
-        import { defineEventHandler, readBody } from "nitro/h3"
+        import { defineEventHandler, getQuery, readBody } from "nitro/h3"
         import { useChannel } from "vite-hub/channels/server"
+        import { primitiveInbox } from "../../utils/primitive-inbox"
 
         export default defineEventHandler(async (event) => {
+          if (event.req.method === "GET") return { received: primitiveInbox.includes(String(getQuery(event).text)) }
           const { text } = await readBody<{ text: string }>(event)
           const [error, receipt] = await useChannel("alerts").send(text, { label: "primitives" })
           if (error) throw error
@@ -166,9 +163,9 @@ export const agents: PrimitiveRow[] = [
       await expectJson(await fetch("/api/primitives/channels", postJson({ text: mode })), { channel: "alerts", id: `primitives:${mode}` })
       const text = `${mode}-${crypto.randomUUID()}`
       const webhook = await fetch("/_vitehub/channels/tickets", postJson({ text }))
-      const response = await webhook.text()
-      if (!webhook.ok) throw new Error(`/_vitehub/channels/tickets answered ${webhook.status}: ${response.slice(0, 2000)}`)
-      await poll(() => globalThis.fetch(`${echoOrigin}/inbox?text=${text}`), { received: true })
+      if (!webhook.ok) throw new Error(`/_vitehub/channels/tickets answered ${webhook.status}: ${(await webhook.text()).slice(0, 2000)}`)
+      await webhook.body?.cancel()
+      await poll(() => fetch(`/api/primitives/channels?text=${text}`), { received: true })
     },
   },
   {

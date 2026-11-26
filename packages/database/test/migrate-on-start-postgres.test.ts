@@ -616,7 +616,7 @@ describe.skipIf(!adminUrl)("-- vitehub:no-transaction migrations on Postgres", (
   const usersName = { sql: "-- vitehub:no-transaction\nCREATE INDEX CONCURRENTLY IF NOT EXISTS \"users_name\" ON \"users\" (\"name\");\nVACUUM \"users\";\n", tag: "20231114221324_users_name", when: 1_700_000_004_000 }
   const addPhone = { sql: "ALTER TABLE \"users\" ADD COLUMN \"phone\" text;", tag: "20231114221325_add_phone", when: 1_700_000_005_000 }
   const entry = (name: string, when: number, statements: string[], noTransaction?: true) => ({ dataLoss: [], hash: `hash-${name}`, name, statements, when, ...noTransaction && { noTransaction } })
-  const advisoryLocks = (sql: postgres.Sql) => sql`select count(*)::int as count from pg_locks where locktype = 'advisory'`
+  const advisoryLocks = (sql: postgres.Sql) => sql`select count(*)::int as count from pg_locks where locktype = 'advisory' and database = (select oid from pg_database where datname = current_database())`
 
   it("runs a marked file outside the transaction and records it after its last statement, when four servers start together", { timeout: 120_000 }, async () => {
     const { root } = await createProject([init, seed, usersName, addPhone])
@@ -678,6 +678,19 @@ describe.skipIf(!adminUrl)("-- vitehub:no-transaction migrations on Postgres", (
     await expect(run()).resolves.toEqual([unique.name])
     expect(await sql`select indisvalid from pg_index where indexrelid = 'users_email'::regclass`).toEqual([{ indisvalid: true }])
     expect((await readLedger(sql)).map(row => row.name)).toEqual([unique.name])
+  })
+
+  it("runs BEGIN, COMMIT, and an unnamed CREATE INDEX CONCURRENTLY in a marked file", { timeout: 30_000 }, async () => {
+    const url = await createDatabase()
+    const sql = connect(url)
+    await sql`create table items (id integer)`
+    const marked = entry("a1_marked", 1_000, ["BEGIN;", "INSERT INTO \"items\" VALUES (1);", "INSERT INTO \"items\" VALUES (2);", "COMMIT;", "CREATE INDEX CONCURRENTLY ON \"items\" (\"id\");"], true)
+
+    await expect(migratePostgres([{ client: sql, database: { migrations: [marked], name: "default" } }], { log: () => {} })).resolves.toEqual([marked.name])
+    expect(await sql`select count(*)::int as count from items`).toEqual([{ count: 2 }])
+    expect(await sql`select indisvalid from pg_index where indrelid = 'items'::regclass`).toEqual([{ indisvalid: true }])
+    expect((await readLedger(sql)).map(row => row.name)).toEqual([marked.name])
+    expect(await advisoryLocks(sql)).toEqual([{ count: 0 }])
   })
 
   it("names the marker when Postgres refuses a statement in the transaction, and keeps a marked file applied before a failure", { timeout: 30_000 }, async () => {

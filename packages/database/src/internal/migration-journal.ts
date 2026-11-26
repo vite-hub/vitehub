@@ -102,13 +102,7 @@ function readSnapshotTables(migrationsDir: string, tag: string): { columns: Tabl
 export function readPendingMigration(migrationsDir: string, tag: string, entries: readonly MigrationEntry[], dialect: DatabaseDialect): PendingMigration {
   const sql = readFileSync(migrationSqlFile(migrationsDir, tag), "utf8")
   const noTransaction = dialect === "postgresql" && hasNoTransactionMarker(sql)
-  let statements: string[]
-  try {
-    statements = noTransaction ? noTransactionStatements(sql) : migrationParts(sql, dialect)
-  }
-  catch (cause) {
-    throw databaseErrorDiagnostics.DATABASE_MIGRATION_SQL_UNSUPPORTED({ cause, migration: tag, problem: cause instanceof Error ? cause.message : String(cause) })
-  }
+  const statements = noTransaction ? noTransactionStatements(sql) : migrationParts(sql, dialect)
   // A hand-written D1 migration has no folder, so there is no previous snapshot to compare a rebuild with.
   const index = entries.findIndex(entry => entry.tag === tag)
   let before: TableColumns | undefined = index < 0 ? undefined : new Map<string, string[]>()
@@ -124,5 +118,5 @@ export function readPendingMigration(migrationsDir: string, tag: string, entries
     if (!intervening.every(statement => /^\s*(?:CREATE\s+(?:UNIQUE\s+)?INDEX\s|DROP\s+INDEX\s)/i.test(statement))) break
     before = new Map<string, string[]>()
   }
-  return { dataLoss: findDataLoss(statements, before, references, noTransaction), name: tag, ...noTransaction && { noTransaction }, statements }
+  return { dataLoss: findDataLoss(statements, before, references), name: tag, ...noTransaction && { noTransaction }, statements }
 }

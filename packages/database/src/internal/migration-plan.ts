@@ -296,12 +296,6 @@ async function readPostgresLedgerRows(sql: PostgresMigrationSql): Promise<Ledger
   return Array.from(await sql.unsafe(`select * from ${postgresMigrationsTable}`)).map(row => toLedgerRow(row))
 }
 
-async function readPostgresLedgerRows(sql: PostgresMigrationSql): Promise<LedgerRow[]> {
-  const [table] = Array.from(await sql.unsafe("select to_regclass('drizzle.__drizzle_migrations')::text as name"))
-  if (!table?.name) return []
-  return Array.from(await sql.unsafe(`select * from ${postgresMigrationsTable}`)).map(row => toLedgerRow(row))
-}
-
 async function readPostgresLedger(target: Extract<MigrationTarget, { kind: "postgres" }>, options: MigrationPlanOptions, driver?: string): Promise<LedgerRow[]> {
   const sql = connectMigrationPostgres(target, options.projectRoot, options.env, driver)
   try {

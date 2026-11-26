@@ -193,22 +193,6 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ problem }: { problem: string }) => `D1 migration history is invalid. ${problem}`,
       fix: "Restore the migration folders and d1-migrations.json from version control. Keep the Wrangler file names of applied migrations, and give each new migration a unique file name before generating, building, or migrating again.",
     },
-    DATABASE_MIGRATE_ON_DEPLOY_UNSUPPORTED: {
-      why: ({ database, problem }: { database?: string, problem: string }) => `\`database.migrateOnDeploy\` applies migrations only to Cloudflare D1 bindings, with \`wrangler d1 migrations apply\` before \`wrangler deploy\`${database ? `, and cannot migrate the database "${database}"` : ""}. ${problem}`,
-      fix: "Build with the Cloudflare host and give each database a D1 binding. Otherwise, remove `migrateOnDeploy` and run `vitehub database migrate` before you deploy.",
-    },
-    DATABASE_MIGRATE_ON_START_UNSUPPORTED: {
-      why: ({ database, problem }: { database?: string, problem: string }) => `\`database.migrateOnStart\` and \`ensureMigrations()\` apply migrations only to local SQLite files, Cloudflare D1 over HTTP, and Postgres in a Node server${database ? `, and cannot migrate the database "${database}"` : ""}. ${problem}`,
-      fix: "Build with the Node host and a `file:` or Postgres connection URL, or `cloudflare.http`. Otherwise, set `migrateOnStart: false`, remove the `ensureMigrations()` calls, and run `vitehub database migrate` from the deployment instead.",
-    },
-    DATABASE_MIGRATION_BACKUP_FAILED: {
-      why: ({ database, problem, target }: { database: string, problem: string, target: string }) => `ViteHub cannot back up the database "${database}" to "${target}" before its pending migrations: ${problem} The server applied no migration.`,
-      fix: "Make the backup folder writable and give it free space, or set `migrateOnStart.backup.dir` to another folder. Then start the server again.",
-    },
-    DATABASE_MIGRATION_BACKUP_UNSUPPORTED: {
-      why: ({ database, problem }: { database?: string, problem: string }) => `\`migrateOnStart.backup\` copies only local SQLite files${database ? `, and cannot copy the database "${database}"` : ""}. ${problem}`,
-      fix: "Use a `file:` connection URL, or remove `backup` and back up the database with its own tools, such as `pg_dump` or the snapshots of your libSQL provider. Set `keep` to a whole number of 1 or more.",
-    },
     DATABASE_MIGRATION_CHECK_FAILED: {
       why: ({ database, problem }: { database: string, problem: string }) => `ViteHub cannot read the pending migrations of the database "${database}". ${problem}`,
       fix: "Make the database reachable with the connection that `vitehub database migrate` uses: the local SQLite file, `connection.url` and `connection.authToken` for libSQL, `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` for D1 HTTP, `connection.url` or the PG* variables and the `postgres` package for Postgres, or `@electric-sql/pglite` for a Postgres Database on PGlite.",
@@ -222,32 +206,42 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Run `vitehub database migrate --dry-run` to read the SQL. To keep the data, change the schema or edit the migration. To accept the loss, back up the data and run `vitehub database migrate --allow-data-loss`, or set `database.migrateOnStart: { allowDataLoss: true }` for the next build. To accept it for one start of a built server, such as a container, set `VITEHUB_DATABASE_ALLOW_DATA_LOSS=1`.",
     },
     DATABASE_MIGRATION_FAILED: {
-      why: ({ database, kept, migration, outsideTransaction, problem }: { database: string, kept?: readonly string[], migration: string, needsMarker?: boolean, outsideTransaction?: boolean, problem: string }) => [
-        `The migration "${migration}" of the database "${database}" failed: ${problem}`,
-        outsideTransaction ? "The first statement failed outside a transaction." : kept ? "The database rolled back this migration." : "The database rolled back every pending migration of this run.",
-        kept?.length ? `It keeps the migrations that this run applied before it: ${kept.join(", ")}.` : "",
-      ].filter(Boolean).join(" "),
+      why: ({ database, kept, migration, problem }: { database: string, kept?: readonly string[], migration: string, needsMarker?: boolean, problem: string }) => `The migration "${migration}" of the database "${database}" failed: ${problem} ${kept
+        ? `The database rolled back this migration.${kept.length ? ` It keeps the migrations that this run applied before it: ${kept.join(", ")}.` : ""}`
+        : "The database rolled back every pending migration of this run."}`,
       fix: ({ needsMarker }: { needsMarker?: boolean }) => [
         needsMarker ? "Postgres cannot run this statement in a transaction. Move it to a migration file of its own whose first line is `-- vitehub:no-transaction`, so ViteHub runs that file outside the transaction, one statement at a time. Write its statements with `IF NOT EXISTS`, so the file can run again." : "Fix the SQL of the migration, or the data that it conflicts with.",
         "Then apply it again with `vitehub database migrate` or a new server start. The server does not handle requests until the migrations apply.",
       ].join(" "),
     },
+    DATABASE_MIGRATE_ON_START_UNSUPPORTED: {
+      why: ({ database, problem }: { database?: string, problem: string }) => `\`database.migrateOnStart\` and \`ensureMigrations()\` apply migrations only to local SQLite files, Cloudflare D1 over HTTP, and Postgres in a Node server${database ? `, and cannot migrate the database "${database}"` : ""}. ${problem}`,
+      fix: "Build with the Node host and a `file:` or Postgres connection URL, or `cloudflare.http`. Otherwise, set `migrateOnStart: false`, remove the `ensureMigrations()` calls, and run `vitehub database migrate` from the deployment instead.",
+    },
+    DATABASE_MIGRATION_BACKUP_FAILED: {
+      why: ({ database, problem, target }: { database: string, problem: string, target: string }) => `ViteHub cannot back up the database "${database}" to "${target}" before its pending migrations: ${problem} The server applied no migration.`,
+      fix: "Make the backup folder writable and give it free space, or set `migrateOnStart.backup.dir` to another folder. Then start the server again.",
+    },
+    DATABASE_MIGRATION_BACKUP_UNSUPPORTED: {
+      why: ({ database, problem }: { database?: string, problem: string }) => `\`migrateOnStart.backup\` copies only local SQLite files${database ? `, and cannot copy the database "${database}"` : ""}. ${problem}`,
+      fix: "Use a `file:` connection URL, or remove `backup` and back up the database with its own tools, such as `pg_dump` or the snapshots of your libSQL provider. Set `keep` to a whole number of 1 or more.",
+    },
+    DATABASE_MIGRATE_ON_DEPLOY_UNSUPPORTED: {
+      why: ({ database, problem }: { database?: string, problem: string }) => `\`database.migrateOnDeploy\` applies migrations only to Cloudflare D1 bindings, with \`wrangler d1 migrations apply\` before \`wrangler deploy\`${database ? `, and cannot migrate the database "${database}"` : ""}. ${problem}`,
+      fix: "Build with the Cloudflare host and give each database a D1 binding. Otherwise, remove `migrateOnDeploy` and run `vitehub database migrate` before you deploy.",
+    },
     DATABASE_MIGRATION_PARTLY_APPLIED: {
       why: ({ applied, database, invalidIndexes, migration, problem, statement }: { applied: number, database: string, invalidIndexes?: readonly string[], migration: string, problem: string, statement?: string }) => [
-        `The migration "${migration}" of the database "${database}" runs outside a transaction (\`-- vitehub:no-transaction\`), and ${statement ? `its statement ${applied + 1} failed` : "the ledger write failed after all statements ran"}: ${problem}`,
-        statement ? `Statement: ${statement}\nThe ${applied} statement(s) before it stay applied.` : "The SQL stays applied.",
+        `The migration "${migration}" of the database "${database}" runs outside a transaction (\`-- vitehub:no-transaction\`), and ${statement === undefined ? "the ledger write failed after all its statements ran" : `its statement ${applied + 1} failed`}: ${problem}`,
+        statement === undefined ? "Its statements stay applied." : `Statement: ${statement}\nThe ${applied} statement(s) before it stay applied.`,
         "The migration is not recorded, so the next run starts again at its first statement.",
-        invalidIndexes === undefined ? "ViteHub could not check the target index." : invalidIndexes.length ? `Invalid indexes:${fileList(invalidIndexes)}` : "",
+        invalidIndexes === undefined ? "ViteHub could not list the invalid indexes." : invalidIndexes.length ? `Invalid indexes:${fileList(invalidIndexes)}` : "",
       ].filter(Boolean).join("\n"),
       fix: ({ invalidIndexes, statement }: { invalidIndexes?: readonly string[], statement?: string }) => [
-        invalidIndexes?.length ? "Drop the listed invalid index with `DROP INDEX CONCURRENTLY IF EXISTS <name>` in `vitehub database sql`, because `CREATE INDEX CONCURRENTLY IF NOT EXISTS` keeps an invalid index as it is." : "",
-        statement ? "Fix the failed statement, or the data that it conflicts with." : "Make the migration ledger writable by the migration role.",
+        invalidIndexes?.length !== 0 ? "Drop each invalid index with `DROP INDEX CONCURRENTLY IF EXISTS <name>` in `vitehub database sql`, because `CREATE INDEX CONCURRENTLY IF NOT EXISTS` keeps an invalid index as it is." : "",
+        statement === undefined ? "Let the migration role insert into the migrations table." : "Fix the failed statement, or the data that it conflicts with.",
         "Write every statement of the file so it can run again, for example with `IF NOT EXISTS`. Then run `vitehub database migrate` or start the server again.",
       ].filter(Boolean).join(" "),
-    },
-    DATABASE_MIGRATION_SQL_UNSUPPORTED: {
-      why: ({ migration, problem }: { migration: string, problem: string }) => `ViteHub cannot split the marked migration "${migration}" into statements. ${problem}`,
-      fix: "Edit the migration so that each statement can run on its own. Keep statements that require a transaction in an unmarked file.",
     },
 
     // Export errors. `vitehub database export` prints them and exits with code 1.

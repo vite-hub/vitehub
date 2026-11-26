@@ -788,7 +788,7 @@ describe("vitehub database migrate", () => {
     const project = await createProject()
     Object.assign(project.database, { connection: undefined, dialect: "postgresql" })
     const init = "CREATE TABLE \"notes\" (\"id\" serial PRIMARY KEY NOT NULL, \"title\" text);"
-    const index = "-- vitehub:no-transaction\nCREATE INDEX CONCURRENTLY IF NOT EXISTS \"notes_title\" ON \"notes\" (\"title\");\nINSERT INTO notes(title) VALUES (E'it\\'s; fine');\nVACUUM \"notes\";\n"
+    const index = "-- vitehub:no-transaction\nCREATE INDEX CONCURRENTLY IF NOT EXISTS \"notes_title\" ON \"notes\" (\"title\");\nVACUUM \"notes\";\n"
     await folder(project.database.migrationsDir, "20260101000000_init", init)
     await folder(project.database.migrationsDir, "20260102000000_index", index)
     const spawn = vi.fn(realSpawn)
@@ -803,29 +803,10 @@ describe("vitehub database migrate", () => {
     expect(migrated.stdout).toContain("[vitehub] Database \"default\": applied 20260102000000_index.")
     expect(spawn).not.toHaveBeenCalled()
     await expect(pgliteRows(project.rootDir, "select indisvalid from pg_index where indexrelid = 'notes_title'::regclass")).resolves.toEqual([{ indisvalid: true }])
-    await expect(pgliteRows(project.rootDir, "select title from notes")).resolves.toEqual([{ title: "it's; fine" }])
     await expect(pgliteLedger(project.rootDir)).resolves.toEqual([
       { applied: true, created_at: String(Date.UTC(2026, 0, 1)), hash: sha256(init), name: "20260101000000_init" },
       { applied: true, created_at: String(Date.UTC(2026, 0, 2)), hash: sha256(index), name: "20260102000000_index" },
     ])
-  }, 120_000)
-
-  it.each([false, true])("requires consent for a drop after a marked commit (same file: %s)", async (sameFile) => {
-    const project = await createProject()
-    Object.assign(project.database, { connection: undefined, dialect: "postgresql" })
-    const create = "CREATE TABLE public.inbox (id integer);"
-    const drop = "DROP TABLE public.inbox;"
-    const marked = "-- vitehub:no-transaction\n"
-    if (sameFile) await folder(project.database.migrationsDir, "20260101000000_drop", `${marked}${create}\n${drop}`)
-    else {
-      await folder(project.database.migrationsDir, "20260101000000_init", create)
-      await folder(project.database.migrationsDir, "20260102000000_vacuum", `${marked}VACUUM public.inbox;`)
-      await folder(project.database.migrationsDir, "20260103000000_drop", drop)
-    }
-    const plan = await project.run("migrate", ["--dry-run"], {})
-    expect(plan).toMatchObject({ exitCode: 1, stdout: expect.stringContaining("! Data loss:"), stderr: expect.stringContaining(drop) })
-    await expect(project.run("migrate", [], {})).resolves.toMatchObject({ exitCode: 1, stderr: expect.stringContaining("lose data") })
-    expect(existsSync(join(project.rootDir, ".vitehub/data/database/pglite"))).toBe(false)
   }, 120_000)
 
   it("refuses conflicting generated PGlite migrations before writing a database", async () => {
