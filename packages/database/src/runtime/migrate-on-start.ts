@@ -776,7 +776,7 @@ async function planPostgres(sql: PostgresMigrationSql, group: PostgresTarget[], 
   const misplaced = await findMisplacedMigrations(sql, { migrations, pending: migrations.filter(migration => !match.applied.has(migration.tag) && !history.adopted.includes(migration.tag)), schema })
   if (misplaced.exact.length || misplaced.unverified.length) throw misplacedLedgerError(databases[0]!.name, schema!, migrations, misplaced, rows.length + history.adopted.length)
   if (state === "missing") {
-    if (schema === undefined) await sql.unsafe(`CREATE SCHEMA IF NOT EXISTS ${quotePostgresName(defaultLedgerSchema)}`)
+    if (schema === undefined && !Array.from(await sql.unsafe("select 1 from pg_namespace where nspname = $1", [defaultLedgerSchema])).length) await sql.unsafe(`CREATE SCHEMA IF NOT EXISTS ${quotePostgresName(defaultLedgerSchema)}`)
     await sql.unsafe(createPostgresLedger(ledger))
   }
   const adopted: AdoptedEntry[] = []
