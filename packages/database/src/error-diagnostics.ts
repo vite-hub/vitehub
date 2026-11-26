@@ -1,11 +1,11 @@
 import { defineErrors } from "@vite-hub/runtime"
 
+import { createPostgresLedger, insertPostgresLedgerRow, postgresLedgerTable, quotePostgresName } from "./internal/postgres-ledger.ts"
+
+import type { PostgresLedgerEntry } from "./internal/postgres-ledger.ts"
+
 function quoteList(values: readonly string[]): string {
   return values.map(value => JSON.stringify(value)).join(", ")
-}
-
-function postgresName(name: string): string {
-  return `"${name.replaceAll("\"", "\"\"")}"`
 }
 
 function fileList(files: readonly string[]): string {
@@ -230,8 +230,8 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Build with the Cloudflare host and give each database a D1 binding. Otherwise, remove `migrateOnDeploy` and run `vitehub database migrate` before you deploy.",
     },
     DATABASE_MIGRATION_LEDGER_MISPLACED: {
-      why: ({ database, role, schema }: { database: string, role: string, schema: string }) => `The database "${database}" sets \`migrationsSchema: "${schema}"\`, and the ledger in "${schema}" lists none of its migrations. Drizzle's ledger "drizzle"."__drizzle_migrations" can list them, but the role "${role}" cannot read it, so ViteHub would apply them again.`,
-      fix: ({ role }: { database: string, role: string, schema: string }) => `As the owner of the schema "drizzle", run \`vitehub database sql 'GRANT USAGE ON SCHEMA "drizzle" TO ${postgresName(role)}'\` and \`vitehub database sql 'GRANT SELECT ON "drizzle"."__drizzle_migrations" TO ${postgresName(role)}'\` once. ViteHub then records the migrations that it lists in the ledger in \`migrationsSchema\`, and does not change "drizzle".`,
+      why: ({ database, migrations, schema }: { database: string, migrations: readonly PostgresLedgerEntry[], schema: string }) => `The database "${database}" sets \`migrationsSchema: "${schema}"\`, and the ledger ${postgresLedgerTable(schema)} does not list ${quoteList(migrations.map(migration => migration.name))}. The ledger "drizzle"."__drizzle_migrations" lists the same SQL, so the database probably applied them before \`migrationsSchema\` was set. ViteHub reads only the ledger in "${schema}", so it would apply them again. It stopped before any change.`,
+      fix: ({ migrations, schema }: { database: string, migrations: readonly PostgresLedgerEntry[], schema: string }) => `Remove \`migrationsSchema\` to keep the ledger in "drizzle". Or verify that this database applied these migrations, because another app that shares "drizzle" can apply the same SQL. Then run this SQL once in a SQL client, as a role that can create tables in "${schema}":\n${[createPostgresLedger(postgresLedgerTable(schema)), ...migrations.map(migration => insertPostgresLedgerRow(postgresLedgerTable(schema), migration))].map(statement => `${statement};`).join("\n")}`,
     },
     DATABASE_MIGRATION_SCHEMA_CONFLICT: {
       why: ({ databases, schemas }: { databases: readonly [string, string], schemas: readonly [string | undefined, string | undefined] }) => `The databases "${databases[0]}" and "${databases[1]}" share one Postgres database and its migration ledger, but set different \`migrationsSchema\` values: ${schemas.map(schema => schema === undefined ? "none (\"drizzle\")" : JSON.stringify(schema)).join(" and ")}.`,
@@ -239,7 +239,7 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     DATABASE_MIGRATION_SCHEMA_MISSING: {
       why: ({ database, schema }: { database: string, schema: string }) => `The database "${database}" sets \`migrationsSchema: "${schema}"\`, but the Postgres database has no schema "${schema}". On a Postgres server, ViteHub does not create a schema that you choose.`,
-      fix: ({ schema }: { database: string, schema: string }) => `Create the schema with \`vitehub database sql 'CREATE SCHEMA ${postgresName(schema)}'\`, as a role that owns the database, or fix the name in \`migrationsSchema\`.`,
+      fix: ({ schema }: { database: string, schema: string }) => `Create the schema with \`vitehub database sql 'CREATE SCHEMA ${quotePostgresName(schema)}'\`, as a role that owns the database, or fix the name in \`migrationsSchema\`.`,
     },
 
     // Export errors. `vitehub database export` prints them and exits with code 1.

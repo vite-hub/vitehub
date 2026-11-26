@@ -882,7 +882,7 @@ export default defineDatabase({
 | `cloudflare.binding` | `string` | No | Cloudflare Hyperdrive binding. Defaults to `HYPERDRIVE`, or `HYPERDRIVE_<NAME>` for a named database. |
 | `cloudflare.hyperdriveId` | `DatabaseConfigValue` | No | Hyperdrive config id. When it is known at build time, ViteHub adds the binding to the Wrangler config. |
 | `driver` | `'node-postgres' \| 'pglite'` | No | The client. Without it, ViteHub uses postgres.js. See the driver list below. |
-| `migrationsSchema` | `string` | No | The schema of Drizzle's migrations table. Defaults to `drizzle`. ViteHub creates it only on PGlite. See [Keep the migrations table in a schema](#keep-the-migrations-table-in-a-schema). |
+| `migrationsSchema` | `string` | No | The schema of Drizzle's migrations table. Defaults to `drizzle`. ViteHub creates it only on PGlite, after the pending migrations. See [Keep the migrations table in a schema](#keep-the-migrations-table-in-a-schema). |
 
 | Driver | Package | Use it for |
 | --- | --- | --- |
@@ -935,16 +935,11 @@ export default defineDatabase({
 ```
 
 - ViteHub keeps `__drizzle_migrations` in `app` and creates no `drizzle` schema. This works on Postgres and PGlite.
-- On a Postgres server, ViteHub does not create the schema. Create it first, for example with `vitehub database sql 'CREATE SCHEMA "app"'`. Without it, migrate and start fail with [`DATABASE_MIGRATION_SCHEMA_MISSING`](/docs/database/diagnostics/database_migration_schema_missing). On PGlite, ViteHub creates the schema, in a folder and in app tests.
+- On a Postgres server, ViteHub does not create the schema. Create it first, for example with `vitehub database sql 'CREATE SCHEMA "app"'`. Without it, migrate and start fail with [`DATABASE_MIGRATION_SCHEMA_MISSING`](/docs/database/diagnostics/database_migration_schema_missing). On PGlite, in a folder and in app tests, ViteHub creates the schema after the pending migrations, in the same transaction, so a migration can run `CREATE SCHEMA "app"` itself.
 - The generated Kit config gets `migrations: { schema: "app" }`, so `drizzle-kit migrate` reads the same table.
 - ViteHub also reads NuxtHub's `_hub_migrations` in that schema.
-- When the table in `app` does not list every migration, ViteHub reads the table in `drizzle`. It records the migrations that `drizzle` lists in the table in `app`, and does not apply them again. `--dry-run` lists them as `Applied before`. ViteHub never changes the table in `drizzle`, because another app can use it.
-- When the table in `app` lists every migration, ViteHub does not read `drizzle`, so the role needs no access to it. When the role cannot read the table in `drizzle` and the table in `app` lists no migration, migrate and start fail with [`DATABASE_MIGRATION_LEDGER_MISPLACED`](/docs/database/diagnostics/database_migration_ledger_misplaced). Grant read access once, as in the fix:
-
-```bash [Terminal]
-pnpm vitehub database sql 'GRANT USAGE ON SCHEMA "drizzle" TO "app_runtime"'
-pnpm vitehub database sql 'GRANT SELECT ON "drizzle"."__drizzle_migrations" TO "app_runtime"'
-```
+- The table in `app` is the only history. ViteHub never reads history from the table in `drizzle` and never writes to it.
+- When a migration is pending and the table in `drizzle` lists its SQL hash, migrate, `--dry-run` and start fail with [`DATABASE_MIGRATION_LEDGER_MISPLACED`](/docs/database/diagnostics/database_migration_ledger_misplaced) before any change. The fix prints the SQL that copies those rows to the table in `app`. When the role cannot read the table in `drizzle`, or it lists no pending hash, the migrations run.
 
 Definitions on one Postgres database share its migrations table, so they must set the same `migrationsSchema`. Otherwise they fail with `DATABASE_MIGRATION_SCHEMA_CONFLICT`. A SQLite Definition with `migrationsSchema` fails with `DATABASE_UNKNOWN_OPTION`.
 

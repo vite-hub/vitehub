@@ -200,7 +200,7 @@ function quoteIdentifier(name: string): string {
 
 /**
  * The statements that drop every user table and view, and the migration ledger with them. Empty when there is none.
- * Postgres keeps `migrationsSchema`, because ViteHub does not create it again.
+ * Postgres keeps `migrationsSchema`, because ViteHub does not create it again on a server. PGlite passes none.
  */
 export async function planDrop(connection: SqlConnection, migrationsSchema?: string): Promise<{ objects: string[], statements: string[] }> {
   return connection.dialect === "sqlite" ? await planSqliteDrop(connection) : await planPostgresDrop(connection, migrationsSchema)

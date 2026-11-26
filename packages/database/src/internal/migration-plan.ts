@@ -7,7 +7,7 @@ import { dirname, join, resolve } from "pathe"
 import { resolveConfigValue } from "../config-value.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 import { localPgliteDir, resolveLocalSqlitePath } from "../runtime/local-path.ts"
-import { defaultPostgresLedger, findPostgresLedger, groupPostgresTargets, migratePostgres, postgresLedgerTable, readDefaultLedgerHistory, reconcilePostgresHistory, toPgliteMigrationClient, toPostgresMigrationClient } from "../runtime/migrate-on-start.ts"
+import { findMisplacedMigrations, findPostgresLedger, groupPostgresTargets, migratePostgres, misplacedLedgerError, reconcilePostgresHistory, toPgliteMigrationClient, toPostgresMigrationClient } from "../runtime/migrate-on-start.ts"
 import { runsOnPglite } from "../runtime/postgres-env.ts"
 import { invariantError } from "@vite-hub/internal/invariant"
 
@@ -16,6 +16,7 @@ import { readStartMigrations } from "./migrate-on-start.ts"
 import { migrationSqlFile, readMigrations, readPendingMigration } from "./migration-journal.ts"
 import { findRenumbered, hubMigrationsTable, ledgerUpgradeProblem, ledgerUpgradeStatements, matchLedger, matchRecordedNames, matchRenamedRows, nameLedgerTables, toLedgerRow } from "./migration-ledger.ts"
 import { addStatementBreakpoints, migrationParts, withoutNewTableDataLoss } from "./migration-sql.ts"
+import { postgresLedgerTable } from "./postgres-ledger.ts"
 
 import type postgres from "postgres"
 import type { Result } from "@vite-hub/runtime"
@@ -266,7 +267,7 @@ function connectMigrationPostgres(target: { url?: string }, projectRoot: string,
 }
 
 async function readPostgresLedger(sql: PostgresMigrationSql, scope: PostgresLedgerScope): Promise<LedgerRow[]> {
-  if (!await findPostgresLedger(sql, scope)) return []
+  if (await findPostgresLedger(sql, scope) !== "found") return []
   return Array.from(await sql.unsafe(`select * from ${postgresLedgerTable(scope.schema)}`)).map(row => toLedgerRow(row))
 }
 
@@ -357,10 +358,11 @@ export async function readPostgresMigrationPlans(databases: ResolvedDrizzleDatab
         const match = matchLedger(rows, migrations)
         const problem = drizzleLedgerProblem(match, database.migrationsDir)
         if (problem) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: database.name, problem })
-        const moved = await readDefaultLedgerHistory(client, { applied: match.applied, database: database.name, migrations, schema })
-        const history = await reconcilePostgresHistory(client, group.map(({ database, entries }) => ({ name: database.name, tags: entries.map(entry => entry.tag) })), new Set([...match.applied, ...moved]), schema)
+        const history = await reconcilePostgresHistory(client, group.map(({ database, entries }) => ({ name: database.name, tags: entries.map(entry => entry.tag) })), match.applied, schema)
+        const misplaced = await findMisplacedMigrations(client, { pending: migrations.filter(entry => !match.applied.has(entry.tag) && !history.adopted.includes(entry.tag)), schema })
+        if (misplaced.length) throw misplacedLedgerError(database.name, schema!, migrations.filter(entry => misplaced.includes(entry.tag)))
         for (const { database, target, entries } of group) {
-          const adopted = new Map<string, string>(entries.flatMap(entry => moved.has(entry.tag) ? [[entry.tag, defaultPostgresLedger]] : history.adopted.includes(entry.tag) ? [[entry.tag, hubMigrationsTable]] : []))
+          const adopted = new Map(entries.filter(entry => history.adopted.includes(entry.tag)).map(entry => [entry.tag, hubMigrationsTable]))
           const plan = buildMigrationPlan(database, target, options, entries, match.applied, adopted)
           if (database === group[0]!.database && history.unmatched.length) plan.unmatched = history.unmatched.map(name => ({ from: hubMigrationsTable, name }))
           plans.set(database.name, [undefined, plan])
