@@ -1,4 +1,5 @@
 import { isPlainObject } from "@vite-hub/internal/object"
+import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 
 /** An entity of a Drizzle Kit 1.0 SQLite snapshot, such as a table, a column, an index, or a UNIQUE constraint. */
 interface SqliteDdlEntity {
@@ -115,9 +116,9 @@ function generatedNames(entity: Record<string, unknown>): string[] {
  * names when the Definitions do not name the constraint, instead of renaming it. Postgres cuts names to 63 bytes.
  */
 export function markGeneratedPostgresNames(snapshot: unknown): void {
-  if (!isPlainObject(snapshot) || !Array.isArray(snapshot.ddl)) throw new TypeError("Expected a Drizzle Kit snapshot with a DDL array.")
+  if (!isPlainObject(snapshot) || !Array.isArray(snapshot.ddl)) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: "Drizzle Kit wrote a snapshot without a DDL array." })
   for (const entity of snapshot.ddl) {
-    if (!isPlainObject(entity)) throw new TypeError("Expected a Drizzle Kit snapshot DDL entity.")
+    if (!isPlainObject(entity)) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: "Drizzle Kit wrote a snapshot DDL entity that is not an object." })
     if (entity.nameExplicit !== true || typeof entity.name !== "string") continue
     if (generatedNames(entity).some(name => clipIdentifier(name, 63) === entity.name)) entity.nameExplicit = false
   }
