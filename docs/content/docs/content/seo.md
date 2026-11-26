@@ -255,10 +255,12 @@ export default defineContent({
 
 | Tool | Returns |
 | --- | --- |
-| `list-pages` | `[{ title, path, description, url }]` for the Markdown pages that the sitemap lists. At most 1,000 per call; pass `offset` for the next ones. |
+| `list-pages` | `[{ title, path, description, url }]` for the Markdown pages that the sitemap lists. With `query`, such as `rate limit`, the 20 best matches by title, path, and description, best first. Without it, the pages in site order, 100 per call. Pass `offset` for the next ones. |
 | `get-page` | `{ title, path, description, content, url }` for one page. `content` is its Markdown copy: the title as a heading, unless the body has its own, the description as a quote, then the body with absolute links. |
 
 The tools read only what readers can see: published collection documents, and the files of the [head commit](/docs/content/configure) of a `github()` Source. Drafts are left out. `list-pages` also leaves out `noindex` pages and pages whose `canonical` points elsewhere, but `get-page` reads them by path, as their `.md` copy does. `get-page` takes a path from `list-pages`, a full URL, or a path that ends in `.md`. For any other path it returns the tool error `[404] No page at <path>`. A page longer than 200,000 characters is cut, and the cut names the page URL.
+
+The server instructions tell an agent to use the tools only for questions about the site, to call `get-page` when it knows the path or URL, and to search with `query` instead of listing pages. A tool result stays in the conversation, so an agent sends it again with each later step: a list of 500 pages is about 150,000 characters.
 
 `name` is the server name that MCP clients show. It defaults to the host name of `site`, or of the request. The server answers `POST` in the stateless JSON form of Streamable HTTP, revisions `2025-11-25` and `2025-06-18`, and refuses requests from a browser page on another origin.
 

@@ -1,5 +1,6 @@
 import { forwardProjectRequest } from "../../../../../src/forward.ts"
-import { consoleCallerOf, consoleDiagnosticProblem, consoleProblem, consoleTeamRoute, projectIdOf, spendForwardBudget } from "../../../../utils/console.ts"
+import { consoleForwardCaller } from "../../../../../src/caller.ts"
+import { consoleDiagnosticProblem, consoleProblem, consoleTeamRoute, projectIdOf, spendForwardBudget } from "../../../../utils/console.ts"
 
 export default consoleTeamRoute(async (request, caller) => {
   const { projects } = caller
@@ -10,5 +11,5 @@ export default consoleTeamRoute(async (request, caller) => {
   if (spent) return consoleDiagnosticProblem(429, spent.diagnostic, { "retry-after": String(spent.retryAfter) })
   const url = new URL(request.url)
   const app = url.pathname.slice(url.pathname.indexOf("/_vitehub/"))
-  return forwardProjectRequest(request, { caller: consoleCallerOf(caller), key: target.key, url: target.project.url }, `${app}${url.search}`)
+  return forwardProjectRequest(request, { caller: consoleForwardCaller(request, caller), key: target.key, url: target.project.url }, `${app}${url.search}`)
 })

@@ -925,6 +925,12 @@ importers:
         specifier: catalog:tooling
         version: 2.9.1
     devDependencies:
+      '@ai-sdk/anthropic':
+        specifier: catalog:ai
+        version: 4.0.107(zod@4.6.7)
+      '@ai-sdk/mcp':
+        specifier: catalog:ai
+        version: 2.0.103(zod@4.6.7)
       '@better-auth/cimd':
         specifier: catalog:auth
         version: 1.7.27(41ce1923dd74ddf0aeef99ec0f1d554b)
@@ -3242,6 +3248,9 @@ importers:
         specifier: catalog:unjs
         version: 2.0.3
     devDependencies:
+      '@ai-sdk/mcp':
+        specifier: catalog:ai
+        version: 2.0.103(zod@4.6.7)
       '@modelcontextprotocol/sdk':
         specifier: catalog:ai
         version: 1.32.2(@cfworker/json-schema@4.1.6)(supports-color@10.2.2)(zod@4.6.7)
@@ -3251,6 +3260,9 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
+      ai:
+        specifier: 7.0.179
+        version: 7.0.179(zod@4.6.7)
       publint:
         specifier: catalog:tooling
         version: 0.3.25
@@ -4138,6 +4150,9 @@ importers:
 
   packages/vite-hub:
     dependencies:
+      '@ai-sdk/mcp':
+        specifier: catalog:ai
+        version: 2.0.103(zod@4.6.7)
       '@standard-schema/spec':
         specifier: catalog:runtime
         version: 1.1.0

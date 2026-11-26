@@ -25,7 +25,7 @@ export interface ConsoleSignedConsoleAuthorizeContext {
   /** The `<NAME>` of the `VITEHUB_CONSOLE_KEY_<NAME>` variable whose key verified the signature. */
   key: string
   /** `"mcp"` when the ViteHub MCP of the Console calls for `user`, such as from Claude Code. Not set for the Console page. */
-  surface?: "mcp"
+  surface?: "mcp" | "cli"
   via: "console"
 }
 

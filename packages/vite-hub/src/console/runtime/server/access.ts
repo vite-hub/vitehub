@@ -56,7 +56,7 @@ export interface ConsoleAccess {
    * `"mcp"` when the ViteHub MCP of the Console signed the request for the user. The RPC then refuses operations with
    * `mcp: false`, runs the others with the `mcp` surface, and refuses a destructive call that is not `confirmed`.
    */
-  readonly surface?: "mcp"
+  readonly surface?: "mcp" | "cli"
   /** The person agreed to this destructive MCP call. The signature covers it. */
   readonly confirmed?: boolean
   /** The signed caller limits this request to operations that only read. The RPC refuses a write or destructive call. */

@@ -154,6 +154,29 @@ describe("seo.mcp for collections", () => {
     expect(await content.pages({ offset: 1, limit: 1 })).toEqual([{ title: "B", path: "/blog/b", url: "http://localhost/blog/b" }])
   })
 
+  it("finds pages for a query, best match first, and keeps the full list without one", async () => {
+    const content = await site()
+    const posts = content.collection("posts")
+    await posts.save("rate-limit", { data: { title: "Rate Limit", description: "Limit requests per minute" }, body: "Rate\n" })
+    await posts.save("webhook-configure", { data: { title: "Webhook configuration", description: "Set the debounce window" }, body: "Webhooks\n" })
+    await posts.save("queue", { data: { title: "Queue", description: "Run jobs after the response, with a rate per minute" }, body: "Queue\n" })
+    for (let index = 0; index < 25; index++) await posts.save(`note-${index}`, { data: { title: `Note ${index}` }, body: "Note\n" })
+    await content.publish({ collection: "posts" })
+    const handler = defineContentMcpHandler(content)
+    const paths = async (args: Record<string, unknown>) => JSON.parse((await tool(handler, "list-pages", args)).content![0]!.text).map((page: { path: string }) => page.path)
+
+    expect(await paths({ query: "rate limit" })).toEqual(["/blog/rate-limit", "/blog/queue"])
+    expect(await paths({ query: "webhooks debounce" })).toEqual(["/blog/webhook-configure"])
+    expect(await paths({ query: "WEBHOOK-CONFIGURE" })).toEqual(["/blog/webhook-configure"])
+    expect(await paths({ query: "nothing matches this" })).toEqual([])
+    expect(await paths({ query: "note" })).toHaveLength(20)
+    expect(await paths({ query: "note", offset: 20 })).toHaveLength(5)
+    expect(await paths({ query: " ! " })).toEqual([])
+    expect(await paths({})).toHaveLength(28)
+    expect((await tool(handler, "list-pages", { query: "x".repeat(201) })).isError).toBe(true)
+    expect((await tool(handler, "list-pages", { query: 1 })).isError).toBe(true)
+  })
+
   it("cuts a long page and answers 404 when mcp is off", async () => {
     const content = await site()
     await content.collection("posts").save("long", { data: { title: "Long" }, body: `${"word ".repeat(contentPageCharacters / 5)}\n` })
@@ -170,6 +193,64 @@ describe("seo.mcp for collections", () => {
 })
 
 describe("seo.mcp for Sources", () => {
+  it("browses 100 pages per call and searches the full catalog once", async () => {
+    const entries = Array.from({ length: 1_005 }, (_, index): [string, string] => [`page-${index}.md`, "---\ntitle: Notes\n---\nBody.\n"])
+    entries.push(["z-match.md", "---\ntitle: Rate Limit\n---\nBody.\n"])
+    const url = vi.fn(({ id }: { id: string }) => `/blog/${id}`)
+    const content = defineContent({
+      access: "public",
+      logger: false,
+      sources: { posts: contentSource(files(Object.fromEntries(entries)), { url }) },
+      seo: { mcp: true },
+    })
+    cleanup.push(() => content.dispose())
+    const handler = defineContentMcpHandler(content)
+    const paths = async (args: Record<string, unknown>) => JSON.parse((await tool(handler, "list-pages", args)).content![0]!.text).map((page: { path: string }) => page.path)
+
+    expect(await content.pages({ limit: 2_000 })).toHaveLength(1_000)
+    expect(await paths({})).toHaveLength(100)
+    expect(await paths({ offset: 1_005 })).toEqual(["/blog/z-match"])
+    url.mockClear()
+    expect(await paths({ query: "rate limit" })).toEqual(["/blog/z-match"])
+    expect(url).toHaveBeenCalledTimes(entries.length)
+  })
+
+  it.each([
+    { query: "猫", title: "猫", path: "/blog/hello" },
+    { query: "café", title: "Opening hours", path: "/blog/caf%C3%A9" },
+  ])("matches $query without changing the returned path", async ({ query, title, path }) => {
+    const content = defineContent({
+      access: "public",
+      logger: false,
+      sources: { posts: contentSource(files({
+        "hello.md": "---\ntitle: 猫\nslug: hello\n---\nHello.\n",
+        "hours.md": "---\ntitle: Opening hours\nslug: café\n---\nHours.\n",
+      }), { url: "/blog/:slug" }) },
+      seo: { site: "https://example.com/docs", mcp: true },
+    })
+    cleanup.push(() => content.dispose())
+    const handler = defineContentMcpHandler(content)
+    expect(JSON.parse((await tool(handler, "list-pages", { query })).content![0]!.text)).toEqual([
+      { title, path, url: `https://example.com/docs${path}` },
+    ])
+  })
+
+  it("reads a page by its path or URL on a site mounted below a prefix", async () => {
+    const content = defineContent({
+      access: "public",
+      logger: false,
+      sources: { posts: contentSource(files({ "hello.md": "---\ntitle: Hello\n---\nHello.\n" }), { url: "/blog/:id" }) },
+      seo: { site: "https://example.com/docs", mcp: true },
+    })
+    cleanup.push(() => content.dispose())
+    const handler = defineContentMcpHandler(content)
+    const [page] = await content.pages()
+    expect(page).toEqual({ title: "Hello", path: "/blog/hello", url: "https://example.com/docs/blog/hello" })
+    const fromPath = await tool(handler, "get-page", { path: page!.path })
+    expect(fromPath.isError).toBe(false)
+    expect(await tool(handler, "get-page", { path: page!.url })).toEqual(fromPath)
+  })
+
   it("lists no Source noindex or differing canonical page, but reads them by path", async () => {
     fake.commit("main", {
       "content/public.md": "---\ntitle: Public\nseo:\n  canonical: https://example.com/docs/public\n---\nPublic body.\n",
