@@ -973,7 +973,6 @@ describe.skipIf(!adminUrl)("migrationsSchema on Postgres", () => {
     expect(await readLedger(sql, "app")).toEqual(own)
   })
 
-  /** Writes the ledger in "app" by hand with one row for each migration, as another folder layout or a repair left it. */
   async function writeAppLedger(sql: postgres.Sql, migrations: Array<{ sql: string, tag: string, when: number }>) {
     await sql.unsafe("CREATE TABLE app.__drizzle_migrations (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint, name text, applied_at timestamp with time zone DEFAULT now())")
     for (const migration of migrations) await sql`insert into app.__drizzle_migrations (hash, created_at, name) values (${ledgerRow(migration).hash}, ${migration.when}, ${migration.tag})`

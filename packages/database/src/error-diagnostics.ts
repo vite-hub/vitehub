@@ -6,11 +6,9 @@ import type { PostgresLedgerEntry } from "./internal/postgres-ledger.ts"
 
 interface MisplacedLedger {
   database: string
-  /** Pending migrations that a row in "drizzle" records by name and hash, or by hash and time. */
   migrations: readonly PostgresLedgerEntry[]
   recorded: number
   schema: string
-  /** Pending migrations that a row in "drizzle" lists by name with other SQL, or by hash under another name. */
   unverified: readonly string[]
 }
 
