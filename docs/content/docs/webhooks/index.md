@@ -58,7 +58,6 @@ Use Webhooks when the job goes to a URL outside your app. Use [Queue](/docs/queu
 ## Next
 
 - [Get started](/docs/webhooks/get-started) sends a signed webhook from a ViteHub app.
-- [Comments to a T3 Code thread](/docs/webhooks/t3-code-thread) starts a T3 Code thread 30 minutes after the last comment.
-- [Send events](/docs/webhooks/send-events) forwards Forms, Blob, Content, and Auth events.
+- [Send events](/docs/webhooks/send-events) forwards Comments, Forms, Blob, Content, and Auth events.
 - [Failure alerts](/docs/webhooks/failure-alerts) posts to Slack when an Agent Invocation, Workflow run, or Schedule run fails.
 - [Server API](/docs/webhooks/server-api) covers `defineWebhook()`, `sendWebhook()`, headers, and delivery helpers.

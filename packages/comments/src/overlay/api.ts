@@ -2,10 +2,8 @@ import { commentsApiRoute, commentsRoute } from "../page.ts"
 import { Diagnostic } from "nostics"
 
 import { createCommentsRestRequest, createRestTransport } from "../rest-transport.ts"
-import { createCommentSendTransport } from "../send-transport.ts"
 
 import type { CommentsAgentAccess } from "../agent-prompt.ts"
-import type { CommentSendTransport } from "../client-send.ts"
 
 import type { CommentsRestAnswer, RestTransport } from "../rest-transport.ts"
 import type { CommentsGitHubAccess, CommentSubject, CommentUser } from "../types.ts"
@@ -28,8 +26,6 @@ export interface CommentsSession {
   /** `false` when the app shows its own presence, so the overlay shows no faces and no cursors. */
   presence?: false
   content: boolean
-  /** Send is on, and this person may hand the waiting comments to their agent. */
-  send?: true
   agent?: CommentsAgentAccess
   /** The GitHub repository of the app, `owner/name`, that "Open in T3 Code" opens. */
   repository?: string
@@ -156,9 +152,4 @@ export function createOverlayTransport(options: OverlayTransportOptions): RestTr
     resolve: changed(rest.resolve),
     reopen: changed(rest.reopen),
   }
-}
-
-/** The transport of Send in the pill, over the Send routes of the page's Comments API. */
-export function createOverlaySendTransport(page: () => string): CommentSendTransport {
-  return createCommentSendTransport({ base: route.slice(0, -commentsRoute.length), page })
 }

@@ -8,7 +8,7 @@ import * as v from "valibot"
 import { outboxAccountHeader } from "../client-files.ts"
 import { commentsErrors } from "../errors.ts"
 import { authorOf, guestFromHeaders } from "../identity.ts"
-import { commentSendOf, resolveCommentsRuntime } from "../installed.ts"
+import { resolveCommentsRuntime } from "../installed.ts"
 import { commentActions, commentAnchorSchema, commentInputSchemas } from "../operations-core/operations.ts"
 import { deniedForMissingPolicy } from "../operations-core/define.ts"
 import { can as policyCan, contextSchema, deniedError, mentionedPeople } from "../operations-core/service.ts"
@@ -21,7 +21,6 @@ import type { CommentsGitHubLogin } from "./github-login.ts"
 import type { CommentsCaller } from "../operations-core/operations.ts"
 import type { CommentAction, CommentContext, CommentListQuery, CommentsUser, CommentSubject, CommentThread, CommentUser } from "../types.ts"
 import type { CommentsIdentity, CommentsSessionOptions } from "./session.ts"
-import type { CommentSendCaller } from "../send/service.ts"
 
 /** One field address, as `parseContentField()` from `@vite-hub/content/client` reads it. */
 export interface CommentsContentField {
@@ -105,18 +104,8 @@ function status(code: string): number {
   switch (code) {
     case "COMMENTS_NOT_FOUND":
     case "COMMENTS_CONTENT_MISSING":
-    case "COMMENTS_SEND_OFF":
       return 404
-    case "COMMENTS_SEND_GRANT_INVALID":
-      return 401
-    case "COMMENTS_SEND_CODE_EXPIRED":
-      return 410
-    case "COMMENTS_SEND_CODE_USED":
-      return 409
-    case "COMMENTS_SEND_CODE_REFUSED":
-      return 422
     case "COMMENTS_FORBIDDEN":
-    case "COMMENTS_SEND_INSECURE":
     case "COMMENTS_POLICY_MISSING":
     case "COMMENTS_FIELD_FORBIDDEN":
       return 403
@@ -328,7 +317,6 @@ export function createCommentsHandler(options: CommentsHandlerOptions): { fetch(
     // People who are not signed in can sign in with GitHub, and a GitHub account that may not comment can switch.
     const signIn = !user && !comments.options.identify && github ? { provider: "github" as const, url: `${route}/auth/github` } : undefined
     const signOut = user && user.github && github ? `${route}/auth/sign-out` : undefined
-    const send = Boolean(comments.options.send && user && !user.guest && comment && await commentSendOf(comments))
     const agent = identity.commentsAgent && read ? { ...identity.commentsAgent, mcp: `${configuredConsoleOrigin()}/mcp/account` } : undefined
     const repository = read ? comments.options.forge?.repository ?? options.build?.repository : undefined
     return json({
@@ -342,7 +330,6 @@ export function createCommentsHandler(options: CommentsHandlerOptions): { fetch(
         ...(options.attachments === false ? { attachments: false } : {}),
         ...(options.presence === false ? { presence: false } : {}),
         content: Boolean(options.content),
-        ...(send ? { send: true } : {}),
         ...(agent ? { agent } : {}),
         ...(repository ? { repository } : {}),
         ...(subject ? { subject } : {}),
@@ -513,51 +500,6 @@ export function createCommentsHandler(options: CommentsHandlerOptions): { fetch(
     },
   }
 
-  async function sendRoute(request: CommentsRequest, url: URL, parts: string[], pageOf: () => Promise<{ subject: CommentSubject } | undefined>): Promise<Response> {
-    const service = await commentSendOf(comments)
-    if (!service) return failure(commentsErrors.COMMENTS_SEND_OFF())
-    const method = request.method
-    const [, action, code] = parts
-    if (method === "POST" && action === "pair" && !code) {
-      const [error, paired] = await service.pair(await readJson(request), forwardedRequestOrigin(request))
-      const reasons: Partial<Record<string, string>> = { COMMENTS_SEND_CODE_EXPIRED: "expired", COMMENTS_SEND_CODE_USED: "used", COMMENTS_SEND_CODE_REFUSED: "refused", COMMENTS_SEND_INSECURE: "insecure" }
-      return error ? json({ error, reason: reasons[error.code] ?? "invalid" }, { status: status(error.code) }) : json({ data: paired })
-    }
-    if (method === "GET" && action && action.startsWith("send_") && !code) {
-      const token = /^Bearer\s+(\S+)$/i.exec(request.headers.get("authorization") ?? "")?.[1]
-      if (!token) return failure(commentsErrors.COMMENTS_SEND_GRANT_INVALID())
-      return respond(await service.read(decodeURIComponent(action), token))
-    }
-    const { user, gate } = await identityOf(request)
-    const pathname = url.pathname
-    const caller = async (): Promise<CommentSendCaller | undefined> => {
-      const subject = (await pageOf())?.subject
-      if (!subject) return undefined
-      return { user, gate, subject, page: normalizeCommentPage(url.searchParams.get("page") ?? "/"), origin: forwardedRequestOrigin(request), route: pathname.slice(0, pathname.indexOf(commentsRoute) + commentsRoute.length) }
-    }
-    if (action === "pair" && code && !parts[3]) {
-      const who = { user, gate, subject: { kind: "page", id: "/" }, page: "/", origin: "", route: "" }
-      if (method === "GET") return json({ data: await service.check(who, decodeURIComponent(code)) })
-      if (method === "DELETE") {
-        await service.cancel(who, decodeURIComponent(code))
-        return json({ data: null })
-      }
-    }
-    const who = await caller()
-    if (!who) return failure(commentsErrors.COMMENTS_INVALID_INPUT({ issue: "page: Give the page that Send is on." }))
-    if (method === "GET" && action === "status" && !code) return json({ data: await service.status(who) })
-    if (method === "POST" && action === "start" && !code) return respond(await service.start(who))
-    if (method === "POST" && action === "allow" && !code) {
-      const body = await readJson(request)
-      const given: unknown = typeof body === "object" && body !== null ? Reflect.get(body, "code") : undefined
-      if (typeof given !== "string" || !given) return failure(commentsErrors.COMMENTS_INVALID_INPUT({ issue: "code: Send the setup code that the agent used." }))
-      const selection: unknown = typeof body === "object" && body !== null ? Reflect.get(body, "selection") : undefined
-      return respond(await service.allow(who, given, typeof selection === "string" ? selection : ""))
-    }
-    if (method === "POST" && !action) return respond(await service.send(who))
-    return json({ error: { code: "COMMENTS_NOT_FOUND", why: `No Comments route ${method} ${url.pathname.slice(url.pathname.indexOf(commentsRoute) + commentsRoute.length)}.` } }, { status: 404 })
-  }
-
   async function route(request: CommentsRequest): Promise<Response> {
     const url = new URL(request.url)
     const path = url.pathname.slice(url.pathname.indexOf(commentsRoute) + commentsRoute.length).replace(/\/+$/, "") || "/"
@@ -569,9 +511,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): { fetch(
     // Only the routes that read the subject call `page` of `defineComments()`.
     const pageOf = async () => page ? await resolveCommentsPage(comments, request, request, page) : subjectKind && subjectId ? { subject: { kind: subjectKind, id: subjectId } } : undefined
     const subjectOf = async (): Promise<CommentSubject | undefined> => (await pageOf())?.subject
-    const pairing = method === "POST" && path === "/send/pair"
-    if (method !== "GET" && !pairing && !sameOrigin(request)) return json({ error: { code: "COMMENTS_FORBIDDEN", why: "Comments requests must come from the site's own pages." } }, { status: 403 })
-    if (parts[0] === "send") return await sendRoute(request, url, parts, pageOf)
+    if (method !== "GET" && !sameOrigin(request)) return json({ error: { code: "COMMENTS_FORBIDDEN", why: "Comments requests must come from the site's own pages." } }, { status: 403 })
 
     if (method === "GET" && path === "/session") {
       const current = await pageOf()

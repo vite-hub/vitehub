@@ -4,13 +4,12 @@ import { markCommentsDefinition } from "./operations-core/define.ts"
 import { commentsErrorDiagnostics } from "./operations-core/errors.ts"
 import { can, createThread, earlierReply, earlierThread, editMessage, replyToThread, scopeOf, suggest, threadChanged } from "./operations-core/service.ts"
 import { commentsErrors } from "./errors.ts"
-import { commentSendOf, pendingKey, runtimeOf, runtimes } from "./installed.ts"
+import { pendingKey, runtimeOf, runtimes } from "./installed.ts"
 import { normalizeCommentPage } from "./page.ts"
 
 import type { Result } from "@vite-hub/runtime"
 import type { CommentAction, CommentsPolicyGate, CommentsUser } from "./operations-core/define.ts"
 import type { CommentsRuntime } from "./operations-core/service.ts"
-import type { CommentSendListOptions, CommentSendPolicy, CommentSendView } from "./send/service.ts"
 import type {
   CommentActor,
   CommentMessage,
@@ -31,7 +30,6 @@ export { describeCommentContext } from "./context.ts"
 export { commentRoom, normalizeCommentPage } from "./page.ts"
 export { commentsRoleAllows, defaultPolicy, defineCommentSubject } from "./operations-core/define.ts"
 export type { CommentsPolicyGate } from "./operations-core/define.ts"
-export type { CommentSendListOptions, CommentSendPolicy, CommentSendThread, CommentSendView } from "./send/service.ts"
 export type * from "./types.ts"
 
 type Codes<T extends CommentsErrorCode> = T
@@ -59,7 +57,7 @@ export interface Comments {
   reply(threadId: string, input: ReplyInput, options?: ReplyOptions): Promise<Result<CommentMessage, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND" | "COMMENTS_INVALID_INPUT" | "COMMENTS_RESOLVED">>>
   /** `actor`: the agent that resolves it for `by`, as on `reply`. */
   resolve(threadId: string, options: { by: CommentUser, actor?: CommentActor }): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
-  /** With `send`, it can restore a done inbox send or make the thread available to send again to a webhook agent. */
+  /** Opens a resolved thread again. */
   reopen(threadId: string): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
   /** Deletes a thread and all its messages. */
   remove(threadId: string): Promise<Result<void, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
@@ -76,16 +74,6 @@ export interface Comments {
   can(context: { user: CommentsUser | null, action: CommentAction, thread?: CommentThread, subject?: CommentSubject, console?: boolean }, gate?: CommentsPolicyGate): Promise<boolean>
   /** People that `@` suggests to `user`, at most 20: `people`, else Auth, else the authors of threads that `user` may read. */
   people(context: { query: string, user: CommentsUser | null, thread?: CommentThread, subject?: CommentSubject, limit?: number, gate?: CommentsPolicyGate }): Promise<Result<CommentUser[], Codes<"COMMENTS_NOT_INSTALLED">>>
-  /**
-   * With `send`: the sends of `user`, newest first, with the threads that `user` may still read. Default: the ones that
-   * reached the agent and that it has not finished, at most 20. As it scans, it marks finished sends as done.
-   */
-  listSends(user: CommentsUser, options?: CommentSendListOptions): Promise<Result<CommentSendView[], Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_SEND_OFF">>>
-  /**
-   * With `send`: a send of `user` with the threads that `user` may still read, as `comments_get_send` opens it. A send
-   * that reached the agent becomes `working`, also while its delivery waits for the receiver's answer.
-   */
-  readSend(user: CommentsUser, id: string, policy?: CommentSendPolicy): Promise<Result<CommentSendView, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND" | "COMMENTS_SEND_OFF">>>
   /**
    * With `forge`: brings the thread's pull request comments in line with the thread now, and posts what failed
    * before. Every change starts this on its own; `flush()` waits for it.
@@ -234,7 +222,6 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
       const thread = await current.store.setStatus(threadId, "open", { id: "" }, Date.now()).catch(gone)
       if (!thread) return notFound(threadId)
       await threadChanged(current, thread)
-      await current.reopened?.(thread)
       return [undefined, thread]
     },
     async remove(threadId) {
@@ -288,19 +275,6 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
       if (!current) return notInstalled()
       if (subject) scopeOf(current, subject)
       return [undefined, await suggest(current, { limit: Math.min(Math.max(limit, 1), 20), query, user, ...(gate ? { gate } : {}), ...(thread ? { thread } : {}), ...(subject ? { subject } : {}) })]
-    },
-    async listSends(user, listOptions) {
-      if (!await runtime()) return notInstalled()
-      const service = await commentSendOf(comments)
-      if (!service) return [commentsErrors.COMMENTS_SEND_OFF(), undefined]
-      return [undefined, await service.listOwn(user, listOptions)]
-    },
-    async readSend(user, id, policy) {
-      if (!await runtime()) return notInstalled()
-      const service = await commentSendOf(comments)
-      if (!service) return [commentsErrors.COMMENTS_SEND_OFF(), undefined]
-      const opened = await service.readOwn(user, id, policy)
-      return opened ? [undefined, opened] : notFound(id)
     },
     async sync(threadId) {
       await runtime()

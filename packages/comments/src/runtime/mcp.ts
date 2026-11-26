@@ -4,7 +4,7 @@ import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
 import { commentsErrors } from "../errors.ts"
 import { authorOf, guestFromHeaders, text } from "../identity.ts"
-import { commentSendOf, runtimeOf } from "../installed.ts"
+import { runtimeOf } from "../installed.ts"
 import { commentsErrorDiagnostics } from "../operations-core/errors.ts"
 import { base64, readAttachment } from "../operations-core/service.ts"
 import { commentsPageScope, normalizeCommentPage } from "../page.ts"
@@ -122,7 +122,7 @@ export function commentsMcpTools(comments: Comments, options: CommentsMcpToolsOp
     return { thread, grant: toolGrant.issue({ action, threadId: thread.id }) }
   }
 
-  const tools: ViteHubMcpTool[] = [
+  return [
     {
       name: "comments_list_threads",
       title: "List ViteHub Comments threads",
@@ -195,7 +195,7 @@ export function commentsMcpTools(comments: Comments, options: CommentsMcpToolsOp
       section: "comments",
       inputSchema: {
         type: "object",
-        properties: { id: { type: "string", description: "The thread id." }, body: { type: "string", description: "Markdown, at most 10,000 characters." }, ...comments.options.send ? { send: { type: "string", description: "The send ID from comments_get_send when answering an ask." } } : {} },
+        properties: { id: { type: "string", description: "The thread id." }, body: { type: "string", description: "Markdown, at most 10,000 characters." } },
         required: ["id", "body"],
         additionalProperties: false,
       },
@@ -206,14 +206,8 @@ export function commentsMcpTools(comments: Comments, options: CommentsMcpToolsOp
         const { thread, grant } = found
         const author = identity.user ? authorOf(identity.user) : guestFor(context)
         if (!author) return forbidden("write")
-        const send = text(input.send)
-        if (send) {
-          const service = await commentSendOf(comments)
-          const opened = identity.user && !identity.user.guest && await service?.readOwn(identity.user, send, { gate: identity.gate, console: admitted })
-          if (!opened || !opened.threads.some(entry => entry.id === thread.id && entry.role === "ask")) return forbidden("write")
-        }
         spend(grant, "write", thread.id)
-        const [error, message] = await comments.reply(thread.id, { body: text(input.body) ?? "", author, ...(send ? { actor: { id: "comments-mcp", name: "Comments agent" } } : {}) })
+        const [error, message] = await comments.reply(thread.id, { body: text(input.body) ?? "", author })
         if (error) return failure(error.why)
         await comments.flush()
         return { text: `Replied to thread ${thread.id}.`, structured: { message: { ...message } } }
@@ -244,30 +238,4 @@ export function commentsMcpTools(comments: Comments, options: CommentsMcpToolsOp
       },
     },
   ]
-  if (comments.options.send) {
-    tools.push({
-      name: "comments_get_send",
-      title: "Read a ViteHub Comments send",
-      description: "ViteHub Comments: read the threads that the signed-in user sent to their agent with Send in the comment pill. Each thread says whether it is an ask, the user's own question, or a quote, what someone else said. Without an id, it reads the user's latest send that no agent read yet. Answer each ask with comments_reply, passing the send ID as `send`.",
-      section: "comments",
-      annotations: { readOnlyHint: true },
-      inputSchema: { type: "object", properties: { id: { type: "string", description: "The send id, such as send_… from the delivery. Default: the latest unread send." } }, additionalProperties: false },
-      async call(input, context) {
-        const { user, gate } = await identityFor(context)
-        if (!user || user.guest) return forbidden("read")
-        const service = await commentSendOf(comments)
-        if (!service) return failure(`${commentsErrors.COMMENTS_SEND_OFF().why} ${commentsErrors.COMMENTS_SEND_OFF().fix}`)
-        const id = text(input.id)
-        const opened = await service.readOwn(user, id, { gate, console: admitted })
-        if (!opened) return failure(id ? `No send ${id} of this user.` : "This user has no send that an agent did not read yet.")
-        const { send, threads } = opened
-        const lines = [
-          `Send ${send.id} from ${send.page}, ${new Date(send.createdAt).toISOString()}: ${threads.length} ${threads.length === 1 ? "thread" : "threads"}.`,
-          ...threads.flatMap(thread => ["", `${thread.role === "ask" ? "Ask" : "Quote"}: ${describeThread(thread)}`]),
-        ]
-        return { text: lines.join("\n"), structured: { send: { ...send }, threads: threads.map(thread => ({ ...thread })) } }
-      },
-    })
-  }
-  return tools
 }

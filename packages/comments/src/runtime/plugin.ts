@@ -48,8 +48,6 @@ export interface CommentsPluginOptions extends CommentsSessionOptions {
   /** The tables of a Postgres Database. Default: the SQLite tables. */
   tables?: InstallCommentsOptions["tables"]
   dialect?: InstallCommentsOptions["dialect"]
-  /** Loads `@vite-hub/webhooks`, when `defineComments({ send })` is on. */
-  webhooks?: InstallCommentsOptions["webhooks"]
   /** Loads `@vite-hub/comments/realtime`, when the app has the page presence rooms. */
   realtime?: InstallCommentsOptions["realtime"]
   /** Install more segments of the pill, such as the **Console** segment of `vite-hub`. Only with the overlay on. */
@@ -91,7 +89,6 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
         ...(options.users ? { users: options.users } : {}),
         ...(options.attachments ? { attachments: options.attachments } : {}),
         ...(options.rateLimit ? { rateLimit: options.rateLimit } : {}),
-        ...(options.webhooks ? { webhooks: options.webhooks } : {}),
         ...(options.realtime ? { realtime: options.realtime } : {}),
       })
     })().catch((error: unknown) => {

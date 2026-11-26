@@ -275,7 +275,7 @@ describe("hosted Comments API", () => {
     const session = await call(db, portal.id, token, "/session?page=/portal/docs")
     expect(session.body.data).toMatchObject({ attachments: false, can: { comment: true }, user: { id: "u-ada", name: "Ada" } })
     expect(session.headers.get("cache-control")).toBe("private, no-store")
-    for (const [method, path] of [["POST", "/attachments"], ["GET", "/files/x"], ["POST", "/send/pair"], ["GET", "/mcp"], ["PUT", "/threads"], ["GET", ""], ["GET", "/../authorize"]] as const) {
+    for (const [method, path] of [["POST", "/attachments"], ["GET", "/files/x"], ["GET", "/mcp"], ["PUT", "/threads"], ["GET", ""], ["GET", "/../authorize"]] as const) {
       const refused = await call(db, portal.id, token, path, { method, ...(method === "GET" ? {} : { json: {} }) })
       expect(refused.status, `${method} ${path}`).toBe(404)
     }

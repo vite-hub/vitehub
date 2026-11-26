@@ -7,8 +7,6 @@ import { tenantCommentsStore } from "./operations-core/tenant-store.ts"
 import { commentsSchemaGate } from "./migrate.ts"
 import { commentsSchema } from "./operations-core/database.ts"
 import { createForgeSync, logSyncFailure } from "./forge/sync.ts"
-import { commentSendsTables } from "./send/database.ts"
-import { createCommentSendService } from "./send/service.ts"
 import { pendingKey, runtimes } from "./installed.ts"
 
 import type { SharedRateLimit } from "@vite-hub/internal/runtime/client-rate-limit"
@@ -20,7 +18,6 @@ import type { CommentsSchemaOwner } from "./migrate.ts"
 import type { TenantCommentsStoreOptions } from "./operations-core/tenant-store.ts"
 import type { CommentThread, CommentsRequestEvent } from "./types.ts"
 import type { Installed } from "./installed.ts"
-import type { CommentSendWebhooks } from "./send/service.ts"
 
 export interface InstallCommentsOptions {
   database: CommentsDatabase
@@ -42,11 +39,6 @@ export interface InstallCommentsOptions {
   schema?: CommentsSchemaOwner
   /** The SQL dialect of `database`. Default `sqlite`: SQLite, libSQL, and D1. */
   dialect?: "sqlite" | "postgresql"
-  /**
-   * Loads `@vite-hub/webhooks`, for `defineComments({ send })`. The generated plugin passes it when `send` is on.
-   * Without it, the Send routes answer `COMMENTS_SEND_OFF`.
-   */
-  webhooks?: () => Promise<CommentSendWebhooks>
   /**
    * Loads `@vite-hub/comments/realtime`, when the app has the page presence rooms. After each change of a thread, it
    * tells the open pages of the thread to load their threads again. The generated plugin passes it.
@@ -126,11 +118,7 @@ export function installComments(comments: Comments, install: InstallCommentsOpti
       },
     }
   }
-  const send = comments.options.send && install.webhooks && (install.dialect ?? "sqlite") === "sqlite"
-    ? createCommentSendService({ comments, database: install.database, webhooks: install.webhooks, ...(install.schema === "comments" ? { createTables: commentSendsTables } : {}) })
-    : undefined
-  if (send) runtime.reopened = thread => send.reopened(thread)
-  runtimes.set(comments, { runtime, ...(sync ? { sync } : {}), ...(send ? { send } : {}) })
+  runtimes.set(comments, { runtime, ...(sync ? { sync } : {}) })
   // The comment operations of the Console, the CLI, and MCP share the runtime.
   if (!install.tenant) installCommentsRuntime(runtime)
   return runtime
