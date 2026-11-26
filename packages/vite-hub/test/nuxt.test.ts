@@ -410,7 +410,6 @@ describe("ViteHub Nuxt integration", () => {
     await writeFile(`${tmp}/vitehub-nuxt/package.json`, `${JSON.stringify({ name: "vitehub-nuxt" })}\n`)
     await rm(`${tmp}/vitehub-nuxt/app/package.json`, { force: true })
     await rm(`${tmp}/vitehub-nuxt/custom-server`, { force: true, recursive: true })
-    // Each test reads the Console plugin that it wrote, not one that an earlier test left.
     await rm(`${tmp}/vitehub-nuxt/.vitehub/nitro/console`, { force: true, recursive: true })
     mocks.objectHook.mockClear()
     mocks.agentHook.mockClear()

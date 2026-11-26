@@ -38,6 +38,11 @@ const notPrimitives: Record<string, string> = {
   ui: "Vue parts that the other primitives render.",
 }
 
+export const nuxtSupport = {
+  rows,
+  notPrimitives,
+}
+
 async function viteHubFeatureKeys() {
   const manifest = JSON.parse(await readFile(join(repoRoot, "packages/vite-hub/package.json"), "utf8")) as PackageManifest
   const owners = Object.keys({ ...manifest.dependencies, ...manifest.peerDependencies })
