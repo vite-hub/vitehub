@@ -48,7 +48,7 @@ function fakeContent(options: { can?: boolean, fail?: Error } = {}) {
   return { runtime, saves }
 }
 
-async function setup(input: { user?: CommentsUser | null, options?: DefineCommentsOptions, content?: ReturnType<typeof fakeContent>, session?: CommentsHandlerOptions["session"] } = {}) {
+async function setup(input: { user?: CommentsUser | null, options?: DefineCommentsOptions, content?: ReturnType<typeof fakeContent>, session?: CommentsHandlerOptions["session"], build?: CommentsHandlerOptions["build"] } = {}) {
   // Each test names its policy; the default policy has tests of its own.
   const comments = await createComments({ identify: () => input.user === undefined ? { id: "ada", name: "Ada" } : input.user, authorize: () => true, ...input.options })
   const app = new H3().all("/_vitehub/comments/**", createCommentsHandler({
@@ -56,7 +56,7 @@ async function setup(input: { user?: CommentsUser | null, options?: DefineCommen
     session: input.session,
     content: input.content ? { runtime: input.content.runtime, parseField } : undefined,
     realtime: true,
-    build: { commit: "abc123", branch: "main" },
+    build: input.build ?? { commit: "abc123", branch: "main" },
     components: { PricingCard: ["app/components/PricingCard.vue"], index: ["app/pages/index.vue", "app/pages/blog/index.vue"] },
   }))
   const call = async (path: string, init: RequestInit & { json?: unknown } = {}) => {
@@ -79,6 +79,17 @@ describe("Comments API", () => {
     expect((await call("/session?page=/allowed/?preview=1")).body.data.can).toEqual({ read: true, comment: true, resolve: true, delete: true })
     expect((await call("/session?page=/denied")).body.data.can).toEqual({ read: false, comment: false, resolve: false, delete: false })
     expect((await call("/session")).body.data.can.read).toBe(false)
+  })
+
+  it("names the app's GitHub repository in the session of a person who may read", async () => {
+    const build = { commit: "abc123", branch: "main", repository: "acme/site" }
+    const readers = await setup({ build, options: { authorize: ({ action }) => action === "read" } })
+    expect((await readers.call("/session?page=/")).body.data.repository).toBe("acme/site")
+    const forge = await setup({ build, options: { forge: { provider: "github", repository: "acme/docs" } } })
+    expect((await forge.call("/session?page=/")).body.data.repository).toBe("acme/docs")
+    const strangers = await setup({ build, options: { authorize: () => false } })
+    expect((await strangers.call("/session?page=/")).body.data).not.toHaveProperty("repository")
+    expect((await (await setup()).call("/session?page=/")).body.data).not.toHaveProperty("repository")
   })
 
   it("pages past denied threads for page and unfiltered HTTP lists", async () => {

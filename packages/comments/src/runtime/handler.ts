@@ -330,6 +330,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): { fetch(
     const signOut = user && user.github && github ? `${route}/auth/sign-out` : undefined
     const send = Boolean(comments.options.send && user && !user.guest && comment && await commentSendOf(comments))
     const agent = identity.commentsAgent && read ? { ...identity.commentsAgent, mcp: `${configuredConsoleOrigin()}/mcp/account` } : undefined
+    const repository = read ? comments.options.forge?.repository ?? options.build?.repository : undefined
     return json({
       data: {
         user: user ? authorOf(user) : null,
@@ -343,6 +344,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): { fetch(
         content: Boolean(options.content),
         ...(send ? { send: true } : {}),
         ...(agent ? { agent } : {}),
+        ...(repository ? { repository } : {}),
         ...(subject ? { subject } : {}),
         ...(revision === undefined ? {} : { revision }),
       },

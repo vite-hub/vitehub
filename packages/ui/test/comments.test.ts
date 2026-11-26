@@ -9,7 +9,7 @@ import { createMemoryTransport } from "@vite-hub/comments/testing";
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import { renderToString } from "@vue/server-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createSSRApp, defineComponent, h, nextTick, ref } from "vue";
+import { createSSRApp, defineComponent, h, nextTick, ref, type VNode } from "vue";
 import {
   CommentComposer,
   CommentFilters,
@@ -617,7 +617,7 @@ describe("pins and threads", () => {
 });
 
 describe("deep link", () => {
-  function harness(threads: CommentThreadModel[], search: string) {
+  function harness(threads: CommentThreadModel[], search: string, slots: { actions?: (scope: { thread: CommentThreadModel }) => VNode[] } = {}) {
     const { client } = setup(threads);
     const wrapper = mount(
       defineComponent({
@@ -627,7 +627,7 @@ describe("deep link", () => {
             location: () => ({ href: `http://app.test/pricing${search}`, origin: "http://app.test", search }),
             subject: pricing,
           });
-          return () => h(CommentLayer, { comments });
+          return () => h(CommentLayer, { comments }, slots);
         },
       }),
       { attachTo: document.body, global },
@@ -644,6 +644,17 @@ describe("deep link", () => {
     const open = wrapper.get("[data-slot=comment-thread]:not([data-preview])");
     expect(open.attributes("aria-label")).toBe("Comment 2");
     expect(wrapper.get("[data-slot=comment-pin][aria-label^='Comment 2']").attributes("data-active")).toBe("true");
+  });
+
+  it("puts the actions slot in the header of the thread that opens", async () => {
+    const { client, wrapper } = harness([thread(1), thread(2)], "?comment=2", {
+      actions: ({ thread }) => [h("button", { "data-test": "thread-action" }, `Act on ${thread.n}`)],
+    });
+    await vi.waitFor(() => expect(client.status).toBe("ready"));
+    await flushPromises();
+
+    const open = wrapper.get("[data-slot=comment-thread]:not([data-preview])");
+    expect(open.get("[data-slot=comment-thread-actions] [data-test=thread-action]").text()).toBe("Act on 2");
   });
 
   it("opens a resolved thread too, and ignores a number that does not exist", async () => {

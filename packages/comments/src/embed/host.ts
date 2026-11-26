@@ -1,5 +1,6 @@
 import { viteHubPageToolsWanted } from "@vite-hub/internal/runtime/page-tools-shared"
 
+import { gitHubRepositoryOf } from "../agent-prompt.ts"
 import { commentsAnswerError, commentsUnansweredError } from "../client-diagnostics.ts"
 import { embedChannelName, embedCodeParam, embedConnectType, embedPath } from "./protocol.ts"
 
@@ -102,7 +103,7 @@ async function relayed(channel: BroadcastChannel, code: string): Promise<boolean
   })
 }
 
-async function start(projectId: string, consoleOrigin: string): Promise<void> {
+async function start(projectId: string, consoleOrigin: string, repository: string | undefined): Promise<void> {
   const code = takeCode()
   const hint = `vitehub-comments:${projectId}`
   if (!code && !remembered(hint) && !viteHubPageToolsWanted(location.search, document.cookie)) return
@@ -126,9 +127,9 @@ async function start(projectId: string, consoleOrigin: string): Promise<void> {
     return
   }
   const { mountHostedComments } = await tools
-  await mountHostedComments(frame, { id: projectId, console: consoleOrigin })
+  await mountHostedComments(frame, { id: projectId, console: consoleOrigin, ...(repository ? { repository } : {}) })
 }
 
 const script = document.querySelector<HTMLScriptElement>("script[data-vitehub-comments]")
 const projectId = script?.dataset.vitehubComments
-if (projectId) void start(projectId, new URL(import.meta.url).origin)
+if (projectId) void start(projectId, new URL(import.meta.url).origin, gitHubRepositoryOf(script?.dataset.vitehubRepo))
