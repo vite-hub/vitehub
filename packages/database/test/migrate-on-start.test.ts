@@ -1418,7 +1418,7 @@ describe("migratePostgres", () => {
       ["select to_regclass('drizzle.__drizzle_migrations') as ledger", undefined],
       ["select column_name from information_schema.columns where table_schema = 'drizzle' and table_name = '__drizzle_migrations'", undefined],
       [`select id, hash, created_at, name from ${ledgerTable}`, undefined],
-      ["select to_regclass('_hub_migrations')::text as name", undefined],
+      ["select format('%I.%I', nspname, relname) as name from pg_catalog.pg_class join pg_catalog.pg_namespace on relnamespace = pg_namespace.oid where nspname = current_schema() and relname = $1", ["_hub_migrations"]],
       ["CREATE TABLE a (id int)", undefined],
       [`insert into ${ledgerTable} ("hash", "created_at", "name") values ($1, $2, $3)`, ["hash-0001_older", 1, "0001_older"]],
     ])

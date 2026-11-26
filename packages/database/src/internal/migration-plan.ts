@@ -7,14 +7,14 @@ import { dirname, join, resolve } from "pathe"
 import { resolveConfigValue } from "../config-value.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 import { localPgliteDir, resolveLocalSqlitePath } from "../runtime/local-path.ts"
-import { migratePostgres, readHubMigrationNames, toPgliteMigrationClient, toPostgresMigrationClient } from "../runtime/migrate-on-start.ts"
+import { groupPostgresTargets, migratePostgres, reconcilePostgresHistory, toPgliteMigrationClient, toPostgresMigrationClient } from "../runtime/migrate-on-start.ts"
 import { runsOnPglite } from "../runtime/postgres-env.ts"
 import { invariantError } from "@vite-hub/internal/invariant"
 
 import { applyD1Migrations, createD1Query, d1MigrationNamesFile, listD1Migrations, readD1Ledger } from "./d1-migrations.ts"
 import { readStartMigrations } from "./migrate-on-start.ts"
 import { migrationSqlFile, readMigrations, readPendingMigration } from "./migration-journal.ts"
-import { findRenumbered, hubMigrationsTable, ledgerUpgradeProblem, ledgerUpgradeStatements, matchHubMigrations, matchLedger, matchRecordedNames, matchRenamedRows, nameLedgerTables, numberMigrationFolders, toLedgerRow } from "./migration-ledger.ts"
+import { findRenumbered, hubMigrationsTable, ledgerUpgradeProblem, ledgerUpgradeStatements, matchLedger, matchRecordedNames, matchRenamedRows, nameLedgerTables, toLedgerRow } from "./migration-ledger.ts"
 import { addStatementBreakpoints, migrationParts, withoutNewTableDataLoss } from "./migration-sql.ts"
 
 import type postgres from "postgres"
@@ -135,21 +135,6 @@ export function withoutCredentials(url: string): string {
   }
   catch {
     return "(invalid URL)"
-  }
-}
-
-interface PostgresLedgers {
-  hub: string[]
-  rows: LedgerRow[]
-}
-
-/** Reads Drizzle's ledger. `SELECT *` reads a ledger of Drizzle Kit 0.x too, which has no `name` column. */
-async function readTargetLedgers(target: Extract<MigrationTarget, { kind: "pglite" | "postgres" }>, options: MigrationPlanOptions, fail: CheckFailure, driver?: string): Promise<PostgresLedgers> {
-  switch (target.kind) {
-    case "pglite":
-      return await readPgliteLedger(target.path, options.projectRoot, fail)
-    case "postgres":
-      return await readPostgresLedger(target, options, driver)
   }
 }
 
@@ -297,21 +282,10 @@ function connectMigrationPostgres(target: { url?: string }, projectRoot: string,
   return { begin: run => sql.begin(run), end: () => sql.end({ timeout: 5 }), unsafe: (query, parameters) => sql.unsafe(query, parameters) }
 }
 
-async function readPostgresLedgers(sql: PostgresMigrationSql): Promise<PostgresLedgers> {
-  const hub = await readHubMigrationNames(sql)
+async function readPostgresLedger(sql: PostgresMigrationSql): Promise<LedgerRow[]> {
   const [table] = Array.from(await sql.unsafe("select to_regclass('drizzle.__drizzle_migrations')::text as name"))
-  if (!table?.name) return { hub, rows: [] }
-  return { hub, rows: Array.from(await sql.unsafe(`select * from ${postgresMigrationsTable}`)).map(row => toLedgerRow(row)) }
-}
-
-async function readPostgresLedger(target: Extract<MigrationTarget, { kind: "postgres" }>, options: MigrationPlanOptions, driver?: string): Promise<PostgresLedgers> {
-  const sql = connectMigrationPostgres(target, options.projectRoot, options.env, driver)
-  try {
-    return await readPostgresLedgers(sql)
-  }
-  finally {
-    await sql.end()
-  }
+  if (!table?.name) return []
+  return Array.from(await sql.unsafe(`select * from ${postgresMigrationsTable}`)).map(row => toLedgerRow(row))
 }
 
 function requireProjectPglite(projectRoot: string): typeof import("@electric-sql/pglite").PGlite {
@@ -332,24 +306,95 @@ function connectMigrationPglite(path: string, projectRoot: string, database: Res
   return { ...toPgliteMigrationClient(client), end: () => client.close() }
 }
 
-async function readPgliteLedger(path: string, projectRoot: string, fail: CheckFailure): Promise<PostgresLedgers> {
-  let PGlite: typeof import("@electric-sql/pglite").PGlite
+export type MigrationPlanResult = Result<MigrationPlan, MigrationPlanErrorCode>
+
+function migrationCheckError(database: ResolvedDrizzleDatabaseConfig, error: unknown): MigrationPlanResult {
+  if (databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED.is(error)) return [error, undefined]
+  const problem = error instanceof Error ? error.message : String(error)
+  return [databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ cause: error, database: database.name, problem }), undefined]
+}
+
+function buildMigrationPlan(database: ResolvedDrizzleDatabaseConfig, target: MigrationTarget, options: MigrationPlanOptions, entries: MigrationEntry[], applied: ReadonlySet<string>, adopted: ReadonlyMap<string, string>): MigrationPlan {
+  const pending = entries
+    .filter(entry => !applied.has(entry.tag) && !adopted.has(entry.tag))
+    .map(entry => readPendingMigration(database.migrationsDir, entry.tag, entries, database.dialect))
+  return {
+    adopted: [...adopted].map(([name, from]) => ({ from, name })),
+    applied: entries.length - pending.length,
+    database: database.name,
+    pending: withoutNewTableDataLoss(pending, database.dialect),
+    target: describeTarget(target, options.projectRoot),
+  }
+}
+
+export async function readPostgresMigrationPlans(databases: ResolvedDrizzleDatabaseConfig[], options: MigrationPlanOptions): Promise<Map<string, MigrationPlanResult>> {
+  const plans = new Map<string, MigrationPlanResult>()
+  const clients = new Set<CliPostgresClient>()
+  const targets: Array<{ client: CliPostgresClient, database: ResolvedDrizzleDatabaseConfig, entries: MigrationEntry[], key?: string, target: MigrationTarget }> = []
   try {
-    PGlite = requireProjectPglite(projectRoot)
+    for (const database of databases) {
+      try {
+        const target = resolveTarget(database, options)
+        if (target?.kind !== "postgres" && target?.kind !== "pglite") throw invariantError("Expected a Postgres migration target.")
+        const entries = readMigrations(database.migrationsDir, database.name)
+        const planEmpty = () => plans.set(database.name, [undefined, buildMigrationPlan(database, target, options, entries, new Set(), new Map())])
+        if (!entries.length) {
+          planEmpty()
+          continue
+        }
+        if (target.kind === "postgres") {
+          const client = connectMigrationPostgres(target, options.projectRoot, options.env, database.driver)
+          clients.add(client)
+          targets.push({ client, database, entries, target })
+          continue
+        }
+        let PGlite: typeof import("@electric-sql/pglite").PGlite
+        try {
+          PGlite = requireProjectPglite(options.projectRoot)
+        }
+        catch (error) {
+          throw databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ cause: error, database: database.name, problem: "It runs on PGlite, because the Definition sets `driver: \"pglite\"` or has no `connection.url` and no PG* variables, but the project cannot load `@electric-sql/pglite`. Set `connection.url` to migrate a Postgres server, or install PGlite with `pnpm add -D @electric-sql/pglite`." })
+        }
+        if (!existsSync(target.path)) {
+          planEmpty()
+          continue
+        }
+        const db = new PGlite(target.path)
+        const client = { ...toPgliteMigrationClient(db), end: () => db.close() }
+        clients.add(client)
+        targets.push({ client, database, entries, key: `pglite:${target.path}`, target })
+      }
+      catch (error) {
+        plans.set(database.name, migrationCheckError(database, error))
+      }
+    }
+    for (const group of await groupPostgresTargets(targets)) {
+      const { client, database } = group[0]!
+      try {
+        const rows = await readPostgresLedger(client)
+        const match = matchLedger(rows, group.flatMap(({ entries }) => entries))
+        const problem = drizzleLedgerProblem(match, database.migrationsDir)
+        if (problem) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: database.name, problem })
+        const history = await reconcilePostgresHistory(client, group.map(({ database, entries }) => ({ name: database.name, tags: entries.map(entry => entry.tag) })), match.applied)
+        for (const { database, target, entries } of group) {
+          const adopted = new Map(entries.filter(entry => history.adopted.includes(entry.tag)).map(entry => [entry.tag, hubMigrationsTable]))
+          const plan = buildMigrationPlan(database, target, options, entries, match.applied, adopted)
+          if (database === group[0]!.database && history.unmatched.length) plan.unmatched = history.unmatched.map(name => ({ from: hubMigrationsTable, name }))
+          plans.set(database.name, [undefined, plan])
+        }
+      }
+      catch (error) {
+        for (const { database } of group) plans.set(database.name, migrationCheckError(database, error))
+      }
+    }
   }
   catch (error) {
-    // Check it before the folder exists too: `vitehub database migrate` needs it to apply the first migration.
-    throw fail("It runs on PGlite, because the Definition sets `driver: \"pglite\"` or has no `connection.url` and no PG* variables, but the project cannot load `@electric-sql/pglite`. Set `connection.url` to migrate a Postgres server, or install PGlite with `pnpm add -D @electric-sql/pglite`.", error)
-  }
-  // A missing folder has no applied migrations. Do not let PGlite create it.
-  if (!existsSync(path)) return { hub: [], rows: [] }
-  const client = new PGlite(path)
-  try {
-    return await readPostgresLedgers(toPgliteMigrationClient(client))
+    for (const { database } of targets) plans.set(database.name, migrationCheckError(database, error))
   }
   finally {
-    await client.close()
+    await Promise.all([...clients].map(client => client.end()))
   }
+  return plans
 }
 
 /**
@@ -359,7 +404,7 @@ async function readPgliteLedger(path: string, projectRoot: string, fail: CheckFa
 export async function readMigrationPlan(
   database: ResolvedDrizzleDatabaseConfig,
   options: MigrationPlanOptions,
-): Promise<Result<MigrationPlan, MigrationPlanErrorCode>> {
+): Promise<MigrationPlanResult> {
   const target = resolveTarget(database, options)
   if (!target) {
     const url = resolveConfigValue(database.connection?.url, options.env)?.trim()
@@ -370,6 +415,7 @@ export async function readMigrationPlan(
   }
   const fail: CheckFailure = (problem, cause) => databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ cause, database: database.name, problem })
   try {
+    if (target.kind === "postgres" || target.kind === "pglite") return (await readPostgresMigrationPlans([database], options)).get(database.name)!
     const entries = readMigrations(database.migrationsDir, database.name, { flat: target.kind === "d1-http" })
     if (target.kind === "d1-http") {
       const ledger = await readD1Ledger(createD1Query(target, fail, options.fetch), database, entries)
@@ -379,47 +425,15 @@ export async function readMigrationPlan(
       const adopted = ledger.adopted.map(migration => ({ from: migration.from, name: migration.tag }))
       return [undefined, { adopted, applied: ledger.applied.size, database: database.name, pending: withoutNewTableDataLoss(pending), target: describeTarget(target, options.projectRoot) }]
     }
-    let applied: ReadonlySet<string>
-    let adopted = new Map<string, string>()
-    let unmatched: AdoptedMigration[] | undefined
-    if (target.kind === "local" || target.kind === "libsql") {
-      // A missing file has no applied migrations. Do not let libSQL create it.
-      const ledgers = !entries.length || (target.kind === "local" && !existsSync(target.path))
-        ? { recorded: [] }
-        : await withSqliteClient(target, client => readSqliteLedgers(client, recordedLedgerTables(database)))
-      const match = matchSqliteLedgers(ledgers, entries, database.migrationsDir)
-      if ("problem" in match) return [databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: database.name, problem: match.problem }), undefined]
-      applied = match.applied
-      adopted = match.adopted
-    }
-    else {
-      // Drizzle 1.0 applies each migration folder whose name the ledger does not list.
-      const ledgers = entries.length ? await readTargetLedgers(target, options, fail, database.driver) : { hub: [], rows: [] }
-      const match = matchLedger(ledgers.rows, entries)
-      const problem = drizzleLedgerProblem(match, database.migrationsDir)
-      if (problem) return [databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: database.name, problem }), undefined]
-      applied = match.applied
-      const hub = matchHubMigrations(ledgers.hub, numberMigrationFolders(entries.map(entry => entry.tag)), applied)
-      if ("problem" in hub) return [databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: database.name, problem: hub.problem }), undefined]
-      adopted = new Map(hub.adopted.map(tag => [tag, hubMigrationsTable]))
-      unmatched = hub.unmatched.map(name => ({ from: hubMigrationsTable, name }))
-    }
-    const pending = entries
-      .filter(entry => !applied.has(entry.tag) && !adopted.has(entry.tag))
-      .map(entry => readPendingMigration(database.migrationsDir, entry.tag, entries, database.dialect))
-    return [undefined, {
-      adopted: [...adopted].map(([name, from]) => ({ from, name })),
-      applied: entries.length - pending.length,
-      database: database.name,
-      pending: withoutNewTableDataLoss(pending, database.dialect),
-      target: describeTarget(target, options.projectRoot),
-      ...unmatched?.length && { unmatched },
-    }]
+    const ledgers = !entries.length || (target.kind === "local" && !existsSync(target.path))
+      ? { recorded: [] }
+      : await withSqliteClient(target, client => readSqliteLedgers(client, recordedLedgerTables(database)))
+    const match = matchSqliteLedgers(ledgers, entries, database.migrationsDir)
+    if ("problem" in match) return [databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: database.name, problem: match.problem }), undefined]
+    return [undefined, buildMigrationPlan(database, target, options, entries, match.applied, match.adopted)]
   }
   catch (error) {
-    if (databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED.is(error)) return [error, undefined]
-    const problem = error instanceof Error ? error.message : String(error)
-    return [databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ cause: error, database: database.name, problem }), undefined]
+    return migrationCheckError(database, error)
   }
 }
 

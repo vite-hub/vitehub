@@ -328,6 +328,49 @@ describe("NuxtHub's _hub_migrations on PGlite", () => {
     "INSERT INTO _hub_migrations (name) VALUES ('0000_init');",
   ].join("\n")
 
+  it.each(["preserved", "ambiguous", "fallback", "read-only"])("handles %s history without skipping pending SQL", async (scenario) => {
+    const { PGlite } = await import("@electric-sql/pglite")
+    const { drizzle } = await import("drizzle-orm/pglite")
+    const client = new PGlite("memory://")
+    const makeDatabase = (name: string, tag: string, statement: string) => ({
+      db: drizzle({ client }), dialect: "postgresql" as const,
+      migrations: [{ dataLoss: [], hash: `hash-${tag}`, name: tag, statements: [statement], when: 1 }], name,
+    })
+    const options = { log: () => {} }
+    try {
+      await client.exec(nuxtHubHistory)
+      if (scenario === "preserved") {
+        await client.exec("update _hub_migrations set name = '0001_seed'")
+        const database = makeDatabase("default", "20260101000000_0001_seed", "create table notes (id int)")
+        database.migrations.push(...makeDatabase("default", "20260102000000_seed", "create table next_seed (id int)").migrations)
+        await migrateOnStart([database], options)
+        expect((await client.query("select to_regclass('next_seed')::text as name")).rows).toEqual([{ name: "next_seed" }])
+      }
+      else if (scenario === "ambiguous") {
+        const first = makeDatabase("first", "20260101000000_init", "create table notes (id int)")
+        const second = makeDatabase("second", "20260102000000_init", "create table widgets (id int)")
+        await expect(migrateOnStart([first, second], options)).rejects.toMatchObject({ code: "DATABASE_MIGRATION_CHECK_FAILED" })
+        expect((await client.query("select to_regclass('drizzle.__drizzle_migrations') as ledger")).rows).toEqual([{ ledger: null }])
+      }
+      else if (scenario === "fallback") {
+        await client.exec("create schema app; set search_path to app, public")
+        await migrateOnStart([makeDatabase("default", "20260101000000_init", "create table widgets (id int)")], options)
+        expect((await client.query("select to_regclass('app.widgets')::text as name")).rows).toEqual([{ name: "widgets" }])
+      }
+      else {
+        const database = makeDatabase("default", "20260101000000_init", "create table notes (id int)")
+        await migrateOnStart([database], options)
+        await client.exec("create role app; grant usage on schema drizzle to app; grant select on drizzle.__drizzle_migrations to app; set role app")
+        await migrateOnStart([database], options)
+        const pending = makeDatabase("default", "20260102000000_more", "create table more (id int)")
+        await expect(migrateOnStart([pending], options)).rejects.toMatchObject({ code: "42501" })
+      }
+    }
+    finally {
+      await client.close()
+    }
+  }, 30_000)
+
   it("adopts on PGlite", async () => {
     const { PGlite } = await import("@electric-sql/pglite")
     const { drizzle } = await import("drizzle-orm/pglite")

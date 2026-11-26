@@ -525,19 +525,22 @@ describe.skipIf(!adminUrl)("database.migrateOnStart on Postgres", () => {
     cleanups.push(() => admin.unsafe(`drop role if exists ${role}`))
     const url = await createDatabase()
     const owner = connect(url)
-    const { root } = await createProject([init, seed])
+    const { migrationsDir, root } = await createProject([init, seed])
     const server = await buildNodeServer(root, {})
     await server.start(url)
     const ledger = await readLedger(owner)
     await owner.unsafe(`grant usage on schema public, drizzle to ${role}`)
     await owner.unsafe(`grant select, insert, update, delete on all tables in schema public to ${role}`)
     await owner.unsafe(`grant select on drizzle.__drizzle_migrations to ${role}`)
+    await writeNuxtHubHistory(owner, [], ["0000_init", "0001_seed"])
     const runtimeUrl = new URL(url)
     runtimeUrl.username = role
     runtimeUrl.password = "runtime"
     const runtime = connect(runtimeUrl.href)
     expect(await runtime`select has_database_privilege(current_user, current_database(), 'CREATE') as ddl`).toEqual([{ ddl: false }])
+    expect(await runtime`select has_table_privilege(current_user, '_hub_migrations', 'SELECT') as history`).toEqual([{ history: false }])
     expect((await server.start(runtimeUrl.href)).stdout.trim()).toBe(JSON.stringify([{ id: 7, name: "Ada" }]))
+    await expect(readMigrationPlan(postgresDatabase(runtimeUrl.href, migrationsDir), { env: {}, projectRoot: root })).resolves.toMatchObject([undefined, { applied: 2, pending: [] }])
     expect(await readLedger(owner)).toEqual(ledger)
   })
 
@@ -627,11 +630,12 @@ async function writeNuxtHubHistory(sql: postgres.Sql, migrations: Array<{ sql: s
 
 const ledgerRow = (migration: { sql: string, tag: string, when: number }) => ({ created_at: String(migration.when), hash: createHash("sha256").update(migration.sql).digest("hex"), name: migration.tag })
 
-function migrateCommand(root: string, database: ResolvedDrizzleDatabaseConfig) {
+function migrateCommand(root: string, ...databases: ResolvedDrizzleDatabaseConfig[]) {
   const contributor = createDbCliContributor(undefined, () => ({
-    databaseNames: [database.name],
-    databases: { [database.name]: database },
+    databaseNames: databases.map(database => database.name),
+    databases: Object.fromEntries(databases.map(database => [database.name, database])),
     generatedDrizzleConfigFile: join(root, "drizzle.config.ts"),
+    generatedDrizzleConfigFilesByDatabase: Object.fromEntries(databases.map(database => [database.name, join(root, `${database.name}.config.ts`)])),
     rootDir: root,
   }) as unknown as ResolvedDBViteConfig)!
   const command = contributor.namespaces[0]!.features.find(feature => feature.name === "migrate")!
@@ -645,6 +649,21 @@ function migrateCommand(root: string, database: ResolvedDrizzleDatabaseConfig) {
 }
 
 describe.skipIf(!adminUrl)("NuxtHub's _hub_migrations on Postgres", () => {
+  it("refuses the same ambiguous history in preview and in the locked migration", { timeout: 60_000 }, async () => {
+    const first = await createProject([init])
+    const other = await createProject([{ ...init, tag: "20260102000000_init", sql: "CREATE TABLE widgets (id int);" }])
+    const url = await createDatabase()
+    const sql = connect(url)
+    await writeNuxtHubHistory(sql, [init], ["0000_init"])
+    const migrate = migrateCommand(first.root, postgresDatabase(url, first.migrationsDir), { ...postgresDatabase(url, other.migrationsDir), name: "other" })
+    for (const flag of ["--dry-run", "--allow-data-loss"]) {
+      const result = await migrate([flag])
+      expect(result.exitCode).toBe(1)
+      expect(result.stderr).toContain("0000_init, which matches more than one migration")
+      expect(result.stdout).not.toContain("Applied before")
+    }
+    expect(await sql`select to_regclass('drizzle.__drizzle_migrations')::text as ledger`).toEqual([{ ledger: null }])
+  })
   it("does not rerun the migrations that _hub_migrations lists, and records them", { timeout: 60_000 }, async () => {
     const { migrationsDir, root } = await createProject([init, seed])
     const url = await createDatabase()
@@ -735,7 +754,8 @@ describe.skipIf(!adminUrl)("NuxtHub's _hub_migrations on Postgres", () => {
     expect(applied.stdout).toContain(`[vitehub] Database "default": applied ${addEmail.tag}.`)
     expect((await readLedger(sql)).map(row => row.name)).toEqual([init.tag, seed.tag, addEmail.tag])
     const again = await run(["--dry-run"])
-    expect(again.stdout).toContain(": no pending migrations.\n  Not in the migrations folder, as _hub_migrations lists: 0007_removed\n")
+    expect(again.stdout).toContain(": no pending migrations.\n")
+    expect(again.stdout).not.toContain("Not in the migrations folder")
   })
 
   it("fails the check when _hub_migrations lists a migration that now has another number", { timeout: 60_000 }, async () => {
