@@ -241,7 +241,7 @@ For D1 HTTP, `vitehub database migrate` uses Wrangler's migrations table (`cloud
 
 A database that another tool migrated already has a migrations table, such as NuxtHub's `_hub_migrations` or Wrangler's `d1_migrations`. `vitehub database migrate` reads it, so it does not run those migrations again. This works for local SQLite, libSQL, D1 HTTP, Postgres, and PGlite. On Postgres and PGlite, ViteHub checks `_hub_migrations` only in the first active schema in the connection's `search_path` and in [`migrationsSchema`](#keep-the-migrations-table-in-a-schema). It does not use a table from another schema. When Drizzle's ledger already lists every migration, ViteHub does not read `_hub_migrations`. If a history row matches multiple folders, the check stops rather than guessing which SQL ran.
 
-Keep the migration files when you move them, for example from `server/db/migrations/sqlite/` to `server/databases/default/migrations/`. Convert files of Drizzle Kit 0.x with `vitehub database up`, then check what ViteHub reads:
+Keep the migration files when you move them, for example from `server/db/migrations/sqlite/` to `server/databases/default/migrations/`. Convert files of Drizzle Kit 0.x and hand-written SQL files with `vitehub database up`, then check what ViteHub reads:
 
 ```bash [Terminal]
 pnpm vitehub database migrate --dry-run
@@ -263,7 +263,9 @@ A migration counts as applied when a migrations table lists one of its names:
 - the old file name that its folder keeps, such as `0000_init.sql` for the folder `20261027095547_0000_init`
 - in Drizzle's `__drizzle_migrations`, the SQL hash of a folder that you renamed
 
-`vitehub database migrate` then records these migrations in the table it uses: Drizzle's `__drizzle_migrations` for SQLite, libSQL, Postgres, and PGlite, and Wrangler's table for D1 HTTP. It reads `_hub_migrations`, `d1_migrations`, `__drizzle_migrations`, and `cloudflare.migrationsTable`. When a table lists a name that now has another number, such as `0000_init` for the migration that is now `0001_init.sql`, the check fails with `DATABASE_MIGRATION_CHECK_FAILED`. For Postgres or PGlite, verify which SQL ran and use the SQL in the diagnostic to rename the row on the affected database. A name that matches no folder does not block, because you can delete old files. When the check reads `_hub_migrations`, `--dry-run` lists such names as `Not in the migrations folder`.
+For Postgres and PGlite, a folder can keep a NuxtHub file name without a number. For example, `20261027095547_bootstrap` matches `bootstrap`, and `20261027095547_0001_init.postgresql` matches `0001_init`. These names take precedence over the numbers ViteHub assigns from folder order.
+
+`vitehub database migrate` then records these migrations in the table it uses: Drizzle's `__drizzle_migrations` for SQLite, libSQL, Postgres, and PGlite, and Wrangler's table for D1 HTTP. It reads `_hub_migrations`, `d1_migrations`, `__drizzle_migrations`, and `cloudflare.migrationsTable`. When a table lists a name that now has another number, such as `0000_init` for the migration that is now `0001_init.sql`, the check fails with `DATABASE_MIGRATION_CHECK_FAILED`. For Postgres or PGlite, verify which SQL ran and run the `UPDATE` from the diagnostic on the affected database. It names the schema of the `_hub_migrations` table that lists the row. When more than one table lists it, the diagnostic names each table, so check which one NuxtHub used. A name that matches no folder does not block, because you can delete old files. When the check reads `_hub_migrations`, `--dry-run` lists such names as `Not in the migrations folder`.
 
 On SQLite, run `vitehub database migrate` once before a server migrates on start, because [Migrate when the server starts](#migrate-when-the-server-starts) reads only Drizzle's table there. On Postgres and PGlite, migrate on start reads `_hub_migrations` too.
 
@@ -317,7 +319,9 @@ pnpm vitehub database migrate --dry-run
 
 `vitehub database up` runs `drizzle-kit up` on the migrations folder of each Database Definition, with the `sqlite` or `postgresql` dialect of the Definition. It removes `meta/` and leaves folders that already use the 1.0 layout as they are, so you can run it again. Then `vitehub database migrate --dry-run` lists no pending migrations for a database that 0.x had migrated.
 
-A folder of SQLite or D1 SQL files that you wrote by hand, such as files from `wrangler d1 migrations create`, also needs `vitehub database up` once. Drizzle Kit 1.0 skips flat `.sql` files, so `vitehub database migrate` and the build with `migrateOnStart` refuse such a folder. This is also true when `meta/_journal.json` lists only some of the files. `vitehub database up` replays the SQL on a temporary database, then moves each file to a folder that keeps its name, such as `20261029101500_0000_init/migration.sql`. The newest folder records the schema that the SQL creates, so `generate` can still write changes from your Definitions. If the SQL cannot replay or the file order would change a journal timestamp, the folder stays as it was. On D1, `d1-migrations.json` keeps the file names that Wrangler applied, so Wrangler and `vitehub database migrate` do not apply them again. D1 over HTTP can still apply flat files without the conversion.
+A folder of SQL files that you wrote by hand also needs `vitehub database up` once. Examples are files from `wrangler d1 migrations create`, or the Postgres files of NuxtHub, such as `0000_init.sql` and `0001_add_posts.sql`. Drizzle Kit 1.0 skips flat `.sql` files, so `vitehub database migrate` and the build with `migrateOnStart` refuse such a folder. This is also true when `meta/_journal.json` lists only some of the files. `vitehub database up` replays the SQL on a temporary database, then moves each file to a folder that keeps its name, such as `20261029101500_0000_init/migration.sql`. SQLite and D1 files replay on SQLite. Postgres files replay on PGlite, so install `@electric-sql/pglite`. A Postgres file whose first line is `-- vitehub:no-transaction` replays one statement at a time, outside a transaction, and keeps that line. The newest folder records the schema that the SQL creates, so `generate` can still write changes from your Definitions. When the Definitions match that schema, `generate` writes no migration. On Postgres, constraint and index names that Postgres or Drizzle Kit generated, such as `users_email_unique` or `posts_author_id_fkey`, stay as they are. If the SQL cannot replay or the file order would change a journal timestamp, the folder stays as it was. On D1, `d1-migrations.json` keeps the file names that Wrangler applied, so Wrangler and `vitehub database migrate` do not apply them again. D1 over HTTP can still apply flat files without the conversion.
+
+Postgres replay uses the same statement breakpoints as `migrate`. It also checks if an enum value can be used when the enum already exists from an applied migration. If this check fails, move the migrations that use the new value out of the folder. Convert and apply the files through the enum addition first. Then add the dependent migrations as migration folders and apply them.
 
 On SQLite, Drizzle Kit 0.x made a unique index for a `.unique()` column, and Drizzle Kit 1.0 declares a `UNIQUE` constraint in the table. `vitehub database up` records these indexes as the constraints of your Definitions in the converted snapshots, so the next `vitehub database generate` does not rebuild the tables. The database keeps its indexes, and they reject the same duplicate rows. A folder that `drizzle-kit up` or an older ViteHub converted still lists these indexes, so `vitehub database generate` records them first. Commit the changed `snapshot.json` files.
 
@@ -878,7 +882,7 @@ export default defineDatabase({
 | `cloudflare.binding` | `string` | No | Cloudflare Hyperdrive binding. Defaults to `HYPERDRIVE`, or `HYPERDRIVE_<NAME>` for a named database. |
 | `cloudflare.hyperdriveId` | `DatabaseConfigValue` | No | Hyperdrive config id. When it is known at build time, ViteHub adds the binding to the Wrangler config. |
 | `driver` | `'node-postgres' \| 'pglite'` | No | The client. Without it, ViteHub uses postgres.js. See the driver list below. |
-| `migrationsSchema` | `string` | No | The schema of Drizzle's migrations table. Defaults to `drizzle`. ViteHub does not create it. See [Keep the migrations table in a schema](#keep-the-migrations-table-in-a-schema). |
+| `migrationsSchema` | `string` | No | The schema of Drizzle's migrations table. Defaults to `drizzle`. ViteHub creates it only on PGlite, after the pending migrations. See [Keep the migrations table in a schema](#keep-the-migrations-table-in-a-schema). |
 
 | Driver | Package | Use it for |
 | --- | --- | --- |
@@ -931,14 +935,11 @@ export default defineDatabase({
 ```
 
 - ViteHub keeps `__drizzle_migrations` in `app` and creates no `drizzle` schema. This works on Postgres and PGlite.
-- ViteHub does not create the schema. Create it first, for example with `vitehub database sql 'CREATE SCHEMA "app"'`. Without it, migrate and start fail with [`DATABASE_MIGRATION_SCHEMA_MISSING`](/docs/database/diagnostics/database_migration_schema_missing).
+- On a Postgres server, ViteHub does not create the schema. Create it first, for example with `vitehub database sql 'CREATE SCHEMA "app"'`. Without it, migrate and start fail with [`DATABASE_MIGRATION_SCHEMA_MISSING`](/docs/database/diagnostics/database_migration_schema_missing). On PGlite, in a folder and in app tests, ViteHub creates the schema after the pending migrations, in the same transaction, so a migration can run `CREATE SCHEMA "app"` itself.
 - The generated Kit config gets `migrations: { schema: "app" }`, so `drizzle-kit migrate` reads the same table.
 - ViteHub also reads NuxtHub's `_hub_migrations` in that schema.
-- When the table in `drizzle` lists applied migrations that the table in `app` does not list, migrate and start fail with [`DATABASE_MIGRATION_LEDGER_MISPLACED`](/docs/database/diagnostics/database_migration_ledger_misplaced). They do not apply them again. Move the table with the command in the fix:
-
-```bash [Terminal]
-pnpm vitehub database sql 'ALTER TABLE "drizzle"."__drizzle_migrations" SET SCHEMA "app"'
-```
+- The table in `app` is the only history. ViteHub never reads history from the table in `drizzle` and never writes to it.
+- When the table in `drizzle` records a pending migration, by folder name and SQL hash, or by SQL hash and time, migrate, `--dry-run` and start fail with [`DATABASE_MIGRATION_LEDGER_MISPLACED`](/docs/database/diagnostics/database_migration_ledger_misplaced) before any change. The fix prints the SQL that copies those rows to the table in `app`. A row that lists a folder name with other SQL, or SQL under a name that no local folder has, also stops that folder or a pending migration with that SQL hash, but the fix prints no row for it. When the role cannot read the table in `drizzle`, or it records none of the pending migrations, the migrations run.
 
 Definitions on one Postgres database share its migrations table, so they must set the same `migrationsSchema`. Otherwise they fail with `DATABASE_MIGRATION_SCHEMA_CONFLICT`. A SQLite Definition with `migrationsSchema` fails with `DATABASE_UNKNOWN_OPTION`.
 

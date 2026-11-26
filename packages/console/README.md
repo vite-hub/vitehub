@@ -76,7 +76,7 @@ The Console serves the ViteHub MCP on two addresses. MCP clients do not sign in 
 | Address | Sign-in | Tools |
 | --- | --- | --- |
 | `/mcp` | None. It answers `tools/list` without a token and advertises no OAuth metadata. | `list-pages` and `get-page`. Each call goes to the docs MCP at `https://vitehub.dev/mcp`. |
-| `/mcp/account` | OAuth with the Console account. Without a token it answers `401` with `WWW-Authenticate: Bearer resource_metadata="<origin>/.well-known/oauth-protected-resource/mcp/account"`. | The docs tools, and `list_apps`, `link_app`, `check_app`, `unlink_app`, `list_operations`, `read_operation`, and `run_operation`. |
+| `/mcp/account` | OAuth with the Console account. Without a token it answers `401` with `WWW-Authenticate: Bearer resource_metadata="<origin>/.well-known/oauth-protected-resource/mcp/account"`. | The docs tools, and `list_apps`, `link_app`, `check_app`, `unlink_app`, `list_operations`, `read_operation`, `run_operation`, and `run_destructive_operation`. |
 
 ```sh
 claude mcp add --transport http vitehub https://console.vitehub.dev/mcp/account
@@ -90,9 +90,9 @@ The account tools act on the team that the person opened last in the Console, el
 - `unlink_app` permanently deletes the app's hosted threads and replies. Pass `deleteHostedComments: true` after the user confirms.
 - `check_app` calls `project.get`, and `list_operations` returns the sections and operations of the app. An app with an older vite-hub refuses the MCP fields of the caller as a malformed header (`CONSOLE_SIGNATURE_INVALID`). `check_app` then calls `project.get` as the Console page does, so the app shows as linked, and the other tools answer `CONSOLE_APP_VITEHUB_OUTDATED` with the version of the app. They do not send the call without the MCP fields, because the app would then run it without its MCP rules.
 - The account tools call the app's Operations endpoint through the forward, signed with the key of the link for the person, with `surface: "mcp"` in the signed `x-vitehub-caller`. The Agent's access token never reaches the app. The app applies its MCP rules: it refuses operations with `mcp: false` (such as `documents.action`), runs the others with the `mcp` surface (so `content.save` needs `ifDigest`), and lists only those in `project.get`.
-- `read_operation` runs an operation that only reads. The Console signs `readOnly: true` in the caller, and the app refuses a write or destructive call. The tool has `readOnlyHint: true`, so an MCP client can run it without asking the person. For example, `env.inspect` returns the Server Env status of an app, with the host variable names and no values.
-- `run_operation` runs an operation that changes data. It has `destructiveHint: true`, so an MCP client can ask the person first.
-- `run_operation` refuses a destructive call with `409` until the Agent sends `confirm: true`. The Console then signs `confirmed: true` in the caller, so a header cannot add or remove the confirmation. The tool tells the Agent to ask the person first.
+- `read_operation` runs reads and dry runs, including `content.publish` with `dryRun: true`. The Console signs `readOnly: true`, and the app refuses any call that changes data.
+- `run_operation` runs only `comments.reply` and `comments.resolve`. It has `destructiveHint: false`, so a client that asks only before destructive tools runs it without asking.
+- `run_destructive_operation` runs every other change, including writes such as `kv.set` and `blob.put`. Clients can use `destructiveHint: true` to decide when to prompt. The Console signs `confirmed: true` only if the caller passes `confirm: true`. That input is a caller assertion, not proof of consent. The app refuses other changes on the signed MCP surface without signed confirmation.
 
 ## MCP client
 

@@ -37,7 +37,6 @@ import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { createCommentVisibility, type CommentVisibility } from "./comment-visibility.ts";
 import { hasDirtyComposer, shakeDirtyComposers } from "../internal/comment-outside.ts";
 import { useSelectedComment } from "../internal/comment-selection.ts";
-import { repliedSinceResolved } from "../internal/comment-status.ts";
 import { commentsKey, injectComments } from "../internal/comments-context.ts";
 
 /**
@@ -299,7 +298,7 @@ export function useComments(options: UseCommentsOptions): CommentsState {
   const listOpen = ref(false);
   const blocked = ref(0);
 
-  const isOpen = (thread: CommentThread): boolean => thread.status === "open" || repliedSinceResolved(thread);
+  const isOpen = (thread: CommentThread): boolean => thread.status === "open";
   const passes = (thread: CommentThread): boolean => {
     const shown = (filters.open && isOpen(thread)) || (filters.resolved && thread.status === "resolved");
     if (!shown) return false;

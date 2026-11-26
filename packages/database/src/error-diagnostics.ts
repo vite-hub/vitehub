@@ -1,11 +1,21 @@
 import { defineErrors } from "@vite-hub/runtime"
 
-function quoteList(values: readonly string[]): string {
-  return values.map(value => JSON.stringify(value)).join(", ")
+import { createPostgresLedger, insertPostgresLedgerRow, postgresLedgerTable, quotePostgresName } from "./internal/postgres-ledger.ts"
+
+import type { PostgresLedgerEntry } from "./internal/postgres-ledger.ts"
+
+interface MisplacedLedger {
+  database: string
+  /** Pending migrations that a row in "drizzle" records by name and hash, or by hash and time. */
+  migrations: readonly PostgresLedgerEntry[]
+  recorded: number
+  schema: string
+  /** Pending migrations that a row in "drizzle" lists by name with other SQL, or by hash under another name. */
+  unverified: readonly string[]
 }
 
-function postgresName(name: string): string {
-  return `"${name.replaceAll("\"", "\"\"")}"`
+function quoteList(values: readonly string[]): string {
+  return values.map(value => JSON.stringify(value)).join(", ")
 }
 
 function fileList(files: readonly string[]): string {
@@ -230,13 +240,19 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Build with the Cloudflare host and give each database a D1 binding. Otherwise, remove `migrateOnDeploy` and run `vitehub database migrate` before you deploy.",
     },
     DATABASE_MIGRATION_LEDGER_MISPLACED: {
-      why: ({ database, migrations, schema }: { database: string, exists: boolean, migrations: readonly string[], schema: string }) => `The database "${database}" sets \`migrationsSchema: "${schema}"\`, but Drizzle's ledger in the schema "drizzle" lists applied migrations that the ledger in "${schema}" does not list:${fileList(migrations)}\nViteHub would apply them again.`,
-      fix: ({ exists, schema }: { database: string, exists: boolean, migrations: readonly string[], schema: string }) => {
-        const table = `${postgresName(schema)}."__drizzle_migrations"`
-        const sql = exists
-          ? `INSERT INTO ${table} (hash, created_at, name, applied_at) SELECT hash, created_at, name, applied_at FROM "drizzle"."__drizzle_migrations" WHERE name NOT IN (SELECT name FROM ${table} WHERE name IS NOT NULL)`
-          : `ALTER TABLE "drizzle"."__drizzle_migrations" SET SCHEMA ${postgresName(schema)}`
-        return `${exists ? "Copy the missing rows to the ledger in the chosen schema" : "Move the ledger to the chosen schema"} with \`vitehub database sql '${sql}'\`, then run \`vitehub database migrate --dry-run\`. Or remove \`migrationsSchema\` to keep the ledger in "drizzle".`
+      why: ({ database, migrations, schema, unverified }: MisplacedLedger) => `The database "${database}" sets \`migrationsSchema: "${schema}"\`, and the ledger ${postgresLedgerTable(schema)} does not list ${quoteList([...migrations.map(migration => migration.name), ...unverified])}.${migrations.length ? ` The ledger "drizzle"."__drizzle_migrations" records ${quoteList(migrations.map(migration => migration.name))} by folder name and SQL hash, or by SQL hash and time, so the database probably applied them before \`migrationsSchema\` was set.` : ""}${unverified.length ? ` The ledger "drizzle"."__drizzle_migrations" lists the name of ${quoteList(unverified)} with other SQL, or their SQL under a name that no local folder has, such as a folder that was renamed or edited, or another app's migration.` : ""} ViteHub reads only the ledger in "${schema}", so it could apply them again. It stopped before any change.`,
+      fix: ({ migrations, recorded, schema, unverified }: MisplacedLedger) => {
+        const table = postgresLedgerTable(schema)
+        const lines: string[] = []
+        if (migrations.length) {
+          lines.push(`${recorded ? `Keep \`migrationsSchema\`: the ledger in "${schema}" lists ${recorded} migration(s) that "drizzle" may not list, so ViteHub would apply them again without it. Verify` : `Remove \`migrationsSchema\` to keep the ledger in "drizzle". Or verify`} that this database applied ${quoteList(migrations.map(migration => migration.name))}, because another app that shares "drizzle" can apply the same migrations. Then run this SQL once in a SQL client, as a role that can create tables in "${schema}":`)
+          lines.push(...[createPostgresLedger(table), ...migrations.map(migration => insertPostgresLedgerRow(table, migration))].map(statement => `${statement};`))
+        }
+        if (unverified.length) {
+          lines.push(`The ledger in "drizzle" does not show that this database ran the exact SQL of ${quoteList(unverified)}, so ViteHub cannot tell whether they ran and prints no row for them. A hash or a name alone can only stop a migration, never mark one applied. If a folder is new, change its SQL text, for example with a SQL comment. If it ran on this database, insert its row into ${table} by hand${migrations.length ? "." : ", after you create the ledger with this SQL:"}`)
+          if (!migrations.length) lines.push(`${createPostgresLedger(table)};`)
+        }
+        return lines.join("\n")
       },
     },
     DATABASE_MIGRATION_SCHEMA_CONFLICT: {
@@ -251,14 +267,14 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
           : `has no CREATE on the schema "${schema}", so it cannot create the migration ledger there`}.`,
       fix: ({ missing, postgresDatabase, role, schema }: { database: string, missing: "create-database" | "create-schema" | "usage", postgresDatabase: string, role: string, schema: string }) => {
         const grant = missing === "create-database"
-          ? `GRANT CREATE ON DATABASE ${postgresName(postgresDatabase)} TO ${postgresName(role)}`
-          : `GRANT ${missing === "usage" ? "USAGE" : "CREATE"} ON SCHEMA ${postgresName(schema)} TO ${postgresName(role)}`
+          ? `GRANT CREATE ON DATABASE ${quotePostgresName(postgresDatabase)} TO ${quotePostgresName(role)}`
+          : `GRANT ${missing === "usage" ? "USAGE" : "CREATE"} ON SCHEMA ${quotePostgresName(schema)} TO ${quotePostgresName(role)}`
         return `As a role that owns the database, run \`vitehub database sql '${grant}'\`. Or set \`migrationsSchema\` to an existing schema where the role has USAGE and CREATE.`
       },
     },
     DATABASE_MIGRATION_SCHEMA_MISSING: {
-      why: ({ database, schema }: { database: string, schema: string }) => `The database "${database}" sets \`migrationsSchema: "${schema}"\`, but the Postgres database has no schema "${schema}". ViteHub does not create a schema that you choose.`,
-      fix: ({ schema }: { database: string, schema: string }) => `Create the schema with \`vitehub database sql 'CREATE SCHEMA ${postgresName(schema)}'\`, as a role that owns the database, or fix the name in \`migrationsSchema\`.`,
+      why: ({ database, schema }: { database: string, schema: string }) => `The database "${database}" sets \`migrationsSchema: "${schema}"\`, but the Postgres database has no schema "${schema}". On a Postgres server, ViteHub does not create a schema that you choose.`,
+      fix: ({ schema }: { database: string, schema: string }) => `Create the schema with \`vitehub database sql 'CREATE SCHEMA ${quotePostgresName(schema)}'\`, as a role that owns the database, or fix the name in \`migrationsSchema\`.`,
     },
 
     // Export errors. `vitehub database export` prints them and exits with code 1.

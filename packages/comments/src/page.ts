@@ -1,5 +1,7 @@
 import { pagePathOf } from "./operations-core/path.ts"
 
+import type { CommentSubject } from "./operations-core/types.ts"
+
 /**
  * The numbering scope of page threads: subjects of kind `page`, which the overlay pins on the app's pages. Threads on
  * subjects of your own, such as `drop`, take the scope that their subject definition gives.
@@ -8,6 +10,7 @@ export const commentsPageScope = "site"
 
 /** Name of the Realtime Definition that holds one presence room per page. */
 export const commentsRealtimeDefinition = "comments"
+export const commentsNoticeDefinition = "comments-notices"
 
 /** The route prefix of the Comments API, below the app base. */
 export const commentsRoute = "/_vitehub/comments"
@@ -48,4 +51,8 @@ export function commentRoom(page: string): string {
     b = Math.imul(b ^ code, 0x01000193 + 0x9E3779B9) >>> 0
   }
   return `pages/${a.toString(16).padStart(8, "0")}${b.toString(16).padStart(8, "0")}`
+}
+
+export function commentNoticeRoom(subject: CommentSubject): string {
+  return `subjects/${encodeURIComponent(JSON.stringify([subject.kind, subject.id]))}`
 }

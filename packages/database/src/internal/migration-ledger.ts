@@ -130,6 +130,10 @@ export interface NamedMigration {
   tag: string
 }
 
+function nuxtHubMigrationName(file: string): string {
+  return file.replace(/\.sql$/, "").replace(/\.postgresql$/, "")
+}
+
 /**
  * The names that other tools record for one migration, most exact first: the Wrangler file name, NuxtHub's name (the
  * file name without `.sql`), the Drizzle Kit folder, and the old flat file that a folder keeps in its name, such as
@@ -202,19 +206,28 @@ export interface HubMigrationsMatch {
 
 /**
  * Matches the names of NuxtHub's `_hub_migrations` to the migrations of a Postgres database that Drizzle's ledger does
- * not list. `files` has the Wrangler names of each migrations folder, from `numberMigrationFolders()`. Returns the
- * problem when a listed migration now has another number, because ViteHub would apply it again.
+ * not list. `history` maps each name to the schema-qualified tables that list it. `files` has the Wrangler names of each
+ * migrations folder, from `numberMigrationFolders()`. Returns the problem when a listed migration now has another
+ * number, because ViteHub would apply it again.
  */
-export function matchHubMigrations(names: readonly string[], files: readonly (NamedMigration & { database: string })[], applied: ReadonlySet<string>): HubMigrationsMatch | { problem: string } {
+export function matchHubMigrations(history: ReadonlyMap<string, readonly string[]>, files: readonly (NamedMigration & { database: string })[], applied: ReadonlySet<string>): HubMigrationsMatch | { problem: string } {
   const adopted = new Set<string>()
   const unmatched: string[] = []
-  for (const name of names) {
+  const listed = (name: string) => {
+    const tables = history.get(name) ?? []
+    return tables.length > 1 ? `The migrations tables ${tables.join(", ")} list ${name}` : `The migrations table ${tables[0] ?? hubMigrationsTable} lists ${name}`
+  }
+  for (const name of history.keys()) {
     const stem = name.replace(/\.sql$/, "")
-    const preserved = files.filter(({ tag }) => tag === stem || /^\d{14}_(\d+_.+)$/.exec(tag)?.[1] === stem)
+    const exact = files.filter(({ tag }) => tag === stem)
+    const preserved = exact.length ? exact : files.filter(({ tag }) => {
+      const kept = folderTag.exec(tag)?.[1]
+      return kept !== undefined && nuxtHubMigrationName(kept) === stem
+    })
     const candidates = preserved.length ? preserved : files.filter(file => file.name === `${stem}.sql`)
     if (candidates.length > 1) {
       const folders = candidates.map(({ database, tag }) => `${database}/${tag}`).sort().join(", ")
-      return { problem: `The migrations table ${hubMigrationsTable} lists ${name}, which matches more than one migration: ${folders}. Verify which SQL ran and give the row its exact migration folder name before retrying.` }
+      return { problem: `${listed(name)}, which matches more than one migration: ${folders}. Verify which SQL ran and give the row its exact migration folder name before retrying.` }
     }
     const match = candidates[0]
     if (!match) unmatched.push(name)
@@ -224,7 +237,10 @@ export function matchHubMigrations(names: readonly string[], files: readonly (Na
   if (renumbered) {
     const { moved, name } = renumbered
     const current = moved.name.replace(/\.sql$/, "")
-    return { problem: `The migrations table ${hubMigrationsTable} lists ${name}, but that migration is now ${current} (${moved.tag}), so ViteHub would apply it again. If ${moved.tag} is the migration that NuxtHub applied, select the affected database and run \`UPDATE ${hubMigrationsTable} SET name = '${moved.tag.replaceAll("'", "''")}' WHERE name = '${name.replaceAll("'", "''")}'\` using a SQL client with the same search_path.` }
+    const tables = history.get(name) ?? [hubMigrationsTable]
+    const updates = tables.map(table => `\`UPDATE ${table} SET name = '${moved.tag.replaceAll("'", "''")}' WHERE name = '${name.replaceAll("'", "''")}'\``)
+    const repair = tables.length > 1 ? `check which of these tables NuxtHub used and run its statement on the affected database: ${updates.join(", ")}` : `run ${updates[0]} on the affected database`
+    return { problem: `${listed(name)}, but that migration is now ${current} (${moved.tag}), so ViteHub would apply it again. If ${moved.tag} is the migration that NuxtHub applied, ${repair}.` }
   }
   return { adopted: [...adopted], unmatched }
 }

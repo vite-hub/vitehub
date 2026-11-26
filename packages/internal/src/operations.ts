@@ -290,6 +290,10 @@ export function operationCall(operation: Pick<AnyOperation, "kind" | "readOnlyWh
   return { kind: operation.kind, readOnly: operation.readOnlyWhen?.(input as never) === true }
 }
 
+export function isPromptFreeMcpWrite(name: string): boolean {
+  return name === "comments.reply" || name === "comments.resolve"
+}
+
 function text(value: unknown): string | undefined {
   return String(value) === value && value ? value : undefined
 }

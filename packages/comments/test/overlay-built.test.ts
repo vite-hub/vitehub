@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 import { describe, expect, it } from "vitest"
 
-import { commentRoom } from "../src/page.ts"
+import { commentNoticeRoom, commentRoom } from "../src/page.ts"
 
 describe("built Comments overlay", () => {
   it.each(["", "/portal", "/nested/portal"])("preloads its chunks and uses only the authorized page room below the asset's app base %s", async (base) => {
@@ -17,12 +17,15 @@ describe("built Comments overlay", () => {
     // The overlay preloads its chunks from its own directory, not from the site root.
     expect(preloads.length).toBeGreaterThan(0)
     for (const preload of preloads) expect(preload).toMatch(new RegExp(`^https://site\\.test${base}/_vitehub/comments/assets/[\\w-]+\\.js$`))
-    expect(sockets).toHaveLength(1)
-    const socket = new URL(sockets[0]!)
-    expect(socket.searchParams.get("clientId")).toMatch(/^\d+$/)
-    socket.searchParams.delete("clientId")
-    expect([socket.href]).toEqual([
+    const urls = sockets.map((href) => {
+      const socket = new URL(href)
+      expect(socket.searchParams.get("clientId")).toMatch(/^\d+$/)
+      socket.searchParams.delete("clientId")
+      return socket.href
+    })
+    expect(urls).toEqual([
       `wss://site.test${base}/_vitehub/realtime/comments/${commentRoom("/articles/example")}?page=%2Farticles%2Fexample`,
+      `wss://site.test${base}/_vitehub/realtime/comments-notices/${commentNoticeRoom({ kind: "page", id: "/articles/example" }).split("/").map(encodeURIComponent).join("/")}?page=%2Farticles%2Fexample`,
     ])
   })
 })
