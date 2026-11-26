@@ -8,7 +8,7 @@ import type { CommentsAgentPromptInput } from "../agent-prompt.ts"
 import type { CommentSendTransport } from "../client-send.ts"
 
 import type { CommentsRestAnswer, RestTransport } from "../rest-transport.ts"
-import type { CommentContext, CommentCreateInput, CommentsGitHubAccess, CommentSubject, CommentUser } from "../types.ts"
+import type { CommentsGitHubAccess, CommentSubject, CommentUser } from "../types.ts"
 
 export interface CommentsSession {
   user: CommentUser | null
@@ -58,6 +58,14 @@ export type ApiResult<T> = [CommentsApiError, undefined] | [undefined, T]
 const guestKey = "vitehub-comments-guest"
 const route = commentsApiRoute(import.meta.url)
 
+/**
+ * Where the outbox of the overlay keeps its comments: one queue for each destination, so a comment saved for one
+ * Comments API or Hosted Comments project never goes out through another on the same origin.
+ */
+export function overlayOutboxNamespace(): string {
+  return backend ? backend.namespace : new URL(route, location.href).href
+}
+
 /** The guest name and id this browser chose, when the site lets guests comment. */
 export function readGuest(): { id: string, name: string } | undefined {
   try {
@@ -95,6 +103,8 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<ApiResult<
  * the hosted embed, whose Console frame makes every request.
  */
 export interface CommentsOverlayBackend {
+  /** A stable key of the destination, such as the Console URL of the project, that scopes the outbox. */
+  namespace: string
   session: (page: string) => Promise<ApiResult<CommentsSession>>
   transport: (onAnswer: (answer: CommentsRestAnswer<unknown>) => void) => RestTransport
 }
@@ -116,10 +126,6 @@ export const api = {
 }
 
 export interface OverlayTransportOptions {
-  /** The page context of a new thread, which the overlay read when the draft started. */
-  contextOf: (input: CommentCreateInput) => CommentContext | undefined
-  /** The version of the subject that `/session` gave for the page. A new thread starts on it. */
-  revisionOf?: () => number | undefined
   /** The people that an answer named, so their mentions get names. */
   onPeople: (people: readonly CommentUser[]) => void
   /** After each change, so the other people on the page read the threads again. */
@@ -128,8 +134,8 @@ export interface OverlayTransportOptions {
 
 /**
  * The comment parts' transport: `createRestTransport()` over the Comments API of the page, with the guest of this
- * browser. A new thread also sends the page context that the overlay read, and each change tells the other people on
- * the page.
+ * browser. Each change tells the other people on the page. A new thread sends the `context` and `revision` that the
+ * overlay put on its input at Send, because the outbox may send a saved copy of it later.
  */
 export function createOverlayTransport(options: OverlayTransportOptions): RestTransport {
   const onAnswer = (answer: CommentsRestAnswer<unknown>) => answer.people.length && options.onPeople(answer.people)
@@ -141,12 +147,7 @@ export function createOverlayTransport(options: OverlayTransportOptions): RestTr
   }
   return {
     ...rest,
-    create: changed((input: CommentCreateInput) => {
-      const context = options.contextOf(input)
-      const revision = input.revision ?? options.revisionOf?.()
-      // SAFETY: `POST /threads` takes the page context of the overlay next to the input of `comments.create`.
-      return rest.create({ ...input, ...(context ? { context } : {}), ...(revision === undefined ? {} : { revision }) } as CommentCreateInput)
-    }),
+    create: changed(rest.create),
     reply: changed(rest.reply),
     edit: changed(rest.edit),
     delete: changed(rest.delete),

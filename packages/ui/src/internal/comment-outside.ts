@@ -31,9 +31,9 @@ export const shakeEventName = "comments:shake";
 const dirtySelector = "[data-slot='comment-composer'][data-dirty='true']";
 
 // A composer with text, the new comment, a reply, or an edit, keeps the page from closing it by accident.
-// Look in the root of the comment UI, which is a shadow root when the overlay lives in one.
-export function hasDirtyComposer(root: ParentNode = document): boolean {
-  return root.querySelector(dirtySelector) !== null;
+// Look in the root of the comment UI, which is a shadow root when the overlay lives in one. Composers that match `skip` do not count.
+export function hasDirtyComposer(root: ParentNode = document, skip?: string): boolean {
+  return [...root.querySelectorAll(dirtySelector)].some(composer => !skip || !composer.matches(skip));
 }
 
 // Shakes every composer that has text. Returns whether there was one. `escape`: Esc caused it, so the next Esc in that
