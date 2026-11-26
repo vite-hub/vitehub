@@ -14,10 +14,12 @@ import { dirname, isAbsolute, join, relative, resolve } from "pathe"
 import { formatInstallArgument, installSpecifier } from "@vite-hub/internal/features"
 import { formatRuntimeDiagnosticError, isRuntimeDiagnostic } from "@vite-hub/runtime"
 import { loadAllEnv } from "@vite-hub/internal/vite-stage"
+import { isRecord } from "@vite-hub/internal/object"
 
 import { resolveConfigValue } from "./config-value.ts"
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 import { resolveLocalSqlitePath } from "./runtime/local-path.ts"
+import { runsOnPglite } from "./runtime/postgres-env.ts"
 import { readOldMigrationsLayout } from "./internal/migrations-layout.ts"
 import { addStatementBreakpoints } from "./internal/migration-sql.ts"
 
@@ -643,6 +645,17 @@ async function runDrizzleKit(
     .filter(run => !only || run.database?.name === only)
 
   if (feature === "migrate") {
+    const env = context.env ?? process.env
+    const pgliteDatabases = runs.flatMap(({ database }) =>
+      database?.dialect === "postgresql" && runsOnPglite(database.driver, resolveConfigValue(database.connection?.url, env), env) ? [database] : [],
+    )
+    if (pgliteDatabases.length && args.some(arg => arg === "--config" || arg.startsWith("--config="))) {
+      context.stderr.write("[vitehub] `vitehub database migrate` does not support --config for PGlite. Set the migration options in the Database Definition, or run `drizzle-kit migrate --config <file>` directly.\n")
+      return 1
+    }
+    for (const database of pgliteDatabases) {
+      if (!await checkPgliteMigrationHistory(database, projectRoot, context)) return 1
+    }
     for (const run of runs) {
       if (!run.database || run.database.dialect !== "sqlite" || run.database.cloudflare?.http) continue
       // Use the same invocation-time env values and local fallback as the generated Kit config.
@@ -968,6 +981,44 @@ async function readReplayedSqliteSnapshot(
 /** The migration folders of a Drizzle Kit 1.0 migrations directory. */
 async function listMigrationFolders(migrationsDir: string): Promise<string[]> {
   return (await readdir(migrationsDir, { withFileTypes: true }).catch(() => [])).filter(entry => entry.isDirectory()).map(entry => entry.name)
+}
+
+async function hasLinearSnapshotHistory(dir: string): Promise<boolean> {
+  const ids = new Set<string>()
+  let parent = "00000000-0000-0000-0000-000000000000"
+  ids.add(parent)
+  for (const folder of (await listMigrationFolders(dir)).sort((a, b) => a.localeCompare(b))) {
+    const file = join(dir, folder, "snapshot.json")
+    if (!existsSync(file)) continue
+    const snapshot: unknown = JSON.parse(await readFile(file, "utf8"))
+    if (!isRecord(snapshot) || typeof snapshot.id !== "string" || ids.has(snapshot.id)
+      || !Array.isArray(snapshot.prevIds) || snapshot.prevIds.length !== 1 || snapshot.prevIds[0] !== parent) return false
+    ids.add(snapshot.id)
+    parent = snapshot.id
+  }
+  return true
+}
+
+async function checkPgliteMigrationHistory(database: ResolvedDrizzleDatabaseConfig, projectRoot: string, context: ViteHubCliContext): Promise<boolean> {
+  try {
+    const dir = resolve(projectRoot, database.migrationsDir)
+    if (await hasLinearSnapshotHistory(dir)) return true
+    const bin = resolveDrizzleKitBin([projectRoot, context.rootDir])
+    if (!bin) throw new Error("The migration snapshots do not form a single chain. Install a supported drizzle-kit to check the history before migrating.")
+    const result = await context.spawn(process.execPath, [bin, "check", "--dialect", "postgresql", "--out", toConfigPath(projectRoot, dir)], {
+      cwd: projectRoot,
+      env: withDrizzleKitErrorExit(context.env ?? process.env),
+      stderr: "inherit",
+      stdout: "inherit",
+    })
+    if (result.exitCode === 0) return true
+    throw new Error(`drizzle-kit check failed (exit code ${result.exitCode ?? 1}). See the drizzle-kit output above.`)
+  }
+  catch (error) {
+    const problem = error instanceof Error ? error.message : String(error)
+    context.stderr.write(`${formatRuntimeDiagnosticError(databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: database.name, problem }))}\n`)
+    return false
+  }
 }
 
 /**
