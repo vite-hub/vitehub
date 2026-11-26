@@ -197,8 +197,7 @@ async function runConsoleOperation(operation: AnyOperation, rawInput: unknown, r
     throw consoleRequestError(403, `${operation.name} is a ${classification.kind} operation, and this caller may only read.`, "CONSOLE_ACCESS_DENIED")
   }
   assertOperationConfirmation(request, classification)
-  // An MCP call is unconfirmed unless the signed caller says that the person agreed.
-  if (mcp) assertOperationConfirmed(classification, context.access.confirmed === true)
+  if (context.access.surface) assertOperationConfirmed(classification, context.access.confirmed === true)
   // Navigation and other reads that do not need a person skip the session lookup.
   const user = operation.user === false ? undefined : await readConsoleOperationUser(context.access)
   const operationContext: OperationContext = {
@@ -206,9 +205,7 @@ async function runConsoleOperation(operation: AnyOperation, rawInput: unknown, r
     ...consoleDevelopmentContext(),
     request,
     response: context.response,
-    // A signed request names its signer. Without a signature, the CLI names itself with a header; only the
-    // unauthenticated `local` access of `vite dev` trusts it more than the Console.
-    surface: mcp ? "mcp" : context.access.via === "cli" || context.access.via === "console" ? context.access.via : request.headers.get(operationSurfaceHeader) === "cli" ? "cli" : "console",
+    surface: context.access.surface ?? context.access.via ?? (request.headers.get(operationSurfaceHeader) === "cli" ? "cli" : "console"),
     // SAFETY: A Console user from the Auth adapter has the id that the operation user needs.
     user: user ? user as OperationContext["user"] : null,
     ...(context.env ? { env: context.env } : {}),

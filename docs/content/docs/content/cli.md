@@ -19,7 +19,7 @@ pnpm vitehub content publish --collection posts --id hello
 pnpm vitehub content schedule --collection posts --id hello --at 2026-10-20T09:00:00+02:00
 ```
 
-The commands appear when the app has a Content file. Without `--url`, they call the running dev server. With `--url https://app.example.com`, they call a deployed app with the [Console](/docs/console) on, and [sign each call](/docs/console/signed-requests) with `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`.
+The commands appear when the app has a Content file. Without `--url`, they call the running dev server. With `--url https://app.example.com`, they call the deployed app directly. The app must have the [Console](/docs/console) on. The CLI [signs each call](/docs/console/signed-requests) with `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>`, even after `vitehub login`.
 
 ## Commands
 
