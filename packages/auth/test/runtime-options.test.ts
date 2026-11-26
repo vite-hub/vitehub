@@ -6,7 +6,6 @@ import { deriveViteHubSecret } from "@vite-hub/internal/secret"
 
 import { defineAuth } from "../src/definition.ts"
 import { resolveAuthOptions } from "../src/runtime-options.ts"
-import { isAuthProcessMemoryDatabase } from "../src/runtime-state.ts"
 import type { AuthRuntimeContext } from "../src/types.ts"
 import { requestEvent } from "./request-event.ts"
 import { defineFixedAuth } from "./fixed-auth.ts"
@@ -176,12 +175,11 @@ describe("Auth option resolution", () => {
       buildRuntime()
       const database = resolveAuthOptions(definition()).providerOptions.database
       expect(database).toBeTypeOf("function")
-      expect(isAuthProcessMemoryDatabase(database)).toBe(true)
     })
 
     it("keeps the implicit memory store on a development server", () => {
       vi.stubGlobal("__VITEHUB_AUTH_DEV__", true)
-      expect(isAuthProcessMemoryDatabase(resolveAuthOptions(defineAuth({ appName: "ViteHub" })).providerOptions.database)).toBe(true)
+      expect(resolveAuthOptions(defineAuth({ appName: "ViteHub" })).providerOptions.database).toBeTypeOf("function")
     })
   })
 

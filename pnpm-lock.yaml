@@ -1969,6 +1969,9 @@ importers:
 
   packages/connections:
     dependencies:
+      '@valibot/to-json-schema':
+        specifier: catalog:runtime
+        version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
       '@vite-hub/env':
         specifier: workspace:*
         version: link:../env
@@ -2634,6 +2637,9 @@ importers:
       '@env-spec/parser':
         specifier: 0.6.3
         version: 0.6.3
+      '@valibot/to-json-schema':
+        specifier: catalog:runtime
+        version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
       '@vite-hub/agent':
         specifier: '*'
         version: link:../agent
@@ -2742,6 +2748,9 @@ importers:
       '@standard-schema/spec':
         specifier: catalog:runtime
         version: 1.1.0
+      '@valibot/to-json-schema':
+        specifier: catalog:runtime
+        version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
       birpc:
         specifier: catalog:runtime
         version: 4.2.0
@@ -3327,6 +3336,9 @@ importers:
 
   packages/queue:
     dependencies:
+      '@valibot/to-json-schema':
+        specifier: catalog:runtime
+        version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -3848,6 +3860,9 @@ importers:
       '@standard-schema/spec':
         specifier: catalog:runtime
         version: 1.1.0
+      '@valibot/to-json-schema':
+        specifier: catalog:runtime
+        version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -4575,6 +4590,9 @@ importers:
       '@standard-schema/spec':
         specifier: catalog:runtime
         version: 1.1.0
+      '@valibot/to-json-schema':
+        specifier: catalog:runtime
+        version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
       '@vite-hub/env':
         specifier: workspace:*
         version: link:../env

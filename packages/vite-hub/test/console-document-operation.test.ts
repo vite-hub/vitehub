@@ -4,8 +4,8 @@ import { afterEach, expect, it, vi } from "vitest"
 import { consoleStateKey } from "../src/console/internal.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleDocuments } from "../src/console/runtime/server/documents.ts"
-import { consoleOperationRegistry } from "../src/console/runtime/server/operation-contributions.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
+import { installViteHubConsoleOperations } from "./support/console-operations.ts"
 
 afterEach(() => {
   for (const key of [consoleStateKey, Symbol.for("vitehub.console.access")]) {
@@ -45,7 +45,7 @@ it.each([undefined, null, { collection: "posts" }])("preserves an optional docum
     },
   })
   const input = { action: "overview", section: "content", ...(body === undefined ? {} : { body }) }
-  const result = await runOperation(consoleOperationRegistry(), "documents.action", input, {
+  const result = await runOperation(await installViteHubConsoleOperations(), "documents.action", input, {
     access: { mode: "agent", sections: "all" }, surface: "agent", user: { id: "viewer" },
   })
 

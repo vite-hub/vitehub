@@ -33,7 +33,7 @@ const consoleHttpErrorModules = async () => [
 
 const agentUsageModule = async () => ({
   type: "ESModule" as const,
-  path: resolve(root, "src/console/runtime/server/@vite-hub/agent/usage"),
+  path: resolve(root, "src/agent/console/@vite-hub/agent/usage"),
   contents: (await build({
     bundle: true,
     conditions: ["workerd", "worker"],
@@ -54,7 +54,7 @@ it("paginates Console usage in Cloudflare without Node compatibility", async () 
         type: "ESModule",
         path: resolve(root, "worker.mjs"),
         contents: `
-          import { usageCursor, usageQueryWindow } from "./src/console/runtime/server/usage.ts";
+          import { usageCursor, usageQueryWindow } from "./src/agent/console/usage.ts";
           export default {
             async fetch(request) {
               const query = await request.json();
@@ -67,11 +67,11 @@ it("paginates Console usage in Cloudflare without Node compatibility", async () 
           };
         `,
       },
-      await sourceModule("src/console/runtime/server/usage.ts"),
+      await sourceModule("src/agent/console/usage.ts"),
       await agentUsageModule(),
       await sourceModule("src/error-diagnostics.ts"),
       ...await consoleHttpErrorModules(),
-      { type: "ESModule", path: resolve(root, "src/console/runtime/server/valibot"), contents: await readFile(new URL(import.meta.resolve("valibot")), "utf8") },
+      { type: "ESModule", path: resolve(root, "src/agent/console/valibot"), contents: await readFile(new URL(import.meta.resolve("valibot")), "utf8") },
       { type: "ESModule", path: resolve(root, "src/nostics"), contents: await readFile(new URL(import.meta.resolve("nostics")), "utf8") },
     ],
   });
@@ -105,7 +105,7 @@ it.each([false, true])("adds up a D1 journal without a new table (large search: 
         type: "ESModule",
         path: resolve(root, "worker.mjs"),
         contents: `
-          import { agentUsagePeriod, readAgentUsage } from "./src/console/runtime/server/@vite-hub/agent/usage";
+          import { agentUsagePeriod, readAgentUsage } from "./src/agent/console/@vite-hub/agent/usage";
           export default {
             async fetch(request, env) {
               try { return await answer(env, await request.json()) } catch (error) { return Response.json({ error: String(error?.stack ?? error) }, { status: 500 }) }
