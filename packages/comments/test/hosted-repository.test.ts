@@ -13,6 +13,7 @@ vi.mock("@vite-hub/internal/runtime/page-tools-loader", () => ({ loadViteHubPage
 const consoleSession: CommentsSession = { user: { id: "u1", name: "Ana" }, can: { read: true, comment: true, resolve: false }, realtime: false, content: false }
 const frame: Promise<EmbedFrame> = Promise.resolve({
   call: async () => ({ id: 0, ok: true, value: consoleSession, people: [] }),
+  onChange: () => () => undefined,
 })
 
 describe("the repository of a Hosted Comments site", () => {
