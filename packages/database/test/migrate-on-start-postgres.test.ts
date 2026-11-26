@@ -758,6 +758,28 @@ describe.skipIf(!adminUrl)("NuxtHub's _hub_migrations on Postgres", () => {
     expect(again.stdout).not.toContain("Not in the migrations folder")
   })
 
+  it.each([
+    ["20231114221320_bootstrap", "bootstrap"],
+    ["20231114221320_0001_create-users.postgresql", "0001_create-users"],
+  ])("matches the NuxtHub file name that the folder %s keeps, in --dry-run and on start", { timeout: 60_000 }, async (tag, name) => {
+    const kept = { ...init, tag }
+    const { migrationsDir, root } = await createProject([kept, addEmail])
+    const url = await createDatabase()
+    const sql = connect(url)
+    await writeNuxtHubHistory(sql, [kept], [name])
+
+    const dryRun = await migrateCommand(root, postgresDatabase(url, migrationsDir))(["--dry-run"])
+    expect(dryRun).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(dryRun.stdout).toContain(`1 pending migration.\n  Applied before, as _hub_migrations lists: ${tag}\n\n  ${addEmail.tag}`)
+    const log: string[] = []
+    await migrateOnStart([{ db: drizzle({ client: sql }), dialect: "postgresql", migrations: readStartMigrations(migrationsDir, "postgresql"), name: "default" }], { log: message => log.push(message) })
+    expect(log).toEqual([
+      `[vitehub] Database "default": recorded ${tag} as applied, as _hub_migrations lists it.`,
+      `[vitehub] Database "default": applied ${addEmail.tag}.`,
+    ])
+    expect((await readLedger(sql)).map(row => row.name)).toEqual([tag, addEmail.tag])
+  })
+
   it("adopts the history seen by --dry-run before creating a schema earlier on the search path", async () => {
     const { migrationsDir, root } = await createProject([init])
     const url = await createDatabase()

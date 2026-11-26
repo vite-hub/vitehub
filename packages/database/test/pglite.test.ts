@@ -379,6 +379,29 @@ describe("NuxtHub's _hub_migrations on PGlite", () => {
     }
   }, 30_000)
 
+  it.each([
+    ["20260101000000_bootstrap", "bootstrap"],
+    ["20260101000000_0001_create-users.postgresql", "0001_create-users"],
+  ])("does not replay the PGlite folder %s on start", async (tag, name) => {
+    const { PGlite } = await import("@electric-sql/pglite")
+    const { drizzle } = await import("drizzle-orm/pglite")
+    const client = new PGlite("memory://")
+    const log = vi.fn()
+    try {
+      await client.exec(nuxtHubHistory)
+      await client.query("update _hub_migrations set name = $1", [name])
+      await migrateOnStart([{ db: drizzle({ client }), dialect: "postgresql", migrations: [
+        { dataLoss: [], hash: `hash-${tag}`, name: tag, statements: ["CREATE TABLE \"notes\" (\"id\" serial PRIMARY KEY, \"title\" text NOT NULL);"], when: 1_767_225_600_000 },
+      ], name: "default" }], { log })
+
+      expect(log.mock.calls.map(([message]) => message)).toEqual([`[vitehub] Database "default": recorded ${tag} as applied, as _hub_migrations lists it.`])
+      expect((await client.query("select name from drizzle.__drizzle_migrations")).rows).toEqual([{ name: tag }])
+    }
+    finally {
+      await client.close()
+    }
+  })
+
   it("adopts on PGlite", async () => {
     const { PGlite } = await import("@electric-sql/pglite")
     const { drizzle } = await import("drizzle-orm/pglite")
@@ -450,7 +473,8 @@ describe("NuxtHub's _hub_migrations on PGlite", () => {
     const dryRun = await runCli(plugin, root, "migrate", ["--dry-run"])
     expect(dryRun.exitCode).toBe(1)
     expect(dryRun.stderr).toContain("DATABASE_MIGRATION_CHECK_FAILED")
-  })
+    expect(dryRun.stderr).toContain("ViteHub cannot read the pending migrations of the database \"default\".")
+  }, 30_000)
 })
 
 describe("a Postgres Database on PGlite in app tests", () => {

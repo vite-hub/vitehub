@@ -130,14 +130,20 @@ export interface NamedMigration {
   tag: string
 }
 
+function nuxtHubMigrationName(file: string, dialect: "postgresql" | "sqlite"): string {
+  const stem = file.replace(/\.sql$/, "")
+  return stem.endsWith(`.${dialect}`) ? stem.slice(0, -dialect.length - 1) : stem
+}
+
 /**
- * The names that other tools record for one migration, most exact first: the Wrangler file name, NuxtHub's name (the
- * file name without `.sql`), the Drizzle Kit folder, and the old flat file that a folder keeps in its name, such as
- * `0003_auth_events.sql` for `20261027095640_0003_auth_events`.
+ * The names that other tools record for one SQLite or D1 migration, most exact first: the Wrangler file name, NuxtHub's
+ * name (the file name without `.sql`), the Drizzle Kit folder, the old flat file that a folder keeps in its name, such
+ * as `0003_auth_events.sql` for `20261027095640_0003_auth_events`, and NuxtHub's name of that kept file, such as
+ * `0003_auth_events` for `20261027095640_0003_auth_events.sqlite`.
  */
 function recordedNames({ name, tag }: NamedMigration): string[] {
-  const kept = /^\d{14}_(.+)$/.exec(tag)?.[1]
-  return [name, name.replace(/\.sql$/, ""), tag, ...(kept ? [`${kept}.sql`, kept] : [])]
+  const kept = folderTag.exec(tag)?.[1]
+  return [name, name.replace(/\.sql$/, ""), tag, ...(kept ? [`${kept}.sql`, kept, nuxtHubMigrationName(kept, "sqlite")] : [])]
 }
 
 export interface RecordedNamesMatch {
@@ -147,19 +153,23 @@ export interface RecordedNamesMatch {
   unmatched: string[]
 }
 
-/** Matches the names of a ledger to migrations. Each name matches one migration, and a more exact name form wins. */
+/**
+ * Matches the names of a ledger to migrations. Each name matches one migration, and a more exact name form wins.
+ * `applied` keeps the order of `migrations`.
+ */
 export function matchRecordedNames(names: Iterable<string>, migrations: readonly NamedMigration[]): RecordedNamesMatch {
   const left = new Set(names)
-  const applied = new Map<string, string>()
+  const matched = new Map<string, string>()
   const forms = migrations.map(migration => ({ names: recordedNames(migration), tag: migration.tag }))
-  for (let level = 0; level < 5; level++) {
+  for (let level = 0; level < 6; level++) {
     for (const { names, tag } of forms) {
       const name = names[level]
-      if (name === undefined || applied.has(tag) || !left.has(name)) continue
-      applied.set(tag, name)
+      if (name === undefined || matched.has(tag) || !left.has(name)) continue
+      matched.set(tag, name)
       left.delete(name)
     }
   }
+  const applied = new Map(migrations.flatMap(({ tag }) => matched.has(tag) ? [[tag, matched.get(tag)!] as const] : []))
   return { applied, unmatched: [...left] }
 }
 
@@ -211,7 +221,10 @@ export function matchHubMigrations(names: readonly string[], files: readonly (Na
   for (const name of names) {
     const stem = name.replace(/\.sql$/, "")
     const exact = files.filter(({ tag }) => tag === stem)
-    const preserved = exact.length ? exact : files.filter(({ tag }) => folderTag.exec(tag)?.[1]?.replace(/\.postgresql$/, "") === stem)
+    const preserved = exact.length ? exact : files.filter(({ tag }) => {
+      const kept = folderTag.exec(tag)?.[1]
+      return kept !== undefined && nuxtHubMigrationName(kept, "postgresql") === stem
+    })
     const candidates = preserved.length ? preserved : files.filter(file => file.name === `${stem}.sql`)
     if (candidates.length > 1) {
       const folders = candidates.map(({ database, tag }) => `${database}/${tag}`).sort().join(", ")

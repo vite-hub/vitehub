@@ -908,6 +908,47 @@ describe("vitehub database migrate with an existing migrations table", () => {
     expect(again).toMatchObject({ exitCode: 0, stderr: "", stdout: "[vitehub] Database \"default\" (local SQLite .vitehub/data/database/sqlite.db): no pending migrations.\n" })
   }, 120_000)
 
+  it.each(["SQLite", "D1"])("matches the NuxtHub names of a .sqlite file and an unnumbered file after `vitehub database up` on %s", async (host) => {
+    const project = await createProject()
+    const migrationsDir = project.database.migrationsDir
+    if (host === "D1") project.database.cloudflare = { binding: "DB", databaseId: "database-id", http: true, migrationsDir }
+    await mkdir(migrationsDir, { recursive: true })
+    await writeFile(join(migrationsDir, "0001_create-notes.sqlite.sql"), "CREATE TABLE `notes` (`id` integer PRIMARY KEY NOT NULL, `title` text);\n")
+    await writeFile(join(migrationsDir, "bootstrap.sql"), "ALTER TABLE `notes` ADD `body` text;\n")
+    await project.writeSchema(["title", "body"])
+    await expect(project.run("up")).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+    const tags = await migrationTags(migrationsDir)
+    expect(tags).toEqual([expect.stringMatching(/^\d{14}_0001_create-notes\.sqlite$/), expect.stringMatching(/^\d{14}_bootstrap$/)])
+    const history = [
+      "CREATE TABLE `notes` (`id` integer PRIMARY KEY NOT NULL, `title` text, `body` text);",
+      "CREATE TABLE _hub_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL);",
+      "INSERT INTO _hub_migrations (name) VALUES ('0001_create-notes'), ('bootstrap');",
+    ].join("\n")
+    let env = process.env
+    let d1: Awaited<ReturnType<typeof createFakeD1>> | undefined
+    if (host === "D1") {
+      d1 = await createFakeD1(project.rootDir, history)
+      vi.stubGlobal("fetch", d1.fetch)
+      env = { ...process.env, ...d1Env }
+    }
+    else {
+      await seedDatabase(project.rootDir, history)
+    }
+    try {
+      const dryRun = await project.run("migrate", ["--dry-run"], env)
+      expect(dryRun).toMatchObject({ exitCode: 0, stderr: "" })
+      expect(dryRun.stdout).toContain(`no pending migrations.\n  Applied before, as _hub_migrations lists: ${tags.join(", ")}\n`)
+      const applied = await project.run("migrate", [], env)
+      expect(applied).toMatchObject({ exitCode: 0, stderr: "" })
+      for (const tag of tags) expect(applied.stdout).toContain(`recorded ${tag} as applied, as _hub_migrations lists it.`)
+      if (d1) await expect(d1.rows("SELECT name FROM d1_migrations ORDER BY id")).resolves.toEqual([["0001_create-notes.sqlite.sql"], ["bootstrap.sql"]])
+      else await expect(rows(project.rootDir, "SELECT name FROM __drizzle_migrations ORDER BY id")).resolves.toEqual(tags.map(tag => [tag]))
+    }
+    finally {
+      d1?.client.close()
+    }
+  }, 120_000)
+
   it("keeps Wrangler's d1_migrations rows of old flat files and Drizzle Kit 0.x rows, and applies the rest", async () => {
     const project = await createProject()
     const migrationsDir = project.database.migrationsDir
