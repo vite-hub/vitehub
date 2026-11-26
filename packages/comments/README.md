@@ -118,6 +118,8 @@ A failure in `onComment`, `onMention`, or the pull request sync never fails the 
 
 ## Send to an agent
 
+A Console team member who opens the app through Site access gets **Copy prompt** when the page has open threads and the Console MCP lets them read those threads. The prompt names the linked app, its team, and the thread IDs. It includes resolution instructions only with Console MCP write access. `/session` supplies `agent: { mcp, project, resolve }`. For one click without a paste, use `send`:
+
 `defineComments({ send: true })` adds **Send N** to the comment pill: one click hands the open threads of the page that wait for an answer to the person's own agent, such as a T3 Code thread. The first press copies a setup prompt; the agent creates a T3 webhook task and pairs it with the one-use code, and the pill asks once to allow it. Each send is a signed `POST` with the thread ids and a read token for 24 hours, through the member endpoints of `@vite-hub/webhooks`. `send: { grant: false }` leaves the token out, for an app that reads through its own MCP server, and `payload` adds fields, and `prompt` changes the setup prompt. Each member has their own count, and Allow sends only the threads the member saw. The `comments_get_send` MCP tool reads a send, and `comments.listSends(user)` and `comments.readSend(user, id)` read sends on the server. Reopening a thread can restore a done inbox send or let the member send it to a webhook agent again. Send needs a ViteHub app with a SQLite Database. See [Send comments to your agent](https://vitehub.dev/docs/comments/send).
 
 ## Deployment and security boundaries
@@ -136,7 +138,7 @@ A failure in `onComment`, `onMention`, or the pull request sync never fails the 
 | Import | Purpose |
 | --- | --- |
 | `@vite-hub/comments` | `defineComments()` and types. `installComments()` is in `@vite-hub/comments/server`. |
-| `@vite-hub/comments/client` | Framework-free client, transport types, `createAnchor()`, `resolveAnchor()`, and `createCommentSend()`, the state of the Send segment that hands a member's waiting comments to their agent. |
+| `@vite-hub/comments/client` | Framework-free client, transport types, `createAnchor()`, `resolveAnchor()`, `commentsAgentPrompt()`, the text of **Copy prompt**, and `createCommentSend()`, the state of the Send segment that hands a member's waiting comments to their agent. |
 | `@vite-hub/comments/testing` | In-memory client transport for tests and examples. |
 | `@vite-hub/comments/anchor` | DOM anchoring: `createAnchor()`, `placeAnchor()`, `selectorOf()`, `labelOf()`. |
 | `@vite-hub/comments/database` | `commentsSchema`, the Drizzle tables, and `commentsTables`, the statements that create them. |

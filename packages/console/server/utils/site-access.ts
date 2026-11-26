@@ -23,7 +23,7 @@ import {
 } from "../../src/site-access.ts"
 import { callProjectOperation, canManageProjects, consoleCallerUser, consoleJson, consoleProblem, consoleTeamCaller, projectNotFound, useConsoleProjects } from "./console.ts"
 
-import type { SiteAccessPolicy } from "@vite-hub/internal/site-token"
+import type { SiteAccessPolicy, SiteCommentsAgent } from "@vite-hub/internal/site-token"
 import type { ConsoleSiteGrantRow, ConsoleSitePerson } from "../../src/site-access.ts"
 import type { ConsoleTeamCaller } from "./console.ts"
 
@@ -78,17 +78,24 @@ async function signedLocation(input: Parameters<typeof siteTokenLocation>[0]): P
   }
 }
 
-async function memberPolicy(project: { id: string, teamId: string }, userId: string): Promise<{ person: ConsoleSitePerson, policy: SiteAccessPolicy } | undefined> {
+async function memberPolicy(project: { id: string, teamId: string }, userId: string) {
   const person = await siteMember(useDatabase("default").db, project, userId)
   const caller = person ? await consoleTeamCaller(consoleCallerUser({ id: userId, name: person.name }), project.teamId) : undefined
   if (!person || !caller || caller instanceof Response) return undefined
   const policy = await sitePolicy(caller, project.id, true)
-  return policy instanceof Response ? undefined : { person, policy }
+  return policy instanceof Response ? undefined : { person, policy, caller }
 }
 
-async function memberAccess(project: { id: string, teamId: string }, userId: string): Promise<{ person: ConsoleSitePerson, roles: string[] } | undefined> {
+async function memberAccess(project: { id: string, teamId: string }, userId: string) {
   const member = await memberPolicy(project, userId)
-  return member && { person: member.person, roles: siteMemberRoles(member.policy) }
+  return member && { person: member.person, roles: siteMemberRoles(member.policy), caller: member.caller }
+}
+
+async function memberCommentsAgent(caller: ConsoleTeamCaller, projectId: string): Promise<SiteCommentsAgent | undefined> {
+  const result = await callProjectOperation(caller, projectId, "project.get", {}, { surface: "mcp" })
+  const reference = result?.ok ? field(result.value, "reference") : undefined
+  if (!Array.isArray(reference) || !reference.some(operation => field(operation, "name") === "comments.get")) return undefined
+  return { projectId, teamId: caller.teamId, resolve: reference.some(operation => field(operation, "name") === "comments.resolve") }
 }
 
 async function guestRoles(project: { id: string, teamId: string }, inviter: string, roles: readonly string[]): Promise<string[]> {
@@ -102,11 +109,12 @@ async function guestAccess(project: { id: string, teamId: string }, grant: Conso
   return roles.length ? { person: { id: `site-guest:${grant.id}`, name: grant.name }, roles } : undefined
 }
 
-async function visitLocation(project: { id: string, teamId: string }, access: { person: ConsoleSitePerson, roles: string[] }, state: string, path: string, headers = new Headers()): Promise<Response | undefined> {
+async function visitLocation(project: { id: string, teamId: string }, access: { person: ConsoleSitePerson, roles: string[], caller?: ConsoleTeamCaller }, state: string, path: string, headers = new Headers()): Promise<Response | undefined> {
   const projects = useConsoleProjects(project.teamId)
   const target = projects instanceof Response ? undefined : await projects.target(project.id)
   if (!target) return undefined
-  const location = await signedLocation({ project: target.project, key: target.key, ...access, state, path })
+  const commentsAgent = access.caller && await memberCommentsAgent(access.caller, project.id)
+  const location = await signedLocation({ project: target.project, key: target.key, person: access.person, roles: access.roles, state, path, commentsAgent })
   return location instanceof Response ? location : seeOther(location, headers)
 }
 
@@ -258,7 +266,8 @@ export async function consoleSiteRoute(request: Request, caller: ConsoleTeamCall
       const target = await caller.projects.target(project.id)
       if (!target) return projectNotFound()
       const roles = siteMemberRoles(policy)
-      const location = await signedLocation({ project: target.project, key: target.key, person, roles, state, path })
+      const commentsAgent = await memberCommentsAgent(caller, project.id)
+      const location = await signedLocation({ project: target.project, key: target.key, person, roles, state, path, commentsAgent })
       if (location instanceof Response) return location
       const secure = isSecure(request)
       const existing = readCookie(request, sitePassCookie(project.id, secure))

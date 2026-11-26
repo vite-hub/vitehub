@@ -479,7 +479,7 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
     const handler = resolve(databaseRoot(), NITRO_REQUEST_SCOPE_MIDDLEWARE)
     writeFileIfChangedSync(handler, renderNitroRequestScopeMiddleware())
     const handlers = nitroOptions.handlers ??= []
-    if (!handlers.some(item => item.handler === handler)) handlers.unshift({ handler, middleware: true })
+    if (!handlers.some(item => item.handler === handler)) handlers.unshift({ handler, middleware: true, route: "/**" })
   }
 
   // Each request's database calls go on its evlog wide event (`database`), whatever the host.
@@ -494,7 +494,7 @@ export function hubDatabase(options?: DatabaseOptions): DBVitePlugin {
     }
     writeFileIfChangedSync(handler, renderNitroRequestStatsMiddleware())
     const handlers = nitroOptions.handlers ??= []
-    if (!handlers.some(item => item.handler === handler)) handlers.unshift({ handler, middleware: true })
+    if (!handlers.some(item => item.handler === handler)) handlers.unshift({ handler, middleware: true, route: "/**" })
   }
 
   // `ensureMigrations()` applies these. A Cloudflare or Vercel build applies migrations from the deployment, so it ships none.

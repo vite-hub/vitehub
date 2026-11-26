@@ -116,6 +116,9 @@ function sideOf(box: HTMLElement, rest: DOMRect, trigger: DOMRect | undefined): 
   const side = box.getAttribute("data-side");
   if (side === "top" || side === "bottom" || side === "left" || side === "right") return side;
   if (!trigger) return "top";
+  const gaps = [["top", trigger.top - rest.bottom], ["bottom", rest.top - trigger.bottom], ["left", trigger.left - rest.right], ["right", rest.left - trigger.right]] as const;
+  const [clear, gap] = gaps.reduce((best, next) => next[1] > best[1] ? next : best);
+  if (gap >= 0) return clear;
   const dx = trigger.left + trigger.width / 2 - (rest.left + rest.width / 2);
   const dy = trigger.top + trigger.height / 2 - (rest.top + rest.height / 2);
   if (Math.abs(dy) >= Math.abs(dx)) return dy > 0 ? "top" : "bottom";

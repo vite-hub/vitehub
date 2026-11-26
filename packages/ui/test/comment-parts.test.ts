@@ -1384,7 +1384,7 @@ describe("composer layout", () => {
     const popover = item.get<HTMLElement>("[data-slot=comment-layer-popover]");
     expect(item.attributes("data-flip-x")).toBe(flipped ? "true" : undefined);
     expect(Number.parseFloat(item.element.style.left)).toBe(x);
-    expect(x + Number.parseFloat(popover.element.style.left)).toBe(left);
+    expect(x + Number.parseFloat(popover.element.style.getPropertyValue("--vh-comment-draft-left"))).toBe(left);
   });
 
   it.each([375, 1024])("centers the page draft's bubble in a %s px viewport", async (viewport) => {
@@ -1394,7 +1394,7 @@ describe("composer layout", () => {
     await flushPromises();
     const item = wrapper.get<HTMLElement>("[data-draft=true]");
     const popover = item.get<HTMLElement>("[data-slot=comment-layer-popover]");
-    expect(Number.parseFloat(item.element.style.left) + Number.parseFloat(popover.element.style.left) + 144).toBe(viewport / 2);
+    expect(Number.parseFloat(item.element.style.left) + Number.parseFloat(popover.element.style.getPropertyValue("--vh-comment-draft-left")) + 144).toBe(viewport / 2);
   });
 
   it("draws attach as a ghost icon in a row box and as an outlined button in a bordered one", () => {
