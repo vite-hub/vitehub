@@ -205,29 +205,38 @@ export interface HubMigrationsMatch {
 }
 
 /**
- * Matches the names of NuxtHub's `_hub_migrations` to the migrations that the other ledgers do not list. A name matches
- * the folder of that name, then the folder that keeps the NuxtHub file name, then the Wrangler name of the same number.
- * `files` has the Wrangler names of each migrations folder. Returns the problem when a name matches more than one
- * migration, or when a listed migration now has another number, because ViteHub would apply it again.
+ * Matches the names of NuxtHub's `_hub_migrations` to the migrations that the other ledgers do not list. NuxtHub
+ * records a file name without `.sql` and its dialect suffix, and Wrangler, when NuxtHub points it at this table, records
+ * the file name with `.sql`. A name matches the folder of that name, then the folder that keeps the NuxtHub file name,
+ * then the Wrangler name of the same number. When `wranglerTable` is set, Wrangler can also have recorded a `.sql` name
+ * under ViteHub's numbers, so that Wrangler name is a candidate too. `files` has the Wrangler names of each migrations
+ * folder. A name whose candidates are all in `applied` cannot change which SQL runs, so it is skipped. Returns the
+ * problem when a name matches more than one migration, or when a listed migration now has another number, because
+ * ViteHub would apply it again.
  */
-export function matchHubMigrations(names: readonly string[], files: readonly (NamedMigration & { database: string })[], applied: ReadonlySet<string>, dialect: "postgresql" | "sqlite"): HubMigrationsMatch | { problem: string } {
+export function matchHubMigrations(names: readonly string[], files: readonly (NamedMigration & { database: string })[], applied: ReadonlySet<string>, dialect: "postgresql" | "sqlite", wranglerTable = false): HubMigrationsMatch | { problem: string } {
   const adopted = new Set<string>()
   const unmatched: string[] = []
   for (const name of names) {
-    const stem = name.replace(/\.sql$/, "")
+    const stem = nuxtHubMigrationName(name, dialect)
     const exact = files.filter(({ tag }) => tag === stem)
     const preserved = exact.length ? exact : files.filter(({ tag }) => {
       const kept = folderTag.exec(tag)?.[1]
       return kept !== undefined && nuxtHubMigrationName(kept, dialect) === stem
     })
-    const candidates = preserved.length ? preserved : files.filter(file => file.name === `${stem}.sql`)
+    const nuxtHub = preserved.length ? preserved : files.filter(file => file.name === `${stem}.sql`)
+    const wrangler = wranglerTable && name.endsWith(".sql") ? files.filter(file => file.name === name) : []
+    const candidates = [...new Set([...nuxtHub, ...wrangler])]
+    if (!candidates.length) {
+      unmatched.push(name)
+      continue
+    }
+    if (candidates.every(({ tag }) => applied.has(tag))) continue
     if (candidates.length > 1) {
       const folders = candidates.map(({ database, tag }) => `${database}/${tag}`).sort().join(", ")
       return { problem: `The migrations table ${hubMigrationsTable} lists ${name}, which matches more than one migration: ${folders}. Verify which SQL ran and give the row its exact migration folder name before retrying.` }
     }
-    const match = candidates[0]
-    if (!match) unmatched.push(name)
-    else if (!applied.has(match.tag)) adopted.add(match.tag)
+    adopted.add(candidates[0]!.tag)
   }
   const renumbered = findRenumbered(unmatched, files, new Set([...applied, ...adopted]))
   if (renumbered) {

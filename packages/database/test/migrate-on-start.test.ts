@@ -719,6 +719,30 @@ describe("migrateOnStart with Cloudflare D1 over HTTP", () => {
     await expect(query("SELECT name FROM d1_migrations")).rejects.toThrow("HTTP 200")
   })
 
+  it("starts when a _hub_migrations row matches more than one migration that d1_migrations already lists", { timeout: 60_000 }, async () => {
+    const root = await createD1Project()
+    const d1 = await startD1Proxy(root)
+    try {
+      await d1.rows("CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL)")
+      await d1.rows("INSERT INTO d1_migrations (name) VALUES ('0000_migration.sql'), ('0001_migration.sql')")
+      await d1.rows("CREATE TABLE _hub_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)")
+      await d1.rows("INSERT INTO _hub_migrations (name) VALUES ('0001_seed')")
+      const query = createD1QueryAt(d1.url, "proxy-token", problem => new Error(problem))
+      const migrations = [
+        { sql: "CREATE TABLE seed (id integer);", tag: "20260101000000_0001_seed.sqlite", when: init.when },
+        { sql: "INSERT INTO seed (id) VALUES (1);", tag: "20260102000000_0001_seed", when: seed.when },
+      ]
+      const log = vi.fn()
+      await migrateOnStart([d1Database("default", d1.url, migrations, query)], { log })
+      expect(log).not.toHaveBeenCalled()
+      expect(d1.requests.filter(sql => !/^\s*SELECT/i.test(sql))).toEqual([])
+      await expect(d1.rows("SELECT name FROM sqlite_master WHERE name = 'seed'")).resolves.toEqual([])
+    }
+    finally {
+      await d1.close()
+    }
+  })
+
   it("lets a fresh D1 database drop a table that an earlier pending file creates, in one request", { timeout: 60_000 }, async () => {
     const root = await createD1Project()
     await writeMigrations(root, [init, dropLegacy])

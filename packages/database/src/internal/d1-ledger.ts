@@ -78,8 +78,11 @@ export async function readD1LedgerOf(query: D1Query, database: string, migration
     if (!tables.has(table)) continue
     const names = (await query(`SELECT name FROM ${quoteIdentifier(table)}`)).map(row => String(readRowValue(row, "name", 0)))
     if (table === migrationsTable) listed = new Set(names)
-    if (table === hubMigrationsTable) hubNames = names.filter(name => !name.endsWith(".sql"))
-    const match = matchRecordedNames(table === hubMigrationsTable ? names.filter(name => name.endsWith(".sql")) : names, files)
+    if (table === hubMigrationsTable) {
+      hubNames = names
+      continue
+    }
+    const match = matchRecordedNames(names, files)
     for (const tag of match.applied.keys()) applied.set(tag, applied.get(tag) ?? table)
     for (const name of match.unmatched) unmatched.set(name, table)
   }
@@ -94,7 +97,7 @@ export async function readD1LedgerOf(query: D1Query, database: string, migration
     for (const tag of match.applied) applied.set(tag, applied.get(tag) ?? drizzleMigrationsTable)
   }
   if (hubNames.length) {
-    const match = matchHubMigrations(hubNames, files.map(file => ({ ...file, database })), new Set(applied.keys()), "sqlite")
+    const match = matchHubMigrations(hubNames, files.map(file => ({ ...file, database })), new Set(applied.keys()), "sqlite", migrationsTable === hubMigrationsTable)
     if ("problem" in match) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database, problem: match.problem })
     for (const tag of match.adopted) applied.set(tag, hubMigrationsTable)
   }

@@ -208,15 +208,18 @@ function matchSqliteLedgers(ledgers: SqliteLedgers, entries: readonly MigrationE
   const unmatched = new Map<string, string>()
   let hubNames: string[] = []
   for (const { names, table } of ledgers.recorded) {
-    if (table === hubMigrationsTable) hubNames = names.filter(name => !name.endsWith(".sql"))
-    const recorded = matchRecordedNames(table === hubMigrationsTable ? names.filter(name => name.endsWith(".sql")) : names, files)
+    if (table === hubMigrationsTable) {
+      hubNames = names
+      continue
+    }
+    const recorded = matchRecordedNames(names, files)
     for (const tag of recorded.applied.keys()) {
       if (!applied.has(tag) && !adopted.has(tag)) adopted.set(tag, table)
     }
     for (const name of recorded.unmatched) unmatched.set(name, table)
   }
   if (hubNames.length) {
-    const history = matchHubMigrations(hubNames, files.map(file => ({ ...file, database: database.name })), new Set([...applied, ...adopted.keys()]), "sqlite")
+    const history = matchHubMigrations(hubNames, files.map(file => ({ ...file, database: database.name })), new Set([...applied, ...adopted.keys()]), "sqlite", database.cloudflare?.migrationsTable === hubMigrationsTable)
     if ("problem" in history) return history
     for (const tag of history.adopted) adopted.set(tag, hubMigrationsTable)
   }

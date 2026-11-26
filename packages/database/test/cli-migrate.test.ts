@@ -1088,20 +1088,69 @@ describe("vitehub database migrate with an existing migrations table", () => {
     }
   }, 120_000)
 
-  it.each(["SQLite", "D1"])("matches a _hub_migrations row to the folder that keeps its NuxtHub file name before the folder of the same number on %s", async (host) => {
+  it.each([
+    ["SQLite", "0001_seed.sqlite", "0001_seed"],
+    ["D1", "0001_seed.sqlite", "0001_seed"],
+    ["SQLite", "0001_seed", "0001_seed.sql"],
+    ["D1", "0001_seed", "0001_seed.sql"],
+  ])("matches a _hub_migrations row to the folder that keeps its NuxtHub file name before the folder of the same number on %s (folder %s, row %s)", async (host, kept, row) => {
     const project = await createProject()
     const migrationsDir = project.database.migrationsDir
     if (host === "D1") project.database.cloudflare = { binding: "DB", databaseId: "database-id", http: true, migrationsDir }
-    await folder(migrationsDir, "20260101000000_0001_seed.sqlite", "CREATE TABLE seed (id integer);")
+    await folder(migrationsDir, `20260101000000_${kept}`, "CREATE TABLE seed (id integer);")
     await folder(migrationsDir, "20260102000000_seed", "INSERT INTO seed (id) VALUES (1);")
-    const history = "CREATE TABLE seed (id integer); CREATE TABLE _hub_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE); INSERT INTO _hub_migrations (name) VALUES ('0001_seed');"
+    const history = `CREATE TABLE seed (id integer); CREATE TABLE _hub_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE); INSERT INTO _hub_migrations (name) VALUES ('${row}');`
     const d1 = host === "D1" ? await createFakeD1(project.rootDir, history) : undefined
     if (!d1) await seedDatabase(project.rootDir, history)
     try {
       const [error, plan] = await readMigrationPlan(project.database, { env: d1 ? d1Env : process.env, fetch: d1?.fetch, projectRoot: project.rootDir })
       expect(error).toBeUndefined()
-      expect(plan?.adopted).toEqual([{ from: "_hub_migrations", name: "20260101000000_0001_seed.sqlite" }])
+      expect(plan?.adopted).toEqual([{ from: "_hub_migrations", name: `20260101000000_${kept}` }])
       expect(plan?.pending.map(migration => migration.name)).toEqual(["20260102000000_seed"])
+    }
+    finally {
+      d1?.client.close()
+    }
+  }, 60_000)
+
+  it.each(["SQLite", "D1"])("fails the check when Wrangler and NuxtHub read a .sql row of _hub_migrations as different folders on %s", async (host) => {
+    const project = await createProject()
+    const migrationsDir = project.database.migrationsDir
+    project.database.cloudflare = host === "D1"
+      ? { binding: "DB", databaseId: "database-id", http: true, migrationsDir, migrationsTable: "_hub_migrations" }
+      : { binding: "DB", migrationsDir, migrationsTable: "_hub_migrations" }
+    await folder(migrationsDir, "20260101000000_0001_seed", "CREATE TABLE seed (id integer);")
+    await folder(migrationsDir, "20260102000000_seed", "INSERT INTO seed (id) VALUES (1);")
+    const history = "CREATE TABLE seed (id integer); CREATE TABLE _hub_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE); INSERT INTO _hub_migrations (name) VALUES ('0001_seed.sql');"
+    const d1 = host === "D1" ? await createFakeD1(project.rootDir, history) : undefined
+    if (!d1) await seedDatabase(project.rootDir, history)
+    try {
+      const [error] = await readMigrationPlan(project.database, { env: d1 ? d1Env : process.env, fetch: d1?.fetch, projectRoot: project.rootDir })
+      expect(error?.code).toBe("DATABASE_MIGRATION_CHECK_FAILED")
+      expect(error?.why).toContain("lists 0001_seed.sql, which matches more than one migration: default/20260101000000_0001_seed, default/20260102000000_seed.")
+    }
+    finally {
+      d1?.client.close()
+    }
+  }, 60_000)
+
+  it.each(["SQLite", "D1"])("ignores a _hub_migrations row that matches more than one folder when the current ledger lists every folder on %s", async (host) => {
+    const project = await createProject()
+    const migrationsDir = project.database.migrationsDir
+    if (host === "D1") project.database.cloudflare = { binding: "DB", databaseId: "database-id", http: true, migrationsDir }
+    await folder(migrationsDir, "20260101000000_0001_seed.sqlite", "CREATE TABLE seed (id integer);")
+    await folder(migrationsDir, "20260102000000_0001_seed", "INSERT INTO seed (id) VALUES (1);")
+    const ledger = host === "D1"
+      ? "CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE); INSERT INTO d1_migrations (name) VALUES ('0000_0001_seed.sqlite.sql'), ('0001_0001_seed.sql');"
+      : "CREATE TABLE __drizzle_migrations (id INTEGER PRIMARY KEY, hash text NOT NULL, created_at numeric, name text, applied_at TEXT); INSERT INTO __drizzle_migrations (hash, created_at, name) VALUES ('a', 1767225600000, '20260101000000_0001_seed.sqlite'), ('b', 1767312000000, '20260102000000_0001_seed');"
+    const history = `CREATE TABLE seed (id integer); ${ledger} CREATE TABLE _hub_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE); INSERT INTO _hub_migrations (name) VALUES ('0001_seed');`
+    const d1 = host === "D1" ? await createFakeD1(project.rootDir, history) : undefined
+    if (!d1) await seedDatabase(project.rootDir, history)
+    try {
+      const [error, plan] = await readMigrationPlan(project.database, { env: d1 ? d1Env : process.env, fetch: d1?.fetch, projectRoot: project.rootDir })
+      expect(error).toBeUndefined()
+      expect(plan?.adopted).toEqual([])
+      expect(plan?.pending).toEqual([])
     }
     finally {
       d1?.client.close()
