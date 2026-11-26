@@ -14,6 +14,7 @@ import { mcpOAuth, serveMcpOAuthDiscovery, verifyMcpRequest } from "vite-hub/aut
 import { createMcpHandler } from "@vite-hub/mcp/runtime"
 import { readConsolePublicKeys, verifyConsoleSignature } from "@vite-hub/internal/console-signature"
 
+import { authorizeHostedComments, handleHostedCommentsApi, redeemHostedComments } from "../src/hosted-comments.ts"
 import { consoleSchema } from "../src/projects.ts"
 import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
@@ -254,6 +255,44 @@ describe("ViteHub MCP at /mcp/account", () => {
     expect(site.app).toMatchObject({ keyVariable: null, publicKey: null })
     expect(site.script).toBe(`<script type="module" src="${origin}/hosted-comments.js" data-vitehub-comments="${site.app.id}"></script>`)
     await call("unlink_app", { id: site.app.id, deleteHostedComments: true }, tokens.ada)
+  })
+
+  it("reads and resolves the Hosted Comments of a site with the comment operations of an app", async () => {
+    const { body } = await call("link_app", { kind: "site", url: "https://docs.example.com" }, tokens.ada)
+    const { id } = (body!.result.structuredContent as { app: { id: string } }).app
+    try {
+      const db = state.db as Awaited<ReturnType<typeof migrate>>
+      const [bob] = await db.select().from(authSqliteSchema.user).where(eq(authSqliteSchema.user.email, "bob@example.com"))
+      const verifier = randomBytes(32).toString("base64url")
+      const challenge = createHash("sha256").update(verifier).digest("base64url")
+      const authorized = await authorizeHostedComments(new Request(`${origin}/comments/${id}/authorize?challenge=${challenge}`), { db, userId: bob!.id })
+      const code = new URL(authorized.headers.get("location")!).hash.replace(/^#vhc=/, "")
+      const embed = { "content-type": "application/json", "origin": origin, "sec-fetch-site": "same-origin" }
+      const redeemed = await redeemHostedComments(new Request(`${origin}/comments/${id}/redeem`, { body: JSON.stringify({ code, verifier }), headers: embed, method: "POST" }), { db })
+      const { token } = await redeemed.json() as { token: string }
+      const created = await handleHostedCommentsApi(new Request(`${origin}/comments/${id}/api/threads`, { body: JSON.stringify({ anchor: { kind: "page" }, body: "Typo here", page: "/guide" }), headers: { ...embed, authorization: `Bearer ${token}` }, method: "POST" }), { db })
+      const { data: thread } = await created.json() as { data: { id: string } }
+
+      const listed = (await call("list_operations", { id }, tokens.bob)).body!.result.structuredContent as { operations: Array<{ name: string }> }
+      expect(listed.operations.map(operation => operation.name)).toEqual(["comments.threads", "comments.reply", "comments.resolve", "comments.reopen"])
+      const threads = await call("read_operation", { id, operation: "comments.threads" }, tokens.bob)
+      expect(threads.body!.result).toMatchObject({ isError: false, structuredContent: { status: "open", threads: [{ id: thread.id, page: "/guide", comment: "Typo here", author: "bob" }] } })
+      const readOnly = await call("read_operation", { id, input: { threadId: thread.id, reply: "Fixed" }, operation: "comments.resolve" }, tokens.bob)
+      expect(readOnly.body!.result).toMatchObject({ content: [{ text: "comments.resolve changes data, and read_operation runs only operations that read. Call run_operation." }], isError: true })
+      const resolved = await call("run_operation", { id, input: { threads: [{ threadId: thread.id, reply: "Fixed in abc123" }] }, operation: "comments.resolve" }, tokens.ada)
+      expect(resolved.body!.result.isError).toBe(false)
+      expect(JSON.parse(resolved.body!.result.content[0]!.text)).toMatchObject([{ id: thread.id, status: "resolved", messages: [{ body: "Typo here" }, { body: "Fixed in abc123", author: { name: "ada" } }] }])
+      const reopened = await call("run_operation", { id, input: { threadId: thread.id }, operation: "comments.reopen" }, tokens.ada)
+      expect(reopened.body!.result).toMatchObject({ isError: false, structuredContent: { id: thread.id, status: "open" } })
+      const replied = await call("run_operation", { id, input: { threadId: thread.id, body: "Which word?" }, operation: "comments.reply" }, tokens.bob)
+      expect(replied.body!.result).toMatchObject({ isError: false, structuredContent: { id: thread.id } })
+      const unsupported = await call("run_operation", { id, operation: "kv.list" }, tokens.bob)
+      expect(unsupported.body!.result).toMatchObject({ content: [{ text: expect.stringContaining("CONSOLE_SITE_OPERATION_UNSUPPORTED") }], isError: true })
+      expect(appCalls).toEqual([])
+    }
+    finally {
+      await call("unlink_app", { id, deleteHostedComments: true }, tokens.ada)
+    }
   })
 
   it("signs operations for the person as the mcp surface, and keeps the app's MCP rules", async () => {

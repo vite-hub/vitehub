@@ -1,10 +1,11 @@
 import { eq } from "drizzle-orm"
 
 import { readBoundedHttpBody } from "@vite-hub/internal/http-request"
+import { operationInputJsonSchema, parseOperationInput, toOperationFailure } from "@vite-hub/internal/operations"
 import { siteAccessRoles } from "@vite-hub/internal/site-token"
 import { commentsRoleAllows, defineComments } from "vite-hub/comments"
 import { createCommentsHandler } from "vite-hub/comments/runtime"
-import { installComments } from "vite-hub/comments/server"
+import { commentActions, commentsOperations, installComments } from "vite-hub/comments/server"
 
 import { consoleErrorDiagnostics } from "./error-diagnostics.ts"
 import { renderHostedCommentsSignIn } from "./hosted-comments-page.ts"
@@ -22,7 +23,7 @@ import { consoleSiteGrants, createConsoleSiteStore, siteMember, sitePassCookie, 
 
 import type { Diagnostic } from "nostics"
 import type { CommentAction, CommentsUser, CommentSubject } from "vite-hub/comments"
-import type { CommentsDatabase } from "vite-hub/comments/server"
+import type { CommentsCaller, CommentsDatabase } from "vite-hub/comments/server"
 import type { HostedCommentsHolder, HostedCommentsSessionRow } from "./hosted-comments-session.ts"
 import type { ConsoleDatabase, ConsoleProject } from "./projects.ts"
 import type { ConsoleSiteGrantRow } from "./site-access.ts"
@@ -46,8 +47,11 @@ const maximumRequestBytes = 1024 * 1024
 const maximumRedeemBytes = 4 * 1024
 const noStore = { "cache-control": "private, no-store", "referrer-policy": "no-referrer" }
 const people = new WeakMap<Request, CommentsUser>()
-type HostedCommentsHandler = ReturnType<typeof createCommentsHandler>
-const installed = new WeakMap<ConsoleDatabase, Map<string, HostedCommentsHandler>>()
+interface HostedComments {
+  handler: ReturnType<typeof createCommentsHandler>
+  runtime: CommentsCaller["runtime"]
+}
+const installed = new WeakMap<ConsoleDatabase, Map<string, HostedComments>>()
 const apiRoutes: readonly [string, RegExp][] = [
   ["GET", /^\/session$/],
   ["GET", /^\/threads$/],
@@ -72,8 +76,8 @@ function userOf(person: HostedCommentsPerson): CommentsUser {
   return { ...user, role: roles.join(",") }
 }
 
-function hostedComments(db: ConsoleDatabase, project: Pick<ConsoleProject, "id" | "url">): HostedCommentsHandler {
-  const projects = installed.get(db) ?? new Map<string, HostedCommentsHandler>()
+function hostedComments(db: ConsoleDatabase, project: Pick<ConsoleProject, "id" | "url">): HostedComments {
+  const projects = installed.get(db) ?? new Map<string, HostedComments>()
   installed.set(db, projects)
   const cacheKey = `${project.id} ${project.url}`
   const cached = projects.get(cacheKey)
@@ -85,10 +89,10 @@ function hostedComments(db: ConsoleDatabase, project: Pick<ConsoleProject, "id" 
   })
   // SAFETY: the Console Database is a Drizzle SQLite Database: libSQL, D1, or the Database of a ViteHub app.
   const database = db as unknown as CommentsDatabase
-  installComments(comments, { database, tables: consoleHostedCommentTables, tenant: { tenant: project.id } })
-  const handler = createCommentsHandler({ comments, realtime: false, attachments: false })
-  projects.set(cacheKey, handler)
-  return handler
+  const runtime = installComments(comments, { database, tables: consoleHostedCommentTables, tenant: { tenant: project.id } })
+  const hosted = { handler: createCommentsHandler({ comments, realtime: false, attachments: false }), runtime }
+  projects.set(cacheKey, hosted)
+  return hosted
 }
 
 function problem(status: number, diagnostic: Diagnostic<unknown>): Response {
@@ -292,8 +296,83 @@ export async function handleHostedCommentsApi(request: Request, options: { db: C
     ...(body.byteLength ? { body, headers: { "content-type": "application/json" } } : {}),
   })
   people.set(forwarded, user)
-  const response = await hostedComments(db, project).fetch(forwarded)
+  const response = await hostedComments(db, project).handler.fetch(forwarded)
   const headers = new Headers(response.headers)
   for (const [name, value] of Object.entries(noStore)) headers.set(name, value)
   return new Response(response.body, { headers, status: response.status, statusText: response.statusText })
+}
+
+const siteOperations = new Map(commentsOperations
+  .filter(operation => ["comments.threads", "comments.reply", "comments.resolve", "comments.reopen"].includes(operation.name))
+  .map(operation => [operation.name, operation]))
+
+type ResolveEntry = Parameters<typeof commentActions.resolveThreads>[0][number]
+
+/** The answer of one operation on a site, in the shape of the answer of a linked app. */
+export type HostedCommentsOperationResult =
+  | { ok: true, status: number, value: unknown }
+  | { ok: false, status: number, error: { code?: string, message: string, fix?: string } }
+
+function failure(status: number, diagnostic: Diagnostic<unknown>): HostedCommentsOperationResult {
+  const { code, fix, why } = diagnostic
+  return { error: { code, message: why, ...(fix ? { fix } : {}) }, ok: false, status }
+}
+
+function siteProject(project: Pick<ConsoleProject, "label" | "url">): Record<string, unknown> {
+  return { protocol: 1, name: project.label ?? new URL(project.url).host, sections: ["comments"], operations: [...siteOperations.keys()] }
+}
+
+function siteReference(): Record<string, unknown>[] {
+  return [...siteOperations.values()].map((operation) => {
+    const { $schema: _schema, ...input } = operationInputJsonSchema(operation)
+    return { name: operation.name, kind: operation.kind, description: operation.description, input }
+  })
+}
+
+async function runSiteOperation(name: string, input: unknown, who: CommentsCaller): Promise<unknown> {
+  if (name === "comments.threads") {
+    // SAFETY: parseOperationInput checked the input with the schema of comments.threads.
+    return commentActions.threads(input as Parameters<typeof commentActions.threads>[0], who)
+  }
+  if (name === "comments.reply") {
+    // SAFETY: parseOperationInput checked the input with the schema of comments.reply.
+    return (await commentActions.reply(input as Parameters<typeof commentActions.reply>[0], who, { allowResolved: true })).thread
+  }
+  if (name === "comments.resolve") {
+    // SAFETY: parseOperationInput checked the input with the schema of comments.resolve.
+    const resolve = input as ResolveEntry | { threads: ResolveEntry[] }
+    if ("threads" in resolve) return commentActions.resolveThreads(resolve.threads, who)
+    return (await commentActions.resolveThreads([resolve], who))[0]
+  }
+  // SAFETY: parseOperationInput checked the input with the schema of comments.reopen.
+  return commentActions.setStatus(input as Parameters<typeof commentActions.setStatus>[0], who, "open")
+}
+
+/**
+ * Run an operation of a site project for a member of its team, on the comments that the Console keeps for the site.
+ * A site has `project.get` and the comment operations that an Agent uses: `comments.threads`, `comments.reply`,
+ * `comments.resolve`, and `comments.reopen`. They take the input and give the answer of the same operations of a
+ * linked app. With `readOnly`, only the operations that read run.
+ */
+export async function runHostedCommentsOperation(db: ConsoleDatabase, project: HostedProject & Pick<ConsoleProject, "label">, input: { userId: string, operation: string, input: unknown, readOnly?: boolean, reference?: boolean }): Promise<HostedCommentsOperationResult> {
+  if (input.operation === "project.get") {
+    return { ok: true, status: 200, value: { ...siteProject(project), ...(input.reference ? { reference: siteReference() } : {}) } }
+  }
+  const operation = siteOperations.get(input.operation)
+  if (!operation) {
+    return failure(404, consoleErrorDiagnostics.CONSOLE_SITE_OPERATION_UNSUPPORTED({ operation: input.operation, operations: ["project.get", ...siteOperations.keys()].join(", ") }))
+  }
+  if (input.readOnly && operation.kind !== "read") {
+    return { error: { code: "CONSOLE_ACCESS_DENIED", message: `${operation.name} is a ${operation.kind} operation, and this caller may only read.` }, ok: false, status: 403 }
+  }
+  const member = await siteMember(db, project, input.userId)
+  if (!member) return failure(403, consoleErrorDiagnostics.CONSOLE_HOSTED_COMMENTS_ACCESS_ENDED())
+  const who: CommentsCaller = { runtime: hostedComments(db, project).runtime, user: userOf({ ...member, roles: hostedCommentsRoles }), gate: {}, console: true }
+  try {
+    return { ok: true, status: 200, value: await runSiteOperation(operation.name, await parseOperationInput(operation, input.input), who) ?? null }
+  }
+  catch (error) {
+    const { code, fix, message, status } = toOperationFailure(error)
+    return { error: { code, message, ...(fix ? { fix } : {}) }, ok: false, status }
+  }
 }
