@@ -7,7 +7,7 @@ import { dirname, join, resolve } from "pathe"
 import { resolveConfigValue } from "../config-value.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 import { localPgliteDir, resolveLocalSqlitePath } from "../runtime/local-path.ts"
-import { findPostgresLedger, groupPostgresTargets, migratePostgres, postgresLedgerTable, reconcilePostgresHistory, toPgliteMigrationClient, toPostgresMigrationClient } from "../runtime/migrate-on-start.ts"
+import { findMisplacedMigrations, findPostgresLedger, groupPostgresTargets, migratePostgres, misplacedLedgerError, reconcilePostgresHistory, toPgliteMigrationClient, toPostgresMigrationClient } from "../runtime/migrate-on-start.ts"
 import { runsOnPglite } from "../runtime/postgres-env.ts"
 import { invariantError } from "@vite-hub/internal/invariant"
 
@@ -16,6 +16,7 @@ import { readStartMigrations } from "./migrate-on-start.ts"
 import { migrationSqlFile, readMigrations, readPendingMigration } from "./migration-journal.ts"
 import { findRenumbered, hubMigrationsTable, ledgerUpgradeProblem, ledgerUpgradeStatements, matchLedger, matchRecordedNames, matchRenamedRows, nameLedgerTables, toLedgerRow } from "./migration-ledger.ts"
 import { addStatementBreakpoints, migrationParts, withoutNewTableDataLoss } from "./migration-sql.ts"
+import { postgresLedgerTable } from "./postgres-ledger.ts"
 
 import type postgres from "postgres"
 import type { Result } from "@vite-hub/runtime"
@@ -72,8 +73,8 @@ const sqliteMigrationsTable = "__drizzle_migrations"
 const createSqliteMigrationsTable = `CREATE TABLE IF NOT EXISTS ${sqliteMigrationsTable} (id INTEGER PRIMARY KEY, hash text NOT NULL, created_at numeric, name text, applied_at TEXT)`
 
 interface PostgresLedgerScope {
+  createSchema?: boolean
   database: string
-  migrations: readonly MigrationEntry[]
   schema?: string
 }
 
@@ -266,7 +267,7 @@ function connectMigrationPostgres(target: { url?: string }, projectRoot: string,
 }
 
 async function readPostgresLedger(sql: PostgresMigrationSql, scope: PostgresLedgerScope): Promise<LedgerRow[]> {
-  if (!await findPostgresLedger(sql, scope)) return []
+  if (await findPostgresLedger(sql, scope) !== "found") return []
   return Array.from(await sql.unsafe(`select * from ${postgresLedgerTable(scope.schema)}`)).map(row => toLedgerRow(row))
 }
 
@@ -314,8 +315,7 @@ function buildMigrationPlan(database: ResolvedDrizzleDatabaseConfig, target: Mig
 
 export async function readPostgresMigrationPlans(databases: ResolvedDrizzleDatabaseConfig[], options: MigrationPlanOptions): Promise<Map<string, MigrationPlanResult>> {
   const plans = new Map<string, MigrationPlanResult>()
-  const clients = new Set<CliPostgresClient>()
-  const targets: Array<{ client: CliPostgresClient, database: ResolvedDrizzleDatabaseConfig, entries: MigrationEntry[], key?: string, target: MigrationTarget }> = []
+  const targets: Array<{ client: CliPostgresClient, createSchema?: boolean, database: ResolvedDrizzleDatabaseConfig, entries: MigrationEntry[], key?: string, target: MigrationTarget }> = []
   try {
     for (const database of databases) {
       try {
@@ -328,7 +328,6 @@ export async function readPostgresMigrationPlans(databases: ResolvedDrizzleDatab
         }
         if (target.kind === "postgres") {
           const client = connectMigrationPostgres(target, options.projectRoot, options.env, database.driver)
-          clients.add(client)
           targets.push({ client, database, entries, target })
           continue
         }
@@ -345,22 +344,24 @@ export async function readPostgresMigrationPlans(databases: ResolvedDrizzleDatab
         }
         const db = new PGlite(target.path)
         const client = { ...toPgliteMigrationClient(db), end: () => db.close() }
-        clients.add(client)
-        targets.push({ client, database, entries, key: `pglite:${target.path}`, target })
+        targets.push({ client, createSchema: true, database, entries, key: `pglite:${target.path}`, target })
       }
       catch (error) {
         plans.set(database.name, migrationCheckError(database, error))
       }
     }
     for (const group of await groupPostgresTargets(targets)) {
-      const { client, database } = group[0]!
+      const { client, createSchema, database } = group[0]!
       try {
         const migrations = group.flatMap(({ entries }) => entries)
-        const rows = await readPostgresLedger(client, { database: database.name, migrations, schema: database.migrationsSchema })
+        const schema = database.migrationsSchema
+        const rows = await readPostgresLedger(client, { createSchema, database: database.name, schema })
         const match = matchLedger(rows, migrations)
         const problem = drizzleLedgerProblem(match, database.migrationsDir)
         if (problem) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: database.name, problem })
-        const history = await reconcilePostgresHistory(client, group.map(({ database, entries }) => ({ name: database.name, tags: entries.map(entry => entry.tag) })), match.applied, database.migrationsSchema)
+        const history = await reconcilePostgresHistory(client, group.map(({ database, entries }) => ({ name: database.name, tags: entries.map(entry => entry.tag) })), match.applied, schema)
+        const misplaced = await findMisplacedMigrations(client, { migrations, pending: migrations.filter(entry => !match.applied.has(entry.tag) && !history.adopted.includes(entry.tag)), schema })
+        if (misplaced.exact.length || misplaced.unverified.length) throw misplacedLedgerError(database.name, schema!, migrations, misplaced, rows.length + history.adopted.length)
         for (const { database, target, entries } of group) {
           const adopted = new Map(entries.filter(entry => history.adopted.includes(entry.tag)).map(entry => [entry.tag, hubMigrationsTable]))
           const plan = buildMigrationPlan(database, target, options, entries, match.applied, adopted)
@@ -377,7 +378,14 @@ export async function readPostgresMigrationPlans(databases: ResolvedDrizzleDatab
     for (const { database } of targets) plans.set(database.name, migrationCheckError(database, error))
   }
   finally {
-    await Promise.all([...clients].map(client => client.end()))
+    await Promise.all(targets.map(async ({ client, database }) => {
+      try {
+        await client.end()
+      }
+      catch (error) {
+        if (!plans.get(database.name)?.[0]) plans.set(database.name, migrationCheckError(database, error))
+      }
+    }))
   }
   return plans
 }
@@ -539,7 +547,7 @@ export async function migratePostgresDatabases(
         ? connectMigrationPglite(target.path, options.projectRoot, database)
         : connectMigrationPostgres(target, options.projectRoot, options.env, database.driver)
       clients.push(client)
-      return { client, database: { migrations, migrationsSchema: database.migrationsSchema, name: database.name }, ...target.kind === "pglite" && { key: `pglite:${target.path}` } }
+      return { client, database: { migrations, migrationsSchema: database.migrationsSchema, name: database.name }, ...target.kind === "pglite" && { createSchema: true, key: `pglite:${target.path}` } }
     })
     await migratePostgres(targets, { allowDataLoss: options.allowDataLoss, log })
   }

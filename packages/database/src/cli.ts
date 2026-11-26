@@ -523,7 +523,9 @@ async function dropTables(
       return 0
     }
     connection = opened.connection
-    const plan = await planDrop(connection, database.migrationsSchema)
+    const { resolveExportTarget } = await import("./internal/export.ts")
+    const pglite = resolveExportTarget(database, { env: resolved.env, projectRoot: resolved.projectRoot, remote: parsed.remote }).kind === "pglite"
+    const plan = await planDrop(connection, pglite ? undefined : database.migrationsSchema)
     if (!plan.statements.length) {
       context.stdout.write(`[vitehub] Database "${database.name}" (${connection.target}): it has no tables to drop.\n`)
       return 0
