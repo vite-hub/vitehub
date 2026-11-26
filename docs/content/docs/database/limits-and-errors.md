@@ -57,12 +57,12 @@ export default defineEventHandler(async () => {
 | `DATABASE_D1_STATEMENT_TOO_LONG`, `DATABASE_D1_TOO_MANY_PARAMETERS`, `DATABASE_D1_VALUE_TOO_LARGE` | When a query to D1 is above a [D1 limit](#d1-limits), before D1 runs it |
 | `DATABASE_NAME_REQUIRED`, `DATABASE_NOT_FOUND` | By `useDatabase()`, when the name does not select one Database |
 | `DATABASE_DISABLED`, `DATABASE_INVALID_D1_HTTP_URL`, `DATABASE_MISSING_CONNECTION`, `DATABASE_MISSING_D1_HTTP_CONFIG`, `DATABASE_NO_D1_BINDING`, `DATABASE_NOT_FOUND`, `DATABASE_PGLITE_NOT_INSTALLED` | When code first uses the database |
-| `DATABASE_MIGRATION_CHECK_FAILED`, `DATABASE_MIGRATION_DATA_LOSS`, `DATABASE_MIGRATION_FAILED` | Printed by `vitehub database migrate`, which then exits with code 1 |
+| `DATABASE_MIGRATION_CHECK_FAILED`, `DATABASE_MIGRATION_DATA_LOSS`, `DATABASE_MIGRATION_FAILED`, `DATABASE_MIGRATION_LEDGER_MISPLACED`, `DATABASE_MIGRATION_SCHEMA_CONFLICT`, `DATABASE_MIGRATION_SCHEMA_MISSING` | Printed by `vitehub database migrate`, which then exits with code 1 |
 | `DATABASE_MIGRATIONS_OLD_LAYOUT` | Printed by `vitehub database generate` and `vitehub database migrate`, which then exit with code 1. Also by the build with `migrateOnStart`, and by test mode |
 | `DATABASE_EXPORT_FAILED` | Printed by `vitehub database export`, which then exits with code 1 |
-| `DATABASE_MIGRATION_BACKUP_FAILED`, `DATABASE_MIGRATION_BACKUP_UNSUPPORTED`, `DATABASE_MIGRATION_DATA_LOSS`, `DATABASE_MIGRATION_FAILED`, `DATABASE_MIGRATE_ON_START_UNSUPPORTED` | When a Node server migrates on start, before it listens. `DATABASE_MIGRATION_BACKUP_UNSUPPORTED` and `DATABASE_MIGRATE_ON_START_UNSUPPORTED` also fail the build |
+| `DATABASE_MIGRATION_BACKUP_FAILED`, `DATABASE_MIGRATION_BACKUP_UNSUPPORTED`, `DATABASE_MIGRATION_DATA_LOSS`, `DATABASE_MIGRATION_FAILED`, `DATABASE_MIGRATION_LEDGER_MISPLACED`, `DATABASE_MIGRATION_SCHEMA_CONFLICT`, `DATABASE_MIGRATION_SCHEMA_MISSING`, `DATABASE_MIGRATE_ON_START_UNSUPPORTED` | When a Node server migrates on start, before it listens. `DATABASE_MIGRATION_BACKUP_UNSUPPORTED` and `DATABASE_MIGRATE_ON_START_UNSUPPORTED` also fail the build |
 | `DATABASE_SEED_FAILED`, `DATABASE_SEED_NOT_FOUND`, `DATABASE_SEED_PENDING_MIGRATIONS` | Printed by `vitehub seed`, which then exits with code 1 |
-| `DATABASE_DRIZZLE_OPTION_REMOVED`, `DATABASE_INVALID_DIALECT`, `DATABASE_INVALID_DRIVER`, `DATABASE_INVALID_NAME`, `DATABASE_INVALID_OPTIONS`, `DATABASE_UNKNOWN_OPTION` | By `defineDatabase()`, or by the build when it reads the Definition |
+| `DATABASE_DRIZZLE_OPTION_REMOVED`, `DATABASE_INVALID_DIALECT`, `DATABASE_INVALID_DRIVER`, `DATABASE_INVALID_MIGRATIONS_SCHEMA`, `DATABASE_INVALID_NAME`, `DATABASE_INVALID_OPTIONS`, `DATABASE_UNKNOWN_OPTION` | By `defineDatabase()`, or by the build when it reads the Definition |
 | Every other code | During discovery, the build, or `vitehub provision run` |
 
 ## D1 limits
@@ -193,6 +193,18 @@ A statement of a pending Postgres migration failed. `error.why` names the migrat
 
 `migrateOnDeploy` puts `wrangler d1 migrations apply` before `wrangler deploy`, so it works only for a Cloudflare build where each Database has a D1 binding. The build fails for another host, a Database on D1 over HTTP or Postgres, a Nitro deploy command that is not a shell command, or a Nuxt build that learns its Cloudflare preset after the Database module configures Nitro. Build with the Cloudflare host and a D1 binding for each Database, or remove `migrateOnDeploy` and run `vitehub database migrate` before you deploy. See [Migrate when you deploy](/docs/database/configure#migrate-when-you-deploy).
 
+### DATABASE_MIGRATION_LEDGER_MISPLACED
+
+A Postgres Definition sets `migrationsSchema`, but Drizzle's migrations table in the schema `drizzle` lists applied migrations that the table in `migrationsSchema` does not list. ViteHub would apply them again, so it stops before any change. Move the table with `vitehub database sql 'ALTER TABLE "drizzle"."__drizzle_migrations" SET SCHEMA "<schema>"'`, or remove `migrationsSchema`. When both tables exist, the fix copies the missing rows instead. See [Keep the migrations table in a schema](/docs/database/configure#keep-the-migrations-table-in-a-schema).
+
+### DATABASE_MIGRATION_SCHEMA_CONFLICT
+
+Two Definitions on one Postgres database set different `migrationsSchema` values. They share one migrations table, so set the same value on each, or remove it from all of them.
+
+### DATABASE_MIGRATION_SCHEMA_MISSING
+
+A Postgres Definition sets `migrationsSchema`, but the database has no schema with that name. ViteHub does not create a schema that you choose. Create it with `vitehub database sql 'CREATE SCHEMA "<schema>"'`, or fix the name.
+
 ## Export errors
 
 ### DATABASE_EXPORT_FAILED
@@ -226,6 +238,10 @@ The Definition sets `drizzle`. Drizzle 1.0 has no `casing` option on the databas
 ### DATABASE_INVALID_DRIVER
 
 `driver` of a Postgres Definition is not `node-postgres` or `pglite`. The build reads it from the source, so write a string literal. Remove `driver` to connect with postgres.js.
+
+### DATABASE_INVALID_MIGRATIONS_SCHEMA
+
+`migrationsSchema` of a Postgres Definition is not a non-empty string. The build reads it from the source, so write a string literal. Remove it to keep the migrations table in the schema `drizzle`.
 
 ### DATABASE_INVALID_NAME
 

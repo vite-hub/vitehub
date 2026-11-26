@@ -521,7 +521,7 @@ async function dropTables(
       return 0
     }
     connection = opened.connection
-    const plan = await planDrop(connection)
+    const plan = await planDrop(connection, database.migrationsSchema)
     if (!plan.statements.length) {
       context.stdout.write(`[vitehub] Database "${database.name}" (${connection.target}): it has no tables to drop.\n`)
       return 0
@@ -1124,7 +1124,7 @@ async function checkPendingMigrations(
     : [databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: "default", problem: "ViteHub has no resolved Database config. Run the command in a project that uses `hubDatabase()`." }), undefined]
   if (error) {
     context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
-    if (!dryRun) context.stderr.write("[vitehub] To apply the migrations without the check, run `vitehub database migrate --allow-data-loss`.\n")
+    if (!dryRun && databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED.is(error)) context.stderr.write("[vitehub] To apply the migrations without the check, run `vitehub database migrate --allow-data-loss`.\n")
     return { exitCode: 1 }
   }
   if (dryRun) writeMigrationPlan(plan, context)

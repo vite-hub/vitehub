@@ -1415,7 +1415,7 @@ describe("migratePostgres", () => {
       ["select pg_try_advisory_xact_lock(hashtext($1)) as locked", [postgresMigrationLock]],
       ["set local lock_timeout = '5s'", undefined],
       ["set local client_min_messages = warning", undefined],
-      ["select to_regclass('drizzle.__drizzle_migrations') as ledger", undefined],
+      ["select to_regclass('\"drizzle\".\"__drizzle_migrations\"') as ledger", undefined],
       ["select column_name from information_schema.columns where table_schema = 'drizzle' and table_name = '__drizzle_migrations'", undefined],
       [`select id, hash, created_at, name from ${ledgerTable}`, undefined],
       ["select to_regclass('_hub_migrations')::text as name", undefined],

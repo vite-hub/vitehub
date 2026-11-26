@@ -40,6 +40,7 @@ describe("Database error types", () => {
       | "DATABASE_INVALID_D1_HTTP_URL"
       | "DATABASE_INVALID_DIALECT"
       | "DATABASE_INVALID_DRIVER"
+      | "DATABASE_INVALID_MIGRATIONS_SCHEMA"
       | "DATABASE_INVALID_NAME"
       | "DATABASE_INVALID_OPTIONS"
       | "DATABASE_INVALID_RELATIONS"
@@ -56,6 +57,9 @@ describe("Database error types", () => {
       | "DATABASE_MIGRATION_CONVERSION_FAILED"
       | "DATABASE_MIGRATION_DATA_LOSS"
       | "DATABASE_MIGRATION_FAILED"
+      | "DATABASE_MIGRATION_LEDGER_MISPLACED"
+      | "DATABASE_MIGRATION_SCHEMA_CONFLICT"
+      | "DATABASE_MIGRATION_SCHEMA_MISSING"
       | "DATABASE_MIGRATIONS_OLD_LAYOUT"
       | "DATABASE_MISSING_CONNECTION"
       | "DATABASE_MISSING_D1_HTTP_CONFIG"
@@ -92,8 +96,8 @@ describe("Database error types", () => {
     expectTypeOf(databaseErrorDiagnostics.DATABASE_NOT_FOUND).parameter(0).toMatchTypeOf<{ database: string }>()
   })
 
-  it("returns only the migration check error from readMigrationPlan", () => {
-    expectTypeOf<Awaited<ReturnType<typeof readMigrationPlan>>[0]>().toEqualTypeOf<ResultError<"DATABASE_MIGRATION_CHECK_FAILED"> | undefined>()
+  it("returns only the migration check errors from readMigrationPlan", () => {
+    expectTypeOf<Awaited<ReturnType<typeof readMigrationPlan>>[0]>().toEqualTypeOf<ResultError<"DATABASE_MIGRATION_CHECK_FAILED" | "DATABASE_MIGRATION_LEDGER_MISPLACED" | "DATABASE_MIGRATION_SCHEMA_MISSING"> | undefined>()
   })
 
   it("keeps the raw SQL handle of the Agent capability as a plain promise", () => {
