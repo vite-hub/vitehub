@@ -9,6 +9,19 @@ icon: i-lucide-key-round
 
 Every call to the Console endpoint carries an Ed25519 signature, so reading the host env or a pulled `.env` file is not enough to call it. Each caller has its own key pair, such as one per Console link and one for the CLI in CI, and the app keeps only the public keys in `VITEHUB_CONSOLE_KEY_<NAME>` variables. The build contains no keys.
 
+## Call through the Console
+
+After `vitehub login`, generated operation commands such as `logs list` can use `--url` without a separate private key. The CLI finds the app in the Console, and the Console signs the call for you with your role in the team:
+
+```bash [Terminal]
+pnpm vitehub login
+pnpm vitehub logs list --url https://app.example.com
+```
+
+The app must be linked in that Console, such as by [`vitehub deploy`](/docs/cli/project#link-the-app-in-the-console) or `vitehub apps link`, and both the Console and the deployed app must support CLI forwarding. If the Console does not support forwarding, has no matching link, or a `VITEHUB_CONSOLE_PRIVATE_KEY_<NAME>` is set, the CLI calls the app directly. Dedicated commands such as the [Content CLI](/docs/content/cli) always call the app directly and still need a private key for signed requests.
+
+Discovery and the operation share the `--timeout` budget. If discovery fails, the CLI warns and calls the app directly if time remains. Once a call is sent through the Console, the CLI does not retry it directly.
+
 ## Make a key for the CLI
 
 The [Console](/docs/console/get-started#link-a-deployed-app) gives you the line for its own key. For the CLI, make a key pair:
@@ -66,7 +79,7 @@ Without `--url`, a command calls its project's dev server unsigned. A dev server
 | Header | Value |
 | --- | --- |
 | `x-vitehub-signature` | `key=<NAME>, t=<seconds>, origin=<app origin>, body=<SHA-256>, v1=<signature>` |
-| `x-vitehub-caller` | Base64url JSON of the caller: `{"via":"cli"}`, or `{"via":"console","user":{...},"team":{...}}` from the Console. Its ViteHub MCP adds `"surface":"mcp"`, `"confirmed":true` after the person agrees to a destructive call, and `"readOnly":true` for `read_operation`. The app ignores unknown fields so newer Consoles can call older apps. An app with a vite-hub from before this rule refuses the MCP fields. The MCP `check_app` tool then checks the link as the Console page does, and the other MCP tools answer `CONSOLE_APP_VITEHUB_OUTDATED`. |
+| `x-vitehub-caller` | Base64url JSON of the caller: `{"via":"cli"}`, or `{"via":"console","user":{...},"team":{...}}` from the Console. For forwarded CLI or MCP calls the Console adds `"surface":"cli"` or `"surface":"mcp"` and `"confirmed":true` after the person agrees to a destructive call. The MCP also adds `"readOnly":true` for `read_operation`. Older apps that do not recognize the signed surface refuse the call. |
 
 The signature is Ed25519 over these lines, joined with a line feed:
 

@@ -395,7 +395,6 @@
   "packages/vite-hub/test/console-node-start.test.ts": 5,
   "packages/vite-hub/test/console-off.test.ts": 1,
   "packages/vite-hub/test/console-operation-features.test.ts": 1,
-  "packages/vite-hub/test/console-operations.test.ts": 12,
   "packages/vite-hub/test/console-pixels.browser.mjs": 39,
   "packages/vite-hub/test/console-playground.test.ts": 5,
   "packages/vite-hub/test/console-preview.test.ts": 1,

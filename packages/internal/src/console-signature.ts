@@ -63,7 +63,7 @@ export interface ConsoleCallerUser {
  * information: an older app skips it. A field that restricts the call needs a new signature version.
  */
 export type ConsoleCaller =
-  | { via: "console", user: ConsoleCallerUser, team?: { id: string, role?: string }, surface?: "mcp", confirmed?: true, readOnly?: true }
+  | { via: "console", user: ConsoleCallerUser, team?: { id: string, role?: string }, surface?: "mcp" | "cli", confirmed?: true, readOnly?: true }
   | { via: "cli" }
 
 /** A private key and the name that the app knows its public key by. */
@@ -220,22 +220,21 @@ export function decodeConsoleCaller(value: string): ConsoleCaller | undefined {
   if (!isRecord(parsed)) return undefined
   if (parsed.via === "cli") return parsed.user === undefined ? { via: "cli" } : undefined
   if (parsed.via !== "console" || !isRecord(parsed.user)) return undefined
-  // `confirmed` belongs to an MCP call only, so a Console page call cannot carry it.
-  if ((parsed.surface !== undefined && parsed.surface !== "mcp") || (parsed.confirmed !== undefined && (parsed.confirmed !== true || parsed.surface !== "mcp"))) return undefined
+  if ((parsed.surface !== undefined && parsed.surface !== "mcp" && parsed.surface !== "cli") || (parsed.confirmed !== undefined && (parsed.confirmed !== true || parsed.surface === undefined))) return undefined
   if (parsed.readOnly !== undefined && parsed.readOnly !== true) return undefined
-  const mcp = parsed.surface === "mcp" ? { surface: "mcp" as const, ...(parsed.confirmed === true ? { confirmed: true as const } : {}) } : {}
+  const call = parsed.surface ? { surface: parsed.surface, ...(parsed.confirmed === true ? { confirmed: true as const } : {}) } : {}
   const readOnly = parsed.readOnly === true ? { readOnly: true as const } : {}
   const id = optionalText(parsed.user.id)
   const name = optionalText(parsed.user.name)
   const email = optionalText(parsed.user.email)
   if (!id || name === false || email === false) return undefined
   const user: ConsoleCallerUser = { id, ...(name ? { name } : {}), ...(email ? { email, ...(parsed.user.emailVerified === true ? { emailVerified: true } : {}) } : {}) }
-  if (parsed.team === undefined) return { via: "console", user, ...mcp, ...readOnly }
+  if (parsed.team === undefined) return { via: "console", user, ...call, ...readOnly }
   if (!isRecord(parsed.team)) return undefined
   const teamId = optionalText(parsed.team.id)
   const role = optionalText(parsed.team.role)
   if (!teamId || role === false) return undefined
-  return { via: "console", user, team: { id: teamId, ...(role ? { role } : {}) }, ...mcp, ...readOnly }
+  return { via: "console", user, team: { id: teamId, ...(role ? { role } : {}) }, ...call, ...readOnly }
 }
 
 /**

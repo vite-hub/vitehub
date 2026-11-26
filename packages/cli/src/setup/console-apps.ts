@@ -31,6 +31,10 @@ export interface ConsoleClient {
 export async function openConsole(context: Pick<ViteHubCliContext, "env" | "fetch">, console?: string): Promise<ConsoleClient> {
   const credential = await readConsoleCredential(context.env, console)
   if (!credential) throw cliErrorDiagnostics.CLI_CONSOLE_SIGNED_OUT({ console: consoleOrigin(console ?? context.env[consoleUrlVariable] ?? defaultConsoleUrl) })
+  return consoleClient(context, credential)
+}
+
+export function consoleClient(context: Pick<ViteHubCliContext, "fetch">, credential: { origin: string, token: string }, signal?: AbortSignal): ConsoleClient {
   return {
     origin: credential.origin,
     async request(path, init = {}) {
@@ -38,6 +42,7 @@ export async function openConsole(context: Pick<ViteHubCliContext, "env" | "fetc
         ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
         headers: { accept: "application/json", authorization: `Bearer ${credential.token}`, ...(init.body === undefined ? {} : { "content-type": "application/json" }) },
         method: init.method ?? "GET",
+        ...(signal ? { redirect: "error", signal } : {}),
       }).catch((error: unknown) => {
         throw cliErrorDiagnostics.CLI_CONSOLE_REQUEST_FAILED({ code: "FETCH_FAILED", console: credential.origin, message: `The Console did not answer ${path}: ${error instanceof Error ? error.message : String(error)}` })
       })

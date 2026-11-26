@@ -38,8 +38,8 @@ export function consoleCredentialsFile(env: NodeJS.ProcessEnv): string {
   return join(base, "vitehub", "credentials.json")
 }
 
-async function readCredentials(file: string): Promise<CredentialsFile> {
-  const text = await readFile(file, "utf8").catch((error: unknown) => {
+async function readCredentials(file: string, signal?: AbortSignal): Promise<CredentialsFile> {
+  const text = await readFile(file, { encoding: "utf8", signal }).catch((error: unknown) => {
     if (error instanceof Error && Reflect.get(error, "code") === "ENOENT") return undefined
     throw error
   })
@@ -79,8 +79,8 @@ export function consoleOrigin(value: string): string {
  * `vitehub login` saved for the Console. Without `console`, the Console is `VITEHUB_CONSOLE_URL`, else the only saved
  * Console, else console.vitehub.dev. `undefined` when there is no key.
  */
-export async function readConsoleCredential(env: NodeJS.ProcessEnv, console?: string): Promise<{ origin: string, token: string, source: "env" | "file", saved?: ConsoleCredential } | undefined> {
-  const file = await readCredentials(consoleCredentialsFile(env))
+export async function readConsoleCredential(env: NodeJS.ProcessEnv, console?: string, signal?: AbortSignal): Promise<{ origin: string, token: string, source: "env" | "file", saved?: ConsoleCredential } | undefined> {
+  const file = await readCredentials(consoleCredentialsFile(env), signal)
   const named = console ?? env[consoleUrlVariable]
   const saved = Object.keys(file.consoles)
   const origin = consoleOrigin(named ?? (saved.length === 1 ? saved[0]! : defaultConsoleUrl))
