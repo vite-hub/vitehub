@@ -171,7 +171,7 @@ export interface PostgresDatabaseDefinitionOptions<
   /** Without it, a Database that has no URL or PG* variables still runs on PGlite in development. */
   driver?: PostgresDatabaseDriver
   /**
-   * The schema of Drizzle's migration ledger, `__drizzle_migrations`, instead of `drizzle`. ViteHub never creates it.
+   * The schema of Drizzle's migration ledger, `__drizzle_migrations`, instead of `drizzle`. ViteHub creates it only on PGlite.
    * NuxtHub's `_hub_migrations` in this schema counts too.
    */
   migrationsSchema?: string

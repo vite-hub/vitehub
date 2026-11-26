@@ -230,21 +230,15 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Build with the Cloudflare host and give each database a D1 binding. Otherwise, remove `migrateOnDeploy` and run `vitehub database migrate` before you deploy.",
     },
     DATABASE_MIGRATION_LEDGER_MISPLACED: {
-      why: ({ database, migrations, schema }: { database: string, exists: boolean, migrations: readonly string[], schema: string }) => `The database "${database}" sets \`migrationsSchema: "${schema}"\`, but Drizzle's ledger in the schema "drizzle" lists applied migrations that the ledger in "${schema}" does not list:${fileList(migrations)}\nViteHub would apply them again.`,
-      fix: ({ exists, schema }: { database: string, exists: boolean, migrations: readonly string[], schema: string }) => {
-        const table = `${postgresName(schema)}."__drizzle_migrations"`
-        const sql = exists
-          ? `INSERT INTO ${table} (hash, created_at, name, applied_at) SELECT hash, created_at, name, applied_at FROM "drizzle"."__drizzle_migrations" WHERE name NOT IN (SELECT name FROM ${table} WHERE name IS NOT NULL)`
-          : `ALTER TABLE "drizzle"."__drizzle_migrations" SET SCHEMA ${postgresName(schema)}`
-        return `${exists ? "Copy the missing rows to the ledger in the chosen schema" : "Move the ledger to the chosen schema"} with \`vitehub database sql '${sql}'\`, then run \`vitehub database migrate --dry-run\`. Or remove \`migrationsSchema\` to keep the ledger in "drizzle".`
-      },
+      why: ({ database, role, schema }: { database: string, role: string, schema: string }) => `The database "${database}" sets \`migrationsSchema: "${schema}"\`, and the ledger in "${schema}" lists none of its migrations. Drizzle's ledger "drizzle"."__drizzle_migrations" can list them, but the role "${role}" cannot read it, so ViteHub would apply them again.`,
+      fix: ({ role }: { database: string, role: string, schema: string }) => `As the owner of the schema "drizzle", run \`vitehub database sql 'GRANT USAGE ON SCHEMA "drizzle" TO ${postgresName(role)}'\` and \`vitehub database sql 'GRANT SELECT ON "drizzle"."__drizzle_migrations" TO ${postgresName(role)}'\` once. ViteHub then records the migrations that it lists in the ledger in \`migrationsSchema\`, and does not change "drizzle".`,
     },
     DATABASE_MIGRATION_SCHEMA_CONFLICT: {
       why: ({ databases, schemas }: { databases: readonly [string, string], schemas: readonly [string | undefined, string | undefined] }) => `The databases "${databases[0]}" and "${databases[1]}" share one Postgres database and its migration ledger, but set different \`migrationsSchema\` values: ${schemas.map(schema => schema === undefined ? "none (\"drizzle\")" : JSON.stringify(schema)).join(" and ")}.`,
       fix: "Set the same `migrationsSchema` on every Definition that connects to this Postgres database, or remove it from all of them.",
     },
     DATABASE_MIGRATION_SCHEMA_MISSING: {
-      why: ({ database, schema }: { database: string, schema: string }) => `The database "${database}" sets \`migrationsSchema: "${schema}"\`, but the Postgres database has no schema "${schema}". ViteHub does not create a schema that you choose.`,
+      why: ({ database, schema }: { database: string, schema: string }) => `The database "${database}" sets \`migrationsSchema: "${schema}"\`, but the Postgres database has no schema "${schema}". On a Postgres server, ViteHub does not create a schema that you choose.`,
       fix: ({ schema }: { database: string, schema: string }) => `Create the schema with \`vitehub database sql 'CREATE SCHEMA ${postgresName(schema)}'\`, as a role that owns the database, or fix the name in \`migrationsSchema\`.`,
     },
 

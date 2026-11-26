@@ -478,25 +478,24 @@ describe("NuxtHub's _hub_migrations on PGlite", () => {
 })
 
 describe("migrationsSchema on PGlite", () => {
-  it("keeps the ledger in migrationsSchema, and fails with DATABASE_MIGRATION_SCHEMA_MISSING until the schema exists", async () => {
+  it("creates migrationsSchema in a fresh PGlite folder and keeps the ledger there", async () => {
     const root = await createProject(["  migrationsSchema: 'app',"])
     const migrations = join(root, "server/databases/default/migrations")
     await mkdir(join(migrations, "20260101000000_init"), { recursive: true })
     await writeFile(join(migrations, "20260101000000_init/migration.sql"), "CREATE TABLE \"notes\" (\"id\" serial PRIMARY KEY, \"title\" text NOT NULL);\n")
     const { PGlite } = await import("@electric-sql/pglite")
     const folder = join(root, ".vitehub/data/database/pglite")
-    await mkdir(dirname(folder), { recursive: true })
     const plugin = await startVite(root, "serve")
 
-    const missing = await runCli(plugin, root, "migrate")
-    expect(missing.exitCode).toBe(1)
-    expect(missing.stderr).toContain("DATABASE_MIGRATION_SCHEMA_MISSING")
-    const created = new PGlite(folder)
-    await created.exec("CREATE SCHEMA app")
-    await created.close()
+    const dryRun = await runCli(plugin, root, "migrate", ["--dry-run"])
+    expect(dryRun).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(existsSync(folder)).toBe(false)
     const applied = await runCli(plugin, root, "migrate")
     expect(applied).toMatchObject({ exitCode: 0, stderr: "" })
     expect(applied.stdout).toContain("applied 20260101000000_init.")
+    const again = await runCli(plugin, root, "migrate", ["--dry-run"])
+    expect(again).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(again.stdout).toContain(": no pending migrations.")
 
     const client = new PGlite(folder)
     try {
@@ -536,6 +535,26 @@ describe("a Postgres Database on PGlite in app tests", () => {
     expect(await db.select().from(notes)).toEqual([])
     // Test mode never opens the development folder.
     expect(existsSync(join(root, ".vitehub/data/database/pglite"))).toBe(false)
+  }, 60_000)
+
+  it("creates migrationsSchema in the in-memory PGlite, on the first query and after each reset", async () => {
+    const migrations = join(root, "server/databases/ledger/migrations")
+    await mkdir(join(migrations, "20260101000000_notes"), { recursive: true })
+    await writeFile(join(migrations, "20260101000000_notes/migration.sql"), "CREATE TABLE \"notes\" (\n\t\"id\" serial PRIMARY KEY NOT NULL,\n\t\"title\" text NOT NULL\n);\n")
+    const db = await createDevPostgresDatabase({ dialect: "postgresql", migrationsSchema: "app", name: "ledger", relations: defineRelations({ notes }), schema: { notes } }, { binding: "HYPERDRIVE" }, {
+      dataDir: join(root, ".vitehub/data/database/ledger"),
+      migrationsDir: migrations,
+    })
+    const mode = enableViteHubTestMode({ root })
+
+    await db.insert(notes).values({ title: "first" })
+    expect(await db.select().from(notes)).toEqual([{ id: 1, title: "first" }])
+    expect(await db.execute(sql`select to_regclass('app.__drizzle_migrations')::text as ledger`)).toMatchObject({ rows: [{ ledger: "app.__drizzle_migrations" }] })
+
+    await mode.reset()
+
+    expect(await db.select().from(notes)).toEqual([])
+    expect(await db.execute(sql`select count(*)::int as count from app.__drizzle_migrations`)).toMatchObject({ rows: [{ count: 1 }] })
   }, 60_000)
 })
 
