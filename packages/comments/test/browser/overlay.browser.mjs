@@ -758,6 +758,57 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     assert.equal(await page.evaluate(() => localStorage.getItem("vitehub-comments-visibility")), null)
   })
 
+  await t.test("Send closes the box at once, and the next comment goes out while the first is held", async () => {
+    const held = await browser.newPage({ viewport: { width: 1024, height: 720 } })
+    try {
+      const releases = []
+      const posted = async (count) => {
+        for (let tries = 0; releases.length < count && tries < 50; tries++) await held.waitForTimeout(100)
+        assert.equal(releases.length, count)
+      }
+      await held.route(url => url.pathname.endsWith("/_vitehub/comments/threads"), async (route) => {
+        if (route.request().method() === "POST") await new Promise(resolve => releases.push(resolve))
+        await route.continue()
+      })
+      await held.goto(`http://127.0.0.1:${port}/held`)
+      await held.locator("vitehub-comments [data-slot='comment-layer']").waitFor({ state: "attached" })
+      const box = held.locator("vitehub-comments textarea[aria-label='Comment']")
+      const pending = held.locator("vitehub-comments [data-slot='comment-pin'][data-pending='true']")
+      const spot = await held.locator("#second").boundingBox()
+      await held.mouse.click(900, 650)
+      await held.keyboard.press("c")
+      await held.locator("vitehub-comments [data-slot='comment-layer-overlay']").waitFor()
+
+      const bodies = ["The first, held", "The second, written meanwhile"]
+      await held.mouse.click(spot.x + 60, spot.y + 8)
+      await box.fill(bodies[0])
+      await box.press("Enter")
+      await box.waitFor({ state: "detached", timeout: 1000 })
+      await pending.first().waitFor({ timeout: 1000 })
+      await posted(1)
+
+      await held.mouse.click(spot.x + 300, spot.y + 8)
+      await box.fill(bodies[1])
+      await box.press("Enter")
+      await box.waitFor({ state: "detached", timeout: 1000 })
+      await held.waitForFunction(() => document.querySelector("vitehub-comments").shadowRoot.querySelectorAll("[data-slot='comment-pin'][data-pending='true']").length === 2, undefined, { timeout: 2000 })
+      assert.equal(releases.length, 1)
+      assert.equal((await api.threads()).filter(thread => bodies.includes(thread.messages[0].body)).length, 0)
+
+      releases[0]()
+      await posted(2)
+      releases[1]()
+      const threads = await api.stored(threads => bodies.every(body => threads.some(thread => thread.messages[0].body === body)))
+      const [first, second] = bodies.map(body => threads.find(thread => thread.messages[0].body === body))
+      assert.ok(first && second, "both comments reached the server")
+      assert.ok(first.n < second.n, `in order: ${first.n} before ${second.n}`)
+      await pending.first().waitFor({ state: "detached", timeout: 5000 })
+    }
+    finally {
+      await held.close()
+    }
+  })
+
   assert.deepEqual(errors, [])
 })
 
