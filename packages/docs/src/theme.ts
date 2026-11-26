@@ -234,10 +234,8 @@ export function docsUi(siteName: string): DocsThemeUi {
           trigger: "h-8 px-2.5 py-0 text-muted data-[state=active]:text-highlighted hover:bg-transparent hover:text-highlighted",
         },
       },
-      // Inline code wraps with the sentence. As an inline block, a long path pushed the page wider than a phone
-      // and moved the punctuation after it to its own line.
       code: {
-        base: "inline box-decoration-clone wrap-break-word rounded-md border-0 bg-muted px-[0.35em] py-[0.1em] font-mono text-[0.8125rem]/[1.6] text-highlighted ring ring-inset ring-default",
+        base: "inline box-decoration-clone wrap-break-word rounded-md border-0 bg-muted px-[0.35em] py-[0.1em] font-mono text-[0.8125rem]/[1.6] text-highlighted ring ring-inset ring-default data-nowrap:inline-block data-nowrap:w-max data-nowrap:max-w-full data-nowrap:wrap-anywhere",
       },
       pre: {
         slots: {
