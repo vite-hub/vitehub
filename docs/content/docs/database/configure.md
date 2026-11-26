@@ -931,10 +931,10 @@ export default defineDatabase({
 ```
 
 - ViteHub keeps `__drizzle_migrations` in `app` and creates no `drizzle` schema. This works on Postgres and PGlite.
-- ViteHub does not create the schema. Create it first, for example with `vitehub database sql 'CREATE SCHEMA "app"'`. Without it, migrate and start fail with [`DATABASE_MIGRATION_SCHEMA_MISSING`](/docs/database/limits-and-errors#database_migration_schema_missing).
+- ViteHub does not create the schema. Create it first, for example with `vitehub database sql 'CREATE SCHEMA "app"'`. Without it, migrate and start fail with [`DATABASE_MIGRATION_SCHEMA_MISSING`](/docs/database/diagnostics/database_migration_schema_missing).
 - The generated Kit config gets `migrations: { schema: "app" }`, so `drizzle-kit migrate` reads the same table.
 - ViteHub also reads NuxtHub's `_hub_migrations` in that schema.
-- When the table in `drizzle` lists applied migrations that the table in `app` does not list, migrate and start fail with [`DATABASE_MIGRATION_LEDGER_MISPLACED`](/docs/database/limits-and-errors#database_migration_ledger_misplaced). They do not apply them again. Move the table with the command in the fix:
+- When the table in `drizzle` lists applied migrations that the table in `app` does not list, migrate and start fail with [`DATABASE_MIGRATION_LEDGER_MISPLACED`](/docs/database/diagnostics/database_migration_ledger_misplaced). They do not apply them again. Move the table with the command in the fix:
 
 ```bash [Terminal]
 pnpm vitehub database sql 'ALTER TABLE "drizzle"."__drizzle_migrations" SET SCHEMA "app"'
