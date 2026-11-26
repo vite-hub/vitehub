@@ -17,8 +17,8 @@ import type {
 } from "./client-types.ts"
 import type { CommentsClientFiles, CommentsOutbox, CommentsOutboxOptions } from "./client-outbox.ts"
 
-export { commentsAgentPrompt } from "./agent-prompt.ts"
-export type { CommentsAgentPromptInput } from "./agent-prompt.ts"
+export { commentsAgentPrompt, commentsT3CodeLink, t3CodeLinkLimit } from "./agent-prompt.ts"
+export type { CommentsAgentAccess, CommentsAgentPromptInput, CommentsAgentPromptThread } from "./agent-prompt.ts"
 export { anchorRange, createAnchor, resolveAnchor, selectorFor } from "./client-anchor.ts"
 export type {
   AnchorPoint,
