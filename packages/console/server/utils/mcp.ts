@@ -1,4 +1,5 @@
 import { HTTPError } from "h3"
+import { isPromptFreeMcpWrite } from "@vite-hub/internal/operations"
 
 import { callProjectOperation, consoleActiveTeam, consoleCallerUser, consoleTeamCaller, projectNotFound } from "./console.ts"
 
@@ -37,11 +38,9 @@ export async function projectOperation(caller: McpToolCaller | undefined, id: st
   if (!result) throw await consoleToolError(projectNotFound())
   if (result.ok) return result.value ?? null
   const { code, fix, message } = result.error
-  if (code === "INTERNAL_R0026") {
-    throw new HTTPError({ message: `${operation} deletes or publishes data, and run_operation runs only operations that do not. Tell the person what it changes, then call run_destructive_operation when they agree.`, status: 409 })
-  }
   if (options.readOnly && code === "CONSOLE_ACCESS_DENIED" && message.endsWith("this caller may only read.")) {
-    throw new HTTPError({ message: `${operation} changes data, and read_operation runs only operations that read. Call run_operation, or run_destructive_operation if list_operations marks it destructive.`, status: 403 })
+    const next = isPromptFreeMcpWrite(operation) ? "Use run_operation." : "Explain the change and use run_destructive_operation with confirm: true after the user agrees."
+    throw new HTTPError({ message: `${operation} changes data, and read_operation runs only reads and dry runs. ${next}`, status: 403 })
   }
   throw new HTTPError({ message: `The app answered ${result.status}${code ? ` ${code}` : ""}: ${message}${fix ? ` Fix: ${fix}` : ""}`, status: 400 })
 }

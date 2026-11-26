@@ -37,7 +37,7 @@ The docs server reads the published pages. The Console server sends signed reque
 
 ## Edit a page from your agent
 
-Ask your agent to find the demo with `list_apps`, inspect its Content operations with `list_operations`, use `read_operation` to read a draft, and `run_operation` to save it. Include the digest returned by the read when saving. Review and publish the draft in the Console.
+Ask your agent to find the demo with `list_apps`, inspect its Content operations with `list_operations`, and use `read_operation` to read a draft. After you approve the changes, the agent saves the draft with `run_destructive_operation` and `confirm: true`. Include the digest returned by the read when saving. Review and publish the draft in the Console.
 
 ::warning
 `content.publish` publishes the drafts. A blog post or a release is live within a minute. Clients such as Claude Code ask before they run a tool with `destructiveHint`, but ViteHub cannot force them to ask.
