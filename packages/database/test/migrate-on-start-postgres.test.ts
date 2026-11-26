@@ -807,7 +807,7 @@ describe.skipIf(!adminUrl)("NuxtHub's _hub_migrations on Postgres", () => {
 
     const [error] = await readMigrationPlan(postgresDatabase(url, migrationsDir), { env: {}, projectRoot: root })
     expect(error?.code).toBe("DATABASE_MIGRATION_CHECK_FAILED")
-    expect(error?.why).toContain(`The migrations table _hub_migrations lists 0000_init, but that migration is now 0001_init (${init.tag}), so ViteHub would apply it again.`)
+    expect(error?.why).toContain(`The migrations table public._hub_migrations lists 0000_init, but that migration is now 0001_init (${init.tag}), so ViteHub would apply it again.`)
     await expect(migratePostgres([{ client: sql, database: { migrations: readStartMigrations(migrationsDir, "postgresql"), name: "default" } }], { log: () => {} }))
       .rejects.toMatchObject({ code: "DATABASE_MIGRATION_CHECK_FAILED" })
     expect(await sql`select to_regclass('drizzle.__drizzle_migrations')::text as name`).toEqual([{ name: null }])
@@ -926,5 +926,43 @@ describe.skipIf(!adminUrl)("migrationsSchema on Postgres", () => {
     ])
     expect((await readLedger(sql, "app")).map(row => row.name)).toEqual([init.tag, seed.tag])
     expect(await schemas(sql)).toEqual(["app"])
+  })
+
+  it("prints repair SQL that names the migrationsSchema table outside the search path", { timeout: 60_000 }, async () => {
+    const early = { sql: "SELECT 1;", tag: "20231114221319_early", when: 1_699_999_999_000 }
+    const { migrationsDir, root } = await createProject([early, init])
+    const url = await createDatabase()
+    const sql = connect(url)
+    await sql.unsafe("CREATE SCHEMA app")
+    await writeNuxtHubHistory(sql, [init], ["0000_init"], "app._hub_migrations")
+
+    const [error] = await readMigrationPlan(postgresDatabase(url, migrationsDir, "app"), { env: {}, projectRoot: root })
+    expect(error?.code).toBe("DATABASE_MIGRATION_CHECK_FAILED")
+    const repair = /`(UPDATE [^`]+)`/.exec(error?.why ?? "")?.[1]
+    expect(repair).toBe(`UPDATE app._hub_migrations SET name = '${init.tag}' WHERE name = '0000_init'`)
+    await expect(migratePostgres(startTarget(sql, migrationsDir), { log: () => {} })).rejects.toMatchObject({ why: expect.stringContaining(repair!) })
+
+    await sql.unsafe(repair!)
+    const log: string[] = []
+    await migratePostgres(startTarget(sql, migrationsDir), { log: message => log.push(message) })
+    expect(log).toEqual([
+      `[vitehub] Database "default": recorded ${init.tag} as applied, as _hub_migrations lists it.`,
+      `[vitehub] Database "default": applied ${early.tag}.`,
+    ])
+  })
+
+  it("names each history table that lists a renumbered migration", { timeout: 60_000 }, async () => {
+    const early = { sql: "SELECT 1;", tag: "20231114221319_early", when: 1_699_999_999_000 }
+    const { migrationsDir, root } = await createProject([early, init])
+    const url = await createDatabase()
+    const sql = connect(url)
+    await sql.unsafe("CREATE SCHEMA \"My App\"")
+    await writeNuxtHubHistory(sql, [init], ["0000_init"], "\"My App\"._hub_migrations")
+    await writeNuxtHubHistory(sql, [], ["0000_init"])
+
+    const [error] = await readMigrationPlan(postgresDatabase(url, migrationsDir, "My App"), { env: {}, projectRoot: root })
+    expect(error?.why).toContain(`The migrations tables "My App"._hub_migrations, public._hub_migrations list 0000_init`)
+    expect(error?.why).toContain(`\`UPDATE "My App"._hub_migrations SET name = '${init.tag}' WHERE name = '0000_init'\``)
+    expect(error?.why).toContain(`\`UPDATE public._hub_migrations SET name = '${init.tag}' WHERE name = '0000_init'\``)
   })
 })

@@ -658,12 +658,12 @@ export async function reconcilePostgresHistory(sql: PostgresMigrationSql, databa
     `select format('%I.%I', nspname, relname) as name from pg_catalog.pg_class join pg_catalog.pg_namespace on relnamespace = pg_namespace.oid where ${schema === undefined ? "nspname = current_schema()" : "nspname in (current_schema(), $2)"} and relname = $1`,
     schema === undefined ? [hubMigrationsTable] : [hubMigrationsTable, schema],
   )).flatMap(row => typeof row.name === "string" ? [row.name] : [])
-  const names = new Set<string>()
-  for (const table of tables) {
-    for (const row of Array.from(await sql.unsafe(`select name from ${table} order by name`))) if (typeof row.name === "string") names.add(row.name)
+  const history = new Map<string, string[]>()
+  for (const table of tables.sort()) {
+    for (const row of Array.from(await sql.unsafe(`select name from ${table} order by name`))) if (typeof row.name === "string") history.set(row.name, [...history.get(row.name) ?? [], table])
   }
   const files = databases.flatMap(({ name, tags }) => numberMigrationFolders(tags).map(file => ({ ...file, database: name })))
-  const match = matchHubMigrations([...names].sort(), files, applied)
+  const match = matchHubMigrations(new Map([...history].sort(([a], [b]) => a < b ? -1 : 1)), files, applied)
   if ("problem" in match) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: databases[0]!.name, problem: match.problem })
   return match
 }
