@@ -2,6 +2,7 @@ import { loadViteHubPageTools, stopViteHubPageTools } from "@vite-hub/internal/r
 
 import { commentsUnansweredError } from "../client-diagnostics.ts"
 import { apiError, useCommentsOverlayBackend } from "../overlay/api.ts"
+import { embedPath } from "./protocol.ts"
 
 import type { ViteHubPageSession } from "@vite-hub/internal/runtime/page-tools-shared"
 import type { CommentsOverlayBackend, CommentsSession } from "../overlay/api.ts"
@@ -10,6 +11,13 @@ import type { CommentThread } from "../types.ts"
 import type { EmbedFrame } from "./protocol.ts"
 
 const session: ViteHubPageSession = { tools: [{ id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "comments", param: "comment" }] }
+
+/** The Hosted Comments project of the page, and the Console that serves it. */
+export interface HostedProject {
+  id: string
+  /** The origin of the Console. */
+  console: string
+}
 
 interface Answers {
   list: CommentThread[]
@@ -24,8 +32,9 @@ function refused(): Promise<never> {
   return Promise.reject(commentsUnansweredError(405))
 }
 
-function backendOf(frame: Promise<EmbedFrame>): CommentsOverlayBackend {
+function backendOf(frame: Promise<EmbedFrame>, project: HostedProject): CommentsOverlayBackend {
   return {
+    namespace: new URL(embedPath(project.id), project.console).href,
     async session(page) {
       try {
         // SAFETY: the frame answers `session` with the session that it built for this page.
@@ -65,9 +74,9 @@ function backendOf(frame: Promise<EmbedFrame>): CommentsOverlayBackend {
  * sign-in, replaces the tools of the first with tools for the new account. It does not open them: the page stays as the
  * person left it, and they choose when to comment.
  */
-export async function mountHostedComments(frame: Promise<EmbedFrame>): Promise<void> {
+export async function mountHostedComments(frame: Promise<EmbedFrame>, project: HostedProject): Promise<void> {
   stopViteHubPageTools()
-  useCommentsOverlayBackend(backendOf(frame))
+  useCommentsOverlayBackend(backendOf(frame, project))
   await loadViteHubPageTools({
     pill: {
       name: "vitehub-hosted-comments-pill",

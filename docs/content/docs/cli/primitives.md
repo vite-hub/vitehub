@@ -220,7 +220,7 @@ pnpm vitehub secret console-key ci
 
 ## Manage Database migrations
 
-The Database commands refresh the Database Definitions, then run Drizzle Kit. When every Database is named, ViteHub runs once per generated Drizzle config and stops at the first failure.
+The Database commands refresh the Database Definitions before generating or applying migrations. Commands that use Drizzle Kit run once per generated Drizzle config and stop at the first failure.
 
 ```bash [Terminal]
 pnpm vitehub database generate
@@ -234,6 +234,8 @@ pnpm vitehub database up
 `database up` converts complete Drizzle Kit 0.x folders and folders of hand-written SQLite or D1 `.sql` files to one folder per migration. For hand-written files, it replays the SQL on a temporary database to record the schema. `database generate` and `database migrate` refuse the old layouts with `DATABASE_MIGRATIONS_OLD_LAYOUT`, except that D1 HTTP can migrate flat SQL directly.
 
 `database generate` forwards Drizzle Kit arguments, supports `--name <name>` for a migration name, and uses `--custom` to create an empty custom migration. Drizzle Kit copies the previous snapshot into a custom migration, for SQL that changes only data. On SQLite, write the statements of a custom migration one after the other. `database migrate` runs each statement without changing the file. When the SQL changes the tables to the current Database Definitions, add `--schema-snapshot`: the migration then gets the snapshot of those Definitions, so the next `database generate` has nothing to add. When a change can be a rename, Drizzle Kit asks in a terminal. Without a terminal, or with `CI` set, `database generate` does not ask: it exits with code 2 and `DATABASE_GENERATE_AMBIGUOUS_CHANGE`, which prints the `--hints` command for each answer. Read [Rename a column or table](/docs/database/configure#rename-a-column-or-table). `database migrate` accepts forwarded Drizzle Kit migration arguments.
+
+`database migrate` uses the Database Definition for PGlite and rejects `--config`. To select a separate Drizzle Kit config, run `drizzle-kit migrate --config <file>` directly. PGlite applies migrations with the built-in Postgres migrator. If the migration snapshots branch, ViteHub runs `drizzle-kit check` before applying any migrations. Linear histories and SQL-only migrations do not need Drizzle Kit.
 
 ## Export a Database
 
