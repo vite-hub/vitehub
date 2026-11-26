@@ -63,7 +63,18 @@ export const commentsChangeNotice = { type: "comments" } as const
 /** Name of the Realtime Definition of the Console that holds the notice rooms of Hosted Comments sites. */
 export const hostedCommentsNoticeDefinition = "hosted-comments"
 
-/** The notice room of one subject of a Hosted Comments project. Each project has its own rooms. */
-export function hostedCommentNoticeRoom(projectId: string, subject: CommentSubject): string {
-  return `projects/${encodeURIComponent(projectId)}/${commentNoticeRoom(subject)}`
+/**
+ * The notice room of a Hosted Comments project. Each session of the project has its own room, so the server sends a
+ * notice only to the sessions that may still read the project.
+ */
+export function hostedCommentNoticeRoom(projectId: string): string {
+  return `projects/${encodeURIComponent(projectId)}`
 }
+
+/** The notice of a Hosted Comments project that the threads of `subject` changed. */
+export function hostedCommentsChangeNotice(subject: CommentSubject): { type: "comments", subject: CommentSubject } {
+  return { type: "comments", subject: { kind: subject.kind, id: subject.id } }
+}
+
+/** The notice that the session of a Hosted Comments page ended, such as when its pass was revoked. */
+export const hostedCommentsEndedNotice = { type: "ended" } as const

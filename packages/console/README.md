@@ -201,7 +201,7 @@ Other paths answer with the Console page, built by `pnpm --filter vite-hub build
 | Cloudflare Workers | D1 | Cannot reach private addresses. The build sets `global_fetch_strictly_public`, without which a Worker that fetches another Worker on the same zone gets error 1042. |
 | Vercel | Hosted libSQL, such as Turso from the Vercel Marketplace | Request bodies stop at 4.5 MB, so Blob and Media uploads above that fail through the Console. Cannot reach private addresses. |
 
-Pages with Hosted Comments show a change to a thread at once, through Realtime. On Node the rooms are in the server process. On Cloudflare the build adds a Durable Object to `wrangler.json`, with the migration tag `vitehub-realtime-v1`. Vercel has no Realtime, so these pages load their threads again on tab focus and every 30 seconds while visible.
+Pages with Hosted Comments show a change to a thread at once, through Realtime. Before each notice the Console checks the session of each page again. A page whose session expired or lost access gets no more notices, and it closes its socket. On Node the rooms are in the server process. On Cloudflare the build adds a Durable Object to `wrangler.json`, with the migration tag `vitehub-realtime-v1`. Vercel has no Realtime, so these pages load their threads again on tab focus and every 30 seconds while visible.
 
 ### VPS with Docker
 

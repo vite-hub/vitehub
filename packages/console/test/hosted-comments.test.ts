@@ -16,12 +16,12 @@ import { createConsoleSiteStore, sitePassCookie } from "../src/site-access.ts"
 import type { RealtimeRequestEvent } from "vite-hub/realtime"
 import type { ConsoleDatabase, ConsoleProject } from "../src/projects.ts"
 
-const notices = vi.hoisted(() => [] as { definition: string, room: string, body: unknown }[])
+const notices = vi.hoisted(() => [] as { definition: string, room: string, body: unknown, user: string | undefined }[])
 
 vi.mock("vite-hub/realtime/server", async original => ({
   ...await original<typeof import("vite-hub/realtime/server")>(),
-  notifyRealtimeRoom: async (definition: string, room: string, body: unknown) => {
-    notices.push({ definition, room, body })
+  notifyRealtimeRoom: async (definition: string, room: string, body: unknown, options?: { user?: string }) => {
+    notices.push({ definition, room, body, user: options?.user })
   },
 }))
 
@@ -34,6 +34,7 @@ const anchor = { kind: "page" as const }
 afterEach(() => {
   clients.splice(0).forEach(client => client.close())
   notices.length = 0
+  vi.useRealTimers()
 })
 
 async function sha256(value: string): Promise<string> {
@@ -136,14 +137,15 @@ function embed(db: ConsoleDatabase, project: ConsoleProject, token: string) {
   })
 }
 
-async function joins(db: ConsoleDatabase, room: string, token: string | undefined, mode: "read" | "write" = "read"): Promise<boolean> {
-  const { authorize } = hostedCommentsRealtime(() => db)
-  if (typeof authorize !== "function") throw new TypeError("The hosted notice rooms decide each join.")
+async function joins(db: ConsoleDatabase, room: string, token: string | undefined, mode: "read" | "write" = "read"): Promise<string | false> {
+  const { identify, authorize } = hostedCommentsRealtime(() => db)
+  if (typeof authorize !== "function" || !identify) throw new TypeError("The hosted notice rooms identify and decide each join.")
   const query = token === undefined ? "" : `?${new URLSearchParams({ token })}`
   const request = new Request(`${consoleOrigin}/_vitehub/realtime/hosted-comments/${room.split("/").map(encodeURIComponent).join("/")}${query}`)
-  // SAFETY: the authorization of the notice rooms reads only the request, the room, and the mode.
+  // SAFETY: the notice rooms read only the request, the room, and the mode.
   const event = {} as RealtimeRequestEvent
-  return await authorize({ definition: "hosted-comments", documentId: room, mode, request, user: null, event })
+  const user = await identify({ definition: "hosted-comments", request, event }) ?? null
+  return user !== null && await authorize({ definition: "hosted-comments", documentId: room, mode, request, user, event }) && user.id
 }
 
 function dataOf<T>(result: { body: { data?: unknown } }): T {
@@ -393,46 +395,89 @@ describe("hosted Comments API", () => {
 })
 
 describe("hosted Comments notices", () => {
-  it("tells the open pages of a thread in its project when the thread changes", async () => {
+  it("tells each open page of the project when one of its threads changes", async () => {
     const { db, portal, other } = await setup()
     const ada = await signIn(db, portal, { userId: "u-ada" })
     const eve = await signIn(db, other, { userId: "u-eve" })
-    const portalRoom = hostedCommentNoticeRoom(portal.id, { kind: "page", id: "/portal/docs" })
+    const adaSession = await joins(db, hostedCommentNoticeRoom(portal.id), ada)
+    const page = { kind: "page", id: "/portal/docs" }
     const created = dataOf<{ id: string }>(await call(db, portal.id, ada, "/threads", { method: "POST", json: { page: "/portal/docs", anchor, body: "Typo" } }))
     expect((await call(db, portal.id, ada, `/threads/${created.id}/comments`, { method: "POST", json: { body: "Fixed" } })).status).toBe(200)
     expect((await call(db, portal.id, ada, `/threads/${created.id}/resolve`, { method: "POST" })).status).toBe(200)
     await vi.waitFor(() => expect(notices).toHaveLength(3))
-    expect(notices).toEqual(Array.from({ length: 3 }, () => ({ definition: "hosted-comments", room: portalRoom, body: { type: "comments" } })))
+    expect(notices).toEqual(Array.from({ length: 3 }, () => ({ definition: "hosted-comments", room: hostedCommentNoticeRoom(portal.id), body: { type: "comments", subject: page }, user: adaSession })))
 
     notices.length = 0
     expect((await call(db, other.id, eve, "/threads", { method: "POST", json: { page: "/", anchor, body: "Other" } })).status).toBe(200)
     await vi.waitFor(() => expect(notices).toHaveLength(1))
-    expect(notices[0]!.room).toBe(hostedCommentNoticeRoom(other.id, { kind: "page", id: "/" }))
-    expect(notices[0]!.room).not.toBe(portalRoom)
+    expect(notices[0]).toMatchObject({ room: hostedCommentNoticeRoom(other.id), user: await joins(db, hostedCommentNoticeRoom(other.id), eve) })
   })
 
-  it("lets a page join the notice rooms of its own project only, with a live token that may read", async () => {
+  it("lets a page join the notice room of its own project only, with a live token that may read", async () => {
     const { db, portal, other, grant, leave } = await setup()
     const ada = await signIn(db, portal, { userId: "u-ada" })
     const eve = await signIn(db, other, { userId: "u-eve" })
-    const portalRoom = hostedCommentNoticeRoom(portal.id, { kind: "page", id: "/portal/docs" })
-    const otherRoom = hostedCommentNoticeRoom(other.id, { kind: "page", id: "/" })
-    expect(await joins(db, portalRoom, ada)).toBe(true)
-    expect(await joins(db, otherRoom, eve)).toBe(true)
+    const portalRoom = hostedCommentNoticeRoom(portal.id)
+    const otherRoom = hostedCommentNoticeRoom(other.id)
+    expect(await joins(db, portalRoom, ada)).toEqual(expect.any(String))
+    expect(await joins(db, otherRoom, eve)).toEqual(expect.any(String))
     expect(await joins(db, otherRoom, ada)).toBe(false)
     expect(await joins(db, portalRoom, eve)).toBe(false)
     expect(await joins(db, portalRoom, undefined)).toBe(false)
     expect(await joins(db, portalRoom, "x".repeat(43))).toBe(false)
     expect(await joins(db, portalRoom, ada, "write")).toBe(false)
-    for (const room of [`projects/${portal.id}`, `projects/${portal.id}/subjects/a/b`, `projects/${other.id}/../${portal.id}/subjects/x`, "subjects/x"]) {
+    for (const room of [`projects/${portal.id}/subjects/x`, `projects/${other.id}/../${portal.id}`, "projects", "subjects/x"]) {
       expect(await joins(db, room, ada), room).toBe(false)
     }
 
     const guest = await signIn(db, portal, { cookie: await grant("g-reader", ["comments-read"]) })
-    expect(await joins(db, portalRoom, guest)).toBe(true)
+    expect(await joins(db, portalRoom, guest)).toEqual(expect.any(String))
     await createConsoleSiteStore(db, portal.id, "comments").revoke("g-reader")
     expect(await joins(db, portalRoom, guest)).toBe(false)
     await leave("u-ada")
     expect(await joins(db, portalRoom, ada)).toBe(false)
+  })
+
+  it("sends no notice to a token after its expiry, and tells its page that the session ended", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    const { db, portal, count } = await setup()
+    const room = hostedCommentNoticeRoom(portal.id)
+    const start = Date.now()
+    const early = await signIn(db, portal, { userId: "u-ada" })
+    const earlySession = await joins(db, room, early)
+    vi.setSystemTime(start + 11 * 3_600_000)
+    const late = await signIn(db, portal, { userId: "u-ada" })
+    const lateSession = await joins(db, room, late)
+    vi.setSystemTime(start + 12 * 3_600_000)
+
+    expect((await call(db, portal.id, late, "/threads", { method: "POST", json: { page: "/portal/docs", anchor, body: "Late" } })).status).toBe(200)
+    await vi.waitFor(() => expect(notices).toHaveLength(2))
+    expect(notices.filter(notice => notice.user === earlySession).map(notice => notice.body)).toEqual([{ type: "ended" }])
+    expect(notices.filter(notice => notice.user === lateSession).map(notice => notice.body)).toEqual([{ type: "comments", subject: { kind: "page", id: "/portal/docs" } }])
+    expect(await joins(db, room, early)).toBe(false)
+    expect(await count("console_comment_sessions")).toBe(1)
+  })
+
+  it("sends no notice to the open page of a revoked guest, ends its session, and tells the page to close", async () => {
+    const { db, portal, grant, count } = await setup()
+    const room = hostedCommentNoticeRoom(portal.id)
+    const ada = await signIn(db, portal, { userId: "u-ada" })
+    const guest = await signIn(db, portal, { cookie: await grant("g-reader", ["comments-read"]) })
+    const adaSession = await joins(db, room, ada)
+    const guestSession = await joins(db, room, guest)
+    expect(guestSession).toEqual(expect.any(String))
+    await createConsoleSiteStore(db, portal.id, "comments").revoke("g-reader")
+
+    expect((await call(db, portal.id, ada, "/threads", { method: "POST", json: { page: "/portal/docs", anchor, body: "After" } })).status).toBe(200)
+    await vi.waitFor(() => expect(notices).toHaveLength(2))
+    expect(notices.filter(notice => notice.user === guestSession).map(notice => notice.body)).toEqual([{ type: "ended" }])
+    expect(notices.filter(notice => notice.user === adaSession).map(notice => notice.body)).toEqual([{ type: "comments", subject: { kind: "page", id: "/portal/docs" } }])
+    expect(await joins(db, room, guest)).toBe(false)
+    expect(await count("console_comment_sessions")).toBe(1)
+
+    notices.length = 0
+    expect((await call(db, portal.id, ada, "/threads", { method: "POST", json: { page: "/portal/docs", anchor, body: "Again" } })).status).toBe(200)
+    await vi.waitFor(() => expect(notices).toHaveLength(1))
+    expect(notices[0]!.user).toBe(adaSession)
   })
 })

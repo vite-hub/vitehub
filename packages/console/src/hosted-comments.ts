@@ -4,7 +4,7 @@ import { readBoundedHttpBody } from "@vite-hub/internal/http-request"
 import { siteAccessRoles } from "@vite-hub/internal/site-token"
 import { commentsRoleAllows, defineComments } from "vite-hub/comments"
 import { createCommentsHandler } from "vite-hub/comments/runtime"
-import { commentsChangeNotice, hostedCommentNoticeRoom, hostedCommentsNoticeDefinition, installComments } from "vite-hub/comments/server"
+import { hostedCommentNoticeRoom, hostedCommentsChangeNotice, hostedCommentsEndedNotice, hostedCommentsNoticeDefinition, installComments } from "vite-hub/comments/server"
 import { isRealtimeAvailable, notifyRealtimeRoom } from "vite-hub/realtime/server"
 
 import { consoleErrorDiagnostics } from "./error-diagnostics.ts"
@@ -13,16 +13,18 @@ import { consoleHostedCommentTables } from "./hosted-comments-schema.ts"
 import {
   endHostedCommentsSession,
   hostedCommentsSession,
+  hostedCommentsTokenSession,
   isHostedCommentsSecret,
   isHostedCommentsVerifier,
   issueHostedCommentsCode,
+  hostedCommentsTokenSessions,
   redeemHostedCommentsCode,
 } from "./hosted-comments-session.ts"
 import { consoleProjects } from "./projects.ts"
 import { consoleSiteGrants, createConsoleSiteStore, siteMember, sitePassCookie, sitePassSetCookie } from "./site-access.ts"
 
 import type { Diagnostic } from "nostics"
-import type { CommentAction, CommentsUser, CommentSubject } from "vite-hub/comments"
+import type { CommentAction, CommentsUser, CommentSubject, CommentThread } from "vite-hub/comments"
 import type { CommentsDatabase } from "vite-hub/comments/server"
 import type { RealtimePresenceDefinition } from "vite-hub/realtime"
 import type { HostedCommentsHolder, HostedCommentsSessionRow } from "./hosted-comments-session.ts"
@@ -91,9 +93,7 @@ function hostedComments(db: ConsoleDatabase, project: Pick<ConsoleProject, "id" 
     database,
     tables: consoleHostedCommentTables,
     tenant: { tenant: project.id },
-    realtime: async () => ({
-      notifyCommentsChange: thread => notifyRealtimeRoom(hostedCommentsNoticeDefinition, hostedCommentNoticeRoom(project.id, thread.subject), commentsChangeNotice),
-    }),
+    realtime: async () => ({ notifyCommentsChange: thread => notifyHostedSessions(db, project.id, thread) }),
   })
   const handler = createCommentsHandler({ comments, realtime: isRealtimeAvailable(), attachments: false })
   projects.set(cacheKey, handler)
@@ -308,7 +308,7 @@ export async function handleHostedCommentsApi(request: Request, options: { db: C
 }
 
 function roomProjectId(documentId: string | null): string | undefined {
-  const match = documentId === null ? null : /^projects\/([^/]+)\/subjects\/[^/]+$/.exec(documentId)
+  const match = documentId === null ? null : /^projects\/([^/]+)$/.exec(documentId)
   if (!match) return undefined
   try {
     return decodeURIComponent(match[1]!)
@@ -318,26 +318,54 @@ function roomProjectId(documentId: string | null): string | undefined {
   }
 }
 
+async function mayRead(db: ConsoleDatabase, project: HostedProject, session: HostedCommentsSessionRow, now: number): Promise<boolean | undefined> {
+  const person = await holderPerson(db, project, session, now)
+  return person && commentsRoleAllows(userOf(person), "read")
+}
+
+async function notifyHostedSessions(db: ConsoleDatabase, projectId: string, thread: Pick<CommentThread, "subject">): Promise<void> {
+  const now = Date.now()
+  const project = await projectOf(db, projectId)
+  if (!project) return
+  const room = hostedCommentNoticeRoom(project.id)
+  await Promise.all((await hostedCommentsTokenSessions(db, project.id)).map(async (session) => {
+    const reads = session.expiresAt > now ? await mayRead(db, project, session, now) : undefined
+    if (reads) return await notifyRealtimeRoom(hostedCommentsNoticeDefinition, room, hostedCommentsChangeNotice(thread.subject), { user: session.id })
+    if (reads !== undefined) return
+    await endHostedCommentsSession(db, session.id)
+    await notifyRealtimeRoom(hostedCommentsNoticeDefinition, room, hostedCommentsEndedNotice, { user: session.id })
+  }))
+}
+
+const joiningSessions = new WeakMap<Request, HostedCommentsSessionRow>()
+
 /**
- * The Realtime Definition of the notice rooms of Hosted Comments sites: one room for each page of a site, named by
- * `hostedCommentNoticeRoom()`. The embed frame joins with its token in `?token=`. Only a token of the project of the room,
- * whose holder may read comments, joins it. The rooms hold no document and no presence: only the server sends to them,
- * after each change of a thread.
+ * The Realtime Definition of the notice rooms of Hosted Comments sites. Each project has one room, named by
+ * `hostedCommentNoticeRoom()`, and each session of the project has its own copy of it. The embed frame joins with its
+ * token in `?token=`. Only a live token of the project of the room, whose holder may read comments, joins it. The rooms
+ * hold no document and no presence: only the server sends to them, after each change of a thread. Before each notice it
+ * checks the expiry and the pass or the membership of each session again. It ends a session that expired or lost
+ * access and sends it `{ type: "ended" }` instead, so its page closes the socket and drops the token.
  */
 export function hostedCommentsRealtime(database: () => ConsoleDatabase, options: { now?: () => number } = {}): RealtimePresenceDefinition {
+  const now = () => options.now?.() ?? Date.now()
   return {
     document: false,
     awareness: false,
-    async authorize({ documentId, mode, request }) {
-      const projectId = roomProjectId(documentId)
+    scope: "user",
+    async identify({ request }) {
       const token = new URL(request.url).searchParams.get("token")
-      if (mode !== "read" || !projectId || !isHostedCommentsSecret(token)) return false
+      const session = isHostedCommentsSecret(token) ? await hostedCommentsTokenSession(database(), { token, now: now() }) : undefined
+      if (!session) return null
+      joiningSessions.set(request, session)
+      return { id: session.id }
+    },
+    async authorize({ documentId, mode, request, user }) {
+      const session = joiningSessions.get(request)
+      if (mode !== "read" || !session || user?.id !== session.id || roomProjectId(documentId) !== session.projectId) return false
       const db = database()
-      const now = options.now?.() ?? Date.now()
-      const project = await projectOf(db, projectId)
-      const session = project && await hostedCommentsSession(db, { projectId: project.id, token, now })
-      const person = project && session && await holderPerson(db, project, session, now)
-      return person !== undefined && commentsRoleAllows(userOf(person), "read")
+      const project = await projectOf(db, session.projectId)
+      return project !== undefined && await mayRead(db, project, session, now()) === true
     },
   }
 }

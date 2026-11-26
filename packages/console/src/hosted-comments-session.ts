@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull, lte } from "drizzle-orm"
+import { and, eq, gt, isNotNull, isNull, lte } from "drizzle-orm"
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core"
 import { authSqliteSchema } from "vite-hub/auth/schema"
 
@@ -115,6 +115,23 @@ export async function hostedCommentsSession(db: ConsoleDatabase, input: { projec
     gt(consoleCommentSessions.expiresAt, input.now),
   )).limit(1)
   return session
+}
+
+/** The session of a bearer token of any project, or `undefined` when it is unknown or expired. */
+export async function hostedCommentsTokenSession(db: ConsoleDatabase, input: { token: string, now: number }): Promise<HostedCommentsSessionRow | undefined> {
+  const [session] = await db.select().from(consoleCommentSessions).where(and(
+    eq(consoleCommentSessions.tokenHash, await sha256(input.token)),
+    gt(consoleCommentSessions.expiresAt, input.now),
+  )).limit(1)
+  return session
+}
+
+/** The sessions of the project that have a bearer token, also the expired ones. */
+export async function hostedCommentsTokenSessions(db: ConsoleDatabase, projectId: string): Promise<HostedCommentsSessionRow[]> {
+  return await db.select().from(consoleCommentSessions).where(and(
+    eq(consoleCommentSessions.projectId, projectId),
+    isNotNull(consoleCommentSessions.tokenHash),
+  ))
 }
 
 /** End a session, such as when its person lost access. */
