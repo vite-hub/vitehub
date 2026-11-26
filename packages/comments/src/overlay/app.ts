@@ -411,7 +411,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         },
       },
       user,
-      ...(user && namespace !== undefined ? { outbox: { account: user.id, namespace } } : {}),
+      ...(user ? { outbox: { account: user.id, namespace } } : {}),
     })
     // The outbox may send a saved copy later, so a new thread takes the page context and the version shown at Send.
     const create = next.create

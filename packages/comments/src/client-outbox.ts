@@ -65,10 +65,10 @@ export type CommentsOutboxEntry = CommentsOutboxEntryBase & (
 export interface CommentsOutboxStore {
   /** `false` when the entries live only in this page, and a reload loses them. */
   readonly persisted: boolean
-  /** The entries of `account`, in queue order. */
-  list: (account: string) => Promise<CommentsOutboxEntry[]>
-  /** Read and change one account's entries in one transaction. Replace entries rather than mutating them. */
-  update: <T>(account: string, change: (entries: Map<string, CommentsOutboxEntry>) => T) => Promise<T>
+  /** The entries of one queue, in queue order. The key is the account, or the namespace and account of the outbox. */
+  list: (queue: string) => Promise<CommentsOutboxEntry[]>
+  /** Read and change one queue's entries in one transaction. Replace entries rather than mutating them. */
+  update: <T>(queue: string, change: (entries: Map<string, CommentsOutboxEntry>) => T) => Promise<T>
 }
 
 export interface CommentsOutboxOptions {
@@ -77,7 +77,7 @@ export interface CommentsOutboxOptions {
    * comment never goes out as somebody else.
    */
   account: string
-  /** Separates destinations on the same origin. A custom store must already be scoped to this destination. */
+  /** Separates destinations on the same origin, such as two Comments APIs. Entries of another namespace never send. */
   namespace?: string
   /** Default: the `vitehub-comments` IndexedDB database, else memory with `persisted: false`. */
   store?: CommentsOutboxStore
@@ -310,6 +310,7 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
   const store = options.store ?? (!options.environment && !globalThis.navigator?.locks ? createMemoryOutboxStore() : indexedDBOutboxStore(scopedChannel))
   const environment = options.environment ?? createBrowserEnvironment({ channel: scopedChannel, isMessage: isOutboxMessage })
   const queue = namespace === undefined ? account : JSON.stringify([namespace, account])
+  const storeKey = options.store ? queue : account
   const lockName = `vitehub-comments-outbox:${queue}`
   const filesLock = (id: string): string => `vitehub-comments-files:${queue}:${id}`
   let entries: CommentsOutboxEntry[] = []
@@ -339,7 +340,7 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
   const post = (message: CommentsOutboxMessage): void => environment.post(message)
   const reload = (): Promise<void> => loading = loading.catch(() => undefined).then(async () => {
     const landed = [...unsaved].flatMap(([id, local]) => local.saved ? [id] : [])
-    const pending = await store.list(account)
+    const pending = await store.list(storeKey)
     const ids = new Map<string, string>()
     if (globalThis.crypto?.subtle) {
       await Promise.all(pending.map(async (entry) => {
@@ -472,7 +473,7 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
     }, ms)
   }
 
-  const update = <T>(change: (drafts: Map<string, CommentsOutboxEntry>) => T): Promise<T> => store.update(account, change)
+  const update = <T>(change: (drafts: Map<string, CommentsOutboxEntry>) => T): Promise<T> => store.update(storeKey, change)
   const send = async (entry: CommentsOutboxEntry): Promise<void> => {
     const withClaim = <T>(change: (current: CommentsOutboxEntry, drafts: Map<string, CommentsOutboxEntry>) => T) => update((drafts) => {
       const current = drafts.get(entry.id)

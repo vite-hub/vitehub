@@ -23,7 +23,7 @@ export const comments = createCommentsClient({
 comments.start()
 ```
 
-`account` is the Comments author ID. Use the signed-in user's ID or the full guest author ID. The server checks the author on each upload and write. If the session changes, the old entries wait until that author signs in and calls `retry()`. Set `namespace` to a stable destination key if your origin serves more than one Comments API. The direct overlay sets it to the API URL. The Hosted Comments overlay waits for the server instead of using an outbox.
+`account` is the Comments author ID. Use the signed-in user's ID or the full guest author ID. The server checks the author on each upload and write. If the session changes, the old entries wait until that author signs in and calls `retry()`. Set `namespace` to a stable destination key if your origin serves more than one Comments API. Entries saved under one namespace never go out under another. The overlay sets it to the API URL, and Hosted Comments to the Console URL of the project, so two projects on one site keep separate queues.
 
 `create()` and `reply()` show the entry at once, even with no network. They return before the save unless you supply a `requestId`. With a supplied key, they wait for the local save so a replay can return the first draft.
 

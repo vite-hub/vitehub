@@ -58,8 +58,12 @@ export type ApiResult<T> = [CommentsApiError, undefined] | [undefined, T]
 const guestKey = "vitehub-comments-guest"
 const route = commentsApiRoute(import.meta.url)
 
-export function overlayOutboxNamespace(): string | undefined {
-  return backend ? undefined : new URL(route, location.href).href
+/**
+ * Where the outbox of the overlay keeps its comments: one queue for each destination, so a comment saved for one
+ * Comments API or Hosted Comments project never goes out through another on the same origin.
+ */
+export function overlayOutboxNamespace(): string {
+  return backend ? backend.namespace : new URL(route, location.href).href
 }
 
 /** The guest name and id this browser chose, when the site lets guests comment. */
@@ -99,6 +103,8 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<ApiResult<
  * the hosted embed, whose Console frame makes every request.
  */
 export interface CommentsOverlayBackend {
+  /** A stable key of the destination, such as the Console URL of the project, that scopes the outbox. */
+  namespace: string
   session: (page: string) => Promise<ApiResult<CommentsSession>>
   transport: (onAnswer: (answer: CommentsRestAnswer<unknown>) => void) => RestTransport
 }
