@@ -644,6 +644,15 @@ export function readDatabaseDefinitionDriver(file: string): PostgresDatabaseDriv
   throw databaseErrorDiagnostics.DATABASE_INVALID_DRIVER({ file })
 }
 
+/** Reads the static `migrationsSchema` of a Postgres Database Definition. */
+export function readDatabaseDefinitionMigrationsSchema(file: string): string | undefined {
+  const expression = readObjectPropertyValue(readDefinitionObjectBody(file), "migrationsSchema")
+  if (expression === undefined) return
+  const schema = readStaticStringLiteral(expression)
+  if (typeof schema === "string" && schema.trim()) return schema
+  throw databaseErrorDiagnostics.DATABASE_INVALID_MIGRATIONS_SCHEMA({ file })
+}
+
 function readDefinitionHyperdriveConfig(file: string, name: string): ResolvedCloudflareHyperdriveConfig {
   const body = objectLiteral(readObjectPropertyValue(readDefinitionObjectBody(file), "cloudflare"))
   const config: ResolvedCloudflareHyperdriveConfig = { binding: resolveCloudflareHyperdriveBindingName(name, readStringValue(body, "binding")) }
@@ -1012,6 +1021,7 @@ export function resolveDBViteConfig(
     if (readDatabaseDefinitionDialect(definition.handler) === "postgresql") {
       const url = readDefinitionConnectionConfig(definition.handler)?.url
       const driver = readDatabaseDefinitionDriver(definition.handler)
+      const migrationsSchema = readDatabaseDefinitionMigrationsSchema(definition.handler)
       databases[definition.name] = {
         connection: url === undefined ? {} : { url },
         dialect: "postgresql",
@@ -1019,6 +1029,7 @@ export function resolveDBViteConfig(
         generatedSchemaFile,
         hyperdrive: readDefinitionHyperdriveConfig(definition.handler, definition.name),
         migrationsDir,
+        ...migrationsSchema === undefined ? {} : { migrationsSchema },
         mode: definition.mode,
         name: definition.name,
         orm: "drizzle",

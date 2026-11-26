@@ -1,5 +1,17 @@
 import { defineErrors } from "@vite-hub/runtime"
 
+import { createPostgresLedger, insertPostgresLedgerRow, postgresLedgerTable, quotePostgresName } from "./internal/postgres-ledger.ts"
+
+import type { PostgresLedgerEntry } from "./internal/postgres-ledger.ts"
+
+interface MisplacedLedger {
+  database: string
+  migrations: readonly PostgresLedgerEntry[]
+  recorded: number
+  schema: string
+  unverified: readonly string[]
+}
+
 function quoteList(values: readonly string[]): string {
   return values.map(value => JSON.stringify(value)).join(", ")
 }
@@ -225,6 +237,32 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ database, problem }: { database?: string, problem: string }) => `\`database.migrateOnDeploy\` applies migrations only to Cloudflare D1 bindings, with \`wrangler d1 migrations apply\` before \`wrangler deploy\`${database ? `, and cannot migrate the database "${database}"` : ""}. ${problem}`,
       fix: "Build with the Cloudflare host and give each database a D1 binding. Otherwise, remove `migrateOnDeploy` and run `vitehub database migrate` before you deploy.",
     },
+    DATABASE_MIGRATION_LEDGER_MISPLACED: {
+      why: ({ database, migrations, schema, unverified }: MisplacedLedger) => `The database "${database}" sets \`migrationsSchema: "${schema}"\`, and the ledger ${postgresLedgerTable(schema)} does not list ${quoteList([...migrations.map(migration => migration.name), ...unverified])}.${migrations.length ? ` The ledger "drizzle"."__drizzle_migrations" records ${quoteList(migrations.map(migration => migration.name))} by folder name and SQL hash, or by SQL hash and time, so the database probably applied them before \`migrationsSchema\` was set.` : ""}${unverified.length ? ` The ledger "drizzle"."__drizzle_migrations" lists the name of ${quoteList(unverified)} with other SQL, or their SQL under a name that no local folder has, such as a folder that was renamed or edited, or another app's migration.` : ""} ViteHub reads only the ledger in "${schema}", so it could apply them again. It stopped before any change.`,
+      fix: ({ migrations, recorded, schema, unverified }: MisplacedLedger) => {
+        const table = postgresLedgerTable(schema)
+        const lines: string[] = []
+        if (migrations.length) {
+          if (recorded) lines.push(`Keep \`migrationsSchema\`: the ledger in "${schema}" lists ${recorded} migration(s) that "drizzle" may not list, so ViteHub could apply them again without it.`)
+          else if (!unverified.length) lines.push(`Remove \`migrationsSchema\` only if you verify that the ledger in "drizzle" lists all migrations this app has applied and does not mistake another app's migrations for yours.`)
+          lines.push(`To keep \`migrationsSchema\`, verify that this database applied ${quoteList(migrations.map(migration => migration.name))}, because another app that shares "drizzle" can apply the same migrations. Then run this SQL once in a SQL client, as a role that can create tables in "${schema}":`)
+          lines.push(...[createPostgresLedger(table), ...migrations.map(migration => insertPostgresLedgerRow(table, migration))].map(statement => `${statement};`))
+        }
+        if (unverified.length) {
+          lines.push(`The ledger in "drizzle" does not show that this database ran the exact SQL of ${quoteList(unverified)}, so ViteHub cannot tell whether they ran and prints no row for them. A hash or a name alone can only stop a migration, never mark one applied. If a folder is new, change its SQL text, for example with a SQL comment. If it ran on this database, insert its row into ${table} by hand${migrations.length ? "." : ", after you create the ledger with this SQL:"}`)
+          if (!migrations.length) lines.push(`${createPostgresLedger(table)};`)
+        }
+        return lines.join("\n")
+      },
+    },
+    DATABASE_MIGRATION_SCHEMA_CONFLICT: {
+      why: ({ databases, schemas }: { databases: readonly [string, string], schemas: readonly [string | undefined, string | undefined] }) => `The databases "${databases[0]}" and "${databases[1]}" share one Postgres database and its migration ledger, but set different \`migrationsSchema\` values: ${schemas.map(schema => schema === undefined ? "none (\"drizzle\")" : JSON.stringify(schema)).join(" and ")}.`,
+      fix: "Set the same `migrationsSchema` on every Definition that connects to this Postgres database, or remove it from all of them.",
+    },
+    DATABASE_MIGRATION_SCHEMA_MISSING: {
+      why: ({ database, schema }: { database: string, schema: string }) => `The database "${database}" sets \`migrationsSchema: "${schema}"\`, but the Postgres database has no schema "${schema}". On a Postgres server, ViteHub does not create a schema that you choose.`,
+      fix: ({ schema }: { database: string, schema: string }) => `Create the schema with \`vitehub database sql 'CREATE SCHEMA ${quotePostgresName(schema)}'\`, as a role that owns the database, or fix the name in \`migrationsSchema\`.`,
+    },
 
     // Export errors. `vitehub database export` prints them and exits with code 1.
     DATABASE_EXPORT_FAILED: {
@@ -277,6 +315,12 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
         : "`defineDatabase().driver` must be `node-postgres` or `pglite`.",
       fix: "Set `driver: 'node-postgres'` or `driver: 'pglite'` as a string literal, or remove `driver` to connect with postgres.js.",
     },
+    DATABASE_INVALID_MIGRATIONS_SCHEMA: {
+      why: ({ file }: { file?: string }) => file
+        ? `The Database Definition "${file}" must set \`migrationsSchema\` to a string literal.`
+        : "`defineDatabase().migrationsSchema` must be a non-empty string.",
+      fix: "Set `migrationsSchema` to the name of an existing Postgres schema as a string literal, such as `migrationsSchema: 'app'`, or remove it to keep the ledger in the schema \"drizzle\".",
+    },
     DATABASE_INVALID_NAME: {
       why: "`defineDatabase().name` must be a normalized path of letters, numbers, dots, underscores, or dashes.",
       fix: "Use a name such as `analytics` or `reports/daily`.",
@@ -294,8 +338,8 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Remove `remote: false` to keep D1 over HTTP, or remove `cloudflare.http` from the Definition and the integration to use local SQLite in `vite dev`.",
     },
     DATABASE_UNKNOWN_OPTION: {
-      why: ({ dialect, option }: { dialect?: "postgresql", option: string }) => dialect
-        ? `\`defineDatabase()\` with \`dialect: "postgresql"\` does not support \`${option}\`.`
+      why: ({ dialect, option }: { dialect?: "postgresql" | "sqlite", option: string }) => dialect
+        ? `\`defineDatabase()\` with ${dialect === "sqlite" ? "SQLite" : "`dialect: \"postgresql\"`"} does not support \`${option}\`.`
         : `\`defineDatabase()\` does not support the "${option}" option.`,
       fix: "Remove the option. The Database configure page lists the options of each dialect.",
     },
