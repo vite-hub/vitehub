@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest"
 
 import { createConsoleKeyPair, readConsolePublicKeys } from "../src/console-signature.ts"
-import { createSiteState, isSitePath, siteStateHash, siteTokenUrl, siteVisitUrl, signSiteToken, verifySiteToken } from "../src/site-token.ts"
+import { createSiteIntent, createSiteState, isSiteIntent, isSitePath, readSiteTokenTarget, siteActionOperation, siteStateHash, siteTokenUrl, siteVisitUrl, signSiteToken, verifySiteToken } from "../src/site-token.ts"
 
-import type { SiteTokenClaims } from "../src/site-token.ts"
+import type { SiteTokenClaims, SiteTokenTarget } from "../src/site-token.ts"
 
 const now = 1_794_400_000_000
 const origin = "https://app.example.com"
@@ -132,5 +132,47 @@ describe("Site access tokens", () => {
 
   it("refuses to sign a token that the app would refuse for its length", async () => {
     await expect(visit({ path: `/${"\u8a9e".repeat(2_047)}` })).rejects.toThrow(/8192/)
+  })
+})
+
+describe("impersonate and preview tokens", () => {
+  it("carry the target of their action, and a token with a malformed target is malformed", async () => {
+    const target = { action: "start", userId: "user-2" }
+    const { keys, state, token } = await visit({ kind: "impersonate", target })
+    expect(await verifySiteToken({ token, keys, origin, state, now, kinds: ["impersonate"] })).toMatchObject({ ok: true, claims: { kind: "impersonate", target } })
+    for (const bad of [{ action: 1 }, { "": "x" }, { action: "x".repeat(513) }, Object.fromEntries(Array.from({ length: 9 }, (_, index) => [`f${index}`, "x"]))]) {
+      const malformed = await visit({ kind: "impersonate", target: bad as unknown as SiteTokenTarget })
+      expect(await verifySiteToken({ token: malformed.token, keys: malformed.keys, origin, state: malformed.state, now, kinds: ["impersonate"] }), JSON.stringify(bad).slice(0, 40)).toMatchObject({ ok: false, code: "SITE_TOKEN_MALFORMED" })
+    }
+  })
+
+  it("name the app operation that checks the action, only for the exact target of the kind", () => {
+    expect(siteActionOperation("impersonate", { action: "start", userId: "u1" })).toEqual({ operation: "auth.impersonate", input: { userId: "u1" } })
+    expect(siteActionOperation("impersonate", { action: "stop" })).toEqual({ operation: "auth.stop-impersonating", input: {} })
+    expect(siteActionOperation("preview", { collection: "posts", id: "hello", section: "content" })).toEqual({ operation: "documents.preview", input: { collection: "posts", id: "hello", section: "content" } })
+    for (const [kind, target] of [
+      ["impersonate", { action: "start" }],
+      ["impersonate", { action: "stop", userId: "u1" }],
+      ["impersonate", { action: "start", userId: "u1", extra: "x" }],
+      ["preview", { collection: "posts", id: "hello" }],
+      ["preview", { action: "stop" }],
+      ["site", { action: "stop" }],
+    ] as const) expect(siteActionOperation(kind, target), `${kind} ${JSON.stringify(target)}`).toBeUndefined()
+  })
+
+  it("read an untrusted target", () => {
+    expect(readSiteTokenTarget({ action: "start", userId: "u1" })).toEqual({ action: "start", userId: "u1" })
+    for (const value of [undefined, null, "x", [], { action: "" }, { action: 1 }, { "1action": "x" }, { action: "x".repeat(513) }]) expect(readSiteTokenTarget(value), JSON.stringify(value)).toBeUndefined()
+  })
+
+  it("start the Console visit with an intent id", () => {
+    const intent = createSiteIntent()
+    expect(isSiteIntent(intent)).toBe(true)
+    expect(createSiteIntent()).not.toBe(intent)
+    for (const value of ["", "short", `${intent}x`, `${intent.slice(1)}/`]) expect(isSiteIntent(value), value).toBe(false)
+    const url = new URL(siteVisitUrl({ console: "https://console.test/", app: origin, state: "s", path: "/", project: "p1", intent }))
+    expect(`${url.origin}${url.pathname}`).toBe("https://console.test/visit")
+    expect(Object.fromEntries(url.searchParams)).toEqual({ app: origin, state: "s", return: "/", project: "p1", intent })
+    expect(new URL(siteVisitUrl({ console: "https://console.test", app: origin, state: "s", path: "/" })).searchParams.has("intent")).toBe(false)
   })
 })

@@ -14,11 +14,13 @@ import type { Environment, Plugin } from "vite"
 import { insertConsoleSection, type ConsoleSectionId } from "./runtime/sections.ts"
 
 import { discoverConsoleBuildCatalog } from "./build.ts"
-import { consoleRuntimeRoot, writeConsoleAppModule, type ConsoleAccessBuild, type ConsoleAppModuleOptions } from "./app-module.ts"
+import { consoleAppModuleHasDocumentEditors, consoleRuntimeRoot, resolveConsoleRuntimeCapabilityImports, writeConsoleAppModule, type ConsoleAccessBuild, type ConsoleAppModuleOptions } from "./app-module.ts"
+import { loadConsoleOperations } from "./operation-modules.ts"
 import { serializeConsoleRefresh } from "./refresh.ts"
 import { addConsoleRpcHandler } from "./nitro.ts"
 import { resolveConsoleSiteAccess, type ConsoleSiteComments } from "./site-access.ts"
 import { consoleOperationFeaturesFilter, transformConsoleOperationFeatures } from "./operation-features.ts"
+import { consoleDocumentEditorSectionIds } from "./contributions.ts"
 import { consoleDevAccessNotice } from "./dev-access-notice.ts"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -273,7 +275,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
   let serverDirs: string[] | undefined
   let scheduleDiscoveryRoot: string | undefined
   let workspaceDiscoveryRoot: string | undefined
-  let resolvedPlugins: readonly unknown[] | undefined
+  let resolvedPlugins: readonly Plugin[] | undefined
   let cliDiscovery = false
   let development = false
   let nitroVersion: string | undefined
@@ -298,7 +300,8 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       development,
       invoke,
       name: options.name,
-      runtimeCapabilityImports: options.runtimeCapabilityImports,
+      operationSections: options.operationSections,
+      runtimeCapabilityImports: resolveConsoleRuntimeCapabilityImports(options.runtimeCapabilityImports, resolvedPlugins),
       sections,
       ...(development ? {} : { target: { ...(options.host ? { host: options.host } : {}), framework: { name: "nitro" as const, ...(nitroVersion ? { version: nitroVersion } : {}) } } }),
       navigationSections: options.rpcOnly ? sections.filter(section => section === "setup") : undefined,
@@ -357,7 +360,9 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
     transform: {
       filter: consoleOperationFeaturesFilter,
       handler(code) {
-        const transformed = transformConsoleOperationFeatures(code, options.operationSections ?? sections)
+        const catalog = projectRoot ? consoleBuildCatalogs.get(projectRoot) : undefined
+        const documents = development ? consoleDocumentEditorSectionIds.length > 0 : catalog ? consoleAppModuleHasDocumentEditors({ ...consoleAppModuleOptions(), catalog }) : undefined
+        const transformed = transformConsoleOperationFeatures(code, options.operationSections ?? sections, documents, development)
         return transformed === undefined ? undefined : { code: transformed, map: null }
       },
     },
@@ -522,8 +527,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
 export function consoleOperationContributions(sections: () => readonly string[]): OperationContributionEntry[] {
   return [{
     export: "consoleOperations",
-    // An app without a Database gets no `vitehub database` commands.
-    load: async () => (await import("./runtime/server/operations.ts")).consoleOperations.filter(operation => sections().includes("databases") || !operation.name.startsWith("databases.")),
+    load: async () => (await loadConsoleOperations()).filter(operation => sections().includes("databases") || !operation.name.startsWith("databases.")),
     module: "vite-hub/console/server",
     runtime: false,
   }]

@@ -15,12 +15,13 @@ import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleAccess, withConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleBlob } from "../src/console/runtime/server/blob.ts"
 import { installConsoleDocuments } from "../src/console/runtime/server/documents.ts"
-import { consoleMediaName } from "../src/console/runtime/server/media.ts"
+import { consoleMediaName } from "../src/blob/console/media.ts"
 import { handleConsoleRpcRequest } from "../src/console/runtime/server/rpc.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 
 import type { BlobStorage } from "@vite-hub/blob"
 import type { ConsoleDocumentActions, ConsoleMediaAccess } from "../src/console/runtime/server/documents.ts"
+import { installViteHubConsoleOperations } from "./support/console-operations.ts"
 import { requestEvent } from "./console-event.ts"
 import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
@@ -115,6 +116,10 @@ afterEach(async () => {
   await rm(directory, { force: true, recursive: true })
 })
 
+beforeEach(async () => {
+  await installViteHubConsoleOperations()
+})
+
 describe("Console media library", () => {
   it("serves Content media operations while navigation shows only Setup", async () => {
     installConsoleSections("/app", ["setup", "content", "blob"], ["setup"])
@@ -158,7 +163,7 @@ describe("Console media library", () => {
       import { consoleOperationAccess, installConsoleAccess } from "./src/console/runtime/server/access.ts"
       import { installConsoleBlob } from "./src/console/runtime/server/blob.ts"
       import { installConsoleDocuments } from "./src/console/runtime/server/documents.ts"
-      import { maximumConsoleMediaUploadBytes, uploadConsoleMedia } from "./src/console/runtime/server/media.ts"
+      import { maximumConsoleMediaUploadBytes, uploadConsoleMedia } from "./src/blob/console/media.ts"
       import { installConsoleSections } from "./src/console/runtime/server/sections.ts"
 
       const base = process.argv.at(-1)

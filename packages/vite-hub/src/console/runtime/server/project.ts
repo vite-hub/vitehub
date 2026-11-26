@@ -3,7 +3,6 @@ import * as v from "valibot"
 
 import { allowedConsoleSections, consoleOperationGranted, readConsoleOperationUser } from "./access.ts"
 import { consoleOperationRegistry } from "./operation-contributions.ts"
-import { consoleOperations } from "./operations.ts"
 import { getConsoleBuild, getConsoleProjectName, getConsoleSections } from "./sections.ts"
 import { consoleState } from "../../internal.ts"
 
@@ -11,12 +10,6 @@ import type { ViteHubHost } from "@vite-hub/internal/deployment"
 import type { AnyOperation, OperationContext, OperationKind } from "@vite-hub/internal/operations"
 import type { ConsoleAccess } from "./access.ts"
 import type { ConsoleSectionsResponse } from "./sections.get.ts"
-
-declare global {
-  interface ImportMeta {
-    viteHubConsoleOperationSections?: readonly string[]
-  }
-}
 
 /** What the production build of the app recorded about its source. A development server has none. */
 export interface ConsoleProjectBuild {
@@ -85,11 +78,8 @@ export async function readConsoleProject(context: OperationContext & { access: C
   const { access } = context
   const installed = getConsoleSections()
   const sections = allowedConsoleSections(access, installed)
-  const operationSections = import.meta.viteHubConsoleOperationSections ?? installed
   const registry = consoleOperationRegistry()
   const callable = registry.list()
-    // Contributions are installed by registration, including sections without a page. Built-ins need their feature.
-    .filter(operation => !consoleOperations.includes(operation) || typeof operation.section !== "string" || operationSections.includes(operation.section) || installed.includes(operation.section))
     .filter(operation => consoleOperationGranted(access, operation))
     // The ViteHub MCP of the Console sees only the operations that MCP clients may call.
     .filter(operation => access.surface !== "mcp" || operation.mcp !== false)

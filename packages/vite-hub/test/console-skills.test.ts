@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { agentWithSkills, codexDriver, defineAgent } from "@vite-hub/agent"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 import { withColocatedAgentSkills } from "@vite-hub/agent/server/internal"
@@ -7,6 +7,7 @@ import { installConsoleAgentDefinitions } from "../src/console/runtime/server/ag
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import { requestConsole } from "../src/console/runtime/client/request.ts"
+import { installViteHubConsoleOperations } from "./support/console-operations.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
@@ -33,6 +34,10 @@ function call(query: Record<string, string> = {}) {
   }))
 }
 afterEach(() => { vi.unstubAllGlobals(); installConsoleAccess({ mode: "open" }) })
+
+beforeEach(async () => {
+  await installViteHubConsoleOperations()
+})
 
 describe("Console bundled Skills", () => {
   it("lists composed Skills and supporting files without returning content", async () => {
