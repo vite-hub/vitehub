@@ -1,5 +1,5 @@
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
-import { findRenumbered, matchLedger, matchRecordedNames, nameLedgerTables, toLedgerRow } from "./migration-ledger.ts"
+import { findRenumbered, hubMigrationsTable, matchHubMigrations, matchLedger, matchRecordedNames, nameLedgerTables, toLedgerRow } from "./migration-ledger.ts"
 
 import type { LedgerMigration, NamedMigration } from "./migration-ledger.ts"
 
@@ -58,12 +58,13 @@ export function createD1QueryAt(url: string, token: string | undefined, fail: (p
  * Reads the applied migrations from Wrangler's migrations table and from the other ledgers on the database: NuxtHub's
  * `_hub_migrations`, Wrangler's default `d1_migrations`, and Drizzle Kit's `__drizzle_migrations`. A migration counts
  * as applied when a ledger lists its file name, its name without `.sql`, its folder, or the old file that its folder
- * keeps in its name, or, in Drizzle Kit's ledger, its SQL hash. So a database keeps its state after a move from
- * NuxtHub or a change of the migrations layout.
+ * keeps in its name, or, in Drizzle Kit's ledger, its SQL hash. A NuxtHub name in `_hub_migrations` matches as on
+ * Postgres, see `matchHubMigrations()`. So a database keeps its state after a move from NuxtHub or a change of the
+ * migrations layout.
  *
  * `files` are the migrations with their Wrangler names, in Wrangler's order. `migrations` are the Drizzle Kit folders.
  */
-export async function readD1LedgerOf(query: D1Query, migrationsTable: string, files: readonly NamedMigration[], migrations: readonly LedgerMigration[]): Promise<D1Ledger> {
+export async function readD1LedgerOf(query: D1Query, database: string, migrationsTable: string, files: readonly NamedMigration[], migrations: readonly LedgerMigration[]): Promise<D1Ledger> {
   const nameTables = [migrationsTable, ...nameLedgerTables.filter(table => table !== migrationsTable)]
   const candidates = [...nameTables, drizzleMigrationsTable]
   const tables = new Set((await query(`SELECT name FROM sqlite_master WHERE type = 'table' AND name IN (${candidates.map(() => "?").join(", ")})`, candidates))
@@ -72,10 +73,15 @@ export async function readD1LedgerOf(query: D1Query, migrationsTable: string, fi
   let listed = new Set<string>()
   // Ledger names that match no migration, and the table of each.
   const unmatched = new Map<string, string>()
+  let hubNames: string[] = []
   for (const table of nameTables) {
     if (!tables.has(table)) continue
     const names = (await query(`SELECT name FROM ${quoteIdentifier(table)}`)).map(row => String(readRowValue(row, "name", 0)))
     if (table === migrationsTable) listed = new Set(names)
+    if (table === hubMigrationsTable) {
+      hubNames = names
+      continue
+    }
     const match = matchRecordedNames(names, files)
     for (const tag of match.applied.keys()) applied.set(tag, applied.get(tag) ?? table)
     for (const name of match.unmatched) unmatched.set(name, table)
@@ -89,6 +95,11 @@ export async function readD1LedgerOf(query: D1Query, migrationsTable: string, fi
       id: readRowValue(row, "id", 0),
     })), migrations)
     for (const tag of match.applied) applied.set(tag, applied.get(tag) ?? drizzleMigrationsTable)
+  }
+  if (hubNames.length) {
+    const match = matchHubMigrations(hubNames, files.map(file => ({ ...file, database })), new Set(applied.keys()), "sqlite", migrationsTable === hubMigrationsTable)
+    if ("problem" in match) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database, problem: match.problem })
+    for (const tag of match.adopted) applied.set(tag, hubMigrationsTable)
   }
   const renumbered = findRenumbered([...unmatched.keys()], files, new Set(applied.keys()))
   if (renumbered) {

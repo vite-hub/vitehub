@@ -14,7 +14,7 @@ import { invariantError } from "@vite-hub/internal/invariant"
 import { applyD1Migrations, createD1Query, d1MigrationNamesFile, listD1Migrations, readD1Ledger } from "./d1-migrations.ts"
 import { readStartMigrations } from "./migrate-on-start.ts"
 import { migrationSqlFile, readMigrations, readPendingMigration } from "./migration-journal.ts"
-import { findRenumbered, hubMigrationsTable, ledgerUpgradeProblem, ledgerUpgradeStatements, matchLedger, matchRecordedNames, matchRenamedRows, nameLedgerTables, toLedgerRow } from "./migration-ledger.ts"
+import { findRenumbered, hubMigrationsTable, ledgerUpgradeProblem, ledgerUpgradeStatements, matchHubMigrations, matchLedger, matchRecordedNames, matchRenamedRows, nameLedgerTables, toLedgerRow } from "./migration-ledger.ts"
 import { addStatementBreakpoints, migrationParts, withoutNewTableDataLoss } from "./migration-sql.ts"
 
 import type postgres from "postgres"
@@ -193,7 +193,8 @@ interface SqliteLedgerMatch {
   renamed: Map<string, string>
 }
 
-function matchSqliteLedgers(ledgers: SqliteLedgers, entries: readonly MigrationEntry[], migrationsDir: string): SqliteLedgerMatch | { problem: string } {
+function matchSqliteLedgers(ledgers: SqliteLedgers, entries: readonly MigrationEntry[], database: ResolvedDrizzleDatabaseConfig): SqliteLedgerMatch | { problem: string } {
+  const { migrationsDir } = database
   const rows = ledgers.drizzle?.rows ?? []
   const match = matchLedger(rows, entries)
   const problem = drizzleLedgerProblem(match, migrationsDir)
@@ -205,12 +206,22 @@ function matchSqliteLedgers(ledgers: SqliteLedgers, entries: readonly MigrationE
   const tags = new Set(entries.map(entry => entry.tag))
   const files = listD1Migrations(migrationsDir).filter(file => tags.has(file.tag))
   const unmatched = new Map<string, string>()
+  let hubNames: string[] = []
   for (const { names, table } of ledgers.recorded) {
+    if (table === hubMigrationsTable) {
+      hubNames = names
+      continue
+    }
     const recorded = matchRecordedNames(names, files)
     for (const tag of recorded.applied.keys()) {
       if (!applied.has(tag) && !adopted.has(tag)) adopted.set(tag, table)
     }
     for (const name of recorded.unmatched) unmatched.set(name, table)
+  }
+  if (hubNames.length) {
+    const history = matchHubMigrations(hubNames, files.map(file => ({ ...file, database: database.name })), new Set([...applied, ...adopted.keys()]), "sqlite", database.cloudflare?.migrationsTable === hubMigrationsTable)
+    if ("problem" in history) return history
+    for (const tag of history.adopted) adopted.set(tag, hubMigrationsTable)
   }
   const renumbered = findRenumbered([...unmatched.keys()], files, new Set([...applied, ...adopted.keys()]))
   if (renumbered) {
@@ -408,7 +419,7 @@ export async function readMigrationPlan(
     const ledgers = !entries.length || (target.kind === "local" && !existsSync(target.path))
       ? { recorded: [] }
       : await withSqliteClient(target, client => readSqliteLedgers(client, recordedLedgerTables(database)))
-    const match = matchSqliteLedgers(ledgers, entries, database.migrationsDir)
+    const match = matchSqliteLedgers(ledgers, entries, database)
     if ("problem" in match) return [databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: database.name, problem: match.problem }), undefined]
     return [undefined, buildMigrationPlan(database, target, options, entries, match.applied, match.adopted)]
   }
@@ -436,7 +447,7 @@ export async function adoptSqliteMigrations(
     if (!entries.length) return
     await withSqliteClient(target, async (client) => {
       const ledgers = await readSqliteLedgers(client, recordedLedgerTables(database))
-      const match = matchSqliteLedgers(ledgers, entries, database.migrationsDir)
+      const match = matchSqliteLedgers(ledgers, entries, database)
       if ("problem" in match) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: database.name, problem: match.problem })
       if (!match.adopted.size) return
       const appliedAt = new Date().toISOString()
@@ -473,7 +484,7 @@ export async function migrateSplitSqlite(
 
   return await withSqliteClient(target, async (client) => {
     const ledgers = await readSqliteLedgers(client, recordedLedgerTables(database))
-    const match = matchSqliteLedgers(ledgers, scripts, database.migrationsDir)
+    const match = matchSqliteLedgers(ledgers, scripts, database)
     if ("problem" in match) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: database.name, problem: match.problem })
     const pending = scripts.filter(script => !match.applied.has(script.tag) && !match.adopted.has(script.tag))
     if (!pending.some(script => script.needsSplit)) return

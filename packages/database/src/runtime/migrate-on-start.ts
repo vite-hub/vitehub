@@ -247,7 +247,7 @@ async function planD1(client: D1HttpClient, database: StartMigrationDatabase, op
     throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: database.name, problem: "It uses Cloudflare D1 over HTTP, and the build shipped no D1 migrations for it." })
   }
   const { files } = database.d1
-  const ledger = await readD1LedgerOf(client.query, client.migrationsTable, files, database.migrations.map(migration => ({ hash: migration.hash, tag: migration.name, when: migration.when })))
+  const ledger = await readD1LedgerOf(client.query, database.name, client.migrationsTable, files, database.migrations.map(migration => ({ hash: migration.hash, tag: migration.name, when: migration.when })))
   const pending = files.filter(file => !ledger.applied.has(file.name))
   const checked = withoutNewTableDataLoss(pending, "sqlite")
   if (!options.allowDataLoss) {
@@ -606,7 +606,7 @@ export async function reconcilePostgresHistory(sql: PostgresMigrationSql, databa
   if (typeof table?.name !== "string") return { adopted: [], unmatched: [] }
   const names = Array.from(await sql.unsafe(`select name from ${table.name} order by name`)).flatMap(row => typeof row.name === "string" ? [row.name] : [])
   const files = databases.flatMap(({ name, tags }) => numberMigrationFolders(tags).map(file => ({ ...file, database: name })))
-  const match = matchHubMigrations(names, files, applied)
+  const match = matchHubMigrations(names, files, applied, "postgresql")
   if ("problem" in match) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: databases[0]!.name, problem: match.problem })
   return match
 }

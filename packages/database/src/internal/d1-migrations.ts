@@ -195,10 +195,10 @@ export async function copyD1MigrationFiles(migrationsDir: string, outputDir: str
 /** Reads the applied migrations of `migrationsDir` from the ledgers on the database. See `readD1LedgerOf()`. */
 export async function readD1Ledger(
   query: D1Query,
-  { cloudflare, migrationsDir }: { cloudflare?: { migrationsTable?: string }, migrationsDir: string },
+  { cloudflare, migrationsDir, name }: { cloudflare?: { migrationsTable?: string }, migrationsDir: string, name: string },
   migrations: readonly MigrationEntry[],
 ): Promise<D1Ledger> {
-  return await readD1LedgerOf(query, cloudflare?.migrationsTable ?? defaultD1MigrationsTable, listD1Migrations(migrationsDir), migrations)
+  return await readD1LedgerOf(query, name, cloudflare?.migrationsTable ?? defaultD1MigrationsTable, listD1Migrations(migrationsDir), migrations)
 }
 
 /** Applies the pending migrations of `migrationsDir` like `wrangler d1 migrations apply --remote`. */
