@@ -130,8 +130,8 @@ export interface NamedMigration {
   tag: string
 }
 
-function nuxtHubMigrationName(file: string): string {
-  return file.replace(/\.sql$/, "").replace(/\.postgresql$/, "")
+function nuxtHubMigrationName(file: string, dialect: "postgresql" | "sqlite"): string {
+  return file.replace(/\.sql$/, "").replace(dialect === "postgresql" ? /\.postgresql$/ : /\.sqlite$/, "")
 }
 
 /**
@@ -205,11 +205,12 @@ export interface HubMigrationsMatch {
 }
 
 /**
- * Matches the names of NuxtHub's `_hub_migrations` to the migrations of a Postgres database that Drizzle's ledger does
- * not list. `files` has the Wrangler names of each migrations folder, from `numberMigrationFolders()`. Returns the
- * problem when a listed migration now has another number, because ViteHub would apply it again.
+ * Matches the names of NuxtHub's `_hub_migrations` to the migrations that the other ledgers do not list. A name matches
+ * the folder of that name, then the folder that keeps the NuxtHub file name, then the Wrangler name of the same number.
+ * `files` has the Wrangler names of each migrations folder. Returns the problem when a name matches more than one
+ * migration, or when a listed migration now has another number, because ViteHub would apply it again.
  */
-export function matchHubMigrations(names: readonly string[], files: readonly (NamedMigration & { database: string })[], applied: ReadonlySet<string>): HubMigrationsMatch | { problem: string } {
+export function matchHubMigrations(names: readonly string[], files: readonly (NamedMigration & { database: string })[], applied: ReadonlySet<string>, dialect: "postgresql" | "sqlite"): HubMigrationsMatch | { problem: string } {
   const adopted = new Set<string>()
   const unmatched: string[] = []
   for (const name of names) {
@@ -217,7 +218,7 @@ export function matchHubMigrations(names: readonly string[], files: readonly (Na
     const exact = files.filter(({ tag }) => tag === stem)
     const preserved = exact.length ? exact : files.filter(({ tag }) => {
       const kept = folderTag.exec(tag)?.[1]
-      return kept !== undefined && nuxtHubMigrationName(kept) === stem
+      return kept !== undefined && nuxtHubMigrationName(kept, dialect) === stem
     })
     const candidates = preserved.length ? preserved : files.filter(file => file.name === `${stem}.sql`)
     if (candidates.length > 1) {
@@ -231,6 +232,7 @@ export function matchHubMigrations(names: readonly string[], files: readonly (Na
   const renumbered = findRenumbered(unmatched, files, new Set([...applied, ...adopted]))
   if (renumbered) {
     const { moved, name } = renumbered
+    if (dialect === "sqlite") return { problem: `The migrations table ${hubMigrationsTable} lists ${name}, but that migration is now ${moved.name} (${moved.tag}), so ViteHub would apply it again. Restore d1-migrations.json next to the migrations, or set "${moved.tag}": "${name.replace(/\.sql$/, "")}.sql" in it.` }
     const current = moved.name.replace(/\.sql$/, "")
     return { problem: `The migrations table ${hubMigrationsTable} lists ${name}, but that migration is now ${current} (${moved.tag}), so ViteHub would apply it again. If ${moved.tag} is the migration that NuxtHub applied, select the affected database and run \`UPDATE ${hubMigrationsTable} SET name = '${moved.tag.replaceAll("'", "''")}' WHERE name = '${name.replaceAll("'", "''")}'\` using a SQL client with the same search_path.` }
   }
