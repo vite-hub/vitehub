@@ -568,27 +568,49 @@ export async function findPostgresLedger(sql: PostgresMigrationSql, { createSche
   return existing?.ledger ? "found" : "missing"
 }
 
+/** Pending migrations of a `migrationsSchema` ledger that Drizzle's ledger in `drizzle` may have applied. */
+export interface MisplacedMigrations {
+  /** Tags that a row in `drizzle` records: by folder name and SQL hash, or, in a row without a name, by SQL hash and `created_at` second. */
+  exact: string[]
+  /** Tags that a row in `drizzle` lists by name with other SQL, or whose SQL hash a row lists that records no local folder. */
+  unverified: string[]
+}
+
 /**
- * The pending migrations whose SQL hash Drizzle's ledger in `drizzle` lists, for a `migrationsSchema` ledger. `applied`
- * holds the hashes that the `migrationsSchema` ledger lists or adopts, once per row. Each of them accounts for one row
- * in `drizzle`, so a new folder with the SQL of an applied migration is not misplaced. ViteHub never takes history from
- * `drizzle` or writes to it, because other apps can share it. A role that cannot read it gets no tags.
+ * Compares the pending migrations of a `migrationsSchema` ledger with Drizzle's ledger in `drizzle`. A row with a name
+ * records the local folder of that name only when its hash is the hash of that folder. A row without a name, from
+ * Drizzle Kit 0.x, records the one local folder with its hash and its `created_at` second. A row that records no local
+ * folder makes the pending folder of its name, and the pending migrations with its hash, unverified: they stop, but the
+ * fix never records them, because `drizzle` does not show that their exact SQL ran. ViteHub never
+ * takes history from `drizzle` or writes to it, because other apps can share it. A role that cannot read it gets none.
  */
-export async function findMisplacedMigrations(sql: PostgresMigrationSql, { applied, pending, schema }: { applied: readonly string[], pending: readonly LedgerMigration[], schema?: string }): Promise<string[]> {
-  if (schema === undefined || schema === defaultLedgerSchema || !pending.length) return []
+export async function findMisplacedMigrations(sql: PostgresMigrationSql, { migrations, pending, schema }: { migrations: readonly LedgerMigration[], pending: readonly LedgerMigration[], schema?: string }): Promise<MisplacedMigrations> {
+  if (schema === undefined || schema === defaultLedgerSchema || !pending.length) return { exact: [], unverified: [] }
   const [ledger] = Array.from(await sql.unsafe(
-    "select has_schema_privilege(n.oid, 'USAGE') and has_table_privilege(c.oid, 'SELECT') as readable from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid = c.relnamespace where n.nspname = $1 and c.relname = '__drizzle_migrations'",
+    "select has_schema_privilege(n.oid, 'USAGE') and has_table_privilege(c.oid, 'SELECT') as readable, exists (select 1 from pg_catalog.pg_attribute a where a.attrelid = c.oid and a.attname = 'name' and a.attnum > 0 and not a.attisdropped) as named from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid = c.relnamespace where n.nspname = $1 and c.relname = '__drizzle_migrations'",
     [defaultLedgerSchema],
   ))
-  if (ledger?.readable !== true) return []
-  const unaccounted = new Map<string, number>()
-  for (const row of Array.from(await sql.unsafe(`select hash from ${postgresLedgerTable()}`))) unaccounted.set(String(row.hash), (unaccounted.get(String(row.hash)) ?? 0) + 1)
-  for (const hash of applied) unaccounted.set(hash, (unaccounted.get(hash) ?? 0) - 1)
-  return pending.filter((migration) => {
-    const rows = unaccounted.get(migration.hash) ?? 0
-    unaccounted.set(migration.hash, rows - 1)
-    return rows > 0
-  }).map(migration => migration.tag)
+  if (ledger?.readable !== true) return { exact: [], unverified: [] }
+  const rows = Array.from(await sql.unsafe(`select hash, created_at${ledger.named === true ? ", name" : ""} from ${postgresLedgerTable()}`)).map(row => toLedgerRow(row))
+  const second = (time: number) => Math.floor(time / 1000)
+  const recorded = new Set<string>()
+  const named = new Set<string>()
+  const leftover = new Set<string>()
+  for (const row of rows) {
+    const candidates = typeof row.name === "string"
+      ? migrations.filter(migration => migration.tag === row.name && migration.hash === row.hash)
+      : migrations.filter(migration => migration.hash === row.hash && row.createdAt !== undefined && second(migration.when) === second(row.createdAt))
+    if (candidates.length === 1) {
+      recorded.add(candidates[0]!.tag)
+      continue
+    }
+    if (typeof row.name === "string") named.add(row.name)
+    leftover.add(row.hash)
+  }
+  return {
+    exact: pending.filter(migration => recorded.has(migration.tag)).map(migration => migration.tag),
+    unverified: pending.filter(migration => !recorded.has(migration.tag) && (named.has(migration.tag) || leftover.has(migration.hash))).map(migration => migration.tag),
+  }
 }
 
 /** One Postgres database, and the Definitions that migrate it. They share Drizzle's ledger in that database. */
@@ -714,9 +736,8 @@ async function planPostgres(sql: PostgresMigrationSql, group: PostgresTarget[], 
     : []
   const match = matchLedger(rows, migrations)
   const history = await reconcilePostgresHistory(sql, databases.map(({ name, migrations }) => ({ name, tags: migrations.map(migration => migration.name) })), match.applied, schema)
-  const recorded = [...rows.map(row => row.hash), ...migrations.filter(migration => history.adopted.includes(migration.tag)).map(migration => migration.hash)]
-  const misplaced = await findMisplacedMigrations(sql, { applied: recorded, pending: migrations.filter(migration => !match.applied.has(migration.tag) && !history.adopted.includes(migration.tag)), schema })
-  if (misplaced.length) throw misplacedLedgerError(databases[0]!.name, schema!, migrations.filter(migration => misplaced.includes(migration.tag)), recorded.length)
+  const misplaced = await findMisplacedMigrations(sql, { migrations, pending: migrations.filter(migration => !match.applied.has(migration.tag) && !history.adopted.includes(migration.tag)), schema })
+  if (misplaced.exact.length || misplaced.unverified.length) throw misplacedLedgerError(databases[0]!.name, schema!, migrations, misplaced, rows.length + history.adopted.length)
   if (state === "missing") {
     if (schema === undefined) await sql.unsafe(`CREATE SCHEMA IF NOT EXISTS ${quotePostgresName(defaultLedgerSchema)}`)
     await sql.unsafe(createPostgresLedger(ledger))
@@ -736,8 +757,14 @@ async function planPostgres(sql: PostgresMigrationSql, group: PostgresTarget[], 
 }
 
 /** `recorded` is the number of rows that the `migrationsSchema` ledger lists or adopts. */
-export function misplacedLedgerError(database: string, schema: string, migrations: readonly LedgerMigration[], recorded: number): ReturnType<typeof databaseErrorDiagnostics.DATABASE_MIGRATION_LEDGER_MISPLACED> {
-  return databaseErrorDiagnostics.DATABASE_MIGRATION_LEDGER_MISPLACED({ database, migrations: migrations.map(({ hash, tag, when }) => ({ hash, name: tag, when })), recorded, schema })
+export function misplacedLedgerError(database: string, schema: string, migrations: readonly LedgerMigration[], { exact, unverified }: MisplacedMigrations, recorded: number): ReturnType<typeof databaseErrorDiagnostics.DATABASE_MIGRATION_LEDGER_MISPLACED> {
+  return databaseErrorDiagnostics.DATABASE_MIGRATION_LEDGER_MISPLACED({
+    database,
+    migrations: migrations.filter(migration => exact.includes(migration.tag)).map(({ hash, tag, when }) => ({ hash, name: tag, when })),
+    recorded,
+    schema,
+    unverified,
+  })
 }
 
 /** Runs `run` in a transaction that holds the migration lock of the group's database. */

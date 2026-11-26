@@ -820,8 +820,8 @@ describe.skipIf(!adminUrl)("migrationsSchema on Postgres", () => {
   const schemas = async (sql: postgres.Sql) => (await sql<Array<{ nspname: string }>>`select nspname from pg_namespace where nspname in ('app', 'drizzle') order by nspname`).map(row => row.nspname)
   const widgets = { sql: "CREATE TABLE \"widgets\" (\"id\" integer);", tag: "20260102000000_widgets", when: 1_767_312_000_000 }
   const clearWidgets = { sql: "DELETE FROM \"widgets\" WHERE \"id\" > 0;", tag: "20260102000001_clear_widgets", when: 1_767_312_001_000 }
+  const clearAgain = { sql: clearWidgets.sql, tag: "20260102000002_clear_widgets_again", when: 1_767_312_002_000 }
   const fixStatements = (fix: string | undefined) => (fix ?? "").split("\n").filter(line => /^(?:CREATE TABLE|INSERT INTO) /.test(line))
-
 
   it("keeps the ledger in migrationsSchema and creates no drizzle schema", { timeout: 60_000 }, async () => {
     const { migrationsDir, root } = await createProject([init, seed], inApp)
@@ -860,7 +860,7 @@ describe.skipIf(!adminUrl)("migrationsSchema on Postgres", () => {
     expect(await schemas(sql)).toEqual([])
   })
 
-  it("applies a migration when another app's drizzle ledger lists its folder name with other SQL", { timeout: 60_000 }, async () => {
+  it("stops a folder that drizzle lists by name with other SQL without printing its row", { timeout: 60_000 }, async () => {
     const { migrationsDir, root } = await createProject([init], inApp)
     const url = await createDatabase()
     const sql = connect(url)
@@ -868,15 +868,12 @@ describe.skipIf(!adminUrl)("migrationsSchema on Postgres", () => {
     await sql.unsafe("CREATE SCHEMA app")
     const shared = await readLedger(sql)
 
-    const [error, plan] = await readMigrationPlan(postgresDatabase(url, migrationsDir, "app"), { env: {}, projectRoot: root })
-    expect(error).toBeUndefined()
-    expect(plan?.adopted).toEqual([])
-    expect(plan?.pending.map(migration => migration.name)).toEqual([init.tag])
-    const log: string[] = []
-    await migratePostgres(startTarget(sql, migrationsDir), { log: message => log.push(message) })
-    expect(log).toEqual([`[vitehub] Database "default": applied ${init.tag}.`])
-    expect(await sql`select to_regclass('public.users')::text as name`).toEqual([{ name: "users" }])
-    expect((await readLedger(sql, "app")).map(({ created_at, hash, name }) => ({ created_at, hash, name }))).toEqual([ledgerRow(init)])
+    const [error] = await readMigrationPlan(postgresDatabase(url, migrationsDir, "app"), { env: {}, projectRoot: root })
+    expect(error).toMatchObject({ code: "DATABASE_MIGRATION_LEDGER_MISPLACED", why: expect.stringContaining(`lists the name of "${init.tag}" with other SQL`) })
+    expect(error?.fix).toContain(`does not show that this database ran the exact SQL of "${init.tag}"`)
+    expect(fixStatements(error?.fix).filter(statement => statement.startsWith("INSERT INTO"))).toEqual([])
+    await expect(migratePostgres(startTarget(sql, migrationsDir), { log: () => {} })).rejects.toMatchObject({ code: "DATABASE_MIGRATION_LEDGER_MISPLACED" })
+    expect(await sql`select to_regclass('public.users')::text as name`).toEqual([{ name: null }])
     expect(await readLedger(sql)).toEqual(shared)
   })
 
@@ -942,7 +939,6 @@ describe.skipIf(!adminUrl)("migrationsSchema on Postgres", () => {
     for (const statement of fixStatements(error?.fix)) await sql.unsafe(statement)
     await sql.unsafe("INSERT INTO widgets (id) VALUES (2)")
 
-    const clearAgain = { sql: clearWidgets.sql, tag: "20260102000002_clear_widgets_again", when: 1_767_312_002_000 }
     await writeMigrations(app.root, [widgets, clearWidgets, clearAgain])
     const [planError, plan] = await readMigrationPlan(postgresDatabase(url, app.migrationsDir, "app"), { env: {}, projectRoot: app.root })
     expect(planError).toBeUndefined()
@@ -975,6 +971,93 @@ describe.skipIf(!adminUrl)("migrationsSchema on Postgres", () => {
     await expect(migratePostgres(startTarget(sql, app.migrationsDir), { log: () => {} })).rejects.toMatchObject(failure)
     expect(await sql`select id from widgets`).toEqual([{ id: 1 }])
     expect(await readLedger(sql, "app")).toEqual(own)
+  })
+
+  /** Writes the ledger in "app" by hand with one row for each migration, as another folder layout or a repair left it. */
+  async function writeAppLedger(sql: postgres.Sql, migrations: Array<{ sql: string, tag: string, when: number }>) {
+    await sql.unsafe("CREATE TABLE app.__drizzle_migrations (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint, name text, applied_at timestamp with time zone DEFAULT now())")
+    for (const migration of migrations) await sql`insert into app.__drizzle_migrations (hash, created_at, name) values (${ledgerRow(migration).hash}, ${migration.when}, ${migration.tag})`
+  }
+
+  const inserts = (fix: string | undefined) => fixStatements(fix).filter(statement => statement.startsWith("INSERT INTO"))
+
+  it("stops a folder that drizzle records by name when the app ledger records another folder with the same SQL", { timeout: 60_000 }, async () => {
+    const app = await createProject([widgets, clearWidgets], inApp)
+    const url = await createDatabase()
+    const sql = connect(url)
+    await migratePostgres([{ client: sql, database: { migrations: readStartMigrations(app.migrationsDir, "postgresql"), name: "default" } }], { log: () => {} })
+    await sql.unsafe("CREATE SCHEMA app")
+    await writeAppLedger(sql, [widgets, clearAgain])
+    await writeMigrations(app.root, [widgets, clearWidgets, clearAgain])
+    await sql.unsafe("INSERT INTO widgets (id) VALUES (3)")
+    const shared = await readLedger(sql)
+
+    const failure = { code: "DATABASE_MIGRATION_LEDGER_MISPLACED", why: expect.stringContaining(`does not list "${clearWidgets.tag}".`) }
+    const [error] = await readMigrationPlan(postgresDatabase(url, app.migrationsDir, "app"), { env: {}, projectRoot: app.root })
+    expect(error).toMatchObject(failure)
+    const dryRun = await migrateCommand(app.root, postgresDatabase(url, app.migrationsDir, "app"))(["--dry-run"])
+    expect(dryRun.exitCode).toBe(1)
+    expect(dryRun.stderr).toContain("DATABASE_MIGRATION_LEDGER_MISPLACED")
+    await expect(migratePostgres(startTarget(sql, app.migrationsDir), { log: () => {} })).rejects.toMatchObject(failure)
+    expect(await sql`select id from widgets`).toEqual([{ id: 3 }])
+
+    expect(inserts(error?.fix)).toEqual([`INSERT INTO "app"."__drizzle_migrations" ("hash", "created_at", "name") VALUES ('${ledgerRow(clearWidgets).hash}', ${clearWidgets.when}, '${clearWidgets.tag}');`])
+    for (const statement of fixStatements(error?.fix)) await sql.unsafe(statement)
+    const [planError, plan] = await readMigrationPlan(postgresDatabase(url, app.migrationsDir, "app"), { env: {}, projectRoot: app.root })
+    expect(planError).toBeUndefined()
+    expect(plan?.pending).toEqual([])
+    const log: string[] = []
+    await migratePostgres(startTarget(sql, app.migrationsDir), { log: message => log.push(message) })
+    expect(log).toEqual([])
+    expect(await sql`select id from widgets`).toEqual([{ id: 3 }])
+    expect(await readLedger(sql)).toEqual(shared)
+  })
+
+  it("stops a folder that a Drizzle Kit 0.x row records by hash and second when the app ledger records another folder with the same SQL", { timeout: 60_000 }, async () => {
+    const app = await createProject([widgets, clearWidgets, clearAgain], inApp)
+    const url = await createDatabase()
+    const sql = connect(url)
+    await sql.unsafe(widgets.sql)
+    await sql.unsafe("CREATE SCHEMA \"drizzle\"")
+    await sql.unsafe("CREATE TABLE \"drizzle\".\"__drizzle_migrations\" (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)")
+    for (const migration of [widgets, clearWidgets]) await sql`insert into drizzle.__drizzle_migrations (hash, created_at) values (${ledgerRow(migration).hash}, ${migration.when + 417})`
+    await sql.unsafe("CREATE SCHEMA app")
+    await writeAppLedger(sql, [widgets, clearAgain])
+    await sql.unsafe("INSERT INTO widgets (id) VALUES (3)")
+    const kit0x = await sql`select id, hash, created_at from drizzle.__drizzle_migrations order by id`
+
+    const failure = { code: "DATABASE_MIGRATION_LEDGER_MISPLACED", why: expect.stringContaining(`does not list "${clearWidgets.tag}".`) }
+    const [error] = await readMigrationPlan(postgresDatabase(url, app.migrationsDir, "app"), { env: {}, projectRoot: app.root })
+    expect(error).toMatchObject(failure)
+    expect(inserts(error?.fix)).toHaveLength(1)
+    await expect(migratePostgres(startTarget(sql, app.migrationsDir), { log: () => {} })).rejects.toMatchObject(failure)
+    expect(await sql`select id from widgets`).toEqual([{ id: 3 }])
+    expect((await readLedgerColumns(sql)).map(column => column.column_name)).toEqual(["id", "hash", "created_at"])
+    expect(await sql`select id, hash, created_at from drizzle.__drizzle_migrations order by id`).toEqual(kit0x)
+  })
+
+  it("stops a renamed applied folder without printing its row", { timeout: 60_000 }, async () => {
+    const app = await createProject([widgets], inApp)
+    const url = await createDatabase()
+    const sql = connect(url)
+    await migratePostgres([{ client: sql, database: { migrations: readStartMigrations(app.migrationsDir, "postgresql"), name: "default" } }], { log: () => {} })
+    await sql.unsafe("CREATE SCHEMA app")
+    const renamed = { ...widgets, tag: "20260102000000_create_widgets" }
+    await writeMigrations(app.root, [renamed])
+
+    const failure = { code: "DATABASE_MIGRATION_LEDGER_MISPLACED", why: expect.stringContaining(`does not list "${renamed.tag}".`) }
+    const [error] = await readMigrationPlan(postgresDatabase(url, app.migrationsDir, "app"), { env: {}, projectRoot: app.root })
+    expect(error).toMatchObject(failure)
+    expect(error?.why).toContain("under a name that no local folder has")
+    expect(error?.fix).toContain(`does not show that this database ran the exact SQL of "${renamed.tag}"`)
+    expect(error?.fix).toContain("If a folder is new, change its SQL text")
+    expect(error?.fix).not.toContain("Remove `migrationsSchema`")
+    expect(inserts(error?.fix)).toEqual([])
+    const dryRun = await migrateCommand(app.root, postgresDatabase(url, app.migrationsDir, "app"))(["--dry-run"])
+    expect(dryRun.exitCode).toBe(1)
+    expect(dryRun.stderr).toContain("DATABASE_MIGRATION_LEDGER_MISPLACED")
+    await expect(migratePostgres(startTarget(sql, app.migrationsDir), { log: () => {} })).rejects.toMatchObject(failure)
+    expect(await sql`select to_regclass('app.__drizzle_migrations')::text as name`).toEqual([{ name: null }])
   })
 
   async function createRuntimeRole(url: string) {

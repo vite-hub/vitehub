@@ -939,7 +939,7 @@ export default defineDatabase({
 - The generated Kit config gets `migrations: { schema: "app" }`, so `drizzle-kit migrate` reads the same table.
 - ViteHub also reads NuxtHub's `_hub_migrations` in that schema.
 - The table in `app` is the only history. ViteHub never reads history from the table in `drizzle` and never writes to it.
-- When a migration is pending and the table in `drizzle` lists its SQL hash, migrate, `--dry-run` and start fail with [`DATABASE_MIGRATION_LEDGER_MISPLACED`](/docs/database/diagnostics/database_migration_ledger_misplaced) before any change. The fix prints the SQL that copies those rows to the table in `app`. When the role cannot read the table in `drizzle`, or it lists no pending hash, the migrations run.
+- When the table in `drizzle` records a pending migration, by folder name and SQL hash, or by SQL hash and time, migrate, `--dry-run` and start fail with [`DATABASE_MIGRATION_LEDGER_MISPLACED`](/docs/database/diagnostics/database_migration_ledger_misplaced) before any change. The fix prints the SQL that copies those rows to the table in `app`. A row that lists a folder name with other SQL, or SQL under a name that no local folder has, also stops that folder or a pending migration with that SQL hash, but the fix prints no row for it. When the role cannot read the table in `drizzle`, or it records none of the pending migrations, the migrations run.
 
 Definitions on one Postgres database share its migrations table, so they must set the same `migrationsSchema`. Otherwise they fail with `DATABASE_MIGRATION_SCHEMA_CONFLICT`. A SQLite Definition with `migrationsSchema` fails with `DATABASE_UNKNOWN_OPTION`.
 
