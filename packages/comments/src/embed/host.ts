@@ -112,12 +112,13 @@ async function start(projectId: string, consoleOrigin: string, repository: strin
   const frame = connect(consoleOrigin, projectId)
   const redeem = async (value: string) => (await (await frame).call("redeem", value)).value === true
   const tools = import("./tools.ts")
+  const project = { id: projectId, console: consoleOrigin, ...(repository ? { repository } : {}) }
   channel.addEventListener("message", ({ data }: MessageEvent<EmbedRelay>) => {
     if (data.type !== "code") return
     void redeem(data.code).then((done) => {
       if (done) {
         channel.postMessage({ type: "redeemed", code: data.code } satisfies EmbedRelay)
-        void tools.then(({ mountHostedComments }) => mountHostedComments(frame, { id: projectId, console: consoleOrigin }))
+        void tools.then(({ mountHostedComments }) => mountHostedComments(frame, project))
       }
     }, () => undefined)
   })
@@ -127,7 +128,7 @@ async function start(projectId: string, consoleOrigin: string, repository: strin
     return
   }
   const { mountHostedComments } = await tools
-  await mountHostedComments(frame, { id: projectId, console: consoleOrigin, ...(repository ? { repository } : {}) })
+  await mountHostedComments(frame, project)
 }
 
 const script = document.querySelector<HTMLScriptElement>("script[data-vitehub-comments]")
