@@ -307,7 +307,7 @@ For everything else, use the component or the helper:
 | `<MorphText :text="copied ? 'Copied' : 'Copy link'" />` | `morphText(element, text)` | A label outside a `UButton` |
 | `<SwapIcon :name="icon" enter="draw" />` | `swapIcon(container, icon, { exit, enter })` | An icon that says what happened: `exit: "right"` for an arrow that leaves the way it points, `enter: "draw"` for a check or a spinner |
 | `<RollNumber :value="count" />` | `rollNumber(element, value, format?)` | A count: only the changed digits roll, up when it grows, down when it shrinks |
-| `<UButton v-ring="saved" />` | `ring(element)` | A finished action, such as saved or copied: a ring in the border color grows once and fades |
+| `<UButton v-ring="saved" />` | `ring(element)` | A finished action, such as saved or copied: a ring in the border color grows once and fades. A button joined to others in a `UFieldGroup` rings the whole group |
 
 `CopyButton` uses all of them. Each helper can be called again in the middle of its motion and continues from where it is. The element keeps the final text for screen readers the whole time and holds plain text again at the end. Under reduced motion a label, an icon, or a digit crossfades in 150ms, and there is no ring. Inside `data-motion="none"` the change happens at once.
 
