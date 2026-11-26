@@ -2,7 +2,7 @@ import { viteHubPageToolsWanted } from "@vite-hub/internal/runtime/page-tools-sh
 
 import { gitHubRepositoryOf } from "../agent-prompt.ts"
 import { commentsAnswerError, commentsUnansweredError } from "../client-diagnostics.ts"
-import { embedChannelName, embedCodeParam, embedConnectType, embedPath } from "./protocol.ts"
+import { embedChangedEvent, embedChannelName, embedCodeParam, embedConnectType, embedPath } from "./protocol.ts"
 
 import type { EmbedAnswer, EmbedFrame, EmbedRelay } from "./protocol.ts"
 
@@ -46,6 +46,7 @@ function connect(consoleOrigin: string, projectId: string): Promise<EmbedFrame> 
   iframe.setAttribute("data-comments-ui", "")
   const channel = new MessageChannel()
   const pending = new Map<number, (answer: EmbedAnswer) => void>()
+  const changeListeners = new Set<() => void>()
   let next = 0
   const frame: EmbedFrame = {
     call: (method, input) => new Promise((resolve, reject) => {
@@ -61,6 +62,10 @@ function connect(consoleOrigin: string, projectId: string): Promise<EmbedFrame> 
       })
       channel.port1.postMessage({ id, method, input })
     }),
+    onChange(listener) {
+      changeListeners.add(listener)
+      return () => changeListeners.delete(listener)
+    },
   }
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(commentsUnansweredError(0)), frameTimeout)
@@ -70,6 +75,9 @@ function connect(consoleOrigin: string, projectId: string): Promise<EmbedFrame> 
       if (event === "ready") {
         clearTimeout(timer)
         resolve(frame)
+      }
+      else if (event === embedChangedEvent) {
+        for (const listener of changeListeners) listener()
       }
       else {
         const id: unknown = Reflect.get(data, "id")

@@ -49,7 +49,12 @@ export function isEmbedRequest(value: unknown): value is EmbedRequest {
   return typeof id === "number" && Number.isSafeInteger(id) && embedMethods.some(name => name === method)
 }
 
+/** The message that the frame sends when the threads of the page changed on the Console. */
+export const embedChangedEvent = "changed"
+
 /** The site's end of the connection to the embed frame. */
 export interface EmbedFrame {
   call: (method: EmbedMethod, input: unknown) => Promise<Extract<EmbedAnswer, { ok: true }>>
+  /** Runs `listener` each time the threads of the page changed on the Console. Returns a function that removes it. */
+  onChange: (listener: () => void) => () => void
 }
