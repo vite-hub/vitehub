@@ -212,9 +212,36 @@ describe("commentsT3CodeLink()", () => {
     expect(prompt).toContain("comments.resolve")
   })
 
-  it(`cuts the prompt itself when many threads do not fit in ${t3CodeLinkLimit} characters`, () => {
-    const href = commentsT3CodeLink(input("A long comment. ".repeat(50), 120), "acme/site")
+  it.each([
+    { name: "short IDs", id: (index: number) => `thread-${index}` },
+    { name: "IDs too long for the link", id: (index: number) => `thread-${index}-${"x".repeat(120)}` },
+  ])(`keeps every step and every thread of 100 open threads with $name in ${t3CodeLinkLimit} characters`, ({ id }) => {
+    const threads = input("A long comment. ".repeat(50), 100).threads.map((thread, index) => ({ ...thread, id: id(index) }))
+    const href = commentsT3CodeLink({ ...input("", 0), threads }, "acme/site")
     expect(href.length).toBeLessThanOrEqual(t3CodeLinkLimit)
-    expect(promptOf(href)).toMatch(/^Fix these 120 comments on https:\/\/app\.example\.com\/pricing/)
+    const prompt = promptOf(href)!
+    expect(prompt).toContain("call read_operation with the app id")
+    expect(prompt).toContain("operation \"comments.resolve\"")
+    const everyId = threads.every(thread => prompt.includes(thread.id))
+    const listed = prompt.startsWith("Fix the 100 open comments on https://app.example.com/pricing") && prompt.includes("operation \"comments.list\", and input { page: \"https://app.example.com/pricing\", status: \"open\"")
+    expect(everyId || listed).toBe(true)
+    expect(prompt).not.toContain("A long comment. A long comment.")
+  })
+
+  it("lists the open threads through the ViteHub MCP when the thread IDs do not fit", () => {
+    const threads = input("Fix it", 100).threads.map((thread, index) => ({ ...thread, id: `thread-${index}-${"x".repeat(120)}` }))
+    const prompt = promptOf(commentsT3CodeLink({ ...input("", 0), threads }))!
+    expect(prompt).toMatch(/^Fix the 100 open comments on https:\/\/app\.example\.com\/pricing\n/)
+    expect(prompt).toContain("operation \"comments.list\"")
+    expect(prompt).not.toContain(threads[0]!.id)
+  })
+
+  it("gives a guest a short title per thread, or the count, and still asks for a report", () => {
+    const { threads, url } = input("A long comment. ".repeat(50), 100)
+    const href = commentsT3CodeLink({ url, threads })
+    expect(href.length).toBeLessThanOrEqual(t3CodeLinkLimit)
+    const prompt = promptOf(href)!
+    expect(prompt).not.toMatch(/MCP|comments\.(get|list|resolve)/)
+    expect(prompt.endsWith("When you are done, tell me what you changed.")).toBe(true)
   })
 })
