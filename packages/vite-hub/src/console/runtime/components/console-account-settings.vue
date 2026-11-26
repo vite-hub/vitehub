@@ -6,6 +6,7 @@ import { addConsolePasskey, deleteConsolePasskey, earlyConsoleSignInState, linkC
 import { useConsoleProjects } from "../client/project-session";
 import { useConsoleToast } from "../client/toast";
 import ConsoleAccountApiKeys from "./console-account-api-keys.vue";
+import ConsoleAccountT3Code from "./console-account-t3-code.vue";
 import ConsoleSettingsCard from "./console-settings-card.vue";
 import Icon from "./console-icon.vue";
 
@@ -179,6 +180,7 @@ function added(value: string | undefined): string {
       </template>
     </ConsoleSettingsCard>
 
+    <ConsoleAccountT3Code />
     <ConsoleAccountApiKeys />
   </div>
 </template>

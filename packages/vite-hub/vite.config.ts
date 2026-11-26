@@ -312,6 +312,10 @@ export default defineConfig({
           to: "dist/console/runtime/components",
         },
         {
+          from: "src/console/runtime/components/console-account-t3-code.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
           from: "src/console/runtime/components/console-account-team.vue",
           to: "dist/console/runtime/components",
         },

@@ -283,6 +283,23 @@ export async function revokeConsoleApiKey(id: string): Promise<void> {
   if (!response.ok && response.status !== 404) throw failure({ status: response.status }, `The Console answered ${response.status}.`)
 }
 
+/** An MCP client, such as T3 Code, that the signed-in person connected to the ViteHub MCP, as `GET /api/mcp-connections` lists it. */
+export interface ConsoleMcpConnection {
+  clientId: string
+  name: string | null
+  connectedAt: number | null
+  lastUsedAt: number | null
+}
+
+export async function listConsoleMcpConnections(): Promise<ConsoleMcpConnection[]> {
+  return (await json<{ connections: ConsoleMcpConnection[] }>("/api/mcp-connections")).connections
+}
+
+export async function revokeConsoleMcpConnection(clientId: string): Promise<void> {
+  const response = await fetch(`/api/mcp-connections/${encodeURIComponent(clientId)}`, { credentials: "same-origin", method: "DELETE" })
+  if (!response.ok && response.status !== 404) throw failure({ status: response.status }, `The Console answered ${response.status}.`)
+}
+
 /**
  * What the Console knows about a linked app: it accepts its token, it refuses the token (`setup`: the variable is missing
  * or old), it answers but not as a Console app (`unconfigured`: no `console: true`, or another error), or
