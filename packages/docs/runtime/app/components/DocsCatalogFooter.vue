@@ -1,5 +1,4 @@
 <script setup lang="ts">
-// The end of every docs page: every documented area by category, with the current one marked.
 import { docsCatalog, docsSectionHome } from "#docs/navigation"
 
 import type { DocsAppPage, DocsSection } from "@vite-hub/docs"
@@ -46,9 +45,7 @@ function isCurrent(section: DocsSection<DocsAppPage>) {
       <NuxtLink v-for="link in footer" :key="link.to" :to="link.to" class="vh-product-footer-link">{{ link.label }}</NuxtLink>
     </nav>
 
-    <p v-if="builtWith" class="vh-product-footer-credit">
-      Built with <a href="https://vitehub.dev/docs/docs-site" target="_blank" rel="noopener">ViteHub Docs</a>
-    </p>
+    <DocsBuiltWith class="mt-8" />
   </footer>
 </template>
 
@@ -124,27 +121,6 @@ function isCurrent(section: DocsSection<DocsAppPage>) {
 .vh-product-footer-grid + .vh-product-footer-site {
   border-top: 1px solid var(--ui-border);
   padding-top: 1rem;
-}
-
-.vh-product-footer-credit {
-  margin: 2rem 0 0;
-  color: var(--ui-text-dimmed);
-  font-size: 0.75rem;
-  line-height: 1.25rem;
-}
-
-.vh-product-footer-credit a {
-  color: var(--ui-text-muted);
-  text-decoration: underline;
-  text-decoration-color: var(--ui-border-accented);
-  text-underline-offset: 3px;
-}
-
-@media (hover: hover) {
-  .vh-product-footer-credit a:hover {
-    color: var(--ui-text-highlighted);
-    text-decoration-color: currentcolor;
-  }
 }
 
 .vh-product-footer-link.is-current {

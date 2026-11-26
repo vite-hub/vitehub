@@ -50,7 +50,9 @@ it.each([true, false])("gives prerendered pages site meta and Schema.org with im
     await mkdir(join(root, "content/docs/guide"), { recursive: true })
     await mkdir(join(root, "public"))
     await writeFile(join(root, "content/index.md"), "---\ntitle: Lumen\nlayout: home\n---\nRead [the guide](/docs/guide) or [its Markdown](/raw/docs/guide.md).\n")
-    await writeFile(join(root, "content/docs/guide/index.md"), "---\ntitle: Guide\n---\nHello\n")
+    await writeFile(join(root, "content/docs/index.md"), "---\ntitle: Documentation\nlayout: landing\n---\nWelcome to the docs.\n")
+    await writeFile(join(root, "content/docs/license.md"), "---\ntitle: License\n---\nLicense text.\n")
+    await writeFile(join(root, "content/docs/guide/index.md"), "---\ntitle: Guide\nlayout: landing\n---\nHello\n")
     await writeFile(join(root, "content/docs/guide/install.md"), "---\ntitle: Install\ndescription: From zero to a running site.\n---\nInstall\n")
     await writeFile(join(root, "content/docs/guide/own.md"), "---\ntitle: Own\nseo.image: /own.png\n---\nOwn\n")
     await writeFile(join(root, "content/docs/guide/bare.md"), "---\ntitle: Bare\nseo.image: own.png\n---\nBare\n")
@@ -65,7 +67,7 @@ it.each([true, false])("gives prerendered pages site meta and Schema.org with im
     const config: NuxtConfig & { schemaOrg: Partial<SchemaOrgOptions> } = {
       dev: false,
       devtools: { enabled: false },
-      modules: [[docs, { mcp: false, ...images ? {} : { ogImage: false }, site: { name: "Lumen", url: "https://lumen.example.com", description: "Lumen docs" } }]],
+      modules: [[docs, { mcp: false, ...images ? {} : { ogImage: false, builtWith: false }, site: { name: "Lumen", url: "https://lumen.example.com", description: "Lumen docs" } }]],
       schemaOrg: { defaults: false },
       app: { head: { meta: [
         { property: "og:image", content: "https://lumen.example.com/own.png" },
@@ -122,7 +124,13 @@ it.each([true, false])("gives prerendered pages site meta and Schema.org with im
     // The action renders once on the server; after hydration it moves into the active shell.
     expect(install).toMatch(/<div[^>]*data-docs-sidebar-head/)
     expect(install).toContain("vh-docs-aside-footer")
-    expect(install).toContain("Built with <a href=\"https://vitehub.dev/docs/docs-site\"")
+    const creditLink = /Built with <a href="https:\/\/vitehub\.dev\/docs\/docs-site"/g
+    const landing = await page("docs")
+    const standalone = await page("docs/license")
+    const overview = await page("docs/guide")
+    for (const html of [landing, standalone, home, overview, install]) {
+      expect(html.match(creditLink) ?? []).toHaveLength(images ? 1 : 0)
+    }
     expect(install.match(/data-custom-docs-action/g)).toHaveLength(1)
     const noSidebar = await page("docs/guide/no-sidebar")
     expect(noSidebar).not.toMatch(/<div[^>]*data-docs-sidebar-head/)
@@ -132,7 +140,7 @@ it.each([true, false])("gives prerendered pages site meta and Schema.org with im
     expect(await page("docs/guide/named")).toContain("<title>LUMEN!</title>")
 
     // A page without a description shares the site's.
-    expect(meta(await page("docs/guide"), "og:description")).toBe("Lumen docs")
+    expect(meta(overview, "og:description")).toBe("Lumen docs")
     const own = await page("docs/guide/own")
     expect(meta(own, "og:image")).toBe("https://lumen.example.com/own.png")
     expect(meta(own, "twitter:image")).toBe("https://lumen.example.com/own.png")

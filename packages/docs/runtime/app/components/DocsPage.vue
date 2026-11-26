@@ -75,8 +75,11 @@ useDocsSeo({
 
 <template>
   <!-- The layout's UMain is the page's only main landmark. -->
-  <LazyDocsLearn v-if="workspace?.layout === 'learn'" :key="page.path" :response="response" :data="workspace" />
-  <LazyDocsPlayground v-else-if="workspace" :key="page.path" :response="response" :data="workspace" />
+  <div v-if="workspace" :key="page.path" class="vh-docs-workspace-page">
+    <LazyDocsLearn v-if="workspace.layout === 'learn'" :response="response" :data="workspace" />
+    <LazyDocsPlayground v-else :response="response" :data="workspace" />
+    <DocsBuiltWith class="shrink-0 px-4 py-2" />
+  </div>
 
   <div v-else-if="isStandalone" class="mx-auto w-full max-w-3xl px-4 pb-24 pt-14 sm:px-6 sm:pt-20 lg:px-8 lg:pt-24" :data-path="page.path">
     <UPageHeader
@@ -94,11 +97,13 @@ useDocsSeo({
       <DocsMarkdown :document="response.document" />
       <DocsPageCredits v-if="response.credits" :credits="response.credits" class="not-prose mt-10" />
     </UPageBody>
+    <DocsBuiltWith class="mt-8" />
   </div>
 
   <div v-else-if="home" :data-path="page.path">
     <DocsMarkdown :document="home" />
     <DocsPageCredits v-if="response.credits" :credits="response.credits" class="mx-auto w-full max-w-(--vh-content-width) px-4 sm:px-6" />
+    <DocsBuiltWith class="mx-auto w-full max-w-(--vh-content-width) px-4 pb-8 pt-8 sm:px-6" />
   </div>
 
   <div v-else-if="page.layout === 'landing'" class="vh-docs-landing">
@@ -112,6 +117,25 @@ useDocsSeo({
 </template>
 
 <style scoped>
+.vh-docs-workspace-page {
+  display: contents;
+}
+
+.vh-docs-workspace-page:has(> .vh-docs-credit) {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.vh-docs-workspace-page > :deep(.vh-docs-workspace) {
+  flex: 1 1 0;
+}
+
+.vh-docs-workspace-page:has(> .vh-docs-credit) > :deep(.vh-docs-workspace:has(.vh-workspace-gate)) {
+  flex: 1 0 auto;
+  height: auto;
+}
+
 /* Below 40rem the article and the product landing set the only gutter, so the text keeps the width. */
 .vh-docs-main,
 .vh-docs-landing,
