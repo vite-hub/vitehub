@@ -1044,7 +1044,6 @@ export async function migratePostgres(targets: PostgresTarget[], options: Migrat
         const plans: PostgresPlan[] = []
         for (const [index, group] of groups.entries()) {
           const plan = await inSessionTransaction(sessions[index]!, () => planPostgres(sessions[index]!, group, options))
-          // Queued rows of the first transaction were not written, so this plan adopts them again.
           progress.adopted.push(...plan.adopted.filter(entry => !progress.adopted.some(other => other.name === entry.name && other.tag === entry.tag)))
           plans.push(plan)
         }
