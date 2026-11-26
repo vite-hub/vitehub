@@ -279,7 +279,7 @@ describe("ViteHub MCP at /mcp/account", () => {
       const threads = await call("read_operation", { id, operation: "comments.threads" }, tokens.bob)
       expect(threads.body!.result).toMatchObject({ isError: false, structuredContent: { status: "open", threads: [{ id: thread.id, page: "/guide", comment: "Typo here", author: "bob" }] } })
       const readOnly = await call("read_operation", { id, input: { threadId: thread.id, reply: "Fixed" }, operation: "comments.resolve" }, tokens.bob)
-      expect(readOnly.body!.result).toMatchObject({ content: [{ text: "comments.resolve changes data, and read_operation runs only operations that read. Call run_operation." }], isError: true })
+      expect(readOnly.body!.result).toMatchObject({ content: [{ text: "comments.resolve changes data, and read_operation runs only reads and dry runs. Use run_operation." }], isError: true })
       const resolved = await call("run_operation", { id, input: { threads: [{ threadId: thread.id, reply: "Fixed in abc123" }] }, operation: "comments.resolve" }, tokens.ada)
       expect(resolved.body!.result.isError).toBe(false)
       expect(JSON.parse(resolved.body!.result.content[0]!.text)).toMatchObject([{ id: thread.id, status: "resolved", messages: [{ body: "Typo here" }, { body: "Fixed in abc123", author: { name: "ada" } }] }])
