@@ -130,7 +130,7 @@
   "packages/docs/src/runtime/server/virtual.d.ts": 7,
   "packages/docs/src/seo-audit.ts": 5,
   "packages/docs/src/theme-css.ts": 7,
-  "packages/docs/src/theme.ts": 17,
+  "packages/docs/src/theme.ts": 15,
   "packages/docs/test/app-manifest.test.ts": 1,
   "packages/docs/test/assistant-pages.test.ts": 4,
   "packages/docs/test/assistant.test.ts": 1,
