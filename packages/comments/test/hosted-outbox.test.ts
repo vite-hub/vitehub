@@ -29,6 +29,7 @@ function projectFrame() {
       const value: unknown = await (memory[method as "create"] as (input: unknown) => Promise<unknown>)(input)
       return { id: 0, ok: true, value, people: [] }
     },
+    onChange: () => () => undefined,
   }
   return Object.assign(project, { frame: Promise.resolve(frame) })
 }

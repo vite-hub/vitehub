@@ -10,8 +10,8 @@ import { createAnchor, fieldAttribute, fieldElementOf, selectorOf } from "../anc
 import { anchorRange, createCommentsClient } from "../client.ts"
 import { commentsAgentPrompt } from "../agent-prompt.ts"
 import { createCommentSend } from "../client-send.ts"
-import { commentRoom, commentsApiRoute, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "../page.ts"
-import { api, createOverlaySendTransport, createOverlayTransport, overlayOutboxNamespace, readGuest, saveGuest } from "./api.ts"
+import { commentNoticeRoom, commentRoom, commentsApiRoute, commentsNoticeDefinition, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "../page.ts"
+import { api, createOverlaySendTransport, createOverlayTransport, onOverlayBackendChange, overlayOutboxNamespace, readGuest, saveGuest } from "./api.ts"
 import { captureContext } from "./context.ts"
 import { createInlineEdit } from "./edit.ts"
 import { captureMarked, markerBox, markerColors, markerTips, startMarker } from "./marker.ts"
@@ -338,6 +338,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   /** The eye of the pill. Writing or opening a comment does not change it. */
   const hidden = ref(readVisibility() === "hidden")
   let room: RealtimeRoom | undefined
+  let noticeRoom: RealtimeRoom | undefined
   // Counts the joins, so a join whose Realtime client loads after a newer join or `destroy()` drops itself.
   let joins = 0
   let pageWindow: ReturnType<ViteHubPageToolContext["createWindow"]> | undefined
@@ -411,7 +412,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const next = createCommentsClient({
       transport: {
         ...transport,
-        // Realtime tells this page when someone else changed its threads, and polling covers the server API.
         subscribe(listener) {
           listeners.add(listener)
           return () => listeners.delete(listener)
@@ -441,6 +441,12 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const refresh = () => {
     for (const listener of listeners) listener({ type: "reconnected" })
   }
+  let roomRefresh: ReturnType<typeof setTimeout> | undefined
+  const refreshFromRoom = () => {
+    clearTimeout(roomRefresh)
+    roomRefresh = setTimeout(refresh, 100)
+  }
+  const stopBackendChanges = onOverlayBackendChange(refreshFromRoom)
   const send = computed(() => {
     const path = page.value
     return session?.send ? createCommentSend(createOverlaySendTransport(() => path)) : undefined
@@ -599,6 +605,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const realtime = await import("@vite-hub/realtime/client").catch(() => undefined)
     if (!realtime || join !== joins || !host.isConnected || context?.signal.aborted) return
     room?.destroy()
+    noticeRoom?.destroy()
     const identity = account() ?? (guest.value ? { id: `guest:${guest.value.id}`, name: `${guest.value.name} (guest)` } : undefined)
     const baseURL = commentsApiRoute(import.meta.url).slice(0, -commentsRoute.length)
     const joined = realtime.connectRealtimeRoom(commentsRealtimeDefinition, commentRoom(page.value), { identity, baseURL, params: { page: page.value } })
@@ -613,14 +620,19 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         if (changes.get(id) !== state.commentsChange) changed = true
       }
       changes = next
-      if (changed) refresh()
+      if (changed) refreshFromRoom()
     })
+    noticeRoom = realtime.connectRealtimeRoom(commentsNoticeDefinition, commentNoticeRoom(subject.value), { baseURL, params: { page: page.value } })
+    noticeRoom.onNotice(refreshFromRoom)
     room = joined
   }
   function leaveRoom() {
     joins++
+    clearTimeout(roomRefresh)
     room?.destroy()
     room = undefined
+    noticeRoom?.destroy()
+    noticeRoom = undefined
   }
 
   function showPanel() {
@@ -1271,6 +1283,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       clearTimeout(toastTimer)
       void edit.finish(false)
       leaveRoom()
+      stopBackendChanges()
       app.unmount()
       pageWindow?.destroy()
       for (const stop of stopMotion) stop()

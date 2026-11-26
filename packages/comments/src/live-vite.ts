@@ -18,7 +18,7 @@ import { commentsDeploymentEnv } from "./deployment-env.ts"
 import { commentsConsoleSection } from "./console.ts"
 import { findCommentsEntry, findContentEntry } from "./entry.ts"
 import { commentsErrorDiagnostics } from "./operations-core/errors.ts"
-import { commentsRealtimeDefinition, commentsRoute, mountedCommentsRoute } from "./page.ts"
+import { commentsNoticeDefinition, commentsRealtimeDefinition, commentsRoute, mountedCommentsRoute } from "./page.ts"
 import { commentSendsTableNames, commentsTableNames } from "./table-names.ts"
 
 import type { DatabaseContributionContext, DatabaseContributionEntry } from "@vite-hub/database/vite"
@@ -419,11 +419,12 @@ export function renderCommentsHandler(input: { definition: string, content?: str
   ].join("\n")
 }
 
-export function renderCommentsPlugin(input: { definition: string, database?: string, session?: CommentsVitePluginOptions, imports: CommentsImports, standalone?: StandaloneDatabase, development?: boolean, build?: CommentBuild, base?: string, send?: boolean }): string {
+export function renderCommentsPlugin(input: { definition: string, database?: string, session?: CommentsVitePluginOptions, imports: CommentsImports, standalone?: StandaloneDatabase, development?: boolean, build?: CommentBuild, base?: string, send?: boolean, realtime?: boolean }): string {
   const session = sessionWithGitHubLines(input.session ?? {}, input.imports, input.build?.repository, input.base)
   const postgres = input.session?.dialect === "postgresql"
   const overlay = input.session?.overlay === false ? "false" : JSON.stringify(`${commentsRoute}/assets/overlay.js?v=${version}`)
   const segments = pillSegmentLines(input.session?.overlay === false ? [] : input.session?.pillSegments ?? [])
+  const realtime = input.realtime ? `realtime: () => import(${JSON.stringify(input.imports.realtime)})` : undefined
   const siteVisitor = input.session?.overlay === false && input.imports.siteVisitor
     ? `siteVisitor: async (request) => (await import(${JSON.stringify(input.imports.siteVisitor)})).readConsoleSiteVisitor(request, ${JSON.stringify(input.base ?? "")}, ${input.development === true})`
     : undefined
@@ -442,7 +443,7 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
       `const database = () => connectDatabase(${where === undefined ? "undefined" : JSON.stringify(where)}, { ${options.join(", ")} })`,
       "",
       // Comments opened this database itself, so it creates and migrates its tables before the first query.
-      `export default defineCommentsPlugin({ comments, database, schema: "comments", session: ${session.value}, ${session.githubLogin ? "githubLogin, " : ""}development: ${input.development === true}, overlay: ${overlay}, base: ${JSON.stringify(input.base ?? "")}${segments.value ? `, pillSegments: ${segments.value}` : ""} })`,
+      `export default defineCommentsPlugin({ comments, database, schema: "comments", session: ${session.value}, ${session.githubLogin ? "githubLogin, " : ""}development: ${input.development === true}, overlay: ${overlay}, base: ${JSON.stringify(input.base ?? "")}${realtime ? `, ${realtime}` : ""}${segments.value ? `, pillSegments: ${segments.value}` : ""} })`,
       "",
     ].join("\n")
   }
@@ -471,6 +472,7 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
       ...(input.session?.rateLimit ? ["rateLimit: checkRateLimit"] : []),
       ...(postgres ? ["dialect: \"postgresql\"", "tables: { commentCounters: schema.vitehubCommentCounters, commentMessages: schema.vitehubCommentMessages, commentThreads: schema.vitehubCommentThreads, commentForge: schema.vitehubCommentForge }"] : []),
       ...(input.send ? [`webhooks: () => import(${JSON.stringify(input.imports.webhooks)})`] : []),
+      ...(realtime ? [realtime] : []),
       `development: ${input.development === true}`,
       `overlay: ${overlay}`,
       `base: ${JSON.stringify(input.base ?? "")}`,
@@ -630,7 +632,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         const directory = generatedDirectory(projectRoot)
         const definition = discover() ?? join(directory, "definition.mjs")
         const build = await readCommentsBuild(projectRoot)
-        await writeFile(join(directory, "plugin.mjs"), renderCommentsPlugin({ definition, session: options, imports, build, base: appBase, standalone, development }))
+        await writeFile(join(directory, "plugin.mjs"), renderCommentsPlugin({ definition, session: options, imports, build, base: appBase, standalone, development, realtime }))
         await addD1Binding(projectRoot, nitro.options, standalone.where)
         await addD1Binding(projectRoot, nitro.options, standalone.fallback)
       },
@@ -646,18 +648,22 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         if (!definition) return
         realtime = true
         const file = join(context.directory, "comments.mjs")
+        const notices = join(context.directory, "comments-notices.mjs")
         const { repository } = await readCommentsBuild(context.projectRoot)
         const session = sessionWithGitHubLines(options, imports, repository, appBase)
         await mkdir(context.directory, { recursive: true })
-        await writeFile(file, [
+        const importsAndDefinition = [
           `import { commentsRealtime } from ${JSON.stringify(imports.realtime)}`,
           ...definitionLines(definition, imports.runtime),
           ...session.imports,
           "",
-          `export default commentsRealtime(comments, { session: ${session.value}${session.githubLogin ? ", githubLogin" : ""} })`,
-          "",
-        ].join("\n"))
-        return { definitions: [{ handler: file, name: commentsRealtimeDefinition }] }
+        ]
+        const sessionOptions = `{ session: ${session.value}${session.githubLogin ? ", githubLogin" : ""} }`
+        await Promise.all([
+          writeFile(file, [...importsAndDefinition, `export default commentsRealtime(comments, ${sessionOptions})`, ""].join("\n")),
+          writeFile(notices, [...importsAndDefinition, `export default commentsRealtime(comments, ${sessionOptions}, "notices")`, ""].join("\n")),
+        ])
+        return { definitions: [{ handler: file, name: commentsRealtimeDefinition }, { handler: notices, name: commentsNoticeDefinition }] }
       },
     },
     vitehub: {
@@ -739,7 +745,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         const pageToolsRoute = join(directory, "page-tools-route.mjs")
         componentsFile = join(directory, "components.mjs")
         const build = await readCommentsBuild(projectRoot)
-        const pluginInput = { definition, database: options.database ?? await readCommentsDatabase(definition), session: options, imports, build, base, development, send: !options.standalone && await readCommentsSend(definition) }
+        const pluginInput = { definition, database: options.database ?? await readCommentsDatabase(definition), session: options, imports, build, base, development, realtime, send: !options.standalone && await readCommentsSend(definition) }
         await Promise.all([
           writeFile(handler, renderCommentsHandler({ definition, content: findContentEntry(projectRoot, serverDirs), session: options, realtime, imports, build, base })),
           writeComponents(),

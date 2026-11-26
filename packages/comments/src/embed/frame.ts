@@ -1,8 +1,9 @@
 import { Diagnostic } from "nostics"
 
 import { commentsUnansweredError } from "../client-diagnostics.ts"
+import { hostedCommentNoticeRoom, hostedCommentsNoticeDefinition } from "../page.ts"
 import { createCommentsRestRequest, createRestTransport } from "../rest-transport.ts"
-import { embedConnectType, isEmbedRequest } from "./protocol.ts"
+import { embedChangedEvent, embedConnectType, isEmbedRequest } from "./protocol.ts"
 
 import type { CommentsSession } from "../overlay/api.ts"
 import type { RestTransport } from "../rest-transport.ts"
@@ -79,6 +80,23 @@ function serve(origin: string, projectId: string): void {
     return token ? { authorization: `Bearer ${token}` } : {}
   }
   let port: MessagePort | undefined
+  let notices: { room: string, leave: () => void } | undefined
+
+  async function listen(value: CommentsSession | undefined): Promise<void> {
+    const token = read(tokenKey)
+    const room = value?.realtime && value.user && value.subject && token ? hostedCommentNoticeRoom(projectId, value.subject) : undefined
+    if (notices?.room === room) return
+    notices?.leave()
+    notices = undefined
+    if (!room || !token) return
+    const current = { room, leave: () => {} }
+    notices = current
+    const realtime = await import("@vite-hub/realtime/client").catch(() => undefined)
+    if (!realtime || notices !== current) return
+    const joined = realtime.connectRealtimeRoom(hostedCommentsNoticeDefinition, room, { baseURL: "/", params: { token } })
+    joined.onNotice(() => port?.postMessage({ event: embedChangedEvent }))
+    current.leave = () => joined.destroy()
+  }
 
   async function authorizeUrl(): Promise<string> {
     let verifier = read(verifierKey)
@@ -93,14 +111,20 @@ function serve(origin: string, projectId: string): void {
   const signedOut = (): Promise<CommentsSession> => hosted({ user: null, can: { read: false, comment: false, resolve: false }, realtime: false, content: false }, authorizeUrl)
 
   async function session(page: string): Promise<CommentsSession> {
-    if (!read(tokenKey)) return await signedOut()
+    if (!read(tokenKey)) {
+      void listen(undefined)
+      return await signedOut()
+    }
     const request = createCommentsRestRequest({ route: `${base}/api`, headers, credentials: "omit" })
     try {
-      return await hosted((await request<CommentsSession>(`/session?page=${encodeURIComponent(page)}`)).data, authorizeUrl)
+      const value = (await request<CommentsSession>(`/session?page=${encodeURIComponent(page)}`)).data
+      void listen(value)
+      return await hosted(value, authorizeUrl)
     }
     catch (error) {
       if (Reflect.get(Object(error), "status") !== 401) throw error
       write(tokenKey, undefined)
+      void listen(undefined)
       return await signedOut()
     }
   }

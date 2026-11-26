@@ -9,7 +9,7 @@ import { commentThreadSummary, commentThreadsText, describeCommentThread, hidden
 import { commentsErrorDiagnostics } from "./errors.ts"
 import { isPagePath, pagePathOf } from "./path.ts"
 import { commentsRuntime } from "./server.ts"
-import { attachmentThread, base64, can, createThread, deniedError, earlierReply, earlierThread, editMessage, fail, maximumAttachmentBytes, maximumAttachments, maximumCommentBodyLength, maximumMentions, personOf, readAttachment, replyToThread, requestIdSchema, retried, retriedReply, storeAttachment, suggest } from "./service.ts"
+import { attachmentThread, base64, can, createThread, deniedError, earlierReply, earlierThread, editMessage, fail, maximumAttachmentBytes, maximumAttachments, maximumCommentBodyLength, maximumMentions, personOf, readAttachment, replyToThread, requestIdSchema, retried, retriedReply, storeAttachment, suggest, threadChanged } from "./service.ts"
 
 import type { AnyOperation, OperationContext } from "@vite-hub/internal/operations"
 import type { CommentAction, CommentsPolicyGate, CommentsUser } from "./define.ts"
@@ -421,11 +421,11 @@ export const commentActions = {
     if (deletesThread) {
       const deleted = await who.runtime.store.deleteThread(found.id, owns ? ownerId : undefined)
       if (deleted === false) throw fail(commentsErrorDiagnostics.COMMENTS_R0009({ action: "delete" }), 403)
-      who.runtime.forge?.changed(found.id)
+      await threadChanged(who.runtime, found)
       return null
     }
     const next = await who.runtime.store.deleteMessage(found.id, target.id, Date.now())
-    who.runtime.forge?.changed(found.id)
+    await threadChanged(who.runtime, next)
     return next
   },
 
@@ -433,7 +433,7 @@ export const commentActions = {
     const found = await load(who, input.threadId)
     await allow(who, "resolve", { thread: found })
     const next = await who.runtime.store.setStatus(found.id, status, author(who), Date.now(), status === "resolved" ? who.actor : undefined)
-    who.runtime.forge?.changed(found.id)
+    await threadChanged(who.runtime, next)
     if (status === "open") await who.runtime.reopened?.(next)
     return next
   },
@@ -467,7 +467,7 @@ export const commentActions = {
         }
         if (thread.status !== "resolved" || thread.messages.some(message => message.createdAt > (thread.resolvedAt ?? 0))) {
           thread = await who.runtime.store.setStatus(thread.id, "resolved", by, Date.now(), who.actor)
-          who.runtime.forge?.changed(thread.id)
+          await threadChanged(who.runtime, thread)
         }
         resolved.push(thread)
       }

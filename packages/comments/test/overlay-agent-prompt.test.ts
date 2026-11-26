@@ -10,7 +10,7 @@ import { commentsButton, pageTools, serveComments, startOverlay } from "./overla
 import type { ViteHubSiteVisitor } from "@vite-hub/internal/runtime/page-tools"
 
 vi.mock("@vite-hub/realtime/client", () => ({
-  connectRealtimeRoom: vi.fn(() => ({ states: () => new Map(), people: () => [], onUpdate: vi.fn(), onChange: vi.fn(), notify: vi.fn(), setLocal: vi.fn(), destroy: vi.fn() })),
+  connectRealtimeRoom: vi.fn(() => ({ states: () => new Map(), people: () => [], onUpdate: vi.fn(), onChange: vi.fn(), onNotice: vi.fn(), notify: vi.fn(), setLocal: vi.fn(), destroy: vi.fn() })),
 }))
 
 const project = { id: "app-1", teamId: "team-1", url: "https://app.example.com/portal" }
@@ -41,6 +41,7 @@ async function site(visitor: ViteHubSiteVisitor, threads: number) {
     page: ({ url }) => url.pathname === "/pricing" ? subject : undefined,
   })
   const ids: string[] = []
+  let resolvedId: string | undefined
   for (let index = 0; index < threads; index++) {
     const author = { id: "grace", name: "Grace" }
     const [, thread] = await server.comments.create({ subject, anchor, body: `Fix ${index}`, author })
@@ -54,26 +55,28 @@ async function site(visitor: ViteHubSiteVisitor, threads: number) {
       finally {
         now.mockRestore()
       }
+      resolvedId = thread!.id
     }
-    ids.push(thread!.id)
+    else ids.push(thread!.id)
   }
   const tools = pageTools()
   await startOverlay(tools)
   await vi.waitFor(() => expect(commentsButton(tools.bar)).not.toBeNull())
-  return { ...tools, ids, server }
+  return { ...tools, ids, resolvedId, server }
 }
 
 describe("Copy prompt in the comment pill", () => {
   it("copies three lines that send a Console member's agent to the open threads through the ViteHub MCP", async () => {
     const writeText = vi.fn(async (_text: string) => undefined)
     vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } })
-    const { bar, ids } = await site(member, 2)
+    const { bar, ids, resolvedId } = await site(member, 3)
     await vi.waitFor(() => expect(copyButton(bar)).not.toBeNull())
     expect(copyButton(bar)!.getAttribute("aria-label")).toBe("Copy a prompt for your agent: 2 open comments")
     copyButton(bar)!.click()
     await vi.waitFor(() => expect(writeText).toHaveBeenCalledOnce())
     expect(writeText.mock.calls[0]![0]).toContain(`Fix the 2 open ViteHub comments on ${location.origin}/pricing`)
     for (const value of [...ids, project.url, project.teamId, "comments.get", "comments.resolve"]) expect(writeText.mock.calls[0]![0]).toContain(value)
+    expect(writeText.mock.calls[0]![0]).not.toContain(resolvedId)
   })
 
   it("does not offer a prompt when the member only has page access", async () => {

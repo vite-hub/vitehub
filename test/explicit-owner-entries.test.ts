@@ -101,7 +101,7 @@ const knownRelativeStarExports: Record<string, readonly string[]> = {
 const pinnedOwnerEntries: Record<string, readonly string[]> = {
   "@vite-hub/comments": ["commentRoom", "commentsRoleAllows", "defaultPolicy", "defineCommentSubject", "defineComments", "describeCommentContext", "normalizeCommentPage"],
   "@vite-hub/forms": ["chatModalErrors", "checkForm", "createFormsInbox", "createMemoryFormsStore", "defineForm", "fieldErrors", "formFields", "handleFormRequest", "readChatModal", "readElicitation", "toChatModal", "toElicitation"],
-  "@vite-hub/realtime/server": ["blobDocument", "createRealtimeHandler", "isRealtimeAvailable", "refreshRealtimeDocument", "requestRealtimeRoom", "workspaceDocument"],
+  "@vite-hub/realtime/server": ["blobDocument", "createRealtimeHandler", "isRealtimeAvailable", "notifyRealtimeRoom", "refreshRealtimeDocument", "requestRealtimeRoom", "workspaceDocument"],
   "@vite-hub/runtime": [
     "ViteHubError",
     "createExecutionContext",

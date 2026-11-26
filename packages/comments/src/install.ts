@@ -18,7 +18,7 @@ import type { CommentsAttachmentStore, CommentsRuntime } from "./operations-core
 import type { CommentsDatabase, CommentsStore, CommentsTables } from "./operations-core/store.ts"
 import type { CommentsSchemaOwner } from "./migrate.ts"
 import type { TenantCommentsStoreOptions } from "./operations-core/tenant-store.ts"
-import type { CommentsRequestEvent } from "./types.ts"
+import type { CommentThread, CommentsRequestEvent } from "./types.ts"
 import type { Installed } from "./installed.ts"
 import type { CommentSendWebhooks } from "./send/service.ts"
 
@@ -47,6 +47,12 @@ export interface InstallCommentsOptions {
    * Without it, the Send routes answer `COMMENTS_SEND_OFF`.
    */
   webhooks?: () => Promise<CommentSendWebhooks>
+  /**
+   * Loads `@vite-hub/comments/realtime`, when the app has the page presence rooms. After each change of a thread, it
+   * tells the open pages of the thread to load their threads again. The generated plugin passes it. With `tenant`, pass
+   * a notifier whose rooms belong to the tenant, such as the rooms of `hostedCommentNoticeRoom()`.
+   */
+  realtime?: () => Promise<{ notifyCommentsChange: (thread: CommentThread) => Promise<void> }>
   /**
    * Keeps the threads of one tenant in `tables` that several tenants share, such as one project of a hosted Console.
    * See `tenantCommentsStore()`. The runtime serves only this definition: the comment operations of the app keep
@@ -106,6 +112,8 @@ export function installComments(comments: Comments, install: InstallCommentsOpti
     ...(install.attachments ? { attachments: install.attachments } : {}),
     ...(install.rateLimit ? { rateLimit: install.rateLimit } : {}),
   }
+  const realtime = install.realtime
+  if (realtime) runtime.changed = async thread => (await realtime()).notifyCommentsChange(thread)
   let sync: Installed["sync"]
   if (comments.options.forge) {
     const forge = createForgeSync(comments.options.forge, { database: install.database, store, waitUntil: track, ...(install.tables?.commentForge ? { table: install.tables.commentForge } : {}) })
