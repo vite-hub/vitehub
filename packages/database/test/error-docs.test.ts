@@ -15,3 +15,16 @@ it("gives each Database error code a why, a fix, and its docs page", () => {
     why: error.why,
   })
 })
+
+it("requires verified history before reverting to the default Postgres ledger", () => {
+  const params = {
+    database: "default",
+    migrations: [{ hash: "hash", name: "20260101000000_init", when: 1767225600000 }],
+    recorded: 0,
+    schema: "app",
+  }
+  const verified = databaseErrorDiagnostics.DATABASE_MIGRATION_LEDGER_MISPLACED({ ...params, unverified: [] })
+  expect(verified.fix).toContain('only if you verify that the ledger in "drizzle" lists all migrations this app has applied')
+  const ambiguous = databaseErrorDiagnostics.DATABASE_MIGRATION_LEDGER_MISPLACED({ ...params, unverified: ["20260102000000_clear"] })
+  expect(ambiguous.fix).not.toContain("Remove `migrationsSchema`")
+})

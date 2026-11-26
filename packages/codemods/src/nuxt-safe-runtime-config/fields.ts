@@ -11,7 +11,7 @@ export type { LiteralValue }
 /** One runtime config value that moves to an Env declaration. */
 export interface EnvField {
   section: "public" | "server"
-  /** Path in Nuxt `runtimeConfig`, without the `public` segment. */
+  /** Path in `runtimeConfig`. A Nuxt public path has no `public` segment. */
   configPath: string[]
   /** Path in Public Env or Server Env. Public Env paths have one segment. */
   envPath: string[]
@@ -31,10 +31,13 @@ export interface EnvField {
   schema?: { steps: AccessStep[] }
 }
 
-/** Nuxt's rule: `NUXT_` and the upper snake case path. Public paths start with `PUBLIC`. */
-export function nuxtVariableName(section: EnvField["section"], configPath: readonly string[]): string {
+/** The framework whose `runtimeConfig` the codemod migrates. */
+export type Framework = "nitro" | "nuxt"
+
+/** The rule of Nuxt and Nitro: the framework prefix and the upper snake case path. Public paths start with `PUBLIC`. */
+export function nuxtVariableName(section: EnvField["section"], configPath: readonly string[], framework: Framework = "nuxt"): string {
   const path = section === "public" ? ["public", ...configPath] : configPath
-  return `NUXT_${snakeCase(path.join("_")).toUpperCase()}`
+  return `${framework === "nitro" ? "NITRO_" : "NUXT_"}${snakeCase(path.join("_")).toUpperCase()}`
 }
 
 /** Public Env is flat, so a nested public path joins its segments in camel case. */

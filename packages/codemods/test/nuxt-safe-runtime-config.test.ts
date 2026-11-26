@@ -35,6 +35,7 @@ describe.each([
   ["zod3-schema-module", "a Zod 3 $schema module"],
   ["env-schema", "an envSchema .env.example in module options"],
   ["valibot-transform", "a Valibot $schema module with transforms and checks"],
+  ["nitro3-module", "a Nitro 3 app with a Valibot $schema module"],
 ])("nuxt-safe-runtime-config with %s", (name, label) => {
   it(`migrates ${label}`, async () => {
     const input = join(fixtures, name, "input")
@@ -105,6 +106,263 @@ describe("nuxt-safe-runtime-config on a Nitro 2 app", () => {
       expect(report).toContain(`Fix: ${fix}`)
       expect(await readFile(manifest, "utf8")).toBe(originalManifest.replace("env inspect", "env list"))
       expect(await readFile(join(cwd, config), "utf8")).toBe(originalConfig)
+    }
+    finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+})
+
+describe("nuxt-safe-runtime-config on a Nitro 3 app with a vite.config", () => {
+  it.each([true, false])("does not claim a Nitro move without a matching route (with schema: %s)", async (withSchema) => {
+    const cwd = await mkdtemp(join(fixtures, ".nitro3-"))
+    try {
+      await cp(join(fixtures, "nitro3-module/input"), cwd, { recursive: true })
+      const path = join(cwd, "nitro.config.ts")
+      const config = await readFile(path, "utf8")
+      if (withSchema) {
+        await writeFile(path, config
+          .replace("import safeRuntimeConfig from 'nuxt-safe-runtime-config/nitro'\n", "")
+          .replace("  modules: [safeRuntimeConfig],\n", ""))
+      }
+      else {
+        await rm(join(cwd, "routes"), { recursive: true })
+        await writeFile(path, config.replace("  safeRuntimeConfig: { $schema: './schema' },\n", ""))
+      }
+      const { result } = await runCodemod("nuxt-safe-runtime-config", { cwd, dryRun: true })
+      expect(result.summary).toMatch(withSchema
+        ? /^moved here because the schema has transforms on `port`\. Migrated /u
+        : /^removed nuxt-safe-runtime-config\/nitro:/u)
+    }
+    finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
+  it.each([
+    ["vite.config.ts", "import { nitro } from 'nitro/vite'; const server = nitro(); export default { plugins: [server] }", /plugins/],
+    ["vite.config.ts", "import { nitro } from 'nitro/vite'; const plugins = [nitro()]; export default { plugins: [...plugins] }", /plugins/],
+    ["vite.config.ts", "import { nitro } from 'nitro/vite'; export default { plugins: [nitro({ runtimeConfig: { greeting: 'from-vite' } })] }", /runtimeConfig/],
+    ["vite.config.ts", "export default { nitro: { safeRuntimeConfig: { $schema: './override' } } }", /safeRuntimeConfig/],
+    ["nitro.config.ts", "const options = { safeRuntimeConfig: { $schema: './schema' } }; export default { modules: ['nuxt-safe-runtime-config/nitro'], ...options }", /explicit/],
+    ["nitro.config.ts", "import safe from 'nuxt-safe-runtime-config/nitro'; export default { modules: [].concat(safe), safeRuntimeConfig: { $schema: './schema' } }", /modules/],
+  ])("stops without writing an ambiguous %s", async (file, code, error) => {
+    const cwd = await mkdtemp(join(fixtures, ".nitro3-"))
+    try {
+      await cp(join(fixtures, "nitro3-module/input"), cwd, { recursive: true })
+      await writeFile(join(cwd, file), code)
+      const manifest = await readFile(join(cwd, "package.json"), "utf8")
+      await expect(runCodemod("nuxt-safe-runtime-config", { cwd })).rejects.toThrow(error)
+      expect(await readFile(join(cwd, file), "utf8")).toBe(code)
+      expect(await readFile(join(cwd, "package.json"), "utf8")).toBe(manifest)
+    }
+    finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
+  it.each(["nitro build --preset vercel", "NITRO_PRESET=vercel nitro build"])("handles the build script %s", async (command) => {
+    const cwd = await mkdtemp(join(fixtures, ".nitro3-"))
+    try {
+      await cp(join(fixtures, "nitro3-module/input"), cwd, { recursive: true })
+      const path = join(cwd, "package.json")
+      const manifest = (await readFile(path, "utf8")).replace('"nitro build"', JSON.stringify(command))
+      await writeFile(path, manifest)
+      if (command.includes("--preset")) {
+        await expect(runCodemod("nuxt-safe-runtime-config", { cwd })).rejects.toThrow(/build.*script|script.*build/)
+        expect(await readFile(path, "utf8")).toBe(manifest)
+        return
+      }
+      const run = await runCodemod("nuxt-safe-runtime-config", { cwd, dryRun: true })
+      expect(run.result.edits.find(edit => edit.path === "vite.config.ts")?.after).not.toContain("host:")
+      expect(run.result.edits.find(edit => edit.path === "package.json")?.after).toContain("NITRO_PRESET=vercel vite build")
+    }
+    finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
+  it("adds vitehub() before nitro() in the existing plugins", async () => {
+    const cwd = await mkdtemp(join(fixtures, ".nitro3-"))
+    try {
+      await cp(join(fixtures, "nitro3-module/input"), cwd, { recursive: true })
+      await writeFile(join(cwd, "vite.config.ts"), "import { nitro } from 'nitro/vite'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [\n    nitro(),\n  ],\n})\n")
+      const run = await runCodemod("nuxt-safe-runtime-config", { cwd, dryRun: true })
+      expect(run.result.edits.find(edit => edit.path === "vite.config.ts")?.after).toBe([
+        "import { nitro } from 'nitro/vite'",
+        "import { defineConfig } from 'vite'",
+        "import { vitehub } from 'vite-hub'",
+        "import { env } from 'vite-hub/env'",
+        "",
+        "export default defineConfig({",
+        "  plugins: [",
+        "    vitehub({",
+        "      env: {",
+        "        server: {",
+        "          apiSecret: env({ schema: env.schemaFrom('./server/env.schema.ts', 'apiSecret'), secret: true, source: env.source('NITRO_API_SECRET') }),",
+        "          greeting: env({ default: 'hello', schema: env.schemaFrom('./server/env.schema.ts', 'greeting'), source: env.source('NITRO_GREETING') }),",
+        "          port: env({ default: '3000', schema: env.schemaFrom('./server/env.schema.ts', 'port'), source: env.source('NITRO_PORT') }),",
+        "        },",
+        "      },",
+        "    }),",
+        "    nitro(),",
+        "  ],",
+        "})",
+        "",
+      ].join("\n"))
+    }
+    finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
+  it("unseals each rewritten read of a secret so the code keeps the raw value", async () => {
+    const cwd = await mkdtemp(join(fixtures, ".nitro3-"))
+    try {
+      await cp(join(fixtures, "nitro3-module/input"), cwd, { recursive: true })
+      const header = "import { defineHandler } from 'nitro'\nimport { useRuntimeConfig } from 'nitro/runtime-config'\n\n"
+      await writeFile(join(cwd, "routes/member.ts"), `${header}export default defineHandler(() => {\n  const config = useRuntimeConfig()\n  return { bound: config.apiSecret.length, direct: useRuntimeConfig().apiSecret.length, greeting: config.greeting }\n})\n`)
+      await writeFile(join(cwd, "routes/pattern.ts"), `${header}export default defineHandler(() => {\n  const { apiSecret: secret, greeting } = useRuntimeConfig()\n  return { secret, greeting }\n})\n`)
+      await writeFile(join(cwd, "routes/order.ts"), `${header}const { apiSecret, greeting = apiSecret.slice(0, 2) } = useRuntimeConfig()\n`)
+      await writeFile(join(cwd, "routes/fallback.ts"), `${header}export default defineHandler(() => {\n  const { apiSecret = 'dev-secret-value-0000' } = useRuntimeConfig()\n  return { apiSecret }\n})\n`)
+      const run = await runCodemod("nuxt-safe-runtime-config", { cwd, dryRun: true })
+      const after = (path: string) => run.result.edits.find(edit => edit.path === path)?.after
+      expect(after("routes/member.ts")).toContain("return { bound: config.apiSecret.unseal().length, direct: useServerEnv().apiSecret.unseal().length, greeting: config.greeting }")
+      expect(after("routes/pattern.ts")).toBeUndefined()
+      expect(after("routes/order.ts")).toBeUndefined()
+      expect(run.result.followUps.find(entry => entry.file === "routes/order.ts")?.message).toContain("preserve binding order")
+      expect(after("routes/health.ts")).toContain("const apiSecret = useServerEnv().apiSecret.unseal()")
+      expect(after("routes/fallback.ts")).toBeUndefined()
+      const unsealed = run.result.followUps.filter(entry => entry.message.includes("The codemod calls .unseal() here"))
+      expect(unsealed.map(entry => `${entry.file}:${entry.line}`).sort()).toEqual(["routes/health.ts:5", "routes/member.ts:6", "routes/member.ts:6"])
+      expect(run.result.followUps.find(entry => entry.file === "routes/fallback.ts")).toMatchObject({ line: 5, message: expect.stringContaining("reads the secret apiSecret with a default value") })
+    }
+    finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
+  it("keeps a field with an async validator in the Nitro runtimeConfig", async () => {
+    const cwd = await mkdtemp(join(fixtures, ".nitro3-"))
+    try {
+      await cp(join(fixtures, "nitro3-module/input"), cwd, { recursive: true })
+      await writeFile(join(cwd, "schema.ts"), "import * as v from 'valibot'\n\nexport default v.objectAsync({\n  apiSecret: v.pipe(v.string(), v.minLength(16)),\n  greeting: v.pipeAsync(v.string(), v.checkAsync(async value => value.length > 1)),\n  port: v.pipe(v.string(), v.transform(Number), v.number(), v.minValue(1)),\n})\n")
+      const run = await runCodemod("nuxt-safe-runtime-config", { cwd, dryRun: true })
+      const after = (path: string) => run.result.edits.find(edit => edit.path === path)?.after ?? ""
+      expect(after("nitro.config.ts")).toContain("runtimeConfig: { greeting: 'hello' }")
+      expect(after("vite.config.ts")).not.toContain("greeting:")
+      expect(after("routes/greeting.ts")).toBe("")
+      const report = formatReport(run)
+      expect(report).toContain("nitro.config.ts:4 greeting has an async validator")
+      expect(report).toContain("routes/greeting.ts:6 useRuntimeConfig() reads port, which moved to Env")
+      expect(report).toContain("It stays in runtimeConfig. Read it with useRuntimeConfig(), or move it to Env by hand.")
+    }
+    finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
+  it("reports each call whose config object escapes or comes from a namespace import", async () => {
+    const cwd = await mkdtemp(join(fixtures, ".nitro3-"))
+    try {
+      await cp(join(fixtures, "nitro3-module/input"), cwd, { recursive: true })
+      await mkdir(join(cwd, "utils"))
+      await writeFile(join(cwd, "utils/config.ts"), [
+        "import { useRuntimeConfig } from 'nitro/runtime-config'",
+        "import * as rt from 'nitro/runtime-config'",
+        "",
+        "export function client() {",
+        "  const config = useRuntimeConfig()",
+        "  const { greeting, port } = config",
+        "  return { greeting, port }",
+        "}",
+        "export const whole = () => { const config = useRuntimeConfig(); return config }",
+        "export const byKey = (key: 'greeting' | 'port') => useRuntimeConfig()[key]",
+        "export const has = () => { const config = useRuntimeConfig(); return 'greeting' in config }",
+        "export const namespaced = () => rt.useRuntimeConfig().greeting",
+        "export const captured = useRuntimeConfig",
+        "export const namespaceCapture = rt.useRuntimeConfig",
+        "export { useRuntimeConfig as readConfig } from 'nitro/runtime-config'",
+        "",
+      ].join("\n"))
+      const run = await runCodemod("nuxt-safe-runtime-config", { cwd, dryRun: true })
+      expect(run.result.edits.find(edit => edit.path === "utils/config.ts")).toBeUndefined()
+      const reported = run.result.followUps.filter(entry => entry.file === "utils/config.ts").map(entry => entry.line ?? 0).sort((left, right) => left - right)
+      expect(reported).toEqual([6, 9, 10, 11, 12, 13, 14, 15])
+      expect(run.result.followUps.find(entry => entry.file === "utils/config.ts" && entry.line === 12)?.message).toContain("rt.useRuntimeConfig() is called through a namespace import")
+    }
+    finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
+  it.each([false, true])("reports whole-group reads that mix migrated and retained keys (schema includes retained key: %s)", async (withPolicySchema) => {
+    const cwd = await mkdtemp(join(fixtures, ".nitro3-"))
+    try {
+      await cp(join(fixtures, "nitro3-module/input"), cwd, { recursive: true })
+      const path = join(cwd, "nitro.config.ts")
+      await writeFile(path, (await readFile(path, "utf8")).replace("greeting: 'hello'", "site: { greeting: 'hello', policy: 'secure' }, 'api-secret': ''"))
+      const policy = withPolicySchema ? ", policy: v.pipeAsync(v.string(), v.checkAsync(async value => value.length > 1))" : ""
+      await writeFile(join(cwd, "schema.ts"), `import * as v from 'valibot'\nexport default v.objectAsync({ site: v.objectAsync({ greeting: v.string()${policy} }), 'api-secret': v.pipe(v.string(), v.minLength(16)) })\n`)
+      const source = "import { useRuntimeConfig } from 'nitro/runtime-config'\n"
+      await writeFile(join(cwd, "routes/group.ts"), `${source}export const whole = () => useRuntimeConfig().site\nexport const destructure = () => { const { site } = useRuntimeConfig(); return site }\n`)
+      await writeFile(join(cwd, "routes/leaf.ts"), `${source}export const leaf = () => useRuntimeConfig().site.greeting\n`)
+      await writeFile(join(cwd, "routes/quoted.ts"), `${source}export function read() { const { 'api-secret': key } = useRuntimeConfig(); return key.length }\n`)
+      const run = await runCodemod("nuxt-safe-runtime-config", { cwd, dryRun: true })
+      const after = (file: string) => run.result.edits.find(edit => edit.path === file)?.after
+      expect(after("routes/group.ts")).toBeUndefined()
+      expect(run.result.followUps.filter(entry => entry.file === "routes/group.ts" && entry.message.includes("both runtimeConfig and Server Env")).map(entry => entry.line)).toEqual([2, 3])
+      expect(after("routes/leaf.ts")).toContain("useServerEnv().site.greeting")
+      expect(after("routes/quoted.ts")).toContain("useServerEnv()['api-secret'].unseal()")
+    }
+    finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
+  it("leaves a nested app with nitro.config.cts unchanged", async () => {
+    const cwd = await mkdtemp(join(fixtures, ".nitro3-"))
+    try {
+      await cp(join(fixtures, "nitro3-module/input"), cwd, { recursive: true })
+      await mkdir(join(cwd, "nested"))
+      await writeFile(join(cwd, "nested/nitro.config.cts"), "module.exports = {}\n")
+      await cp(join(cwd, "routes/greeting.ts"), join(cwd, "nested/greeting.ts"))
+      const run = await runCodemod("nuxt-safe-runtime-config", { cwd, dryRun: true })
+      expect(run.result.edits.some(edit => edit.path === "routes/greeting.ts")).toBe(true)
+      expect(run.result.edits.some(edit => edit.path.startsWith("nested/"))).toBe(false)
+      expect(run.result.followUps).toContainEqual(expect.objectContaining({ file: "nested/nitro.config.cts" }))
+    }
+    finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
+  it("takes the host from a preset in the vite.config nitro() options", async () => {
+    const cwd = await mkdtemp(join(fixtures, ".nitro3-"))
+    try {
+      await cp(join(fixtures, "nitro3-module/input"), cwd, { recursive: true })
+      const config = join(cwd, "nitro.config.ts")
+      await writeFile(config, (await readFile(config, "utf8")).replace("serverDir:", "preset: 'node-server',\n  serverDir:"))
+      await writeFile(join(cwd, "vite.config.ts"), "import { nitro } from 'nitro/vite'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  nitro: { preset: 'netlify' },\n  plugins: [\n    nitro({ preset: 'vercel', serverDir: './' }),\n  ],\n})\n")
+      const run = await runCodemod("nuxt-safe-runtime-config", { cwd, dryRun: true })
+      const vite = run.result.edits.find(edit => edit.path === "vite.config.ts")?.after
+      expect(vite).toContain("      host: 'vercel',")
+      expect(vite).toContain("    nitro({ serverDir: './' }),")
+      expect(vite).not.toContain("preset:")
+      expect(run.result.edits.find(edit => edit.path === "nitro.config.ts")?.after).not.toContain("preset:")
+      expect(run.result.followUps.find(entry => entry.message.includes("host: \"node\""))).toBeUndefined()
+    }
+    finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
+  it("stops when the vite.config already uses vitehub()", async () => {
+    const cwd = await mkdtemp(join(fixtures, ".nitro3-"))
+    try {
+      await cp(join(fixtures, "nitro3-module/input"), cwd, { recursive: true })
+      await writeFile(join(cwd, "vite.config.ts"), "import { nitro } from 'nitro/vite'\nimport { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({ plugins: [vitehub(), nitro()] })\n")
+      await expect(runCodemod("nuxt-safe-runtime-config", { cwd, dryRun: true })).rejects.toThrow("vite.config.ts already uses vitehub()")
     }
     finally {
       await rm(cwd, { recursive: true, force: true })
@@ -470,6 +728,35 @@ describe("defaults that the field schema rejects", () => {
       runtimeConfig: new Map([["value", { literal: value }]]),
     })
     expect(plan.fields[0]?.default).toBe(value)
+  })
+})
+
+describe("rules that change the value", () => {
+  it.each([
+    ["valibot", "v.array(v.pipe(v.string(), v.trim()))", "v.pipe(v.string(), v.check(value => value.length > 1))", "regions.*"],
+    ["zod", "v.string().pipe(v.string().trim())", "v.string().pipe(v.string().refine(value => value.length > 1))", "regions"],
+    ["zod/v3", "v.string().pipe(v.string().trim())", "v.string().pipe(v.string().refine(value => value.length > 1))", "regions"],
+  ])("reports composed %s transforms in a dry run", async (vendor, transform, refinement, path) => {
+    const cwd = await mkdtemp(join(fixtures, ".transform-"))
+    try {
+      await cp(join(fixtures, "valibot-transform/input"), cwd, { recursive: true })
+      await writeFile(join(cwd, "schema.ts"), `import * as v from '${vendor}'\nexport default v.object({ regions: ${transform}, region: ${refinement} })\n`)
+      const run = await runCodemod("nuxt-safe-runtime-config", { cwd, dryRun: true })
+      expect(formatReport(run)).toContain(`moved here because the schema has transforms on \`${path}\`. Migrated `)
+    }
+    finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
+  it.each([
+    ["Valibot", v.object({ origins: v.pipe(v.string(), v.transform(value => value.split(","))), region: v.pipe(v.string(), v.check(value => value.length > 1)) })],
+    ["Zod", z.object({ origins: z.string().trim(), region: z.string().refine(value => value.length > 1) })],
+    ["Zod 3", z3.object({ origins: z3.preprocess(value => value, z3.string()), region: z3.string().refine(value => value.length > 1) })],
+  ])("names only the %s rules that change the value as transforms", (_label, schema) => {
+    const issues = schemaIssues(schema)
+    expect([...issues.keys()].sort()).toEqual(["origins", "region"])
+    expect([...issues.transforms]).toEqual(["origins"])
   })
 })
 

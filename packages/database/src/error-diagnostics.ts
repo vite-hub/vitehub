@@ -243,7 +243,9 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
         const table = postgresLedgerTable(schema)
         const lines: string[] = []
         if (migrations.length) {
-          lines.push(`${recorded ? `Keep \`migrationsSchema\`: the ledger in "${schema}" lists ${recorded} migration(s) that "drizzle" may not list, so ViteHub would apply them again without it. Verify` : `Remove \`migrationsSchema\` to keep the ledger in "drizzle". Or verify`} that this database applied ${quoteList(migrations.map(migration => migration.name))}, because another app that shares "drizzle" can apply the same migrations. Then run this SQL once in a SQL client, as a role that can create tables in "${schema}":`)
+          if (recorded) lines.push(`Keep \`migrationsSchema\`: the ledger in "${schema}" lists ${recorded} migration(s) that "drizzle" may not list, so ViteHub could apply them again without it.`)
+          else if (!unverified.length) lines.push(`Remove \`migrationsSchema\` only if you verify that the ledger in "drizzle" lists all migrations this app has applied and does not mistake another app's migrations for yours.`)
+          lines.push(`To keep \`migrationsSchema\`, verify that this database applied ${quoteList(migrations.map(migration => migration.name))}, because another app that shares "drizzle" can apply the same migrations. Then run this SQL once in a SQL client, as a role that can create tables in "${schema}":`)
           lines.push(...[createPostgresLedger(table), ...migrations.map(migration => insertPostgresLedgerRow(table, migration))].map(statement => `${statement};`))
         }
         if (unverified.length) {
