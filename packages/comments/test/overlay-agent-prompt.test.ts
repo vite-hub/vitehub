@@ -34,7 +34,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-async function site(visitor: ViteHubSiteVisitor, threads: number, build?: { repository: string }) {
+async function site(visitor: ViteHubSiteVisitor, openThreads: number, { resolvedThreads = 0, build }: { resolvedThreads?: number, build?: { repository: string } } = {}) {
   installViteHubSiteVisitor(async () => visitor)
   const subject = { kind: "drop", id: "42" }
   const server = await serveComments({
@@ -42,20 +42,27 @@ async function site(visitor: ViteHubSiteVisitor, threads: number, build?: { repo
     page: ({ url }) => url.pathname === "/pricing" ? subject : undefined,
   }, build ? { build } : {})
   const ids: string[] = []
-  let resolvedId: string | undefined
-  for (let index = 0; index < threads; index++) {
+  for (let index = 0; index < openThreads + resolvedThreads; index++) {
     const author = { id: "grace", name: "Grace" }
     const [, thread] = await server.comments.create({ subject, anchor, body: `Fix ${index}`, author })
-    if (index === 1) {
-      await server.comments.resolve(thread!.id, { by: author })
-      resolvedId = thread!.id
+    if (index >= openThreads) {
+      const [resolveError, resolved] = await server.comments.resolve(thread!.id, { by: author })
+      expect(resolveError).toBeUndefined()
+      const now = vi.spyOn(Date, "now").mockReturnValue(resolved!.resolvedAt! + 1)
+      try {
+        const [error] = await server.comments.reply(thread!.id, { body: "Still needs work", author }, { allowResolved: true })
+        expect(error).toBeUndefined()
+      }
+      finally {
+        now.mockRestore()
+      }
     }
-    else ids.push(thread!.id)
+    ids.push(thread!.id)
   }
   const tools = pageTools()
   await startOverlay(tools)
   await vi.waitFor(() => expect(commentsButton(tools.bar)).not.toBeNull())
-  return { ...tools, ids, resolvedId, server }
+  return { ...tools, ids, server }
 }
 
 function clipboard() {
@@ -82,7 +89,7 @@ const promptOf = (href: string) => new URL(href).searchParams.get("prompt")
 describe("Open in T3 Code and Copy on a thread", () => {
   it("gives a Console member the thread's text and the ViteHub MCP steps, both ways", async () => {
     const writeText = clipboard()
-    const tools = await site(member, 1, { repository: "acme/pricing" })
+    const tools = await site(member, 1, { build: { repository: "acme/pricing" } })
     const actions = await openedThread(tools)
     const open = actions.querySelector<HTMLAnchorElement>('a[data-action="open-in-t3-code"]')!
     expect(open.textContent).toContain("Open in T3 Code")
@@ -116,9 +123,9 @@ describe("Open in T3 Code and Copy on a thread", () => {
 })
 
 describe("Copy open in the panel header", () => {
-  it("copies the open threads of the page, without the resolved one", async () => {
+  it("copies the open threads of the page, without the resolved thread with a later reply", async () => {
     const writeText = clipboard()
-    const tools = await site(member, 3)
+    const tools = await site(member, 2, { resolvedThreads: 1 })
     const panel = await listed(tools)
     await vi.waitFor(() => expect(panel.querySelector('[data-slot="comment-panel-actions"] button[data-action="copy-open-prompt"]')).toBeTruthy())
     const open = panel.querySelector<HTMLAnchorElement>('[data-slot="comment-panel-actions"] a[data-action="open-in-t3-code"]')!
@@ -127,8 +134,10 @@ describe("Copy open in the panel header", () => {
     const prompt = writeText.mock.calls[0]![0]
     expect(promptOf(open.href)).toBe(prompt)
     expect(prompt).toContain(`Fix these 2 comments on ${location.origin}/pricing`)
-    for (const id of tools.ids) expect(prompt).toContain(id)
-    expect(prompt).not.toContain(tools.resolvedId)
+    const [firstOpen, secondOpen, resolved] = tools.ids
+    for (const value of [firstOpen, secondOpen, project.url, project.teamId, "comments.get", "comments.resolve"]) expect(prompt).toContain(value)
+    expect(prompt).not.toContain(resolved)
+    expect(prompt).not.toContain("Still needs work")
   })
 
   it("is not there while the page has no open threads", async () => {
