@@ -129,7 +129,7 @@ The database uses D1 HTTP, and a runtime value is missing: `cloudflare.databaseI
 
 ### DATABASE_URL_VARIABLE_IGNORED
 
-A warning, printed once per database when it opens. The Database Definition has no `connection`, so it uses its local SQLite file, but `TURSO_DATABASE_URL`, `LIBSQL_URL`, or a libSQL `DATABASE_URL` is set. NuxtHub and `connectDatabase()` read these variables on their own. A Database Definition does not. To use the variable, set `connection: { url: process.env.TURSO_DATABASE_URL, authToken: process.env.TURSO_AUTH_TOKEN }` in the Definition. To keep the local file, unset the variable. See [Keep a Turso or libSQL connection](/docs/compare/nuxthub#keep-a-turso-or-libsql-connection).
+A warning, printed once per database when it opens. The Database Definition has no `connection`, so it uses its local SQLite file, but `TURSO_DATABASE_URL`, `LIBSQL_URL`, or a libSQL `DATABASE_URL` is set. NuxtHub and `connectDatabase()` read these variables on their own. A Database Definition does not. To use the variable, set `connection: { url: process.env.TURSO_DATABASE_URL, authToken: process.env.TURSO_AUTH_TOKEN }` in the Definition. To keep the local file, unset the variable. See [Database configuration](/docs/database/configure).
 
 ### DATABASE_NAME_REQUIRED
 
@@ -165,7 +165,7 @@ ViteHub cannot read which migrations the database has applied. `error.why` has t
 
 ### DATABASE_MIGRATIONS_OLD_LAYOUT
 
-A migrations folder has the layout of Drizzle Kit 0.x, flat `.sql` files and `meta/_journal.json`, or holds only flat `.sql` files, such as files from `wrangler d1 migrations create`. Drizzle Kit 1.0 and ViteHub read one `<YYYYMMDDHHmmss>_<name>/migration.sql` folder per migration. Run `vitehub database up` once, and commit the new folders. Migrations that the database applied stay applied, and D1 keeps the file names that Wrangler applied. See [Upgrade to Drizzle 1.0](/docs/database/configure#upgrade-to-drizzle-10).
+A migrations folder has the layout of Drizzle Kit 0.x, flat `.sql` files and `meta/_journal.json`, or holds only flat `.sql` files, such as files from `wrangler d1 migrations create` or NuxtHub. Drizzle Kit 1.0 and ViteHub read one `<YYYYMMDDHHmmss>_<name>/migration.sql` folder per migration. Run `vitehub database up` once, and commit the new folders. Migrations that the database applied stay applied, and D1 keeps the file names that Wrangler applied. See [Upgrade to Drizzle 1.0](/docs/database/configure#upgrade-to-drizzle-10).
 
 ### DATABASE_MIGRATION_DATA_LOSS
 

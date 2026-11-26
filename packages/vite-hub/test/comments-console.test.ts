@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from "vitest"
 import { describeConsoleContributedSections } from "../src/console/contributions.ts"
 import { consoleProject, setConsoleProject } from "../src/console/runtime/client/project.ts"
 import { loadConsoleNavigation } from "../src/console/runtime/client/sections.ts"
-import { consoleVitePlugin, resolveGeneratedConsolePlugin } from "../src/console/vite.ts"
+import { consoleVitePlugin, resolveGeneratedConsoleApp } from "../src/console/vite.ts"
 import { productionConsole } from "./support/console-authorize.ts"
 
 import type { UserConfig } from "vite"
@@ -31,7 +31,7 @@ describe("Comments activation from the Console", () => {
         if (!hook) throw new Error("Expected a config hook")
         await Reflect.apply(typeof hook === "function" ? hook : hook.handler, {}, [config, { command: "build", mode: "production" }])
       }
-      const generated = await readFile(resolveGeneratedConsolePlugin(root), "utf8")
+      const generated = await readFile(resolveGeneratedConsoleApp(root), "utf8")
       expect(generated).toContain('"kind":"operation-view"')
       expect(generated).toContain('"operation":"comments.list"')
       expect(generated).not.toContain("readCommentsConsoleRecords")
@@ -51,7 +51,7 @@ describe("Comments activation from the Console", () => {
         if (!hook) throw new Error("Expected a config hook")
         await Reflect.apply(typeof hook === "function" ? hook : hook.handler, {}, [config, { command: "build", mode: "production" }])
       }
-      const generated = await readFile(resolveGeneratedConsolePlugin(root), "utf8")
+      const generated = await readFile(resolveGeneratedConsoleApp(root), "utf8")
       expect(generated).toContain('"operation":"comments.list"')
       expect(generated).not.toContain("readCommentsConsoleRecords")
     }

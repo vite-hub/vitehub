@@ -1,3 +1,5 @@
+import { operationRpcPath } from "@vite-hub/internal/operation-rpc"
+
 import { consoleState } from "../../internal.ts"
 import { readConsoleAccessUser, withConsoleAccess, type ConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { assertConsoleRequest, consoleRequestError, consoleRequestJSON, consoleRequestURL } from "./request.ts"
@@ -7,7 +9,6 @@ import { parseConsoleDocumentSetup } from "../definitions.ts"
 
 import type { ConsoleDocumentCollection, ConsoleDocumentSetup } from "../definitions.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
-import type { ConsoleTicket } from "./tickets.ts"
 
 import { consoleDocumentActionNames, maximumConsoleDocumentRequestBytes } from "./limits.ts"
 
@@ -43,7 +44,7 @@ export interface ConsoleMediaAccess {
 /** Loads the owner actions of each document editor section on first use. */
 export type ConsoleDocumentEditors = Readonly<Record<string, () => Promise<ConsoleDocumentActions>>>
 
-/** What the generated Console plugin installs for one document editor section. */
+/** What the generated Console app module installs for one document editor section. */
 export interface ConsoleDocumentEditorInstall {
   /** Owner factory that turns the application module into actions. */
   actions: (module: Record<string, unknown>) => ConsoleDocumentActions
@@ -173,14 +174,14 @@ const guardedHandler: ConsoleAccessRoute<typeof consoleDocumentsHandler> = withC
 export default guardedHandler
 
 /**
- * `documents.preview`: a one-time link that opens the page of a document with its draft. The owner `get` action checks
- * that the person may read the document and gives its page URL, which must be a page of the app. Redemption runs the
- * owner `preview` action as the person again. See `tickets.ts`.
+ * `documents.preview`: check that the person may read the document and answer the app path of its page. The owner `get`
+ * action gives the page URL, which must be a page of the app. The Console calls it as the member before it signs a
+ * `preview` Site access token, and the app's `/_vitehub/site` runs the owner `preview` action as the person again.
  */
-export async function issueConsoleDocumentPreview(
-  context: { access: ConsoleAccess, request?: Request, event?: unknown },
+export async function checkConsoleDocumentPreview(
+  context: { access: ConsoleAccess, request?: Request },
   input: { collection: string, id: string, section: string },
-): Promise<ConsoleTicket> {
+): Promise<{ path: string }> {
   const actions = await loadConsoleDocumentActions(input.section)
   const user = await consoleDocumentActionContext(context.access)
   const document: unknown = await runConsoleDocumentAction(() => actions.get({ collection: input.collection, id: input.id }, user))
@@ -188,10 +189,9 @@ export async function issueConsoleDocumentPreview(
   const url: unknown = Reflect.get(Object(document), "url")
   if (String(url) !== url || !url) throw consoleRequestError(409, "The document has no page. Set url on its collection to preview its pages.")
   const page = new URL(url, "http://vitehub.invalid")
-  // A page URL must be a path of the app. An absolute URL to another site would make the ticket a redirect.
-  if (page.origin !== "http://vitehub.invalid" && !(context.request && page.origin === new URL(context.request.url).origin)) {
-    throw consoleRequestError(409, "The page URL of the document is not on this app.")
-  }
-  const { issueConsoleTicket } = await import("./tickets.ts")
-  return await issueConsoleTicket(context, "content.preview", { collection: input.collection, id: input.id, path: `${page.pathname}${page.search}`, section: input.section })
+  const rpc = context.request ? new URL(context.request.url) : undefined
+  if (page.origin !== "http://vitehub.invalid" && page.origin !== rpc?.origin) throw consoleRequestError(409, "The page URL of the document is not on this app.")
+  const base = rpc?.pathname.endsWith(operationRpcPath) ? rpc.pathname.slice(0, -operationRpcPath.length) : ""
+  const below = base && (page.pathname === base || page.pathname.startsWith(`${base}/`)) ? page.pathname.slice(base.length) || "/" : page.pathname
+  return { path: `${below}${page.search}` }
 }

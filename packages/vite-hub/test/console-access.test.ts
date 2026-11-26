@@ -1,10 +1,11 @@
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
+import { existsSync } from "node:fs"
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { basename, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { runInNewContext } from "node:vm"
 
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { defineConsoleAuthorize } from "../src/console/auth.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
@@ -13,9 +14,12 @@ import { installConsoleDevelopment } from "../src/console/runtime/server/develop
 import { bindConsoleAccess, consoleRealtimeAccess, installConsoleAccess, withConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { consoleOperationRegistry, handleConsoleRpcRequest } from "../src/console/runtime/server/rpc.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
-import { consoleVitePlugin, resolveConsoleAccessBuild, resolveConsoleOptions } from "../src/console/vite.ts"
+import { consoleVitePlugin, resolveConsoleAccessBuild, resolveConsoleOptions, resolveConsoleUrl } from "../src/console/vite.ts"
+import { installViteHubConsoleOperations } from "./support/console-operations.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 import { handleConsoleRpcRequest as handleGuardedRpcRequest } from "./support/console-rpc.ts"
+
+import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 
 import type { ResolvedAuthViteConfig } from "@vite-hub/auth"
 import type { ConsoleAuthorize } from "../src/console/auth.ts"
@@ -28,9 +32,6 @@ import { operationRpcBody, operationRpcResponseResult } from "../../internal/tes
 
 const policyKey = Symbol.for("vitehub.console.access")
 const serverRoot = fileURLToPath(new URL("../src/console/runtime/server/", import.meta.url))
-// The page tools session reads no Console data: it lists the page tools of a visitor, and the Console link it can list
-// gives no access.
-const pageRoutes = new Set(["page-tools-route.ts"])
 
 function event(headers: Record<string, string> = {}): ConsoleRequestEvent {
   return requestEvent(new Request("http://vitehub.local/_vitehub/api/data", { headers }))
@@ -58,21 +59,29 @@ afterEach(() => {
   Reflect.deleteProperty(globalThis, policyKey)
 })
 
+beforeEach(async () => {
+  await installViteHubConsoleOperations()
+})
+
 describe("Console data route contract", () => {
   it("guards every Console data route with withConsoleAccess()", async () => {
-    const files = (await readdir(serverRoot)).filter(file => file.endsWith(".ts")).sort()
+    const sourceRoot = fileURLToPath(new URL("../src/", import.meta.url))
+    const ownerRoots = (await readdir(sourceRoot, { withFileTypes: true }))
+      .filter(entry => entry.isDirectory())
+      .map(entry => join(sourceRoot, entry.name, "console"))
+    const roots = [serverRoot, ...ownerRoots.filter(root => existsSync(root))]
+    const files = (await Promise.all(roots.map(async root => (await readdir(root)).filter(file => file.endsWith(".ts")).map(file => join(root, file))))).flat().sort()
     const routes: string[] = []
     for (const file of files) {
-      if (!/^export default /m.test(await readFile(join(serverRoot, file), "utf8"))) continue
+      if (!/^export default /m.test(await readFile(file, "utf8"))) continue
       routes.push(file)
     }
-    expect(routes).toContain("invocation-workspace.get.ts")
-    expect(routes).toContain("rpc.ts")
+    expect(routes.map(file => basename(file))).toContain("invocation-workspace.get.ts")
+    expect(routes.map(file => basename(file))).toContain("rpc.ts")
 
-    for (const file of routes.filter(route => !pageRoutes.has(route))) {
+    for (const file of routes) {
       Reflect.deleteProperty(globalThis, policyKey)
-      const route: unknown = (await import(join(serverRoot, file))).default
-      // HTTP routes are Fetchables. Operation handlers are functions of a request event.
+      const route: unknown = (await import(file)).default
       const fetchRoute: unknown = route instanceof Object ? Reflect.get(route, "fetch") : undefined
       const result: unknown = fetchRoute instanceof Function
         ? await Reflect.apply(fetchRoute, route, [routeRequest(event())])
@@ -107,6 +116,7 @@ describe("Console access policies", () => {
     { option: { auth: {} }, fix: "was removed" },
     { option: { origins: ["https://console.vitehub.dev"] }, fix: "console.origins was removed. Apps take no Console calls from browsers." },
     { option: { mcp: { resource: "https://app.example.com/_vitehub/mcp" } }, fix: "console.mcp was removed. Apps do not serve a Console MCP at /_vitehub/mcp. Agents use the ViteHub MCP of the Console at https://console.vitehub.dev/mcp." },
+    { option: { mcpClient: true }, fix: "console.mcpClient was removed. Apps do not run an MCP client." },
     { option: { signInPage: "/sign-in" }, fix: "console.signInPage was removed." },
     { option: { embed: true }, fix: "console.embed was removed." },
   ])("refuses the removed option $option with its fix", ({ option, fix }) => {
@@ -116,6 +126,42 @@ describe("Console access policies", () => {
   it("refuses an unknown console.auth value", () => {
     expect(() => resolveConsoleOptions({ auth: "public" })).toThrow(expect.objectContaining({ code: "VITE_HUB_B0004" }))
     expect(() => resolveConsoleOptions("yes")).toThrow(expect.objectContaining({ code: "VITE_HUB_B0004" }))
+  })
+
+  it("takes console.url as the origin of a self-hosted Console", () => {
+    expect(resolveConsoleUrl(resolveConsoleOptions(true))).toBeUndefined()
+    expect(resolveConsoleUrl(resolveConsoleOptions({ url: "https://console.example.com" }))).toBe("https://console.example.com")
+    expect(resolveConsoleUrl(resolveConsoleOptions({ url: "https://Console.Example.com:8443/" }))).toBe("https://console.example.com:8443")
+    expect(resolveConsoleUrl(resolveConsoleOptions({ url: "http://localhost:3000" }))).toBe("http://localhost:3000")
+    expect(resolveConsoleUrl(resolveConsoleOptions({ url: "http://[::1]:3000" }))).toBe("http://[::1]:3000")
+    for (const url of ["http://console.example.com", "https://console.example.com/console", "https://console.example.com/?a=1", "https://user@console.example.com", "console.example.com", "ftp://console.example.com", 42]) {
+      expect(() => resolveConsoleOptions({ url })).toThrow(expect.objectContaining({ code: "VITE_HUB_B0004", message: expect.stringContaining("console.url must be") }))
+    }
+    expect(() => resolveConsoleOptions({ url: "https://admin:secret@console.example.com" })).toThrow(expect.objectContaining({ message: expect.not.stringContaining("secret") }))
+  })
+
+  it.each([false, true])("builds console.url into the app, with the Nitro config context %s", async (nitroContext) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-url-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      const plugin = consoleVitePlugin({ console: { auth: false, url: "https://console.example.com" }, sections: [] })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a console config hook.")
+      const configHandler = "handler" in configHook ? configHook.handler : configHook
+      const config: { nitro?: { replace?: Record<string, string> }, root: string, [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean } = { root, ...(nitroContext ? { [VITEHUB_NITRO_CONFIG_CONTEXT]: true } : {}) }
+      const result: unknown = await Reflect.apply(configHandler, {}, [config, { command: "serve", mode: "development" }])
+      expect(result).toEqual({ define: { __VITEHUB_CONSOLE_URL__: JSON.stringify("https://console.example.com") } })
+      expect(config.nitro?.replace).toEqual(nitroContext ? { __VITEHUB_CONSOLE_URL__: JSON.stringify("https://console.example.com") } : undefined)
+
+      const hosted = consoleVitePlugin({ console: { auth: false }, sections: [] })
+      const hostedHook = hosted.config
+      if (!hostedHook) throw new TypeError("Expected a console config hook.")
+      const hostedHandler = "handler" in hostedHook ? hostedHook.handler : hostedHook
+      await expect(Reflect.apply(hostedHandler, {}, [{ root }, { command: "serve", mode: "development" }])).resolves.toBeUndefined()
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("hides the sections that console.sections turns off, and accepts only false", () => {
@@ -188,7 +234,6 @@ describe("Console access policies", () => {
 
   it("keeps the local development Console open and fails closed in production", async () => {
     installConsoleDevelopment("/test/app", true)
-    // A development Console without sign-in serves only this machine.
     const allowed = await run({ mode: "local" }, requestEvent(new Request("http://localhost:3000/_vitehub/api/data"), { remoteAddress: "127.0.0.1" }))
     expect(allowed.result).toEqual({ mode: "local", sections: "all" })
     expect(Object.isFrozen(allowed.result)).toBe(true)
@@ -224,7 +269,6 @@ describe("Console access policies", () => {
       const unsigned = await run({ mode: "token" }, requestEvent(new Request("https://app.example.com/_vitehub/rpc", { body: "{}", method: "POST" })))
       expect(unsigned.handler).not.toHaveBeenCalled()
       await expect(rejection(unsigned.result)).resolves.toMatchObject({ code: "CONSOLE_SIGNATURE_MISSING", status: 401 })
-      // A cookie or a bearer token never counts.
       const bearer = await run({ mode: "token" }, requestEvent(new Request("https://app.example.com/_vitehub/rpc", { body: "{}", headers: { authorization: "Bearer token", cookie: "session=1" }, method: "POST" })))
       await expect(rejection(bearer.result)).resolves.toMatchObject({ status: 401 })
       const signed = await run({ mode: "token" }, requestEvent(await signer.sign(new Request("https://app.example.com/_vitehub/rpc", { body: "{}", method: "POST" }), { id: "ada" })))
@@ -238,18 +282,14 @@ describe("Console access policies", () => {
   it("answers this machine without a signature on a development server with console: true and no key", async () => {
     installConsoleDevelopment("/test/app", true)
     const rpc = (init: RequestInit = {}, remoteAddress = "127.0.0.1") => requestEvent(new Request("http://localhost:3000/_vitehub/rpc", { body: "{}", method: "POST", ...init }), { remoteAddress })
-    // The `vitehub` CLI on this machine, as with console: { auth: false }.
     const local = await run({ mode: "token" }, rpc())
     expect(local.result).toEqual({ mode: "open", sections: "all" })
-    // Another machine, or a tunnel that forwards, still gets the loopback refusal.
     const remote = await run({ mode: "token" }, rpc({}, "192.168.0.38"))
     await expect(rejection(remote.result)).resolves.toMatchObject({ code: "CONSOLE_LOOPBACK_ONLY", status: 403 })
     const tunnel = await run({ mode: "token" }, rpc({ headers: { "x-forwarded-for": "203.0.113.9" } }))
     await expect(rejection(tunnel.result)).resolves.toMatchObject({ code: "CONSOLE_LOOPBACK_ONLY", status: 403 })
-    // A signed request still needs a key.
     const signed = await run({ mode: "token" }, rpc({ headers: { "x-vitehub-signature": "key=CI, t=1, origin=http://localhost:3000, body=x, v1=y" } }))
     await expect(rejection(signed.result)).resolves.toMatchObject({ code: "CONSOLE_KEY_NOT_CONFIGURED", status: 500 })
-    // console.authorize runs, as with console: { auth: false }.
     const authorize = vi.fn(() => ({ sections: ["kv"], grants: ["comments-read"] }))
     const limited = await run({ mode: "token", authorize }, rpc())
     expect(limited.result).toEqual({ mode: "open", sections: ["kv"], grants: ["comments-read"] })
@@ -340,7 +380,6 @@ describe("read-only section access", () => {
     await expect(rejection(await withConsoleAccess(write, { section: "agents", write: true })(event()))).resolves.toMatchObject({ code: "CONSOLE_ACCESS_DENIED", status: 403 })
     expect(write).not.toHaveBeenCalled()
     await expect(rejection(await withConsoleAccess(read, { section: "usage" })(event()))).resolves.toMatchObject({ status: 403 })
-    // The full grant wins over the read-only one.
     installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["agents:read", "agents"] }) })
     expect(await withConsoleAccess(write, { section: "agents", write: true })(event())).toBe("changed")
   })
@@ -376,7 +415,7 @@ describe("generated Console access", () => {
       if (!configHook) throw new TypeError("Expected a Console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook
       await Reflect.apply(configHandler, {}, [Object.assign(config, { root }), { command, mode: command === "build" ? "production" : "development" }])
-      return await readFile(join(root, `.vitehub/nitro/console/plugin${command === "serve" ? "-dev" : ""}.mjs`), "utf8")
+      return await readFile(join(root, `.vitehub/nitro/console/app${command === "serve" ? "-dev" : ""}.mjs`), "utf8")
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -392,7 +431,7 @@ describe("generated Console access", () => {
     expect(plugin).toContain('installConsoleAccess({ mode: "token" })')
   })
 
-  it.each([["/", "/_vitehub/rpc"], ["/portal/", "/portal/_vitehub/rpc"]])("marks the Console RPC and entry routes below %s for app Auth access routes to leave to them", async (base, route) => {
+  it.each(["/", "/portal/"])("marks the Console routes below %s for app Auth access routes to leave to them", async (base) => {
     const auth: ResolvedAuthViteConfig = {
       access: { routes: [{ route: "/**" }] },
       basePath: "/api/auth",
@@ -403,15 +442,11 @@ describe("generated Console access", () => {
     }
     const config: { base: string, nitro: { handlers: Array<{ handler: string, meta?: Record<string, unknown>, middleware?: boolean, route: string }> } } = { base, nitro: { handlers: [] } }
     const plugin = await generatedPlugin({ console: {}, resolveAuthConfig: () => auth }, "build", config)
-    // The exception follows the route that Nitro dispatches to, not a path, so the generated plugin names none.
     expect(plugin).not.toContain("vite-hub/auth/runtime/server")
     const { authAccessHandlerMeta } = await import("@vite-hub/auth/runtime/server")
-    expect(config.nitro.handlers.filter(handler => handler.meta)).toEqual([
-      expect.objectContaining({ route, meta: { ...authAccessHandlerMeta } }),
-      expect.objectContaining({ route: route.replace(/\/rpc$/, ""), meta: { ...authAccessHandlerMeta } }),
-      expect.objectContaining({ route: route.replace(/\/rpc$/, "/**"), meta: { ...authAccessHandlerMeta } }),
-      expect.objectContaining({ route: route.replace(/\/rpc$/, "/page/tools"), meta: { vitehubOwnAccess: true } }),
-    ])
+    expect(config.nitro.handlers.filter(handler => handler.meta)).toEqual(["/**", "", "/rpc", "/site"].map(path =>
+      expect.objectContaining({ route: `${base}_vitehub${path}`, meta: { ...authAccessHandlerMeta } }),
+    ))
   })
 
   it("serves development operations with Setup-only navigation", async () => {
@@ -420,17 +455,49 @@ describe("generated Console access", () => {
 
     await expect(generatedPlugin({ rpcOnly: true }, "serve", config)).resolves.toContain('installConsoleAccess({ mode: "local" })')
 
-    expect(config.nitro.handlers).toContainEqual(expect.objectContaining({ route: "/portal/_vitehub/rpc" }))
+    expect(config.nitro.handlers).toContainEqual(expect.objectContaining({ route: "/portal/_vitehub/**" }))
     expect(config.nitro.publicAssets).toEqual(assets)
   })
 
-  it.each(["/", "/portal/"])("registers the entry, RPC and page tools session below %s", async (base) => {
+  it.each([
+    ["/", false, "entry.js"],
+    ["/portal/", false, "entry.js"],
+    ["/", true, "entry-site-access.js"],
+    ["/portal/", true, "entry-site-access.js"],
+  ] as const)("registers Console routes below %s (Site access: %s)", async (base, siteAccess, file) => {
     const mount = base.replace(/\/$/, "")
     const config: { base: string, nitro: { handlers: Array<{ handler: string, middleware?: boolean, route: string }>, publicAssets?: Array<{ baseURL?: string }> } } = { base, nitro: { handlers: [] } }
-    await generatedPlugin({ console: {} }, "build", config)
+    await generatedPlugin({ console: {}, comments: siteAccess }, "build", config)
 
-    const routes = config.nitro.handlers.map(handler => handler.route)
-    expect(routes).toEqual([`${mount}/_vitehub/rpc`, `${mount}/_vitehub`, `${mount}/_vitehub/**`, `${mount}/_vitehub/page/tools`])
+    const paths = ["/**", "", "/rpc", "/site"]
+    expect(config.nitro.handlers.map(handler => [handler.route, basename(handler.handler)])).toEqual(paths.map(path => [`${mount}/_vitehub${path}`, file]))
+  })
+
+  it.each([
+    [undefined, true, "entry-site-access.js"],
+    [{ overlay: false } as const, true, "entry.js"],
+    [undefined, false, "entry.js"],
+  ] as const)("reads Site access from the Comments pill: comments %o, server/comments.ts %s", async (comments, commentsFile, file) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-site-access-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      if (commentsFile) {
+        await mkdir(join(root, "server"))
+        await writeFile(join(root, "server/comments.ts"), "export default {}\n")
+      }
+      const config: { nitro: { handlers: Array<{ handler: string, route: string }> }, root: string } = { nitro: { handlers: [] }, root }
+      const plugin = consoleVitePlugin({ comments, console: {}, sections: ["agents"] })
+      const configHook = plugin.config
+      if (!configHook) throw new TypeError("Expected a Console config hook.")
+      await Reflect.apply("handler" in configHook ? configHook.handler : configHook, {}, [config, { command: "build", mode: "production" }])
+
+      expect(new Set(config.nitro.handlers.map(handler => basename(handler.handler)))).toEqual(new Set([file]))
+      const sections = /installConsoleSections\([^,]+, (\[[^\]]*\])\)/.exec(await readFile(join(root, ".vitehub/nitro/console/app.mjs"), "utf8"))?.[1]
+      expect(JSON.parse(sections ?? "[]").includes("site")).toBe(file === "entry-site-access.js")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("imports console.authorize for open access", async () => {
@@ -456,7 +523,6 @@ describe("Realtime rooms from Console access", () => {
     installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["content:read"] }) })
     const content = consoleRealtimeAccess("content")
     const request = event()
-    // Realtime names the access mode `mode` in the context of `authorize()`.
     await expect(content.authorize({ event: request, mode: "write" })).resolves.toBe(false)
     await expect(content.authorize({ event: request, mode: "read" })).resolves.toBe(true)
   })
@@ -471,7 +537,6 @@ describe("Realtime rooms from Console access", () => {
       await expect(content.identify({ event: ana })).resolves.toEqual({ email: "ana@vitehub.dev", id: "ana", name: "Ana" })
       await expect(content.authorize({ event: ana, mode: "read" })).resolves.toBe(true)
       await expect(content.user({ event: ana })).resolves.toMatchObject({ id: "ana" })
-      // Without the section, a room has no person and no access.
       const cli = await signedEvent()
       await expect(content.identify({ event: cli })).resolves.toBeNull()
       await expect(content.authorize({ event: cli, mode: "read" })).resolves.toBe(false)

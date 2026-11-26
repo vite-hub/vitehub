@@ -2,14 +2,14 @@ import { and, desc, eq, exists, gt, isNull, ne, notExists, sql } from "drizzle-o
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core"
 import { authSqliteSchema } from "vite-hub/auth/schema"
 
-import { encodeConsoleBase64url } from "@vite-hub/internal/console-signature"
+import { decodeConsoleBase64url, encodeConsoleBase64url } from "@vite-hub/internal/console-signature"
 import { userAgentDevice } from "@vite-hub/internal/runtime/user-agent"
-import { signSiteToken, siteTokenUrl } from "@vite-hub/internal/site-token"
+import { isSiteTokenKind, readSiteTokenTarget, signSiteToken, siteTokenUrl } from "@vite-hub/internal/site-token"
 
 import { consoleProjects } from "./projects.ts"
 
 import type { ConsoleSigningKey } from "@vite-hub/internal/console-signature"
-import type { SiteAccessPolicy } from "@vite-hub/internal/site-token"
+import type { SiteAccessPolicy, SiteCommentsAgent, SiteTokenKind, SiteTokenTarget } from "@vite-hub/internal/site-token"
 import type { ConsoleDatabase, ConsoleProject } from "./projects.ts"
 
 const { member, user: authUser } = authSqliteSchema
@@ -17,7 +17,7 @@ const { member, user: authUser } = authSqliteSchema
 /**
  * One row for each browser that Site access knows by a pass: a cookie of the Console origin that holds a random secret,
  * of which the row keeps only the SHA-256 digest. A guest gets a pass when they open an invite, and a member gets one
- * when they open a one-time code, such as on a phone. While the pass is good, the Console signs a new Site access token
+ * when they visit with a Console session or open a one-time code. While the pass is good, the Console signs a new Site access token
  * for that browser each time the app asks. A revoke or the end of `expires_at` stops new tokens. `expires_at` moves
  * forward with each token. A member's pass also needs the membership of the team. `roles` are the roles of a guest's
  * invite, and for a member the roles of the last token. A link makes one pass: the pass of a link is made in the
@@ -169,15 +169,62 @@ export async function siteMember(db: ConsoleDatabase, project: Pick<ConsoleProje
 
 /**
  * The URL that ends a visit: `<app>/_vitehub/site?token=…`, with a token that the key of the link signs for the person,
- * the roles, the state hash that the app sent, and the app path to open.
+ * the roles, the state hash that the app sent, and the app path to open. `kind` is `site` by default. An `impersonate`
+ * or `preview` token also names its `target`.
  */
-export async function siteTokenLocation(input: { project: Pick<ConsoleProject, "url">, key: ConsoleSigningKey, person: ConsoleSitePerson, roles: string[], state: string, path: string }): Promise<string> {
+export async function siteTokenLocation(input: { project: Pick<ConsoleProject, "url">, key: ConsoleSigningKey, person: ConsoleSitePerson, roles: string[], state: string, path: string, kind?: SiteTokenKind, target?: SiteTokenTarget, intent?: string, commentsAgent?: SiteCommentsAgent }): Promise<string> {
   const { person } = input
   const token = await signSiteToken({
     key: input.key,
-    claims: { aud: input.project.url, sub: person.id, name: person.name, ...(person.email ? { email: person.email } : {}), ...(person.image ? { image: person.image } : {}), roles: input.roles, kind: "site", path: input.path, state: input.state },
+    claims: { aud: input.project.url, sub: person.id, name: person.name, ...(person.email ? { email: person.email } : {}), ...(person.image ? { image: person.image } : {}), roles: input.roles, kind: input.kind ?? "site", path: input.path, state: input.state, ...(input.target ? { target: input.target } : {}), ...(input.commentsAgent ? { commentsAgent: input.commentsAgent } : {}) },
   })
-  return siteTokenUrl(input.project.url, token)
+  const location = siteTokenUrl(input.project.url, token)
+  return input.intent ? `${location}&${new URLSearchParams({ intent: input.intent })}` : location
+}
+
+/** Milliseconds that an intent waits for its visit. */
+export const siteIntentLifetime = 60_000
+
+/**
+ * What a member started in the Console: an impersonation or a preview of one project. It waits for 60 seconds in a
+ * cookie of the Console origin, named with its id, so `/visit` signs its token only in the browser of that member.
+ */
+export interface ConsoleSiteIntent {
+  user: string
+  project: string
+  kind: Exclude<SiteTokenKind, "site">
+  target: SiteTokenTarget
+  /** Milliseconds since the epoch. */
+  expiresAt: number
+}
+
+/** The cookie of the Console origin that holds one intent. `__Host-` needs HTTPS, so a local Console uses the plain name. */
+export function siteIntentCookie(id: string, secure: boolean): string {
+  return `${secure ? "__Host-" : ""}vitehub-site-intent-${id}`
+}
+
+/** The `set-cookie` value of an intent, or of its removal without `intent`. */
+export function siteIntentSetCookie(id: string, intent: ConsoleSiteIntent | undefined, secure: boolean): string {
+  const value = intent ? encodeConsoleBase64url(new TextEncoder().encode(JSON.stringify(intent))) : ""
+  const maxAge = intent ? Math.ceil(siteIntentLifetime / 1_000) : 0
+  return `${siteIntentCookie(id, secure)}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure ? "; Secure" : ""}`
+}
+
+/** Read the value of an intent cookie, or `undefined` when it is malformed or expired. */
+export function readSiteIntent(value: string | undefined, now = Date.now()): ConsoleSiteIntent | undefined {
+  const bytes = value ? decodeConsoleBase64url(value) : undefined
+  let parsed: unknown
+  try {
+    parsed = bytes ? JSON.parse(new TextDecoder().decode(bytes)) : undefined
+  }
+  catch {
+    return undefined
+  }
+  if (!(parsed instanceof Object)) return undefined
+  const [user, project, kind, target, expiresAt]: unknown[] = ["user", "project", "kind", "target", "expiresAt"].map(name => Reflect.get(parsed, name))
+  const checked = readSiteTokenTarget(target)
+  if (typeof user !== "string" || typeof project !== "string" || !isSiteTokenKind(kind) || kind === "site" || !checked || typeof expiresAt !== "number" || !(expiresAt > now)) return undefined
+  return { user, project, kind, target: checked, expiresAt }
 }
 
 /** The Site access state of one project: its passes, invites, and one-time codes. */
@@ -190,7 +237,8 @@ export interface ConsoleSiteStore {
   /** A one-time code for a member, `/go/<secret>`. It lasts 10 minutes. */
   code(input: { userId: string, path: string, createdBy: { id: string, name: string } }): Promise<{ secret: string, expiresAt: string }>
   /** The grant of a good pass, with its expiry moved forward, or `undefined`. A member's grant is checked by the caller. */
-  pass(secret: string): Promise<ConsoleSiteGrantRow | undefined>
+  pass(secret: string, memberId?: string): Promise<ConsoleSiteGrantRow | undefined>
+  rememberMember(person: ConsoleSitePerson, roles: string[], userAgent: string): Promise<string>
   /** Keep the roles of the last token of a member's pass, which the Site access page shows. */
   issued(id: string, roles: string[]): Promise<void>
   /** The browsers with a good pass, most recently used first, with the roles of the guest invite or the member's last token. */
@@ -248,12 +296,18 @@ export function createConsoleSiteStore(db: ConsoleDatabase, projectId: string, s
       await db.insert(consoleSiteLinks).values({ id: crypto.randomUUID(), projectId, kind: "code", secretHash: await siteSecretHash(secret), userId, path, createdBy: createdBy.id, createdByName: createdBy.name, createdAt: now, expiresAt })
       return { secret, expiresAt: iso(expiresAt) }
     },
-    async pass(secret) {
+    async pass(secret, memberId) {
       const now = Date.now()
       const [grant] = await db.update(consoleSiteGrants).set({ lastSeenAt: now, ...(surface === "site" ? { expiresAt: now + sitePassLifetime } : {}) })
-        .where(and(inProject(consoleSiteGrants), inSurface, eq(consoleSiteGrants.secretHash, await siteSecretHash(secret)), isNull(consoleSiteGrants.revokedAt), gt(consoleSiteGrants.expiresAt, now)))
+        .where(and(inProject(consoleSiteGrants), inSurface, eq(consoleSiteGrants.secretHash, await siteSecretHash(secret)), isNull(consoleSiteGrants.revokedAt), gt(consoleSiteGrants.expiresAt, now), memberId === undefined ? undefined : eq(consoleSiteGrants.userId, memberId)))
         .returning()
       return grant
+    },
+    async rememberMember(person, roles, userAgent) {
+      const pass = newSecret()
+      const now = Date.now()
+      await db.insert(consoleSiteGrants).values({ id: crypto.randomUUID(), projectId, kind: "member", userId: person.id, name: person.name, roles, secretHash: await siteSecretHash(pass), device: userAgentDevice(userAgent), createdBy: person.id, createdAt: now, lastSeenAt: now, expiresAt: now + sitePassLifetime })
+      return pass
     },
     async issued(id, roles) {
       await db.update(consoleSiteGrants).set({ roles }).where(and(inProject(consoleSiteGrants), eq(consoleSiteGrants.id, id), eq(consoleSiteGrants.kind, "member")))
@@ -287,6 +341,7 @@ export function createConsoleSiteStore(db: ConsoleDatabase, projectId: string, s
 export interface ConsoleSiteLinkOwner {
   projectId: string
   teamId: string
+  path: string
   kind: "invite" | "code" | "comments"
   userId: string | null
   roles: string[] | null
@@ -310,7 +365,7 @@ export async function openConsoleSiteLink(db: ConsoleDatabase, input: { kind: Co
   const { link, teamId } = found
   const person = kind === "code" && link.userId ? await siteMember(db, { teamId }, link.userId) : undefined
   if (kind === "code" && !person) return "forbidden"
-  if (!await input.allow({ projectId: link.projectId, teamId, kind, userId: link.userId, roles: link.roles, createdBy: link.createdBy })) return "forbidden"
+  if (!await input.allow({ projectId: link.projectId, teamId, path: link.path, kind, userId: link.userId, roles: link.roles, createdBy: link.createdBy })) return "forbidden"
   const pass = newSecret()
   const grant: ConsoleSiteGrantRow = {
     id: crypto.randomUUID(),

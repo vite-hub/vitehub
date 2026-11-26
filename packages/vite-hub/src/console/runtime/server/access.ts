@@ -56,7 +56,7 @@ export interface ConsoleAccess {
    * `"mcp"` when the ViteHub MCP of the Console signed the request for the user. The RPC then refuses operations with
    * `mcp: false`, runs the others with the `mcp` surface, and refuses a destructive call that is not `confirmed`.
    */
-  readonly surface?: "mcp"
+  readonly surface?: "mcp" | "cli"
   /** The person agreed to this destructive MCP call. The signature covers it. */
   readonly confirmed?: boolean
   /** The signed caller limits this request to operations that only read. The RPC refuses a write or destructive call. */
@@ -295,7 +295,7 @@ export function consoleRealtimeAccess(section: ConsoleSectionId): ConsoleRealtim
     if (!pending) {
       // SAFETY: Realtime passes the H3 event of the WebSocket or HTTP request, which has the members the check reads.
       const consoleEvent = event as ConsoleRequestEvent
-      pending = checkConsoleAccess(consoleEvent).then(result => isRuntimeResponse(result) || !consoleAccessAllows(result, section) ? undefined : result)
+      pending = import("#vitehub/console/app").then(() => checkConsoleAccess(consoleEvent)).then(result => isRuntimeResponse(result) || !consoleAccessAllows(result, section) ? undefined : result)
       checked.set(event, pending)
     }
     return pending

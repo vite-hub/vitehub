@@ -12,7 +12,7 @@ Turn on and protect the [Console](/docs/console). The section id for `console.au
 
 `console: { auth: false }` is for development. A production build with it fails. Set `console: true` and link the app in the Console at `https://console.vitehub.dev`, which shows the `VITEHUB_CONSOLE_KEY_<NAME>` line to set.
 
-Each page and action of the section is an operation on the Console RPC: `auth.describe`, `auth.overview`, `auth.activity`, `auth.users`, `auth.user`, `auth.sessions`, `auth.organizations`, `auth.organization`, and `auth.agents` read, and `auth.ban`, `auth.unban`, `auth.remove`, `auth.revoke-sessions`, `auth.revoke-session`, `auth.set-role`, `auth.edit-field`, and `auth.revoke-consent` change. `auth.impersonate` and `auth.stop-impersonating` return a [one-time link](/docs/console/site-access#one-time-links), because impersonation sets the session cookie on the app origin.
+Each page and action of the section is an operation on the Console RPC: `auth.describe`, `auth.overview`, `auth.activity`, `auth.users`, `auth.user`, `auth.sessions`, `auth.organizations`, `auth.organization`, and `auth.agents` read, and `auth.ban`, `auth.unban`, `auth.remove`, `auth.revoke-sessions`, `auth.revoke-session`, `auth.set-role`, `auth.edit-field`, and `auth.revoke-consent` change. `auth.impersonate` and `auth.stop-impersonating` check the call before the Console signs an [`impersonate` token](/docs/console/site-access#impersonation-and-content-preview), because impersonation sets the session cookie on the app origin.
 
 ## Who makes Auth changes
 
@@ -146,9 +146,9 @@ The client never gets session tokens, account passwords, access or refresh token
 
 Impersonation is off until the host turns it on. In ViteHub, set it in the Vite config: `vitehub({ console: { impersonation: true } })`. It also needs Better Auth's `admin()` plugin and `events.store` in `server/auth.ts`, so each start and stop is recorded. With it on, `describe(request)` returns `impersonation` with the session length and the user the session impersonates, and `user(id, request)` says if Better Auth accepts that user as a target. Server code passes `getAuthConsoleForRequest(request, event, { impersonation: true })`, and `inspect.stopImpersonating(request)` ends it.
 
-In the Console, open a user and select **Impersonate**. The Console calls `auth.impersonate`, and a new tab opens the [one-time link](/docs/console/site-access#one-time-links) on your app. The app then checks the browser:
+In the Console, open a user and select **Impersonate**. The Console calls `auth.impersonate`, and a new tab opens your app's `/_vitehub/site` with a signed [`impersonate` token](/docs/console/site-access#impersonation-and-content-preview). The app then checks the browser:
 
-1. The browser must be signed in to the app with the email of your Console account. Otherwise the tab shows `CONSOLE_TICKET_MISMATCH`.
+1. The browser must be signed in to the app with the email of your Console account. Otherwise the tab shows `CONSOLE_SITE_ACCOUNT_MISMATCH`.
 2. Better Auth must let that app session impersonate the user, with the `impersonate` permission of the admin plugin.
 
 The app sets the impersonation session cookie and opens its home page as the user. **Stop impersonating** in the user panel opens a link that ends the impersonation of this browser and restores your session. The app's own UI can stop it too, with `stopImpersonating()` of `useUserSession()`.

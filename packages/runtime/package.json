@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/runtime",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Shared runtime context, capability, policy, approval, and tracing primitives for ViteHub.",
   "keywords": [
     "approvals",
@@ -46,6 +46,11 @@
       "types": "./dist/internal/context.d.ts",
       "import": "./dist/internal/context.js",
       "default": "./dist/internal/context.js"
+    },
+    "./internal/detect-host": {
+      "types": "./dist/internal/detect-host.d.ts",
+      "import": "./dist/internal/detect-host.js",
+      "default": "./dist/internal/detect-host.js"
     },
     "./internal/drain": {
       "types": "./dist/internal/drain.d.ts",

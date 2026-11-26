@@ -38,7 +38,7 @@ import { contentRefTokenParameter } from "./preview-parameters.ts"
 import { parseContentPreviewPath, previewLink, previewLinkQuery, previewResponse, requestWithUrl, rewriteContentLinks } from "./ref-routes.ts"
 import type { ContentPreviewLink, ContentPreviewLinkAccess, ContentSourcePreview, ContentSourcePreviewRoutes } from "./ref-routes.ts"
 import { contentLabel, contentMarkdownCopy, contentMarkdownCopyExists, contentMarkdownCopyPage, contentRoutedPages, contentSitemapEntries, markdownPrefix, normalizeSeoOptions, renderContentRobots, renderContentSitemap, renderMarkdownCopy, siteOrigin } from "./sitemap.ts"
-import { contentPageCharacters, contentPageKey, contentPagePath, contentPagesLimit, contentPageSummary } from "./mcp.ts"
+import { contentPageCharacters, contentPageKey, contentPagePath, contentPagesLimit, contentPageSummary, registerContentPageCatalog } from "./mcp.ts"
 import { contentSearchSections } from "./search-sections.ts"
 import { contentRssChannel, contentRssItems, contentRssLimit, renderContentRss } from "./rss.ts"
 import { contentLlmsFile } from "./llms.ts"
@@ -937,8 +937,7 @@ export function defineContent<
     page: async (path: string, pageOptions?: ContentSitemapOptions) => {
       if (String(path) !== path) throw contentErrorDiagnostics.CONTENT_R0070({ message: "[vitehub] content.page() takes a page path such as /blog/hello." })
       const site = siteFor(pageOptions) ?? "http://localhost"
-      const key = contentPageKey(path)
-      // Like the `.md` copy, a `noindex` page is readable by its path, though `pages()` does not list it.
+      const key = contentPageKey(path, site)
       const page = (await markdownPages(site, true)).find(candidate => contentPageKey(contentPagePath(candidate.loc, site)) === key)
       if (!page) return null
       let markdown = await pageMarkdown(page, site)
@@ -1312,6 +1311,7 @@ export function defineContent<
       })
     }
   }
+  registerContentPageCatalog(runtime, async site => (await markdownPages(site)).map(page => contentPageSummary(page, site)))
   // SAFETY: The instances install the declared plugin methods and the hub composes built-in methods.
   return runtime as ContentRuntime & Omit<ContentMethods<TPlugins>, "search"> & ContentDocumentsRuntime<TCollections>
 }

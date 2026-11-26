@@ -516,12 +516,15 @@ export function createAgentProcessHosts(options: {
       const agents: Record<string, unknown> = {}
       for (const [name, reason] of failures) agents[name] = { status: "degraded", reason }
       for (const [name, gate] of gates) {
-        if (gate.role() !== "standby") continue
+        if (gate.role() !== "standby" || gate.starting()) continue
         const holder = gate.holder()
         if (!failures.has(name) || holder) agents[name] = { status: "healthy", role: "standby", holder }
         else agents[name] = { status: "degraded", role: "standby", reason: failures.get(name) }
       }
       for (const [name, host] of hosts) agents[name] = { ...await host.health(), ...gates.has(name) ? { role: "holder" } : {} }
+      if (enabled && !closing) for (const name of options.names) {
+        if (!(name in agents)) agents[name] = { status: "degraded", reason: "Process host is starting." }
+      }
       if (!enabled) for (const name of options.names) agents[name] = { status: "degraded", reason: "Process hosts start in production or with VITEHUB_AGENT_PROCESS_HOSTS=1." }
       const degraded = Object.values(agents).some(agent => isRuntimeRecord(agent) && agent.status !== "healthy")
       return { status: degraded ? "degraded" : "healthy", agents }

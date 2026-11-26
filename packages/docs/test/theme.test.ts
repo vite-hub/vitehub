@@ -1,4 +1,5 @@
 import { vitehubTheme } from "@vite-hub/ui/theme"
+import { compile } from "tailwindcss"
 import { describe, expect, it } from "vitest"
 
 import { docsAppConfigUi, docsThemeAdditions, docsThemeScope, docsUi } from "../src/theme.ts"
@@ -46,6 +47,20 @@ describe("docsThemeAdditions", () => {
 })
 
 describe("docsUi", () => {
+  it("caps short inline code at the available width without changing long code wrapping", async () => {
+    const { code } = docsUi("Docs").prose as { code: { base: string } }
+    const { build } = await compile("@tailwind utilities;")
+    const css = build(code.base.split(/\s+/))
+
+    expect(css).toMatch(/\.inline\s*\{\s*display: inline;/)
+    expect(css).toMatch(/\.wrap-break-word\s*\{\s*overflow-wrap: break-word;/)
+    expect(css).toMatch(/inline-block\[data-nowrap\]\s*\{\s*display: inline-block;/)
+    expect(css).toMatch(/w-max\[data-nowrap\]\s*\{\s*width: max-content;/)
+    expect(css).toMatch(/max-w-full\[data-nowrap\]\s*\{\s*max-width: 100%;/)
+    expect(css).toMatch(/wrap-anywhere\[data-nowrap\]\s*\{\s*overflow-wrap: anywhere;/)
+    expect(css).not.toContain("white-space: nowrap")
+  })
+
   it("styles components the docs share with the Console through the design system", () => {
     const ui = docsUi("Docs")
 

@@ -986,6 +986,7 @@ describe("resolveSandboxTaskProject", () => {
     [{ timeout: 1.5 }, "positive integer"],
     [{ timeout: 2_147_483_648 }, "positive integer"],
     [{ env: { MODE: "test" } }, "unsupported keys: env"],
+    [{ transfer: { maxSidecars: 0 } }, "whole number"],
   ])("rejects invalid package Sandbox metadata", async (sandboxTaskOptions, message) => {
     const root = await createRoot()
     const entry = join(root, "index.ts")

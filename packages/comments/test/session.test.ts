@@ -8,7 +8,7 @@ import { resolveCommentsIdentity } from "../src/runtime/session.ts"
 
 import type { CommentsRequestEvent } from "../src/types.ts"
 
-const ada = { id: "console-ada", name: "Ada", roles: ["console", "comments-write"] }
+const ada = { id: "console-ada", name: "Ada", roles: ["console", "comments-write"], kind: "member" as const }
 const request = () => {
   const req = new Request("https://docs.example.com/guide")
   installRequestStandardContext(req)
@@ -31,5 +31,27 @@ describe("the user of a Comments request", () => {
     installViteHubSiteVisitor(async () => ada)
     const comments = defineComments({})
     expect((await resolveCommentsIdentity(comments, request())).user).toEqual({ id: "console-ada", name: "Ada", role: "console,comments-write" })
+  })
+
+  it("passes the signed Comments handoff through only for a Site access member", async () => {
+    const commentsAgent = { project: { id: "app-1", teamId: "team-1", url: "https://docs.example.com/portal" }, resolve: false }
+    const comments = defineComments({})
+    installViteHubSiteVisitor(async () => ({ ...ada, commentsAgent }))
+    expect((await resolveCommentsIdentity(comments, request())).commentsAgent).toEqual(commentsAgent)
+    installViteHubSiteVisitor(async () => ({ ...ada, commentsAgent, kind: "guest" }))
+    expect((await resolveCommentsIdentity(comments, request())).commentsAgent).toBeUndefined()
+  })
+
+  it("prefers the Site access person to the Auth user of the app", async () => {
+    installViteHubSiteVisitor(async () => ada)
+    const comments = defineComments({})
+    const user = await resolveCommentsIdentity(comments, request(), { session: async () => ({ id: "auth-bob", name: "Bob" }) })
+    expect(user.user).toEqual({ id: "console-ada", name: "Ada", role: "console,comments-write" })
+  })
+
+  it("reads the Auth user when the browser has no Site access cookie", async () => {
+    const comments = defineComments({})
+    const user = await resolveCommentsIdentity(comments, request(), { session: async () => ({ id: "auth-bob", name: "Bob" }) })
+    expect(user.user).toEqual({ id: "auth-bob", name: "Bob" })
   })
 })

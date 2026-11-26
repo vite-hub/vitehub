@@ -2,10 +2,19 @@ import { spawnSync } from "node:child_process"
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 
 import { array, object, optional, parse, pipe, record, string, transform, union, unknown } from "valibot"
 import { describe, expect, it } from "vitest"
 import { parse as parseYaml } from "yaml"
+
+import { packedWorkspacePackages } from "../packages/internal/test-utils/published-types.ts"
+import { agents } from "./consumer/nuxt-primitives/agents.ts"
+import { access } from "./consumer/nuxt-primitives/access.ts"
+import { content } from "./consumer/nuxt-primitives/content.ts"
+import { jobs } from "./consumer/nuxt-primitives/jobs.ts"
+import { ops } from "./consumer/nuxt-primitives/ops.ts"
+import { storage } from "./consumer/nuxt-primitives/storage.ts"
 
 const workflowSchema = object({ permissions: record(string(), string()), jobs: record(string(), object({
   name: optional(string()),
@@ -18,7 +27,7 @@ const workflow = parse(workflowSchema, parseYaml(readFileSync(new URL("../.githu
 const jobNames = Object.entries(workflow.jobs).filter(([name, job]) => name !== "ci" && !job.needs?.includes("ci")).map(([name]) => name)
 const gate = workflow.jobs.ci!
 
-function runGate(results: Record<string, { result: string }>, event = "pull_request", fullSuite = event !== "pull_request") {
+function runGate(results: Record<string, { result: string, outputs?: Record<string, string> }>, event = "pull_request", fullSuite = event !== "pull_request") {
   const command = gate.steps.find(step => step.env?.CI_RESULTS)?.run
   if (!command) throw new Error("The ci check must inspect dependency job results")
   return spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", "-c", command], {
@@ -277,6 +286,7 @@ fi
 
   const pullRequestJobs = [
     "checks",
+    "consumer-select",
     "schedule-os-select",
     "workflow-lint",
     "doctor",
@@ -309,6 +319,39 @@ fi
     expect(runGate(results, "push").status).not.toBe(0)
     expect(runGate(results, "workflow_dispatch").status).not.toBe(0)
     expect(runGate(results, "pull_request", true).status).not.toBe(0)
+  })
+
+  it.each(["consumer-contracts", "consumer-contracts-success", "consumer-nuxt-4-7"])("requires %s on pull requests that consumer-select selects", (name) => {
+    const results = { ...successfulJobs, [name]: { result: "skipped" } }
+    expect(runGate({ ...results, "consumer-select": { result: "success", outputs: { run: "false" } } }).status).toBe(0)
+    const selected = runGate({ ...results, "consumer-select": { result: "success", outputs: { run: "true" } } })
+    expect(selected.status).not.toBe(0)
+    expect(selected.stderr).toContain(`${name}: skipped`)
+  })
+
+  it.each(["consumer-contracts", "consumer-nuxt-4-7"])("runs %s when consumer-select selects it", (name) => {
+    expect(workflow.jobs[name]?.needs).toEqual(["consumer-select"])
+    expect(workflow.jobs[name]?.if).toBe("${{ needs.consumer-select.outputs.run == 'true' }}")
+  })
+
+  it("selects consumer contracts for harness files, shared build inputs, and every packed package", async () => {
+    const command = workflow.jobs["consumer-select"]?.steps.find(step => step.name === "Select the check")?.run
+    if (!command) throw new Error("consumer-select must select the consumer contracts")
+    const paths = new Set(command.split(/\s+/))
+    const repoRoot = fileURLToPath(new URL("..", import.meta.url))
+    const rows = [...storage, ...jobs, ...agents, ...content, ...access, ...ops]
+    const packed = await packedWorkspacePackages(repoRoot, ["vite-hub", ...rows.flatMap(row => row.packages.map(name => name.slice("@vite-hub/".length)))])
+    const harness = [
+      "test/consumer/nuxt-primitives",
+      "test/consumer/nuxt-primitives.test.ts",
+      "test/consumer/packed-app.ts",
+      "test/consumer/vitest.config.ts",
+      "test/layers.ts",
+      "test/utils/release-artifacts.ts",
+    ]
+    const buildInputs = ["packages/internal", "packages/ui/src"]
+    expect([...harness, ...buildInputs, ...packed.map(name => `packages/${name}`)].filter(path => !paths.has(path))).toEqual([])
+    expect(command).toContain('if [ "$FULL_SUITE" = "true" ]; then')
   })
 
   it.each(["push", "workflow_dispatch"])("accepts the Doctor job skipped on %s", (event) => {

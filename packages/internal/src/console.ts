@@ -75,7 +75,7 @@ export interface ViteHubConsoleOperationAction {
   operation: string
   input: Readonly<Record<string, string>>
   /**
-   * The result is `{ url }`, such as a one-time link or a provider sign-in: the Console opens it in a new tab, and loads
+   * The result is `{ url }`, such as a provider sign-in: the Console opens it in a new tab, and loads
    * the list again when the person comes back. The URL must be `https:`, or `http:` on a loopback host.
    */
   tab?: true

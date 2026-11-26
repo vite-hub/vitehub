@@ -8,9 +8,9 @@ import { createDefaultAgentInvocations } from "@vite-hub/agent/internal/default-
 
 import { installAgentInvocations } from "@vite-hub/agent/invocations/app"
 import { getAgentInvocationsDatabase } from "@vite-hub/agent/invocations/drizzle"
-import { getConsoleUsageIndex } from "../src/console/runtime/server/invocations.ts"
+import { readConsoleJournalUsage } from "../src/console/runtime/server/invocations.ts"
+import { usageQueryWindow } from "../src/agent/console/usage.ts"
 
-// The libSQL driver that the generated plugin passes outside a Cloudflare production build.
 const libsql = async () => await import("../src/internal/agent-invocations-libsql.ts")
 
 const opens = vi.hoisted(() => ({ count: 0 }))
@@ -43,7 +43,6 @@ afterEach(async () => {
 
 describe("Default Agent journal open", () => {
   it("opens the libSQL journal on first use, once for concurrent first uses", async () => {
-    // Keep cold module loading independent of the store operation deadline.
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
     const file = join(directory, ".vitehub/data/agent-invocations.sqlite")
     const invocations = createDefaultAgentInvocations({ projectRoot: directory })
@@ -55,7 +54,7 @@ describe("Default Agent journal open", () => {
       invocations.getSummary("missing"),
       invocations.getByRunId("missing"),
     ])
-    await getConsoleUsageIndex(invocations)!.query()
+    await readConsoleJournalUsage(invocations, {}, usageQueryWindow({}))
     expect(opens.count).toBe(1)
     expect(existsSync(file)).toBe(true)
   })

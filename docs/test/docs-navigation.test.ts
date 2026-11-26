@@ -222,7 +222,7 @@ describe("docs product navigation", () => {
   it("preserves the old Console bookmark for Site access without Auth", () => {
     expect(docsPageRedirects["/docs/development/console"]).toBe("/docs/console");
     expect(docsLegacyFragmentRedirects["/docs/console"]["site-access-without-auth"])
-      .toBe("/docs/console/site-access#site-access-without-auth");
+      .toBe("/docs/console/site-access#how-the-app-checks-a-visit");
   });
 
   it("preserves old Choices diagnostic and CLI bookmarks", () => {
@@ -247,6 +247,23 @@ describe("docs product navigation", () => {
       expect(routeRules[from]).toEqual({ redirect: { status: 301, to } });
       expect(routeRules[`${from}/`]).toBeUndefined();
       expect(routeRules[`/raw${from}.md`]).toEqual({ redirect: { status: 301, to: `/raw${to}.md` } });
+    }
+  });
+
+  it("sends each old primitive landing, such as `/forms`, to its docs section in one hop", () => {
+    const routeRules = createDocsRedirectRouteRules();
+    const landings = Object.entries(routeRules)
+      .filter(([from, rule]) => /^\/[a-z0-9-]+$/.test(from) && rule.redirect.to.startsWith("/docs/"));
+
+    expect(routeRules["/forms"]).toEqual({ redirect: { status: 301, to: "/docs/forms" } });
+    expect(routeRules["/databases"]?.redirect.to).toBe("/docs/database");
+    expect(landings).toHaveLength(29);
+    for (const [from, rule] of landings) {
+      expect(findDocsPage(docsManifest, rule.redirect.to), from).not.toBeNull();
+      expect(routeRules[rule.redirect.to], from).toBeUndefined();
+      const markdownTarget = `/raw${rule.redirect.to}.md`;
+      expect(routeRules[`${from}.md`], from).toEqual({ redirect: { status: 301, to: markdownTarget } });
+      expect(routeRules[markdownTarget], from).toBeUndefined();
     }
   });
 });

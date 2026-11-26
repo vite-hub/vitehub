@@ -41,9 +41,6 @@ A failed request returns JSON with a stable `code`, a `message`, a `fix` and a `
 | `CONSOLE_SIGNATURE_ORIGIN` | `401` | Link the app with the URL that serves it. Behind a proxy that ends TLS, set `vitehub({ publicUrl })`. |
 | `CONSOLE_SIGNATURE_INVALID` | `401` | Sign with the private key whose public key is in the `VITEHUB_CONSOLE_KEY_<NAME>` that the signature names. |
 | `CONSOLE_SIGNATURE_BODY` | `401` | Send the body that the signature covers, through a proxy that does not change it. |
-| `CONSOLE_TICKET_INVALID` | `401` | Open the page again from the Console. A [one-time link](/docs/console/site-access#one-time-links) works once, within 60 seconds. |
-| `CONSOLE_TICKET_MISMATCH` | `403` | Open the link in a browser that is signed in to the app with the email of your Console account. |
-| `CONSOLE_TICKET_STORE_MISSING` | `500` | Add app Auth with a Database, a default KV store on Redis, Upstash, or the `database` driver, or a Database next to Cloudflare KV, Deno KV, or `fs-lite`, so every instance shares the tickets. |
 | `CONSOLE_KEY_UNKNOWN` | `401` | Set the `VITEHUB_CONSOLE_KEY_<NAME>` line from the Console setup page or `vitehub secret console-key`, then restart or deploy. |
 | `CONSOLE_KEY_NOT_CONFIGURED` | `500` | Set a `VITEHUB_CONSOLE_KEY_<NAME>` variable, then restart or deploy. |
 | `CONSOLE_KEY_MALFORMED` | `500` | Set the 43 base64url characters of the public key, with no quotes or spaces, then restart or deploy. |
@@ -56,8 +53,6 @@ A failed request returns JSON with a stable `code`, a `message`, a `fix` and a `
 | `CONSOLE_MCP_UNREACHABLE` | `502` | Check that the MCP server runs and that the URL is its Streamable HTTP endpoint, such as `/mcp`. |
 | `CONSOLE_MCP_SIGNED_OUT` | `409` | Sign in again, or connect again with a new token. |
 | `CONSOLE_MCP_AUTHORIZATION_FAILED` | `400`, `404`, `409`, `502` | Start the sign-in again. The server must publish RFC 9728 metadata that names an authorization server with client registration. |
-| `CONSOLE_MCP_KEY_INVALID` | `500` | Set `VITEHUB_CONSOLE_MCP_KEY` to 32 random bytes as base64 or hex, such as the output of `openssl rand -base64 32`. |
-| `CONSOLE_MCP_KV_REQUIRED` | `500` | Turn on the default KV store with `kv: true` or an explicit default KV configuration, then rebuild. |
 
 ## Repair quarantined image uploads
 

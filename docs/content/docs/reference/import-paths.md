@@ -69,7 +69,6 @@ the same behavior.
 | `vite-hub/agent/mcp` | MCP Server configuration helpers. |
 | `vite-hub/console` | Route metadata for the local read-only invocation console. |
 | `vite-hub/console/auth` | `defineConsoleAuthorize()` for `console.authorize`, and its context types. |
-| `vite-hub/console/mcp-client` | Console MCP client operations. The generated Console plugin installs them when `console.mcpClient` is on. |
 | `vite-hub/console/server` | Local Console invocation journal for servers. |
 | `vite-hub/console/ui` | Agent Invocation views from the Console: `AgentInvocation`, `AgentInvocationList`, and `AgentCapabilityInspector`. Install `@vite-hub/ui @json-render/core @json-render/vue @vueuse/core` first. |
 | `vite-hub/content`, `vite-hub/content/client`, `vite-hub/content/database`, `vite-hub/content/editor`, and `vite-hub/content/realtime` | Comark Content definition and every field helper (`image()`, `file()`, `seo()`, `optional()`), Source adaptation, generated runtime handler, typed client, editor codecs, realtime collaboration, and the sessions table schema. |
@@ -135,6 +134,7 @@ the same behavior.
 | `vite-hub/markdown-template` | Portable Markdown rendering from template strings. See [Markdown templates](/docs/markdown-template). |
 | `vite-hub/markdown-template/file` | Filesystem Markdown rendering from explicit file paths or `file:` URLs. |
 | `vite-hub/mcp` | `defineMcpTool()`, `defineMcpPrompt()`, and `defineMcpResource()` for the tools, prompts, and resources of the app's MCP server in `server/mcp/tools/`, `server/mcp/prompts/`, and `server/mcp/resources/`, and `defineMcpHooks()` for `server/mcp.ts`. Requires `@vite-hub/mcp`. See [MCP server](/docs/mcp). |
+| `vite-hub/mcp/eval` | `runMcpEval()` to score a model's tool use against a remote MCP server. Requires `@vite-hub/mcp`, `@ai-sdk/mcp`, and `ai`. See [MCP tool-use evals](/docs/mcp/evals). |
 | `vite-hub/operations` | `defineOperation()` and its types. See [Operations](/docs/console/operations). |
 | `vite-hub/queue` | Queue Definitions and dispatch helpers. |
 | `vite-hub/rate-limit` | Rate Limit handles declared in your source, and direct Rate Limiters. |

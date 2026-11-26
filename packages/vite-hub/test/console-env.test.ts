@@ -6,10 +6,10 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterAll, afterEach, describe, expect, it } from "vitest"
 import { consoleStateKey } from "../src/console/internal.ts"
-import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
+import { writeConsoleAppModule } from "../src/console/app-module.ts"
 import { installConsoleEnv } from "../src/console/runtime/server/env.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
-import envHandlerRoute from "../src/console/runtime/server/env.get.ts"
+import envHandlerRoute from "../src/env/console/env.get.ts"
 import { allowed } from "./support/console-access.ts"
 import { consoleEvent } from "./console-event.ts"
 
@@ -33,7 +33,7 @@ describe("Console Env", () => {
   it("loads declaration metadata without importing provider-backed Server Env", async () => {
     const root = await temporaryDirectory("vitehub-console-env-")
     const plugin = join(root, "console.mjs")
-    await writeConsoleNitroPlugin({ file: plugin, projectRoot: root, sections: ["env"], catalog: { agents: [], content: {} }, blobStores: [] })
+    await writeConsoleAppModule({ file: plugin, projectRoot: root, sections: ["env"], catalog: { agents: [], content: {} }, blobStores: [] })
     const generated = await readFile(plugin, "utf8")
     // The Console runtime loads the declarations with the first Console request.
     const runtimeImports = generated.split("\n").find(line => line.includes("await Promise.all("))

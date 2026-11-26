@@ -77,7 +77,7 @@ export default defineEventHandler(async (event) => {
 | `getByNumber(scope, n)` | Thread `#n` of a scope, such as `site`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
 | `getByMessage(messageId)` | The thread holding a message. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
 | `create({ subject?, page?, anchor?, context?, metadata?, revision?, requestId?, body, author, actor?, mentions?, attachments? })` | The new thread, with its first message and the next number in its scope. Give `subject`, or `page` for a page subject. `anchor` defaults to `{ kind: 'page' }`. Runs `onComment` and `onMention`. With `requestId`, a retry by the same author for the same subject returns the first thread and runs no hooks. Another author or subject with that key gets `COMMENTS_INVALID_INPUT`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_INVALID_INPUT` |
-| `reply(threadId, { body, author, actor?, mentions?, attachments?, requestId? }, { allowResolved? })` | The new message. A resolved thread fails with `COMMENTS_RESOLVED`, unless `allowResolved` is `true`; then it stays resolved, and the comment parts list it with open threads until someone resolves it again. With `requestId`, a retry by the same author in the same thread returns the first message and runs no hooks. Another author with that key gets `COMMENTS_INVALID_INPUT`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND`, `COMMENTS_INVALID_INPUT`, `COMMENTS_RESOLVED` |
+| `reply(threadId, { body, author, actor?, mentions?, attachments?, requestId? }, { allowResolved? })` | The new message. Replying to a resolved thread fails with `COMMENTS_RESOLVED` unless `allowResolved` is `true`. The thread stays in the Resolved list until someone reopens it. With `requestId`, a retry by the same author in the same thread returns the first message and runs no hooks. Another author with that key gets `COMMENTS_INVALID_INPUT`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND`, `COMMENTS_INVALID_INPUT`, `COMMENTS_RESOLVED` |
 | `findThread({ subject?, page?, requestId })` | The thread that a `create` with this `requestId` stored in the scope of the subject, or `null`. It does not compare authors: `create` does. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_INVALID_INPUT` |
 | `findReply(threadId, requestId)` | The message that a `reply` with this `requestId` stored in the thread, or `null`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND`, `COMMENTS_INVALID_INPUT` |
 | `resolve(threadId, { by, actor? })` | The thread, with `status: 'resolved'`, `resolvedBy`, `resolvedAt`, and `resolvedActor` when you pass the Agent that resolves it for `by`. Threads show "Resolved by Claude (Ana)". The `comments.resolve` operation records the person only. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
@@ -88,7 +88,7 @@ export default defineEventHandler(async (event) => {
 | `removeScope(scope)` | `{ removed }`, the number of threads deleted with their messages. | `COMMENTS_NOT_INSTALLED` |
 | `people({ query, user, thread?, subject?, limit? })` | Up to 20 people whose name contains `query` and whom `user` may mention there. | `COMMENTS_NOT_INSTALLED` |
 | `listSends(user, { states?, limit?, gate?, console? })` | With `send`, the sends of `user`, newest first, with the threads that `user` may still read. Default: `sent` and `working`, at most 20. It marks finished sends as done as it scans. See [Read sends on the server](/docs/comments/send#read-sends-on-the-server). | `COMMENTS_NOT_INSTALLED`, `COMMENTS_SEND_OFF` |
-| `readSend(user, id, { gate?, console? })` | With `send`, one send of `user`, as `comments_get_send` opens it. A `sent` send becomes `working`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND`, `COMMENTS_SEND_OFF` |
+| `readSend(user, id, { gate?, console? })` | With `send`, one send of `user`, as `comments_get_send` opens it. A `sent` send becomes `working`. It opens a send whose delivery waits for the receiver's answer. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND`, `COMMENTS_SEND_OFF` |
 | `can({ user, action, thread?, subject? }, gate?)` | `true` when `authorize` allows the action. Without `authorize`, [the default policy](/docs/comments/configure#decide-who-can-comment) decides; `gate` says what your server already checked: `{ development, console }`. | None |
 | `sync(threadId)` | Nothing. With `forge`, syncs the thread's pull request comments now, and retries failed posts. | None |
 | `flush()` | Nothing. Waits for pending pull request syncs and `onMention` calls. | None |
@@ -121,7 +121,7 @@ Comments normalizes `page` before storing or comparing: it drops the query and h
 
 `COMMENTS_NOT_INSTALLED` means the method ran before the server installed Comments, such as at import time. See [Limits and errors](/docs/comments/limits-and-errors).
 
-Open pages see server-side changes on tab focus, or within 30 seconds while visible.
+When the host has Realtime, open pages displaying the changed subject read their threads again after a server write. This also works for custom subjects shared by several paths, even when a thread has no creation URL. Without Realtime, pages see the change on tab focus, or within 30 seconds while visible.
 
 ## Types
 
@@ -380,6 +380,8 @@ Field paths use dots between keys, such as `hero.title` or `cards.0.title`. An i
 When the host has a [Realtime room driver](/docs/realtime/configure#choose-a-driver), Comments adds the Realtime Definition `comments`, with one room per page. The overlay connects read-only and shares only presence: who is on the page, and each cursor as an element and a point in its box. The room stores nothing; threads stay in the Database.
 
 The server sets each person in the room from `identify` or the Auth session, and checks `authorize` with `read` and the page subject. Clients send the normalized page in `params: { page }`, and the server checks that the room is `commentRoom(page)` before it grants access. After a change, the overlay sends other browsers a data-free hint, and they reload threads over HTTP.
+
+The overlay also joins `comments-notices` for its current subject. The server resolves the subject from the requested page and checks the same read policy before granting access. This room does not share presence; its notices only tell tabs to reload through the Comments API.
 
 `connectRealtimeRoom(definition, documentId, options?)` from `vite-hub/realtime/client` is the overlay's client. It joins one room for presence without editing the document. See [Realtime server API](/docs/realtime/server-api#presence-without-an-editor).
 

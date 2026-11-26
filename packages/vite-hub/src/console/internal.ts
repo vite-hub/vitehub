@@ -7,6 +7,15 @@ import type { ConsoleDocumentEditors } from "./runtime/server/documents.ts"
 import type { ConsoleProjectBuild } from "./runtime/server/project.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
 
+declare global {
+  interface ImportMeta {
+    viteHubConsoleAgents?: boolean
+    viteHubConsoleAuth?: boolean
+    viteHubConsoleDevelopment?: boolean
+    viteHubConsoleDocuments?: boolean
+  }
+}
+
 export const consoleStateKey: unique symbol = Symbol.for("vitehub.console.state")
 /** `@vite-hub/schedule` reads the Schedules that the Console may run from this slot of the global object. */
 export const consoleSchedulesKey: unique symbol = Symbol.for("vitehub.console.schedules")
@@ -26,8 +35,8 @@ export interface ConsoleDatabaseInspection {
 }
 
 export interface ConsoleMediaLibrary {
-  runConsoleMediaAction: typeof import("./runtime/server/media.ts").runConsoleMediaAction
-  uploadConsoleMedia: typeof import("./runtime/server/media.ts").uploadConsoleMedia
+  runConsoleMediaAction: typeof import("../blob/console/media.ts").runConsoleMediaAction
+  uploadConsoleMedia: typeof import("../blob/console/media.ts").uploadConsoleMedia
 }
 
 export interface ConsoleBlobInspection {
@@ -37,6 +46,9 @@ export interface ConsoleBlobInspection {
   media?: () => Promise<ConsoleMediaLibrary>
 }
 
+/** Loads the Realtime of the Agent pages. */
+export type ConsoleAgentRealtimeLoader = () => Promise<Pick<typeof import("@vite-hub/realtime/agent"), "agentRealtime">>
+
 /**
  * What generated Console output installs: the sections, the project name, and the readers of each
  * section. One server bundle serves one project, so the Console keeps one state and does not key it by project root.
@@ -45,6 +57,8 @@ export interface ConsoleBlobInspection {
  * Console modules, and all of them share the global object.
  */
 export interface ConsoleState {
+  /** Loads the Realtime of the Agent pages, installed only when the app has Realtime. */
+  agentRealtime?: ConsoleAgentRealtimeLoader
   blob?: ConsoleBlobInspection
   /** What the production build recorded about its source. */
   build?: ConsoleProjectBuild
@@ -58,7 +72,6 @@ export interface ConsoleState {
   invocations?: AgentInvocations
   /** The Setup endpoint route, installed only in development output. */
   setupRoute?: string
-  siteDatabase?: () => Promise<{ name: string, db: object } | undefined>
   documents?: ConsoleDocumentEditors
   env?: ServerEnvDescription
   projectName?: string

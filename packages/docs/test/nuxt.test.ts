@@ -452,10 +452,15 @@ describe("docs Nuxt setup", () => {
     expect(templates.get("docs/comark-css.mjs")?.()).toBe(`export default ${JSON.stringify(file)}\nexport const names = ["zoom","include","mermaid","issues"]\n`)
   })
 
+  it("credits ViteHub Docs unless builtWith is false", async () => {
+    expect((await setupDocs({})).runtimeConfig.public.docs.builtWith).toBe(true)
+    expect((await setupDocs({ builtWith: false })).runtimeConfig.public.docs.builtWith).toBe(false)
+  })
+
   it("gives app pages a Markdown copy unless markdownPages is false", async () => {
     const markdown = (handler: { route?: string, handler?: string }) => handler.handler?.endsWith("runtime/server/markdown.js")
     expect((await setupDocs({})).runtimeConfig.public.docs.markdownPages).toBe(true)
-    expect(handlers.filter(markdown)).toEqual([expect.objectContaining({ middleware: true })])
+    expect(handlers.filter(markdown)).toEqual([expect.objectContaining({ middleware: true, route: "/**" })])
     handlers.length = 0
     expect((await setupDocs({ markdownPages: false })).runtimeConfig.public.docs.markdownPages).toBe(false)
     expect(handlers.filter(markdown)).toEqual([])
@@ -1241,7 +1246,7 @@ describe("docs Nuxt setup", () => {
     expect(routes).toEqual(expect.arrayContaining(["/blog", "/docs/kv", "/api/_docs/page/docs/kv.json", "/api/_docs/search.json", "/sitemap.xml", "/raw/docs/kv.md", "/sitemap.md", "/llms.txt", "/llms-full.txt"]))
     expect(routes.some(path => path.startsWith("/portal"))).toBe(false)
     expect(handlers.flatMap(handler => handler.route ? [`${handler.method ?? "all"} ${handler.route}`] : []).sort()).toEqual([
-      "all /api/_docs/page/**", "all /api/_docs/search.json", "all /mcp", "all /sitemap.xml",
+      "all /**", "all /**", "all /api/_docs/page/**", "all /api/_docs/search.json", "all /mcp", "all /sitemap.xml",
       "get /llms-full.txt", "get /llms.txt", "get /sitemap.md",
       "head /llms-full.txt", "head /llms.txt", "head /sitemap.md",
     ])

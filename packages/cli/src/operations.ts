@@ -8,6 +8,8 @@ import { callOperation, collectOperationContributions, createOperationRegistry, 
 import { resolve } from "pathe"
 
 import { cliErrorDiagnostics } from "./error-diagnostics.ts"
+import { consoleClient } from "./setup/console-apps.ts"
+import { readConsoleCredential } from "./setup/console-auth.ts"
 
 import type { ViteHubCliCommandNamespace, ViteHubCliContext, ViteHubCliFeature } from "@vite-hub/internal/cli"
 import type { AnyOperation, OperationFailure } from "@vite-hub/internal/operations"
@@ -127,6 +129,7 @@ function helpOf(operation: AnyOperation, flags: readonly Flag[]): string {
     "  --json         Print JSON.",
     ...(operation.kind === "destructive" ? ["  --yes          Run without asking. This operation changes or removes data."] : []),
     "  --url <origin> The app URL, such as https://app.example.com. Without it the command calls the running dev server.",
+    "                 After `vitehub login`, the call to an app of the Console goes through the Console.",
     "  --timeout <ms> Wait this long for the answer. Default 30000.",
     "  -h, --help     Show this help.",
     "",
@@ -251,7 +254,7 @@ function parseCall(operation: AnyOperation, flags: readonly Flag[], args: readon
       else if (name === "input") whole = readWholeInput(take(), cwd)
       else if (name === "timeout") {
         const timeout = Number(take())
-        if (!Number.isInteger(timeout) || timeout < 1) throw usageError("--timeout must be a whole number of milliseconds.")
+        if (!Number.isInteger(timeout) || timeout < 1 || timeout > 2_147_483_647) throw usageError("--timeout must be a whole number of milliseconds between 1 and 2147483647.")
         parsed.timeout = timeout
       }
       else {
@@ -312,6 +315,48 @@ function acceptedRoots(rootDir: string): string[] {
   return [...new Set([rootDir, resolveViteHubProjectRoot(rootDir)])]
 }
 
+async function throughConsole(url: string, context: ViteHubCliContext, signal: AbortSignal): Promise<{ target: string, authorization: string } | undefined> {
+  if (Object.keys(context.env).some(name => name.startsWith("VITEHUB_CONSOLE_PRIVATE_KEY_") && context.env[name])) return
+  const warnDiscoveryFailed = () => {
+    context.stderr.write("Warning: Console discovery failed. The CLI will call the app directly if time remains.\n")
+  }
+  try {
+    const credential = await readConsoleCredential(context.env, undefined, signal)
+    if (!credential) return
+    const { body } = await consoleClient(context, credential, signal).request("/api/projects")
+    signal.throwIfAborted()
+    if (!Array.isArray(body.projects)) {
+      warnDiscoveryFailed()
+      return
+    }
+    if (body.cliForwarding !== true) return
+    const projects: unknown[] = body.projects
+    for (const project of projects) {
+      if (project === null || typeof project !== "object") continue
+      const { id, publicKey, url: linked } = project as Record<string, unknown>
+      if (typeof id === "string" && id && typeof publicKey === "string" && publicKey && typeof linked === "string" && sameApp(linked, url)) {
+        return { authorization: `Bearer ${credential.token}`, target: `${credential.origin}/p/${encodeURIComponent(id)}` }
+      }
+    }
+  }
+  catch {
+    warnDiscoveryFailed()
+  }
+}
+
+function sameApp(linked: string, url: string): boolean {
+  const key = (value: string) => {
+    const parsed = new URL(value)
+    return `${parsed.origin}${parsed.pathname.replace(/\/+$/u, "")}`
+  }
+  try {
+    return key(linked) === key(url)
+  }
+  catch {
+    return false
+  }
+}
+
 function resolveTarget(parsed: ParsedCall, context: ViteHubCliContext): { target: string, roots?: string[] } | { failure: OperationFailure } {
   if (parsed.url) {
     const message = appUrlError(parsed.url)
@@ -332,7 +377,7 @@ function resolveTarget(parsed: ParsedCall, context: ViteHubCliContext): { target
 
 function featureOf(operation: AnyOperation): ViteHubCliFeature {
   const flags = flagsOf(operation)
-  const { command } = operationCliPath(operation)
+  const { command, namespace } = operationCliPath(operation)
   return {
     description: operation.description,
     name: command,
@@ -368,14 +413,22 @@ function featureOf(operation: AnyOperation): ViteHubCliFeature {
         }
         confirmed = true
       }
-      const result = await callOperation({
+      const signal = AbortSignal.timeout(parsed.timeout ?? 30_000)
+      const proxy = parsed.url ? await throughConsole(parsed.url, context, signal) : undefined
+      const rpcTarget = {
+        ...(proxy ? { authorization: proxy.authorization } : {}),
         confirmed,
         env: context.env,
         ...(context.fetch ? { fetch: context.fetch } : {}),
         ...(resolved.roots ? { roots: resolved.roots } : {}),
-        ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
-        url: target,
-      }, operation.name, parsed.input)
+        signal,
+        url: proxy?.target ?? target,
+      }
+      let result = await callOperation(rpcTarget, operation.name, parsed.input)
+      if (!result.ok && result.status === 404 && result.code === "CONSOLE_NOT_FOUND"
+        && operation.name === "invocations.usage" && operation.kind === "read" && namespace === "agent" && command === "usage") {
+        result = await callOperation(rpcTarget, "usage.get", parsed.input)
+      }
       if (!result.ok) return writeFailure(result, parsed, context)
       const format = operationCliOptions(operation)?.format as ((output: unknown) => string) | undefined
       const output = !parsed.json && format ? format(result.value) : `${JSON.stringify(result.value ?? null, null, 2)}\n`
@@ -428,7 +481,6 @@ export function createOperationNamespaces(operations: readonly AnyOperation[]): 
   const namespaces = new Map<string, ViteHubCliCommandNamespace>()
   const groups = new Map<string, { commands: ViteHubCliFeature[], name: string, namespace: string }>()
   for (const operation of operations) {
-    // `cli: false` operations have no command. The Console and MCP call them.
     if (operation.cli === false) continue
     const { command, namespace: name } = operationCliPath(operation)
     const namespace = namespaces.get(name) ?? { description: `Run the ${name} operations of the app.`, features: [], name }

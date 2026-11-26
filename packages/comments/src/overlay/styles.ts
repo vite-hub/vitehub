@@ -1,10 +1,8 @@
-/**
- * Styles of the overlay's own pieces. The comment parts bring theirs from `@vite-hub/ui/styles.css`. All of them live
- * in shadow roots, so the host page's CSS does not reach them: the overlay, its toolbar in the page tools pill, and
- * the list in the pill's window. The overlay takes ViteHub's theme, as Drop does: Geist when the page has it (else the system
- * sans-serif), the neutral primary, and the comment blue. It follows the page's light or dark scheme. It sets the Nuxt UI
- * tokens that the parts read, because their fallbacks follow `currentColor`, which is white inside a pin.
- */
+const deliveryStyles = `
+[data-slot="comment-reply-status"] { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--ui-text-muted); }
+.delivery[data-failed] { color: var(--vh-error); }
+`
+
 export const overlayStyles = `
 :host {
   all: initial;
@@ -73,11 +71,19 @@ export const overlayStyles = `
  */
 [data-slot="comment-layer-popover"] {
   --popover-width: 340px; --popover-room: min(var(--popover-width), calc(100vw - 24px));
-  left: min(calc(var(--pin-x) + 36px), calc(100vw - 12px - var(--popover-room) - var(--vh-comment-x, 0px)));
+  --popover-side-left: calc(var(--pin-x) + 36px);
+  --popover-left: min(var(--popover-side-left), calc(100vw - 12px - var(--popover-room) - var(--vh-comment-x, 0px)));
+  left: var(--popover-left);
   top: var(--pin-y); width: var(--popover-room); max-width: none;
   border-radius: 6px 16px 16px 16px; box-shadow: 0 0 0 1px var(--vh-bubble-edge, var(--vh-border)), 0 8px 24px rgb(0 0 0 / .16), 0 1px 3px rgb(0 0 0 / .08);
 }
 [data-draft="true"] > [data-slot="comment-layer-popover"] { --popover-width: 300px; border-radius: 6px 18px 18px 18px; }
+[data-draft="true"][data-kind="page"] > [data-slot="comment-layer-popover"] { --popover-left: var(--vh-comment-draft-left); }
+[data-draft="true"]:not([data-flip-x="true"], [data-above="true"]) > [data-slot="comment-layer-popover"] {
+  --popover-side-left: calc(var(--pin-x) + var(--vh-comment-pin-size) + 8px);
+  --draft-clearance: calc(max(0, sign(var(--popover-side-left) - var(--popover-left))) * (var(--vh-comment-pin-size) + 8px));
+  top: calc(var(--pin-y) + var(--draft-clearance));
+}
 [data-slot="comment-layer-popover"][data-preview="true"] { --popover-width: 18rem; }
 [data-slot="comment-layer-item"][data-flip-x="true"] > [data-slot="comment-layer-popover"] {
   left: auto; right: clamp(calc(var(--vh-comment-x, 0px) + 12px - 100vw), calc(-28px - var(--pin-x)), calc(var(--vh-comment-x, 100vw) - var(--popover-room) - 12px)); top: calc(var(--pin-y) + 36px); border-radius: 16px 6px 16px 16px;
@@ -87,6 +93,9 @@ export const overlayStyles = `
 }
 [data-slot="comment-layer-item"][data-flip-x="true"][data-flip-y="true"] > [data-slot="comment-layer-popover"] {
   bottom: calc(8px - var(--pin-y)); border-radius: 16px 16px 6px 16px;
+}
+[data-draft="true"][data-flip-y="true"]:not([data-flip-x="true"], [data-above="true"]) > [data-slot="comment-layer-popover"] {
+  bottom: calc(var(--draft-clearance) - var(--vh-comment-pin-size) - var(--pin-y));
 }
 [data-slot="comment-layer-item"][data-above="true"] > [data-slot="comment-layer-popover"] {
   top: auto; bottom: calc(var(--pin-y) * -1 + 4px); border-radius: 16px 16px 16px 6px;
@@ -118,6 +127,7 @@ export const overlayStyles = `
 .selection { position: fixed; z-index: 2147483001; translate: -50% -100%; }
 .selection[data-below="true"] { translate: -50% 0; }
 [data-slot="comment-selection-bar-action"]:focus-visible { outline: 2px solid var(--vh-inverted); outline-offset: 1px; }
+${deliveryStyles}
 `
 
 /**
@@ -132,6 +142,7 @@ export const panelStyles = `
 }
 .panel-root { height: 100%; }
 [data-slot="comment-panel"] { height: 100%; background: var(--vh-bg); }
+${deliveryStyles}
 `
 
 /** The toolbar in the pill, after the pill's button styles. It takes the pill's font and colors. */

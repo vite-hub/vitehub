@@ -21,12 +21,12 @@ const scope = globalThis as typeof globalThis & { [contributionKey]?: { contribu
 let builtin: OperationRegistry | undefined
 
 /**
- * Install the operations of the app: the ones `vite-hub` owns and the ones that Vite plugins contribute. The generated
- * Console runtime calls this when it loads. Agent tools load it through `installedOperationRegistry()`, so they need no
- * prior RPC call.
+ * Install the operations of the app: the glue operations of `vite-hub`, and the ones of each configured primitive and
+ * Vite plugin. The generated Console runtime calls this when it loads. Agent tools load it through
+ * `installedOperationRegistry()`, so they need no prior RPC call. An operation that runs app code is registered only
+ * when `console.invoke` is on. Without options, nothing is held back.
  */
 export function installConsoleOperations(contributed: readonly ConsoleOperationContribution[] = [], options: { invoke?: boolean } = {}): OperationRegistry {
-  // An operation that runs app code is registered only when `console.invoke` is on. Without options, nothing is held back.
   const heldBack = new Set<string>()
   const installed = contributed.map(entry => ({
     operations: operationsOf(entry.operations).filter((operation) => {
@@ -47,7 +47,7 @@ export function isHeldBackConsoleOperation(name: string): boolean {
   return scope[contributionKey]?.heldBack.has(name) === true
 }
 
-/** The installed operations. Without an install, the operations of `vite-hub`, built once. */
+/** The installed operations. Without an install, the glue operations of `vite-hub`, built once. */
 export function consoleOperationRegistry(): OperationRegistry {
   const installed = scope[contributionKey]
   if (installed) return installed.registry

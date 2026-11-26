@@ -6,7 +6,6 @@ import type {
   CommentDeleteInput,
   CommentEditInput,
   CommentEvent,
-  CommentFiles,
   CommentGetInput,
   CommentListQuery,
   CommentReplyInput,
@@ -16,8 +15,10 @@ import type {
   CommentUser,
   CommentUsersInput,
 } from "./client-types.ts"
-import type { CommentsOutbox, CommentsOutboxOptions } from "./client-outbox.ts"
+import type { CommentsClientFiles, CommentsOutbox, CommentsOutboxOptions } from "./client-outbox.ts"
 
+export { commentsAgentPrompt, commentsT3CodeLink, t3CodeLinkLimit } from "./agent-prompt.ts"
+export type { CommentsAgentAccess, CommentsAgentPromptInput, CommentsAgentPromptThread } from "./agent-prompt.ts"
 export { anchorRange, createAnchor, resolveAnchor, selectorFor } from "./client-anchor.ts"
 export type {
   AnchorPoint,
@@ -30,7 +31,7 @@ export type {
 } from "./client-anchor.ts"
 export { commentsErrorDiagnostics } from "./client-errors.ts"
 export { createIndexedDBOutboxStore, createMemoryOutboxStore } from "./client-outbox.ts"
-export type { CommentsOutbox, CommentsOutboxEntry, CommentsOutboxEnvironment, CommentsOutboxMessage, CommentsOutboxOptions, CommentsOutboxStore } from "./client-outbox.ts"
+export type { CommentsClientFiles, CommentsOutbox, CommentsOutboxEntry, CommentsOutboxEnvironment, CommentsOutboxMessage, CommentsOutboxOptions, CommentsOutboxStore } from "./client-outbox.ts"
 export { createCommentSend } from "./client-send.ts"
 export type {
   CommentSendAgent,
@@ -65,8 +66,8 @@ export interface CommentsClientOptions {
   /** Refresh when the window gets focus and the transport cannot push updates. Default `true`. */
   refreshOnFocus?: boolean
   /**
-   * Saves each new comment and reply before it sends, so it shows at once, survives a reload, and goes out once when
-   * the network is back. Off by default: `create` and `reply` wait for the server.
+   * Shows each new comment and reply at once and saves it before it sends, so it survives a reload and goes out once
+   * when the network is back. Off by default: `create` and `reply` wait for the server.
    */
   outbox?: CommentsOutboxOptions
 }
@@ -81,10 +82,13 @@ export interface CommentsClient {
   query: CommentListQuery
   refresh: () => Promise<readonly CommentThread[]>
   get: (input: CommentGetInput) => Promise<CommentThread | null>
-  /** With an outbox, returns the waiting thread once it is saved, with a local `id` and `delivery`. */
-  create: (input: CommentCreateInput & CommentFiles) => Promise<CommentThread>
-  /** With an outbox, returns a thread view with the waiting reply once it is saved. */
-  reply: (input: CommentReplyInput & CommentFiles) => Promise<CommentThread>
+  /**
+   * With an outbox, shows the comment at once. With no supplied `requestId`, returns the waiting thread before the save.
+   * With a supplied `requestId`, waits for the save to check for a replay. `files` may be a promise.
+   */
+  create: (input: CommentCreateInput & CommentsClientFiles) => Promise<CommentThread>
+  /** With an outbox, shows the reply at once. `requestId` and `files` work as they do for `create`. */
+  reply: (input: CommentReplyInput & CommentsClientFiles) => Promise<CommentThread>
   edit: (input: CommentEditInput) => Promise<CommentThread>
   delete: (input: CommentDeleteInput) => Promise<CommentThread | null>
   resolve: (input: CommentStatusInput) => Promise<CommentThread>
@@ -102,6 +106,16 @@ export interface CommentsClient {
   readonly outbox: CommentsOutbox | undefined
 }
 
+function observed<T extends CommentsClientFiles>(input: T): T {
+  for (const files of [input.files, input.deferredFiles]) if (files && !Array.isArray(files)) files.catch(() => {})
+  return input
+}
+
+async function filesArrived<T extends CommentsClientFiles>({ files, deferredFiles, ...input }: T) {
+  if (deferredFiles) return { ...input, files: [...(files ?? []), ...await deferredFiles] }
+  return { ...input, ...(files ? { files: await files } : {}) }
+}
+
 /** A cache and a change signal over a transport. It has no framework in it. */
 export function createCommentsClient(options: CommentsClientOptions & { outbox: CommentsOutboxOptions }): CommentsClient & { readonly outbox: CommentsOutbox }
 export function createCommentsClient(options: CommentsClientOptions): CommentsClient
@@ -109,9 +123,7 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
   const { transport } = options
   const listeners = new Set<() => void>()
   const byId = new Map<string, CommentThread>()
-  // Without a user identity, keep user-filter membership from the last successful transport list.
   let listed = new Set<string>()
-  // What changed while a list was on its way. The list answers for the time it was asked, so it must not undo these.
   let changed = new Set<string>()
   let removed = new Set<string>()
   let threads: readonly CommentThread[] = []
@@ -134,20 +146,16 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
     if (query.status && thread.status !== query.status) return false
     if (user && query.mine && thread.author.id !== user.id) return false
     if (user && query.mentions && !thread.messages.some(message => message.mentions.includes(user.id))) return false
-    // A waiting comment is the account's own, so it is in `mine`. Without a user, only the transport knows the mentions.
     if (waiting) return !(query.mentions && !user)
     if (transportOwnsMembership() && !listed.has(thread.id)) return false
     return true
   }
   const publish = (): void => {
-    // Keep versions for reconciliation even when an update moves a thread out of the visible query.
     const stored = [...byId.values()]
     const { server, local } = outbox ? outbox.overlay(stored) : { server: stored, local: [] }
-    // Waiting comments have no number yet. They come last, oldest first.
     threads = [...server.filter(thread => matchesQuery(thread)).sort((a, b) => a.n - b.n), ...local.filter(thread => matchesQuery(thread, true))]
     notify()
   }
-  // A thread older than the one that the client holds is a late answer or a late event. It does not replace it.
   const upsert = (thread: CommentThread): CommentThread => {
     const stored = byId.get(thread.id)
     if (removed.has(thread.id) || (stored && stored.updatedAt > thread.updatedAt)) return stored ?? thread
@@ -163,7 +171,6 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
     if (byId.delete(threadId)) publish()
   }
 
-  // Timestamps cannot order mutations within one millisecond. Send each thread's mutations in order.
   const mutations = new Map<string, Promise<unknown>>()
   const mutate = async <T>(threadId: string, operation: () => Promise<T>): Promise<T> => {
     const previous = mutations.get(threadId)
@@ -204,14 +211,11 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
           before = { id: last.id, updatedAt: last.updatedAt }
         }
         if (requested.limit !== undefined || (pages === 1 && previousSnapshot === undefined)) break
-        // Updates can move threads across a cursor. Replace the cache only after two complete scans agree.
         const snapshot = JSON.stringify(list)
         if (snapshot === previousSnapshot) break
-        // A busy list must not cause unlimited requests or publish an incomplete cache. Keep the old cache on error.
         if (scan === 2) throw commentsClientDiagnostics.COMMENTS_R0015()
         previousSnapshot = snapshot
       }
-      // A newer refresh, or a query change, makes this answer stale.
       if (current !== generation) return threads
       const next = new Map<string, CommentThread>()
       for (const thread of list) {
@@ -219,7 +223,6 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
         if (removed.has(thread.id)) continue
         next.set(thread.id, local && (local.updatedAt > thread.updatedAt || (changed.has(thread.id) && local.updatedAt === thread.updatedAt)) ? local : thread)
       }
-      // A thread that someone made or changed while the list was on its way is not in the list yet.
       for (const id of changed) {
         const local = byId.get(id)
         if (local && !next.has(id)) next.set(id, local)
@@ -241,7 +244,6 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
     return threads
   }
 
-  /** The thread as the client shows it, with what waits in the outbox, also when the query leaves it out. */
   const shown = (threadId: string): CommentThread | null => {
     const stored = byId.get(threadId)
     const { server, local } = outbox ? outbox.overlay(stored ? [stored] : []) : { server: stored ? [stored] : [], local: [] }
@@ -260,7 +262,6 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
   }
   const apply = (event: CommentEvent): void => {
     if (event.type === "thread") {
-      // Only the transport can evaluate user filters when the client has no signed-in user.
       if (!options.user && (query.mine || query.mentions)) return refreshQuietly()
       const local = byId.get(event.thread.id)
       if (local?.updatedAt === event.thread.updatedAt) refreshQuietly()
@@ -298,9 +299,14 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
       upsert(thread)
       return shown(thread.id) ?? thread
     },
-    create: async input => outbox ? outbox.create(input) : upsert(await transport.create(input)),
-    reply: input => outbox ? outbox.reply(input) : mutate(input.threadId, async () => upsert(await transport.reply(input))),
-    // A comment or reply that has not gone out changes in the outbox, and sends nothing.
+    create: async (input) => {
+      observed(input)
+      return outbox ? outbox.create(input) : upsert(await transport.create(await filesArrived(input)))
+    },
+    reply: (input) => {
+      observed(input)
+      return outbox ? outbox.reply(input) : mutate(input.threadId, async () => upsert(await transport.reply(await filesArrived(input))))
+    },
     edit: async (input) => {
       if (outbox?.owns(input.threadId, input.messageId)) {
         if (!await outbox.edit(input.messageId, input.body, input.mentions)) throw commentsClientDiagnostics.COMMENTS_OUTBOX_SENDING()
@@ -321,7 +327,11 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
         return next
       })
     },
-    resolve: input => mutate(input.threadId, async () => upsert(await transport.resolve(input))),
+    resolve: input => mutate(input.threadId, async () => {
+      const threadId = outbox ? await outbox.beforeResolve(input.threadId) : input.threadId
+      if (threadId === undefined) throw commentsClientDiagnostics.COMMENTS_OUTBOX_RESOLVE_BLOCKED()
+      return upsert(await transport.resolve({ ...input, threadId }))
+    }),
     reopen: input => mutate(input.threadId, async () => upsert(await transport.reopen(input))),
     users: input => transport.users(input),
     outbox,
@@ -332,7 +342,6 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
       }
     },
     start() {
-      // Subscribe first, so an event that comes while the list is on its way is not lost.
       const stops: Array<() => void> = []
       if (transport.subscribe) stops.push(transport.subscribe(apply))
       else if (options.refreshOnFocus !== false && typeof window !== "undefined") {

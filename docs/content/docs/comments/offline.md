@@ -23,9 +23,9 @@ export const comments = createCommentsClient({
 comments.start()
 ```
 
-`account` is the Comments author ID. Use the signed-in user's ID or the full guest author ID. The server checks the author on each upload and write. If the session changes, the old entries wait until that author signs in and calls `retry()`.
+`account` is the Comments author ID. Use the signed-in user's ID or the full guest author ID. The server checks the author on each upload and write. If the session changes, the old entries wait until that author signs in and calls `retry()`. Set `namespace` to a stable destination key if your origin serves more than one Comments API. Entries saved under one namespace never go out under another. The overlay sets it to the API URL, and Hosted Comments to the Console URL of the project, so two projects on one site keep separate queues.
 
-Now `create()` and `reply()` return as soon as the entry is saved, also with no network:
+`create()` and `reply()` show the entry at once, even with no network. They return before the save unless you supply a `requestId`. With a supplied key, they wait for the local save so a replay can return the first draft.
 
 ```ts fragment
 const thread = await comments.create({
@@ -38,7 +38,7 @@ const thread = await comments.create({
 thread.delivery // { status: 'pending', requestId: '6f1c…', files: [Blob] }
 ```
 
-`files` are `Blob` or `File` objects. The outbox keeps them with the entry, and the transport stores them before the comment.
+Pass `files` as an array of `Blob` or `File` objects or as a promise for that array. When some files are ready and others render after Send, pass the ready ones as `files` and the rest as `deferredFiles`: a reload before the late ones arrive still sends the ready ones. If saving deferred files fails, Retry saves them again before sending. Without Web Locks, the default outbox uses memory, and a custom store gets drafts in send order once their files are ready. This keeps another tab from sending them early. The page warns before unload while any drafts remain only in memory.
 
 ## What the reader sees
 

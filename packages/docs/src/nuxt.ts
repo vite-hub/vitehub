@@ -122,6 +122,8 @@ export interface DocsModuleOptions {
   socials?: DocsLink[]
   /** Site pages linked at the end of every docs page, such as About and Privacy, so each one has a link to it. */
   footer?: DocsLink[]
+  /** A "Built with ViteHub Docs" line at the end of every docs page. `false` removes it. */
+  builtWith?: boolean
   /** One line above every docs page, such as a release status. */
   banner?: string
   /** More paths for `/sitemap.xml`, such as app pages outside the content folder. Every docs page is listed already. */
@@ -229,6 +231,7 @@ export interface DocsPublicConfig {
   start?: { section: string, links: DocsLink[] }
   socials: DocsLink[]
   footer: DocsLink[]
+  builtWith: boolean
   banner: string | null
   sitemap: string[]
   /** `stars` is the repository's star count when the build could read it, else `null`. */
@@ -1001,13 +1004,13 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     addServerHandler({ route: "/api/_docs/search.json", handler: resolver.resolve("./runtime/server/search.js") })
     addServerHandler({ route: "/sitemap.xml", handler: resolver.resolve("./runtime/server/sitemap.js") })
     // One URL per page: the canonical link and the sitemap name `/docs/kv`, so `/docs/kv/` redirects there.
-    addServerHandler({ middleware: true, handler: resolver.resolve("./runtime/server/trailing-slash.js") })
+    addServerHandler({ middleware: true, route: "/**", handler: resolver.resolve("./runtime/server/trailing-slash.js") })
     // Content serves the agent files. HEAD too: link checkers probe with it, and a GET-only route answers it with a 404.
     for (const method of ["get", "head"] as const) {
       for (const route of ["/llms.txt", "/llms-full.txt", "/sitemap.md"]) addServerHandler({ route, method, handler: resolver.resolve("./runtime/server/llms.js") })
     }
     if (config.mcp) addServerHandler({ route: "/mcp", handler: resolver.resolve("./runtime/server/mcp.js") })
-    if (config.markdownPages) addServerHandler({ middleware: true, handler: resolver.resolve("./runtime/server/markdown.js") })
+    if (config.markdownPages) addServerHandler({ middleware: true, route: "/**", handler: resolver.resolve("./runtime/server/markdown.js") })
 
     /**
      * The routes that the build prerenders. Nuxt lets the client read `_payload.json` only when the Nitro config lists
@@ -1349,6 +1352,7 @@ function publicConfig(options: DocsModuleOptions, base: string, appBase: string)
     start: options.start ? { section: options.start.section, links: options.start.links ?? [] } : undefined,
     socials: options.socials ?? [],
     footer: options.footer ?? [],
+    builtWith: options.builtWith !== false,
     banner: options.banner ?? null,
     sitemap: options.sitemap ?? [],
     github: options.github ? { branch: "main", dir, ...options.github, url: `https://github.com/${options.github.repo}`, stars: null } : false,

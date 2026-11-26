@@ -482,7 +482,13 @@ async function installNitroLocalDatabaseRuntime(
   const alias = isRecord(config.alias) ? config.alias : undefined
   const existingAlias = alias?.[databaseRegistryImport]
   const customRegistry = !!existingAlias && existingAlias !== file
+  const removeStartupPlugin = () => {
+    if (dev && Array.isArray(config.plugins) && config.plugins.includes(file)) {
+      config.plugins = config.plugins.filter(plugin => plugin !== file)
+    }
+  }
   if (customRegistry) {
+    removeStartupPlugin()
     await Promise.all([rm(file, { force: true }), rm(migrationsFile, { force: true })])
     if (!dev) return
   }
@@ -490,6 +496,7 @@ async function installNitroLocalDatabaseRuntime(
   const runtime = resolvedRuntime ?? resolveDBViteConfig(options, root, { contributions, provisionRoot, serverDirs })
   assertDistinctNuxtD1Bindings(runtime, d1, config)
   if (!runtime?.definitions.length) {
+    removeStartupPlugin()
     await Promise.all([rm(file, { force: true }), rm(migrationsFile, { force: true })])
     if (dev) {
       await rm(defaultsFile, { force: true })
@@ -596,9 +603,15 @@ async function installNitroLocalDatabaseRuntime(
       `const definitionDefaults = ${definitionDefaults}`,
     ],
     setup: [...schemas, ...relations],
+    shareWithNodeCopy: dev,
     useDatabaseImport: pathToFileURL(resolve(databaseRuntimeDir, "use-database.js")).href,
   }))
   ensureRecord(config, "alias")[databaseRegistryImport] = file
+  if (dev) {
+    const kit = createNitroServerKit(config)
+    kit.addPlugin(file, "start")
+    config.plugins = kit.config.plugins
+  }
   return runtime
 }
 
@@ -798,8 +811,8 @@ function resolveNitroHostingProvider(config: Record<string, unknown>, nuxtOption
 async function installNitroCloudflareEnvBridge(config: Record<string, unknown>, root: string) {
   const file = resolve(root, generatedNitroDatabaseMiddleware)
   const kit = createNitroServerKit(config)
-  // No route: Nitro runs route-less middleware for every request.
-  kit.addHandler({ handler: file, middleware: true }, "start")
+  // `/**` runs the middleware for every request. Nuxt 4.7 warns (B9002) about middleware without a route.
+  kit.addHandler({ handler: file, middleware: true, route: "/**" }, "start")
   config.handlers = kit.config.handlers
   const rollupConfig = isRecord(config.rollupConfig) ? { ...config.rollupConfig } : {}
   rollupConfig.external = mergeNitroExternal(rollupConfig.external, "cloudflare:workers")
@@ -838,7 +851,7 @@ async function installNitroRequestStats(config: Record<string, unknown>, root: s
   }
   const file = resolve(root, generatedNitroRequestStatsMiddleware)
   const kit = createNitroServerKit(config)
-  kit.addHandler({ handler: file, middleware: true }, "start")
+  kit.addHandler({ handler: file, middleware: true, route: "/**" }, "start")
   config.handlers = kit.config.handlers
   await writeFileIfChanged(file, [
     `import { runWithDatabaseRequestStats } from ${JSON.stringify(resolveRuntimeModule(resolve(databaseRuntimeDir, "../.."), "runtime/request-stats"))}`,

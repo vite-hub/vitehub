@@ -8,6 +8,8 @@ import type { ConnectionDefinition } from "./types.ts"
 const MAX_REDIRECTS = 5
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308])
 
+export type StartProviderAttempt = (start: () => Promise<Response>, signal: RequestInit["signal"]) => Promise<Response>
+
 /** Whether `url` is the provider's `mcp` endpoint. Trailing slashes and the query do not count. */
 export function isMcpEndpoint(endpoint: string | undefined, url: string): boolean {
   if (!endpoint) return false
@@ -37,16 +39,19 @@ export function createConnectionTransport(name: string, definition: ConnectionDe
     return Object.fromEntries(headers)
   }
 
-  async function send(url: string, token: { accessToken: string, tokenType: string }, init: RequestInit & { json?: boolean }): Promise<Response> {
+  async function send(url: string, token: { accessToken: string, tokenType: string }, init: RequestInit & { json?: boolean }, startAttempt?: StartProviderAttempt): Promise<Response> {
     const headers = new Headers({ accept: "application/json", ...prepare(url, init.headers) })
     const scheme = isApiKeyProvider(provider) ? provider.scheme : token.tokenType === "bearer" ? "Bearer" : token.tokenType
     headers.set(header, scheme ? `${scheme} ${token.accessToken}` : token.accessToken)
     const { json, ...requestInit } = init
     if (json && init.body !== undefined && !headers.has("content-type")) headers.set("content-type", "application/json")
     const authenticated = { ...requestInit, headers }
-    const dispatch = (attempt: RequestInit) => isApiKeyProvider(provider)
+    const dispatchAttempt = (attempt: RequestInit) => isApiKeyProvider(provider)
       ? sendKey(url, attempt)
       : isMcpEndpoint(provider.mcp, url) ? sendMcp(url, attempt) : request(url, attempt)
+    const dispatch = startAttempt
+      ? (attempt: RequestInit) => startAttempt(() => dispatchAttempt(attempt), attempt.signal)
+      : dispatchAttempt
     return await (policy && !isMcpEndpoint(provider.mcp, url) ? scheduler.send(policy, authenticated, dispatch) : dispatch(authenticated))
   }
 

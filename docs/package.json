@@ -16,6 +16,7 @@
     "test:links:external": "node scripts/check-example-links.mjs",
     "test:artifact": "vp test --config vitest.artifact.config.ts",
     "eval:agent-docs": "node evals/agent-docs/run.mjs",
+    "eval:mcp": "node evals/mcp/run.ts",
     "typecheck": "nuxi prepare && node scripts/typecheck.mjs",
     "generate": "NODE_OPTIONS='--max-old-space-size=8192' nuxi generate",
     "preview": "nuxi preview",
@@ -49,6 +50,8 @@
     "yaml": "catalog:tooling"
   },
   "devDependencies": {
+    "@ai-sdk/anthropic": "catalog:ai",
+    "@ai-sdk/mcp": "catalog:ai",
     "@better-auth/cimd": "catalog:auth",
     "@chat-adapter/slack": "catalog:chat",
     "@iconify-json/lucide": "catalog:ui",

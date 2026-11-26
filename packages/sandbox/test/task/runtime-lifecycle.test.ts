@@ -182,6 +182,48 @@ describe("Sandbox runtime lifecycle", () => {
     expect(runtimeMocks.resolveTaskSandbox).not.toHaveBeenCalled()
   })
 
+  it.each([
+    { transfer: 1, why: "must be an object" },
+    { transfer: true, why: "must be an object" },
+    { transfer: "invalid", why: "must be an object" },
+    { transfer: [], why: "must be an object" },
+    { transfer: { maxBytes: 1 }, why: "Unsupported: maxBytes" },
+    { transfer: { maxDepth: 0 }, why: "sets maxDepth to 0" },
+    { transfer: { maxSidecars: 1.5 }, why: "sets maxSidecars to 1.5" },
+    { transfer: { maxInputBytes: "1024" }, why: "sets maxInputBytes to 1024" },
+    { transfer: { maxOutputBytes: 1_073_741_825 }, why: "sets maxOutputBytes to 1073741825" },
+  ])("rejects the invalid transfer option $transfer before resolving a provider", async ({ transfer, why }) => {
+    setSandboxTaskRuntimeConfig({ driver: "cloudflare" })
+    setSandboxTaskRuntimeRegistry({
+      example: {
+        ...definition,
+        options: { transfer } as never,
+      },
+    })
+
+    const result = await runSandboxTaskRuntime("example")
+
+    expect(result[0]?.code).toBe("SANDBOX_TASK_RUN_FAILED")
+    expect(result[0]?.cause).toMatchObject({
+      code: "SANDBOX_TASK_TRANSFER_INVALID",
+      message: expect.stringContaining(why),
+    })
+    expect(runtimeMocks.resolveTaskSandbox).not.toHaveBeenCalled()
+    expect(runtimeMocks.executeSandboxTaskDefinition).not.toHaveBeenCalled()
+  })
+
+  it("passes valid transfer options to the execution", async () => {
+    const transfer = { maxInputBytes: 1, maxOutputBytes: 1_073_741_824, maxDepth: 8, maxSidecars: 2, maxSidecarBytes: 1024 }
+    setSandboxTaskRuntimeConfig({ driver: "cloudflare" })
+    setSandboxTaskRuntimeRegistry({ example: { ...definition, options: { transfer } } })
+    runtimeMocks.executeSandboxTaskDefinition.mockResolvedValue({ ok: true })
+
+    const result = await runSandboxTaskRuntime("example")
+
+    expect(result[0]).toBeUndefined()
+    expect(runtimeMocks.executeSandboxTaskDefinition.mock.calls[0]?.[2]).toEqual({ timeout: 300_000, transfer })
+  })
+
   it("keeps configured and per-run Cloudflare identity overrides", async () => {
     setSandboxTaskRuntimeConfig({ driver: "cloudflare", sandboxId: "configured" })
     setSandboxTaskRuntimeRegistry({ example: definition })

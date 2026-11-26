@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/connections",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Provider OAuth and API key connections with typed, governed, and audited calls for ViteHub.",
   "keywords": [
     "api-key",
@@ -85,6 +85,7 @@
     "test": "vp run --cache -t vite-hub#build && vp run --cache -t @vite-hub/connections#build && vp test"
   },
   "dependencies": {
+    "@valibot/to-json-schema": "catalog:runtime",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "jose": "catalog:auth",

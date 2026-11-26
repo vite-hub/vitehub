@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { basename, join } from "node:path"
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
@@ -133,6 +133,42 @@ describe("Vite provider builds", () => {
       expect(loading.load(join(root, "node_modules/@vite-hub/blob/dist/index.js"), "nitro")).toBeUndefined()
       loading.configureEnvironment("nitro", { command: "build" })
       expect(loading.load(registry, "nitro")).toBeUndefined()
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("re-exports a default only when the native package file exports one", async () => {
+    const loading = createNativePackageLoading()
+    loading.nitro.setup({ options: { devServer: { runner: "node-worker" } } })
+    loading.configureEnvironment("nitro", { command: "serve" })
+    const root = await mkdtemp(join(tmpdir(), "vitehub-native-module-"))
+    try {
+      const dist = join(root, "node_modules/@vite-hub/agent/dist")
+      await mkdir(dist, { recursive: true })
+      const channels = join(dist, "channels.js")
+      await writeFile(channels, [
+        "/**",
+        " * @example",
+        " * export default defineChannel({ adapter: webhook() })",
+        " */",
+        "const example = \"export { channel as default }\"",
+        "export const channel = { example }",
+        "",
+      ].join("\n"))
+      const agent = join(dist, "agent.js")
+      await writeFile(agent, ["const agent = {}", "export {", "  agent,", "  agent as default", "}", ""].join("\n"))
+
+      const shims = await Promise.all([channels, agent].map(async (file) => {
+        const shim = join(root, `${basename(file, ".js")}.mjs`)
+        await writeFile(shim, loading.load(file, "nitro")!)
+        return pathToFileURL(shim).href
+      }))
+      const { stdout } = await promisify(execFile)(process.execPath, ["--input-type=module", "--eval", `
+        for (const shim of ${JSON.stringify(shims)}) process.stdout.write(Object.keys(await import(shim)).join(",") + ";")
+      `])
+      expect(stdout).toBe("channel;agent,default;")
     }
     finally {
       await rm(root, { force: true, recursive: true })

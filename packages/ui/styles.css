@@ -1910,9 +1910,11 @@
     pointer-events: auto;
   }
 
-  /* The pin's look is Drop's, in comment-marks.css. Here its bottom-left corner sits on the spot. */
+  /* The pin's look is Drop's, in comment-marks.css. Here its bottom-left corner sits on the spot. It moves with
+     `translate`, so the zoom and the active size of comment-marks.css, which are its `transform`, still apply, and a
+     page that places its pins another way sets its own `translate`. */
   [data-slot="comment-pin"] {
-    transform: translateY(-100%);
+    translate: 0 -100%;
   }
 
   [data-slot="comment-pin"] [data-slot="avatar-stack"] {
@@ -2148,6 +2150,9 @@
     --vh-bubble-radius: 1.4375rem;
     border: 0;
     border-radius: 0.375rem var(--vh-bubble-radius) var(--vh-bubble-radius);
+    /* The layer measures the bubble and sets its left edge, on either side of the pin, so it stays on screen. */
+    left: var(--vh-comment-draft-left, 0.5rem);
+    right: auto;
     box-shadow:
       0 0 0 1px var(--vh-bubble-edge),
       0 2px 4px color-mix(in oklab, var(--vh-comment-shadow) calc(100% / 3), transparent),
@@ -2817,6 +2822,7 @@
     align-items: center;
     border-block-end: 1px solid var(--vh-border);
     display: flex;
+    flex-wrap: wrap;
     gap: 0.5rem;
     justify-content: space-between;
     padding: 0.5rem 0.5rem 0.5rem 0.75rem;
@@ -2832,14 +2838,20 @@
   [data-slot="comment-panel-filters"] {
     display: flex;
     flex: 1;
+    flex-wrap: wrap;
     gap: 0.25rem;
   }
 
   [data-slot="comment-panel-actions"] {
     align-items: center;
     display: flex;
+    flex-wrap: wrap;
     gap: 0.25rem;
     margin-block: -0.25rem;
+  }
+
+  [data-slot="comment-panel-actions"]:empty {
+    display: none;
   }
 
   [data-slot="comment-panel-items"] {

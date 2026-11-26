@@ -7,10 +7,11 @@ export default defineConfig({
     tsconfig: "tsconfig.build.json",
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/],
-      neverBundle: ["vite", "h3"],
+      neverBundle: ["vite", "h3", "ai", "@ai-sdk/mcp"],
       onlyBundle: false,
     },
     entry: [
+      "src/eval.ts",
       "src/index.ts",
       "src/runtime.ts",
       "src/vite.ts",
