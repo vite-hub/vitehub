@@ -12,6 +12,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
 import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setup"
 
 import { readMigrationPlan } from "../src/internal/migration-plan.ts"
+import { migrateOnStart } from "../src/runtime/migrate-on-start.ts"
 import { defineDatabase } from "../src/definition.ts"
 import { hubDatabase as hubDatabaseNuxt } from "../src/nuxt.ts"
 import { createDevPostgresDatabase } from "../src/runtime/pglite.ts"
@@ -290,6 +291,32 @@ describe("a Postgres Database without a server in development", () => {
     finally {
       vi.doUnmock("@electric-sql/pglite")
       vi.resetModules()
+    }
+  })
+})
+
+describe("migrations on start on PGlite", () => {
+  it("applies the migrations of each PGlite client to that client, with Drizzle's ledger rows", async () => {
+    const { PGlite } = await import("@electric-sql/pglite")
+    const { drizzle } = await import("drizzle-orm/pglite")
+    const clients = [new PGlite("memory://"), new PGlite("memory://")]
+    const migration = (name: string, when: number) => ({ dataLoss: [], hash: name, name, statements: [`CREATE TABLE "${name}" ("id" serial PRIMARY KEY)`], when })
+    const log = vi.fn()
+    try {
+      await migrateOnStart([
+        { db: drizzle({ client: clients[0]! }), dialect: "postgresql", migrations: [migration("one", 1)], name: "one" },
+        { db: drizzle({ client: clients[1]! }), dialect: "postgresql", migrations: [migration("two", 2)], name: "two" },
+      ], { log })
+
+      for (const [index, name] of ["one", "two"].entries()) {
+        const { rows } = await clients[index]!.query("select hash, created_at::text, name from drizzle.__drizzle_migrations")
+        expect(rows).toEqual([{ created_at: String(index + 1), hash: name, name }])
+        await expect(clients[index]!.query(`select count(*)::int as count from "${name}"`)).resolves.toMatchObject({ rows: [{ count: 0 }] })
+      }
+      expect(log.mock.calls.map(([message]) => message).sort()).toEqual(["[vitehub] Database \"one\": applied one.", "[vitehub] Database \"two\": applied two."])
+    }
+    finally {
+      await Promise.all(clients.map(client => client.close()))
     }
   })
 })

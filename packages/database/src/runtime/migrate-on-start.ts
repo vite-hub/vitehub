@@ -208,13 +208,12 @@ export async function migrateOnStart(databases: StartMigrationDatabase[], option
   }
   const d1Plans = await Promise.all(d1.map(({ client, database }) => planD1(client, database, options)))
   const sqlitePlans = await planSqlite(sqlite, options)
-  const postgres = databases.filter(database => database.dialect === "postgresql").map((database) => {
+  const postgres = databases.filter(database => database.dialect === "postgresql").map((database): PostgresTarget => {
     const value: unknown = Reflect.get(Object(database.db), "$client")
-    const client = isPostgresClient(value) ? value : isNodePostgresPool(value) ? toPostgresMigrationClient(value) : undefined
-    if (!client) {
-      throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: database.name, problem: "Its client is not postgres.js or a node-postgres Pool." })
-    }
-    return { client, database }
+    if (isPostgresClient(value)) return { client: value, database }
+    if (isNodePostgresPool(value)) return { client: toPostgresMigrationClient(value), database }
+    if (isPgliteClient(value)) return { client: toPgliteMigrationClient(value), database, key: pgliteKey(value) }
+    throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: database.name, problem: "Its client is not postgres.js, a node-postgres Pool, or PGlite." })
   })
   // The SQLite files change only after every Postgres database passed its check under the lock.
   await migratePostgres(postgres, {
@@ -502,6 +501,46 @@ export function toPostgresMigrationClient(pool: NodePostgresPool): PostgresMigra
   }
 }
 
+interface PgliteQueryable {
+  exec: (query: string) => Promise<Array<{ rows: Array<Record<string, unknown>> }>>
+  query: (query: string, parameters?: Array<number | string>) => Promise<{ rows: Array<Record<string, unknown>> }>
+}
+
+export interface PgliteMigrationTarget extends PgliteQueryable {
+  transaction: <T>(run: (tx: PgliteQueryable) => Promise<T>) => Promise<T>
+}
+
+function isPgliteClient(value: unknown): value is PgliteMigrationTarget {
+  return typeof value === "object" && value !== null
+    && typeof Reflect.get(value, "exec") === "function"
+    && typeof Reflect.get(value, "query") === "function"
+    && typeof Reflect.get(value, "transaction") === "function"
+}
+
+function pgliteSql(queryable: PgliteQueryable): PostgresMigrationSql {
+  return {
+    unsafe: async (query, parameters) => parameters?.length
+      ? (await queryable.query(query, parameters)).rows
+      : (await queryable.exec(query)).at(-1)?.rows ?? [],
+  }
+}
+
+const pgliteKeys = new WeakMap<object, string>()
+
+function pgliteKey(client: object): string {
+  let key = pgliteKeys.get(client)
+  if (!key) pgliteKeys.set(client, key = `pglite:${crypto.randomUUID()}`)
+  return key
+}
+
+/**
+ * Runs migrations on PGlite with the migrator of a Postgres server. `begin()` is one PGlite transaction. Like postgres.js
+ * `unsafe()`, a query without parameters uses the simple protocol, so it can hold several statements.
+ */
+export function toPgliteMigrationClient(client: PgliteMigrationTarget): PostgresMigrationClient {
+  return { ...pgliteSql(client), begin: run => client.transaction(tx => run(pgliteSql(tx))) }
+}
+
 /**
  * The key of the Postgres advisory lock that every ViteHub migration of a Postgres database holds: migrate on start
  * and `vitehub database migrate`. Advisory locks belong to one database, and so does Drizzle Kit's ledger. Read it with
@@ -518,6 +557,11 @@ const createPostgresLedger = `CREATE TABLE IF NOT EXISTS ${postgresLedger} (id S
 export interface PostgresTarget {
   client: PostgresMigrationClient
   database: Pick<StartMigrationDatabase, "migrations" | "name">
+  /**
+   * Names the database without asking the server. Each PGlite client is its own database, and two of them can report
+   * the same name and start time, so PGlite targets set it.
+   */
+  key?: string
 }
 
 /**
@@ -542,7 +586,7 @@ async function groupPostgresTargets(targets: PostgresTarget[]): Promise<Postgres
   if (targets.length < 2) return targets.length ? [targets] : []
   const groups = new Map<string, { session: string, targets: PostgresTarget[] }>()
   for (const target of targets) {
-    const { key, session } = await readPostgresIdentity(target.client)
+    const { key, session } = target.key === undefined ? await readPostgresIdentity(target.client) : { key: target.key, session: "" }
     const group = groups.get(key)
     if (group && group.session !== session) {
       throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({
