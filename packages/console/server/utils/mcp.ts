@@ -38,10 +38,10 @@ export async function projectOperation(caller: McpToolCaller | undefined, id: st
   if (result.ok) return result.value ?? null
   const { code, fix, message } = result.error
   if (code === "INTERNAL_R0026") {
-    throw new HTTPError({ message: `${operation} deletes or publishes data, so the app asks for confirmation. Tell the person what it changes, then call run_operation again with confirm: true.`, status: 409 })
+    throw new HTTPError({ message: `${operation} deletes or publishes data, and run_operation runs only operations that do not. Tell the person what it changes, then call run_destructive_operation when they agree.`, status: 409 })
   }
   if (options.readOnly && code === "CONSOLE_ACCESS_DENIED" && message.endsWith("this caller may only read.")) {
-    throw new HTTPError({ message: `${operation} changes data, and read_operation runs only operations that read. Call run_operation.`, status: 403 })
+    throw new HTTPError({ message: `${operation} changes data, and read_operation runs only operations that read. Call run_operation, or run_destructive_operation if list_operations marks it destructive.`, status: 403 })
   }
   throw new HTTPError({ message: `The app answered ${result.status}${code ? ` ${code}` : ""}: ${message}${fix ? ` Fix: ${fix}` : ""}`, status: 400 })
 }

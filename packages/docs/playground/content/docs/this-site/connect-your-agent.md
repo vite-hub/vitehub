@@ -10,7 +10,7 @@ The demo has a public docs MCP server. To edit the linked demo, use the hosted C
 | Server | Path | Sign-in | Tools |
 | --- | --- | --- | --- |
 | Docs | `/mcp` | None | `list-pages`, `get-page` |
-| Console | `https://console.vitehub.dev/mcp/account` | Console OAuth | `list_apps`, `list_operations`, `read_operation`, and `run_operation` for linked apps |
+| Console | `https://console.vitehub.dev/mcp/account` | Console OAuth | `list_apps`, `list_operations`, `read_operation`, `run_operation`, and `run_destructive_operation` for linked apps |
 
 The docs server reads the published pages. The Console server sends signed requests as your Console user, subject to the demo’s authorization policy.
 
