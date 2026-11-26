@@ -145,13 +145,18 @@ async function grantPerson(db: ConsoleDatabase, project: HostedProject, grant: C
   return roles.length ? { id: `guest:${grant.id}`, name: grant.name, roles, guest: true } : undefined
 }
 
-async function holderPerson(db: ConsoleDatabase, project: HostedProject, holder: HostedCommentsHolder, now: number): Promise<HostedCommentsPerson | undefined> {
+async function holderAccess(db: ConsoleDatabase, project: HostedProject, holder: HostedCommentsHolder, now: number): Promise<{ person: HostedCommentsPerson, until: number } | undefined> {
   if (holder.grantId) {
     const [grant] = await db.select().from(consoleSiteGrants).where(eq(consoleSiteGrants.id, holder.grantId)).limit(1)
-    return grant ? await grantPerson(db, project, grant, now) : undefined
+    const person = grant && await grantPerson(db, project, grant, now)
+    return person && { person, until: grant.expiresAt }
   }
   const member = holder.userId ? await siteMember(db, project, holder.userId) : undefined
-  return member && { ...member, roles: hostedCommentsRoles }
+  return member && { person: { ...member, roles: hostedCommentsRoles }, until: Number.POSITIVE_INFINITY }
+}
+
+async function holderPerson(db: ConsoleDatabase, project: HostedProject, holder: HostedCommentsHolder, now: number): Promise<HostedCommentsPerson | undefined> {
+  return (await holderAccess(db, project, holder, now))?.person
 }
 
 function fixedCodeDestination(project: HostedProject, value: string | null): URL | undefined {
@@ -324,14 +329,15 @@ async function mayRead(db: ConsoleDatabase, project: HostedProject, session: Hos
 }
 
 async function notifyHostedSessions(db: ConsoleDatabase, projectId: string, thread: Pick<CommentThread, "subject">): Promise<void> {
-  const now = Date.now()
   const project = await projectOf(db, projectId)
   if (!project) return
   const room = hostedCommentNoticeRoom(project.id)
   await Promise.all((await hostedCommentsTokenSessions(db, project.id)).map(async (session) => {
-    const reads = session.expiresAt > now ? await mayRead(db, project, session, now) : undefined
-    if (reads) return await notifyRealtimeRoom(hostedCommentsNoticeDefinition, room, hostedCommentsChangeNotice(thread.subject), { user: session.id })
-    if (reads !== undefined) return
+    const access = session.expiresAt > Date.now() ? await holderAccess(db, project, session, Date.now()) : undefined
+    if (access && Math.min(session.expiresAt, access.until) > Date.now()) {
+      if (!commentsRoleAllows(userOf(access.person), "read")) return
+      return await notifyRealtimeRoom(hostedCommentsNoticeDefinition, room, hostedCommentsChangeNotice(thread.subject), { user: session.id })
+    }
     await endHostedCommentsSession(db, session.id)
     await notifyRealtimeRoom(hostedCommentsNoticeDefinition, room, hostedCommentsEndedNotice, { user: session.id })
   }))
