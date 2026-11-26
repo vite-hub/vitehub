@@ -937,7 +937,20 @@ async function runOutsideTransaction(session: PostgresMigrationSession, ledger: 
   }
 }
 
-async function applyPostgresSession(session: PostgresMigrationSession, ledger: string, pending: PendingEntry[], progress: { running?: PendingEntry }, applied: (entry: PendingEntry) => void) {
+/**
+ * With `queued`, the schema of the ledger does not exist yet. The rows wait until the first commit: the transaction of
+ * the first stretch writes them after its SQL, so a migration can create the schema, and a marked file first writes
+ * them on their own, because it records itself in the ledger.
+ */
+async function applyPostgresSession(session: PostgresMigrationSession, { ledger, pending, queued }: Pick<PostgresPlan, "ledger" | "pending" | "queued">, progress: { running?: PendingEntry }, applied: (entry: PendingEntry) => void) {
+  let waiting = queued
+  const flushQueued = async () => {
+    if (!waiting) return
+    await session.unsafe(`CREATE SCHEMA IF NOT EXISTS ${quotePostgresName(waiting.schema)}`)
+    await session.unsafe(createPostgresLedger(ledger))
+    for (const row of waiting.rows) await session.unsafe(`insert into ${ledger} ("hash", "created_at", "name") values ($1, $2, $3)`, [row.hash, row.when, row.name])
+    waiting = undefined
+  }
   let stretch: PendingEntry[] = []
   const commitStretch = async () => {
     const entries = stretch
@@ -947,8 +960,10 @@ async function applyPostgresSession(session: PostgresMigrationSession, ledger: s
       for (const entry of entries) {
         progress.running = entry
         for (const statement of entry.migration.statements) await session.unsafe(statement)
-        await session.unsafe(`insert into ${ledger} ("hash", "created_at", "name") values ($1, $2, $3)`, [entry.migration.hash, entry.migration.when, entry.migration.name])
+        if (waiting) waiting.rows.push(entry.migration)
+        else await session.unsafe(`insert into ${ledger} ("hash", "created_at", "name") values ($1, $2, $3)`, [entry.migration.hash, entry.migration.when, entry.migration.name])
       }
+      await flushQueued()
     })
     entries.forEach(applied)
   }
@@ -958,11 +973,13 @@ async function applyPostgresSession(session: PostgresMigrationSession, ledger: s
       continue
     }
     await commitStretch()
+    if (waiting) await inSessionTransaction(session, flushQueued)
     progress.running = entry
     await runOutsideTransaction(session, ledger, entry)
     applied(entry)
   }
   await commitStretch()
+  if (waiting) await inSessionTransaction(session, flushQueued)
 }
 
 export interface MigratePostgresOptions extends MigrateOnStartOptions {
@@ -1027,13 +1044,14 @@ export async function migratePostgres(targets: PostgresTarget[], options: Migrat
         const plans: PostgresPlan[] = []
         for (const [index, group] of groups.entries()) {
           const plan = await inSessionTransaction(sessions[index]!, () => planPostgres(sessions[index]!, group, options))
-          progress.adopted.push(...plan.adopted)
+          // Queued rows of the first transaction were not written, so this plan adopts them again.
+          progress.adopted.push(...plan.adopted.filter(entry => !progress.adopted.some(other => other.name === entry.name && other.tag === entry.tag)))
           plans.push(plan)
         }
         logRecorded()
         await options.beforeApply?.()
-        for (const [index, { pending }] of plans.entries()) {
-          await applyPostgresSession(sessions[index]!, postgresLedgerTable(groups[index]![0]!.database.migrationsSchema), pending, progress, (entry) => {
+        for (const [index, plan] of plans.entries()) {
+          await applyPostgresSession(sessions[index]!, plan, progress, (entry) => {
             progress.applied.push(entry)
             log(`[vitehub] Database "${entry.name}": applied ${entry.migration.name}.`)
           })

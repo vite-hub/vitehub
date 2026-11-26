@@ -12,7 +12,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
 import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setup"
 
 import { readMigrationPlan } from "../src/internal/migration-plan.ts"
-import { migrateOnStart } from "../src/runtime/migrate-on-start.ts"
+import { migrateOnStart, migratePostgres, toPgliteMigrationClient } from "../src/runtime/migrate-on-start.ts"
 import { defineDatabase } from "../src/definition.ts"
 import { hubDatabase as hubDatabaseNuxt } from "../src/nuxt.ts"
 import { createDevPostgresDatabase } from "../src/runtime/pglite.ts"
@@ -443,6 +443,37 @@ describe("NuxtHub's _hub_migrations on PGlite", () => {
         { created_at: "1767225600000", hash: "hash-20260101000000_init", name: "20260101000000_init" },
         { created_at: "1767312000000", hash: "hash-20260102000000_add_body", name: "20260102000000_add_body" },
       ])
+    }
+    finally {
+      await client.close()
+    }
+  })
+
+  it.each([
+    { case: "the marked file comes first", order: ["index", "body"] },
+    { case: "a stretch comes before the marked file", order: ["body", "index"] },
+  ])("writes the queued migrationsSchema ledger rows before a marked file on PGlite when $case", async ({ order }) => {
+    const { PGlite } = await import("@electric-sql/pglite")
+    const client = new PGlite("memory://")
+    const log = vi.fn()
+    const files = {
+      body: { dataLoss: [], hash: "hash-body", name: "", statements: ["ALTER TABLE \"notes\" ADD COLUMN \"body\" text;"], when: 0 },
+      index: { dataLoss: [], hash: "hash-index", name: "", noTransaction: true as const, statements: ["CREATE INDEX CONCURRENTLY IF NOT EXISTS \"notes_title\" ON \"notes\" (\"title\");"], when: 0 },
+    }
+    const pending = order.map((key, index) => ({ ...files[key as keyof typeof files], name: `2026010${index + 2}000000_${key}`, when: 1_767_312_000_000 + index * 86_400_000 }))
+    try {
+      await client.exec(nuxtHubHistory)
+      await migratePostgres([{ client: toPgliteMigrationClient(client), createSchema: true, database: { migrations: [
+        { dataLoss: [], hash: "hash-init", name: "20260101000000_init", statements: ["CREATE TABLE \"notes\" (\"id\" serial PRIMARY KEY, \"title\" text NOT NULL);"], when: 1_767_225_600_000 },
+        ...pending,
+      ], migrationsSchema: "app", name: "default" } }], { log })
+
+      expect(log.mock.calls.map(([message]) => message)).toEqual([
+        "[vitehub] Database \"default\": recorded 20260101000000_init as applied, as _hub_migrations lists it.",
+        ...pending.map(migration => `[vitehub] Database "default": applied ${migration.name}.`),
+      ])
+      await expect(client.query("select name from app.__drizzle_migrations order by id")).resolves.toMatchObject({ rows: [{ name: "20260101000000_init" }, ...pending.map(migration => ({ name: migration.name }))] })
+      await expect(client.query("select to_regclass('drizzle.__drizzle_migrations') as ledger")).resolves.toMatchObject({ rows: [{ ledger: null }] })
     }
     finally {
       await client.close()
