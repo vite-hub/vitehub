@@ -121,6 +121,30 @@ function setup(options: { store?: CommentsOutboxStore, browser?: ReturnType<type
   return { browser, server, store, client, stop }
 }
 
+function createSlowStore() {
+  const memory = createMemoryOutboxStore()
+  const plan: Array<Promise<void> | Error> = []
+  const store: CommentsOutboxStore = {
+    persisted: false,
+    list: account => memory.list(account),
+    async update(account, change) {
+      const step = plan.shift()
+      if (step instanceof Error) throw step
+      if (step) await step
+      return memory.update(account, change)
+    },
+  }
+  return { store, plan }
+}
+
+function gate() {
+  let open!: () => void
+  const promise = new Promise<void>(resolve => open = resolve)
+  return { promise, open }
+}
+
+const settle = () => new Promise(resolve => setTimeout(resolve, 20))
+
 const stops: Array<() => void> = []
 afterEach(() => {
   for (const stop of stops.splice(0)) stop()
@@ -540,6 +564,100 @@ describe("the comments outbox", () => {
     expect(other.client.threads).toEqual([])
     expect(server.creates).toHaveLength(0)
     expect(await store.list("ben")).toHaveLength(1)
+  })
+
+  it("shows a comment and tells onChange before the store has saved it", async () => {
+    const { store, plan } = createSlowStore()
+    const { server, client } = setup({ store })
+    await vi.waitFor(() => expect(client.status).toBe("ready"))
+    const write = gate()
+    plan.push(write.promise)
+    const changes = vi.fn()
+    client.onChange(changes)
+    const created = client.create({ subject, anchor, body: "Right away" })
+    expect(changes).toHaveBeenCalled()
+    expect(client.outbox.queued.map(entry => entry.input.body)).toEqual(["Right away"])
+    expect(client.threads).toMatchObject([{ delivery: { status: "pending" }, messages: [{ body: "Right away", delivery: { status: "pending" } }] }])
+    const thread = await created
+    expect(client.threads.map(item => item.id)).toEqual([thread.id])
+    expect(await store.list(ana.id)).toEqual([])
+    write.open()
+    await vi.waitFor(() => expect(client.outbox.entries).toHaveLength(0))
+    expect(server.creates.map(input => input.body)).toEqual(["Right away"])
+  })
+
+  it("keeps the order of the calls when the first write is slower", async () => {
+    const { store, plan } = createSlowStore()
+    const { server, client } = setup({ store })
+    await vi.waitFor(() => expect(client.status).toBe("ready"))
+    const write = gate()
+    plan.push(write.promise)
+    const first = client.create({ subject, anchor, body: "First", files: [new Blob(["a bigger file"])] })
+    const second = client.create({ subject, anchor, body: "Second" })
+    expect(client.outbox.entries.map(entry => entry.input.body)).toEqual(["First", "Second"])
+    await second
+    await settle()
+    expect(server.creates).toHaveLength(0)
+    write.open()
+    await first
+    await vi.waitFor(() => expect(client.outbox.entries).toHaveLength(0))
+    expect(server.creates.map(input => input.body)).toEqual(["First", "Second"])
+  })
+
+  it("keeps a comment whose save failed, and Retry saves and sends it", async () => {
+    const { store, plan } = createSlowStore()
+    const { server, client } = setup({ store })
+    await vi.waitFor(() => expect(client.status).toBe("ready"))
+    plan.push(Object.assign(new Error("The disk is full."), { name: "QuotaExceededError" }))
+    const thread = await client.create({ subject, anchor, body: "Do not lose me", files: [new Blob(["pixels"])] })
+    await vi.waitFor(() => expect(client.outbox.failures).toHaveLength(1))
+    expect(client.outbox.failures[0]).toMatchObject({ id: thread.id, input: { body: "Do not lose me" }, error: { why: "The disk is full." } })
+    expect(client.outbox.failures[0]!.files).toHaveLength(1)
+    expect(client.threads).toMatchObject([{ id: thread.id, delivery: { status: "failed" } }])
+    expect(await store.list(ana.id)).toEqual([])
+    expect(server.creates).toHaveLength(0)
+
+    await client.outbox.retry(thread.id)
+    await vi.waitFor(() => expect(client.outbox.entries).toHaveLength(0))
+    expect(server.creates.map(input => input.body)).toEqual(["Do not lose me"])
+    expect(await server.creates[0]!.files![0]!.text()).toBe("pixels")
+  })
+
+  it("saves a comment whose files are on their way, and sends it once they arrive", async () => {
+    const { server, client, store } = setup()
+    await vi.waitFor(() => expect(client.status).toBe("ready"))
+    let deliver!: (files: Blob[]) => void
+    const files = new Promise<Blob[]>(resolve => deliver = resolve)
+    const thread = await client.create({ subject, anchor, body: "Screenshot follows", files })
+    expect(client.threads.map(item => item.id)).toEqual([thread.id])
+    await vi.waitFor(async () => expect(await store.list(ana.id)).toMatchObject([{ input: { body: "Screenshot follows" } }]))
+    await settle()
+    expect(server.creates).toHaveLength(0)
+    deliver([new Blob(["pixels"])])
+    await vi.waitFor(() => expect(server.creates).toHaveLength(1))
+    expect(await server.creates[0]!.files![0]!.text()).toBe("pixels")
+    await vi.waitFor(() => expect(client.outbox.entries).toHaveLength(0))
+  })
+
+  it("sends without the files after a reload, or when they fail", async () => {
+    const browser = createBrowser()
+    const server = createServer()
+    const store = createMemoryOutboxStore()
+    const before = setup({ browser, server, store })
+    await vi.waitFor(() => expect(before.client.status).toBe("ready"))
+    await before.client.create({ subject, anchor, body: "The page went away", files: new Promise<Blob[]>(() => undefined) })
+    await vi.waitFor(async () => expect(await store.list(ana.id)).toHaveLength(1))
+    before.stop()
+
+    const after = setup({ browser, server, store })
+    await vi.waitFor(() => expect(server.creates).toHaveLength(1))
+    expect(server.creates[0]).toMatchObject({ body: "The page went away" })
+    expect(server.creates[0]!.files ?? []).toHaveLength(0)
+    await vi.waitFor(() => expect(after.client.outbox.entries).toHaveLength(0))
+
+    await after.client.create({ subject, anchor, body: "The screenshot failed", files: Promise.reject(new Error("No canvas")) })
+    await vi.waitFor(() => expect(server.creates).toHaveLength(2))
+    expect(server.creates[1]!.files ?? []).toHaveLength(0)
   })
 
   it("clears every entry of the account", async () => {

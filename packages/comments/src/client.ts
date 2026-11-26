@@ -6,7 +6,6 @@ import type {
   CommentDeleteInput,
   CommentEditInput,
   CommentEvent,
-  CommentFiles,
   CommentGetInput,
   CommentListQuery,
   CommentReplyInput,
@@ -16,7 +15,7 @@ import type {
   CommentUser,
   CommentUsersInput,
 } from "./client-types.ts"
-import type { CommentsOutbox, CommentsOutboxOptions } from "./client-outbox.ts"
+import type { CommentsClientFiles, CommentsOutbox, CommentsOutboxOptions } from "./client-outbox.ts"
 
 export { commentsAgentPrompt } from "./agent-prompt.ts"
 export type { CommentsAgentPromptInput } from "./agent-prompt.ts"
@@ -32,7 +31,7 @@ export type {
 } from "./client-anchor.ts"
 export { commentsErrorDiagnostics } from "./client-errors.ts"
 export { createIndexedDBOutboxStore, createMemoryOutboxStore } from "./client-outbox.ts"
-export type { CommentsOutbox, CommentsOutboxEntry, CommentsOutboxEnvironment, CommentsOutboxMessage, CommentsOutboxOptions, CommentsOutboxStore } from "./client-outbox.ts"
+export type { CommentsClientFiles, CommentsOutbox, CommentsOutboxEntry, CommentsOutboxEnvironment, CommentsOutboxMessage, CommentsOutboxOptions, CommentsOutboxStore } from "./client-outbox.ts"
 export { createCommentSend } from "./client-send.ts"
 export type {
   CommentSendAgent,
@@ -67,8 +66,8 @@ export interface CommentsClientOptions {
   /** Refresh when the window gets focus and the transport cannot push updates. Default `true`. */
   refreshOnFocus?: boolean
   /**
-   * Saves each new comment and reply before it sends, so it shows at once, survives a reload, and goes out once when
-   * the network is back. Off by default: `create` and `reply` wait for the server.
+   * Shows each new comment and reply at once and saves it before it sends, so it survives a reload and goes out once
+   * when the network is back. Off by default: `create` and `reply` wait for the server.
    */
   outbox?: CommentsOutboxOptions
 }
@@ -83,10 +82,13 @@ export interface CommentsClient {
   query: CommentListQuery
   refresh: () => Promise<readonly CommentThread[]>
   get: (input: CommentGetInput) => Promise<CommentThread | null>
-  /** With an outbox, returns the waiting thread once it is saved, with a local `id` and `delivery`. */
-  create: (input: CommentCreateInput & CommentFiles) => Promise<CommentThread>
-  /** With an outbox, returns a thread view with the waiting reply once it is saved. */
-  reply: (input: CommentReplyInput & CommentFiles) => Promise<CommentThread>
+  /**
+   * With an outbox, shows the comment and returns the waiting thread at once, with a local `id` and `delivery`, while
+   * the outbox saves it. `files` may be a promise, which the outbox waits for before it sends.
+   */
+  create: (input: CommentCreateInput & CommentsClientFiles) => Promise<CommentThread>
+  /** With an outbox, shows the reply and returns a thread view with it at once. `files` may be a promise, as for `create`. */
+  reply: (input: CommentReplyInput & CommentsClientFiles) => Promise<CommentThread>
   edit: (input: CommentEditInput) => Promise<CommentThread>
   delete: (input: CommentDeleteInput) => Promise<CommentThread | null>
   resolve: (input: CommentStatusInput) => Promise<CommentThread>
@@ -102,6 +104,10 @@ export interface CommentsClient {
   start: () => () => void
   /** The saved comments and replies that have not gone out. Only with the `outbox` option. */
   readonly outbox: CommentsOutbox | undefined
+}
+
+async function filesArrived<T extends CommentsClientFiles>({ files, ...input }: T) {
+  return { ...input, ...(files ? { files: await files } : {}) }
 }
 
 /** A cache and a change signal over a transport. It has no framework in it. */
@@ -300,8 +306,8 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
       upsert(thread)
       return shown(thread.id) ?? thread
     },
-    create: async input => outbox ? outbox.create(input) : upsert(await transport.create(input)),
-    reply: input => outbox ? outbox.reply(input) : mutate(input.threadId, async () => upsert(await transport.reply(input))),
+    create: async input => outbox ? outbox.create(input) : upsert(await transport.create(await filesArrived(input))),
+    reply: input => outbox ? outbox.reply(input) : mutate(input.threadId, async () => upsert(await transport.reply(await filesArrived(input)))),
     // A comment or reply that has not gone out changes in the outbox, and sends nothing.
     edit: async (input) => {
       if (outbox?.owns(input.threadId, input.messageId)) {
