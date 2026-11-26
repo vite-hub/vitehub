@@ -130,7 +130,6 @@ export interface NamedMigration {
   tag: string
 }
 
-/** NuxtHub's name of a Postgres migration file: the name without `.sql` and without the `.postgresql` suffix. */
 function nuxtHubMigrationName(file: string): string {
   return file.replace(/\.sql$/, "").replace(/\.postgresql$/, "")
 }
