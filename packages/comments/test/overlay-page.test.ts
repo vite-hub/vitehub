@@ -15,6 +15,7 @@ const room = vi.hoisted(() => ({
   people: () => [],
   onUpdate: vi.fn(),
   onChange: vi.fn(),
+  onNotice: vi.fn(),
   notify: vi.fn(),
   setLocal: vi.fn(),
   destroy: vi.fn(),

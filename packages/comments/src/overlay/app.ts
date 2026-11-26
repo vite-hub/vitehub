@@ -1,16 +1,16 @@
 import { CommentLayer, CommentPanel, CommentSelectionBar, CommentSend } from "@vite-hub/ui/comments"
 import { useComments } from "@vite-hub/ui/headless"
 import { createMotionList, installMotion, rollNumber } from "@vite-hub/ui/motion"
-import { registerStandaloneUI, UButton } from "@vite-hub/ui/standalone/nuxt-ui"
+import { registerStandaloneUI, UButton, UIcon } from "@vite-hub/ui/standalone/nuxt-ui"
 import standaloneCss from "@vite-hub/ui/standalone/styles.css?inline"
 import uiCss from "@vite-hub/ui/styles.css?inline"
 import { computed, createApp, defineComponent, h, nextTick, onBeforeUnmount, onMounted, onUpdated, ref, shallowRef, Teleport, toRaw, watch } from "vue"
 
 import { createAnchor, fieldAttribute, fieldElementOf, selectorOf } from "../anchor.ts"
 import { anchorRange, createCommentsClient } from "../client.ts"
-import { commentsAgentPrompt } from "../agent-prompt.ts"
+import { commentsAgentPrompt, commentsT3CodeLink } from "../agent-prompt.ts"
 import { createCommentSend } from "../client-send.ts"
-import { commentRoom, commentsApiRoute, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "../page.ts"
+import { commentNoticeRoom, commentRoom, commentsApiRoute, commentsNoticeDefinition, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "../page.ts"
 import { api, createOverlaySendTransport, createOverlayTransport, overlayOutboxNamespace, readGuest, saveGuest } from "./api.ts"
 import { captureContext } from "./context.ts"
 import { createInlineEdit } from "./edit.ts"
@@ -25,7 +25,8 @@ import type { MotionList } from "@vite-hub/ui/motion"
 import type { App, VNode } from "vue"
 import type { CommentsClientFiles } from "../client.ts"
 import type { RestCommentThread } from "../rest-transport.ts"
-import type { CommentAnchor, CommentContext, CommentCreateInput, CommentEvent, CommentMessage, CommentStatus, CommentSubject, CommentUser } from "../types.ts"
+import type { CommentsAgentPromptInput, CommentsAgentPromptThread } from "../agent-prompt.ts"
+import type { CommentAnchor, CommentContext, CommentCreateInput, CommentEvent, CommentMessage, CommentStatus, CommentSubject, CommentThread, CommentUser } from "../types.ts"
 import type { CommentsApiError, CommentsSession } from "./api.ts"
 import type { MarkerBox, MarkerColor, MarkerSession, MarkerTip } from "./marker.ts"
 
@@ -234,7 +235,6 @@ function saveVisibility(value: CommentVisibility) {
   catch {}
 }
 
-const copyIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, [h("rect", { width: 14, height: 14, x: 8, y: 8, rx: 2, ry: 2 }), h("path", { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" })])
 const listIcon = () => h("svg", { width: 15, height: 15, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" }))
 
 /**
@@ -338,6 +338,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   /** The eye of the pill. Writing or opening a comment does not change it. */
   const hidden = ref(readVisibility() === "hidden")
   let room: RealtimeRoom | undefined
+  let noticeRoom: RealtimeRoom | undefined
   // Counts the joins, so a join whose Realtime client loads after a newer join or `destroy()` drops itself.
   let joins = 0
   let pageWindow: ReturnType<ViteHubPageToolContext["createWindow"]> | undefined
@@ -360,6 +361,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   /** What this person may do on the current page. The answer of `/session` for each new page replaces it. */
   const pageCan = shallowRef(session?.can)
   const pageAgent = shallowRef(session?.agent)
+  const pageRepository = shallowRef(session?.repository)
   const canComment = computed(() => Boolean(pageCan.value?.comment))
   const canAttach = computed(() => canComment.value && session?.attachments !== false)
   const needsName = computed(() => canComment.value && !me.value)
@@ -411,7 +413,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const next = createCommentsClient({
       transport: {
         ...transport,
-        // Realtime tells this page when someone else changed its threads, and polling covers the server API.
         subscribe(listener) {
           listeners.add(listener)
           return () => listeners.delete(listener)
@@ -441,17 +442,56 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const refresh = () => {
     for (const listener of listeners) listener({ type: "reconnected" })
   }
+  let roomRefresh: ReturnType<typeof setTimeout> | undefined
+  const refreshFromRoom = () => {
+    clearTimeout(roomRefresh)
+    roomRefresh = setTimeout(refresh, 100)
+  }
   const send = computed(() => {
     const path = page.value
     return session?.send ? createCommentSend(createOverlaySendTransport(() => path)) : undefined
   })
-  async function copyPrompt() {
-    const agent = pageAgent.value
-    const threadIds = state.openThreads.value.map(thread => thread.id)
-    if (!agent || !threadIds.length || resolving.value || commentOn.value || normalizeCommentPage(location.pathname) !== page.value) return
-    const prompt = commentsAgentPrompt({ ...agent, url: new URL(page.value, location.origin).href, threadIds })
-    const copied = await navigator.clipboard?.writeText(prompt).then(() => true, () => false)
+  const fileUrls = (key: string) => {
+    const url = transport.attachmentUrl(key)
+    return url ? [new URL(url, location.href).href] : []
+  }
+  const promptThread = (thread: CommentThread): CommentsAgentPromptThread => ({
+    id: thread.id,
+    anchor: thread.anchor,
+    messages: thread.messages.map(message => ({ author: message.author.name ?? message.author.id, body: message.body })),
+    ...(thread.revision === undefined ? {} : { revision: thread.revision }),
+    files: thread.messages.flatMap(message => message.attachments.flatMap(fileUrls)),
+  })
+  const promptInput = (threads: readonly CommentThread[]): CommentsAgentPromptInput => ({
+    url: new URL(page.value, location.origin).href,
+    threads: threads.map(promptThread),
+    ...(pageAgent.value ? { agent: pageAgent.value } : {}),
+  })
+  async function copyPrompt(threads: readonly CommentThread[]) {
+    const copied = await navigator.clipboard?.writeText(commentsAgentPrompt(promptInput(threads))).then(() => true, () => false)
     showToast(copied ? { text: "Prompt copied. Paste it in your agent.", kind: "info" } : { text: "Could not copy the prompt. Allow clipboard access and try again.", kind: "error" })
+  }
+  const promptActions = (threads: readonly CommentThread[], copy: { label: string, action: string }): VNode[] => {
+    const link = commentsT3CodeLink(promptInput(threads), pageRepository.value)
+    return [
+      link ? h(UButton, {
+        color: "neutral",
+        "data-action": "open-in-t3-code",
+        label: "Open in T3 Code",
+        rel: "noopener noreferrer",
+        size: "xs",
+        target: "_blank",
+        to: link,
+        variant: "ghost",
+      }, () => h(UIcon, { name: "i-lucide-arrow-up-right" })) : h("small", "Too long for T3 Code. Copy the prompt instead."),
+      h(UButton, { color: "neutral", "data-action": copy.action, icon: "i-lucide-copy", label: copy.label, onClick: () => void copyPrompt(threads), size: "xs", variant: "ghost" }),
+    ]
+  }
+  const threadActions = ({ thread }: { thread: CommentThread }): VNode[] =>
+    thread.status === "open" && !thread.delivery ? promptActions([thread], { label: "Copy", action: "copy-prompt" }) : []
+  const listActions = (): VNode[] => {
+    const threads = state.openThreads.value.filter(thread => !thread.delivery)
+    return panelStatus.value === "open" && threads.length ? promptActions(threads, { label: "Copy open", action: "copy-open-prompt" }) : []
   }
   /** How a comment that has not reached the server is doing, with Retry when the server refused it. */
   const delivery = ({ delivery: { status, error }, retry }: CommentStatusSlotScope): VNode[] => {
@@ -599,6 +639,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const realtime = await import("@vite-hub/realtime/client").catch(() => undefined)
     if (!realtime || join !== joins || !host.isConnected || context?.signal.aborted) return
     room?.destroy()
+    noticeRoom?.destroy()
     const identity = account() ?? (guest.value ? { id: `guest:${guest.value.id}`, name: `${guest.value.name} (guest)` } : undefined)
     const baseURL = commentsApiRoute(import.meta.url).slice(0, -commentsRoute.length)
     const joined = realtime.connectRealtimeRoom(commentsRealtimeDefinition, commentRoom(page.value), { identity, baseURL, params: { page: page.value } })
@@ -613,14 +654,19 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         if (changes.get(id) !== state.commentsChange) changed = true
       }
       changes = next
-      if (changed) refresh()
+      if (changed) refreshFromRoom()
     })
+    noticeRoom = realtime.connectRealtimeRoom(commentsNoticeDefinition, commentNoticeRoom(subject.value), { baseURL, params: { page: page.value } })
+    noticeRoom.onNotice(refreshFromRoom)
     room = joined
   }
   function leaveRoom() {
     joins++
+    clearTimeout(roomRefresh)
     room?.destroy()
     room = undefined
+    noticeRoom?.destroy()
+    noticeRoom = undefined
   }
 
   function showPanel() {
@@ -856,7 +902,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       return () => {
         const nodes: Array<VNode | null> = []
         if (pageCan.value?.read && !resolving.value) {
-          nodes.push(h(CommentLayer, { comments: state, readOnly: !me.value, queueFiles: canAttach.value, attachmentUrl: transport.attachmentUrl }, { default: () => [], status: delivery }))
+          nodes.push(h(CommentLayer, { comments: state, readOnly: !me.value, queueFiles: canAttach.value, attachmentUrl: transport.attachmentUrl }, { default: () => [], status: delivery, actions: threadActions }))
           nodes.push(h("div", { class: "cursors", ref: cursorLayer }, cursors()))
           nodes.push(h("div", { class: "outlines" }, outlines()))
           nodes.push(options.areas ? h(Teleport, { to: options.areas }, areas()) : h("div", { class: "areas" }, areas()))
@@ -902,7 +948,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
                 const position = state.positions.value.get(thread.id)
                 if (position && !position.detached) position.element?.scrollIntoView({ block: "center", behavior: "smooth" })
               },
-            }, { status: delivery })))
+            }, { status: delivery, actions: threadActions, "list-actions": listActions })))
           }
         }
         // The toolbar stays while the subject of a new page loads, so its buttons do not jump.
@@ -1022,15 +1068,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
           }, visibility.value === "hidden" ? eyeOffIcon() : eyeIcon())
         : null,
       send.value && canComment.value ? h(CommentSend, { client: send.value, key: `send:${page.value}` }) : null,
-      pageAgent.value && open > 0 && !commenting && !resolving.value
-        ? h("button", {
-            "aria-label": `Copy a prompt for your agent: ${open} open ${open === 1 ? "comment" : "comments"}`,
-            "data-action": "copy-prompt",
-            onClick: () => void copyPrompt(),
-            title: "Copy a prompt that sends your agent to these comments through the ViteHub MCP",
-            type: "button",
-          }, [copyIcon(), "Copy prompt"])
-        : null,
       commenting
         ? h("div", { class: "actions", role: "group", "aria-label": "Comment actions" }, [
             h("span", { class: "divider", "aria-hidden": "true" }),
@@ -1152,6 +1189,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       clearRetry()
       pageCan.value = answer.can
       pageAgent.value = answer.agent
+      pageRepository.value = answer.repository
       revision = answer.revision
       const mapped = answer.subject ?? { kind: "page", id: next }
       if (mapped.kind !== subject.value.kind || mapped.id !== subject.value.id) subject.value = mapped

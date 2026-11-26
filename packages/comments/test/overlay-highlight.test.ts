@@ -6,7 +6,7 @@ import { captureMarked } from "../src/overlay/marker.ts"
 import { pageTools, press, serveComments, startOverlay, tool, type } from "./overlay-harness.ts"
 
 vi.mock("@vite-hub/realtime/client", () => ({
-  connectRealtimeRoom: vi.fn(() => ({ states: () => new Map(), people: () => [], onUpdate: vi.fn(), onChange: vi.fn(), notify: vi.fn(), setLocal: vi.fn(), destroy: vi.fn() })),
+  connectRealtimeRoom: vi.fn(() => ({ states: () => new Map(), people: () => [], onUpdate: vi.fn(), onChange: vi.fn(), onNotice: vi.fn(), notify: vi.fn(), setLocal: vi.fn(), destroy: vi.fn() })),
 }))
 // Happy DOM draws no pixels, so the screenshot is a stand-in. The browser test takes a real one.
 vi.mock("../src/overlay/marker.ts", async importOriginal => ({

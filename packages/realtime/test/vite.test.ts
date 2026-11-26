@@ -120,13 +120,13 @@ describe("hubRealtime", () => {
 
     const { hubRealtime } = await import("../src/vite.ts")
     const plugin = hubRealtime()
-    const config = { [VITEHUB_NITRO_CONFIG_CONTEXT]: nuxt, base: "/wiki/", root, nitro: { preset: "cloudflare" } }
+    const config = { [VITEHUB_NITRO_CONFIG_CONTEXT]: nuxt, base: "/wiki/", root, nitro: { preset: "cloudflare", ...(nuxt ? { baseURL: "/wiki/" } : {}) } }
     const hook = plugin.config as unknown as (config: Record<string, unknown>) => Promise<void>
     await hook(config)
 
     expect(config.nitro).toMatchObject({
       preset: "cloudflare-module",
-      handlers: [expect.objectContaining({ lazy: true, route: "/wiki/_vitehub/realtime/**" })],
+      handlers: [expect.objectContaining({ lazy: true, route: nuxt ? "/_vitehub/realtime/**" : "/wiki/_vitehub/realtime/**" })],
       cloudflare: {
         wrangler: {
           durable_objects: {
@@ -140,6 +140,8 @@ describe("hubRealtime", () => {
       define: { __VITEHUB_APP_BASE_URL__: JSON.stringify("/wiki/") },
     })
     const plugins = (config.nitro as { plugins?: string[] }).plugins ?? []
+    const id = hookHandler(plugin.resolveId)("#vitehub/realtime/availability")
+    expect(hookHandler(plugin.load)(id)).toBe('export default { available: true, noticeBase: "/wiki" }\n')
     const durable = plugins.find(file => file.endsWith("durable-object.mjs"))
     expect(durable).toBeDefined()
     const { readFile } = await import("node:fs/promises")
@@ -275,7 +277,7 @@ describe("hubRealtime", () => {
     expect(handler).toContain(`createRealtimeHandler(registry, { bus: () => useRealtimeBus(${JSON.stringify(expected)}, { namespace: ${JSON.stringify(basename(root))} }) })`)
     const busPlugin = join(root, ".vitehub/nitro/realtime/bus.mjs")
     expect(await readFile(busPlugin, "utf8")).toContain("closeRealtimeBuses()")
-    expect(config.nitro).toMatchObject({ plugins: [busPlugin], features: { websocket: true } })
+    expect(config.nitro).toMatchObject({ plugins: [busPlugin], features: { websocket: true }, handlers: [expect.objectContaining({ lazy: false })] })
     const id = hookHandler(plugin.resolveId)("#vitehub/realtime/availability")
     expect(hookHandler(plugin.load)(id)).toBe("export default { available: true }\n")
   })

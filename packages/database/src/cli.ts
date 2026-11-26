@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url"
 import type { DatabaseOptions } from "./types.ts"
 import type { ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "./types.ts"
 import type { ViteHubCliContributor as SharedViteHubCliContributor, ViteHubCliSeed, ViteHubCliSeedOptions } from "@vite-hub/internal/cli"
-import type { AdoptedMigration, MigrationPlan } from "./internal/migration-plan.ts"
+import type { AdoptedMigration, MigrationPlan, MigrationPlanResult } from "./internal/migration-plan.ts"
 import type { SqliteSnapshot } from "./internal/snapshot-uniques.ts"
 
 import { dirname, isAbsolute, join, relative, resolve } from "pathe"
@@ -21,7 +21,7 @@ import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 import { resolveLocalSqlitePath } from "./runtime/local-path.ts"
 import { runsOnPglite } from "./runtime/postgres-env.ts"
 import { readOldMigrationsLayout } from "./internal/migrations-layout.ts"
-import { addStatementBreakpoints } from "./internal/migration-sql.ts"
+import { addStatementBreakpoints, isNoTransactionMigration, migrationParts, splitSqlStatements } from "./internal/migration-sql.ts"
 
 import type { OldMigrationsLayout } from "./internal/migrations-layout.ts"
 
@@ -688,9 +688,19 @@ async function runDrizzleKit(
   const upToDate = new Map<ResolvedDrizzleDatabaseConfig, MigrationPlan>()
   if (feature === "migrate" && (dryRun || !allowDataLoss)) {
     // Check every Database before the first one changes, so a refusal leaves all of them as they were.
+    const { readPostgresMigrationPlans } = await import("./internal/migration-plan.ts")
+    const postgresPlans = await readPostgresMigrationPlans(runs.flatMap(({ database }) => database?.dialect === "postgresql"
+      ? [{ ...database, migrationsDir: resolve(projectRoot, database.migrationsDir) }]
+      : []), { env: context.env ?? process.env, projectRoot })
+    const reported = new Set<unknown>()
     let exitCode = 0
     for (const { database } of runs) {
-      const check = await checkPendingMigrations(database, projectRoot, context, { allowDataLoss, dryRun })
+      const plan = database?.dialect === "postgresql" ? postgresPlans.get(database.name) : undefined
+      if (plan?.[0]) {
+        if (reported.has(plan[0])) continue
+        reported.add(plan[0])
+      }
+      const check = await checkPendingMigrations(database, projectRoot, context, { allowDataLoss, dryRun }, plan)
       exitCode = Math.max(exitCode, check.exitCode)
       if (database && check.plan && !check.plan.pending.length && check.plan.applied) upToDate.set(database, check.plan)
     }
@@ -900,11 +910,10 @@ async function convertFlatMigrations(
   let snapshot: string
   let names: Record<string, string> | undefined
   try {
-    if (database.dialect !== "sqlite") throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: "Only SQLite and D1 support conversion of hand-written SQL. For Postgres, use a complete Drizzle Kit 0.x journal and snapshots or convert the files manually." })
     if ((await listMigrationFolders(dir)).some(folder => /^\d{14}_/.test(folder) || existsSync(join(dir, folder, "migration.sql")))) {
       throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: "The folder already contains migration folders. Move them out of the old migrations folder before converting it." })
     }
-    moves = await Promise.all(planFlatMigrationFolders(dir).map(async move => ({ ...move, sql: addStatementBreakpoints(await readFile(join(dir, move.file), "utf8")) })))
+    moves = await Promise.all(planFlatMigrationFolders(dir).map(async move => ({ ...move, sql: addStatementBreakpoints(await readFile(join(dir, move.file), "utf8"), database.dialect) })))
     if (!moves.length) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: "There are no flat SQL files to convert." })
     if (database.cloudflare) {
       const recorded = readD1MigrationNames(dir)
@@ -913,7 +922,9 @@ async function convertFlatMigrations(
     if (await readSchemaSnapshot(context, { bin, configFile, projectRoot }) === undefined) {
       throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: "Drizzle Kit could not read the current Database Definitions. See the Drizzle Kit output above." })
     }
-    snapshot = await readReplayedSqliteSnapshot(context, { bin, moves, projectRoot })
+    snapshot = database.dialect === "postgresql"
+      ? await readReplayedPostgresSnapshot(context, { bin, moves, projectRoot })
+      : await readReplayedSqliteSnapshot(context, { bin, moves, projectRoot })
   }
   catch (error) {
     writeFlatConversionError(context, database.name, directory, error)
@@ -972,6 +983,95 @@ async function readReplayedSqliteSnapshot(
     const generated = (await listMigrationFolders(out))[0]
     if (result.exitCode !== 0 || !generated) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: "Drizzle Kit could not write a snapshot of the replayed SQL." })
     return await readFile(join(out, generated, "snapshot.json"), "utf8")
+  }
+  finally {
+    await rm(dir, { force: true, recursive: true })
+  }
+}
+
+/**
+ * Replays Postgres SQL files on a temporary PGlite folder, and returns the snapshot that `drizzle-kit pull` writes for it.
+ * A file with `-- vitehub:no-transaction` runs statement by statement, between batches of transactional migrations.
+ */
+async function readReplayedPostgresSnapshot(
+  context: ViteHubCliContext,
+  { bin, moves, projectRoot }: { bin: string, moves: readonly { file: string, sql: string }[], projectRoot: string },
+): Promise<string> {
+  let PGlite: typeof import("@electric-sql/pglite").PGlite
+  try {
+    PGlite = (createRequire(join(projectRoot, "package.json"))("@electric-sql/pglite") as typeof import("@electric-sql/pglite")).PGlite
+  }
+  catch (error) {
+    throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ cause: error, problem: "ViteHub replays Postgres SQL on PGlite to write the snapshot, but the project cannot load `@electric-sql/pglite`. Install it, for example with `pnpm add -D @electric-sql/pglite`." })
+  }
+  await mkdir(resolve(projectRoot, ".vitehub/database"), { recursive: true })
+  const dir = await mkdtemp(resolve(projectRoot, ".vitehub/database/migration-replay-"))
+  try {
+    const history = moves.map(({ file, sql }) => ({ file, parts: migrationParts(sql, "postgresql"), noTransaction: isNoTransactionMigration(sql) }))
+    const replay = async (database: InstanceType<typeof PGlite>, prefixLength = 0) => {
+      let file = ""
+      const apply = async (entry: typeof history[number], exec: (sql: string) => Promise<unknown>) => {
+        file = entry.file
+        for (const part of entry.parts) await exec(part)
+      }
+      try {
+        for (let index = 0; index < history.length;) {
+          const entry = history[index]!
+          if (entry.noTransaction) {
+            await apply(entry, part => database.exec(part))
+            index++
+            continue
+          }
+          await database.transaction(async (tx) => {
+            do {
+              await apply(history[index]!, part => tx.exec(part))
+              index++
+            } while (index < history.length && index !== prefixLength && !history[index]!.noTransaction)
+          })
+        }
+      }
+      catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        const enumHelp = (error as { code?: string })?.code === "55P04"
+          ? " Commit the enum addition before using the new value: convert and apply the prefix through the enum addition first, then add the dependent migrations."
+          : ""
+        throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ cause: error, problem: `Could not replay ${file}: ${message}.${enumHelp}` })
+      }
+    }
+    const dataDir = join(dir, "pglite")
+    const database = new PGlite(dataDir)
+    try {
+      await replay(database)
+    }
+    finally {
+      await database.close()
+    }
+    for (const [index, entry] of history.entries()) {
+      if (index === 0 || entry.noTransaction || history[index - 1]!.noTransaction) continue
+      const addsEnumValue = entry.parts.some(part => splitSqlStatements(part, "postgresql")
+        .some(statement => /^ALTER\s+TYPE\s+[\s\S]+?\s+ADD\s+VALUE\b/i.test(statement)))
+      if (!addsEnumValue) continue
+      const upgrade = new PGlite()
+      try {
+        await replay(upgrade, index)
+      }
+      finally {
+        await upgrade.close()
+      }
+    }
+    const out = join(dir, "out")
+    const result = await context.spawn(process.execPath, [bin, "pull", "--dialect", "postgresql", "--driver", "pglite", "--url", dataDir, "--out", out], {
+      cwd: projectRoot,
+      env: withDrizzleKitErrorExit(context.env ?? process.env),
+      stderr: "inherit",
+      stdout: "pipe",
+    })
+    const generated = (await listMigrationFolders(out))[0]
+    if (result.exitCode !== 0 || !generated) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: "Drizzle Kit could not write a snapshot of the replayed SQL." })
+    const { markGeneratedPostgresNames } = await import("./internal/snapshot-uniques.ts")
+    const snapshot: unknown = JSON.parse(await readFile(join(out, generated, "snapshot.json"), "utf8"))
+    markGeneratedPostgresNames(snapshot)
+    return JSON.stringify(snapshot, null, 2)
   }
   finally {
     await rm(dir, { force: true, recursive: true })
@@ -1119,6 +1219,10 @@ function writeMigrationPlan(plan: MigrationPlan, context: ViteHubCliContext) {
     const names = plan.adopted.filter(migration => migration.from === from).map(migration => migration.name)
     lines.push(`  Applied before, as ${from} lists: ${names.join(", ")}`)
   }
+  for (const from of new Set(plan.unmatched?.map(migration => migration.from))) {
+    const names = plan.unmatched!.filter(migration => migration.from === from).map(migration => migration.name)
+    lines.push(`  Not in the migrations folder, as ${from} lists: ${names.join(", ")}`)
+  }
   for (const migration of plan.pending) {
     lines.push("", `  ${migration.name}`)
     for (const statement of migration.statements) lines.push(...statement.split("\n").map(line => `    ${line}`))
@@ -1165,13 +1269,14 @@ async function checkPendingMigrations(
   projectRoot: string,
   context: ViteHubCliContext,
   { allowDataLoss, dryRun }: { allowDataLoss: boolean, dryRun: boolean },
+  preparedPlan?: MigrationPlanResult,
 ): Promise<{ exitCode: number, plan?: MigrationPlan }> {
   // Keep the database driver and migration inspector out of config-time imports.
   // The CLI contributor is loaded while Vite resolves the project config.
   const { readMigrationPlan } = await import("./internal/migration-plan.ts")
-  const [error, plan] = database
+  const [error, plan] = preparedPlan ?? (database
     ? await readMigrationPlan({ ...database, migrationsDir: resolve(projectRoot, database.migrationsDir) }, { env: context.env ?? process.env, projectRoot })
-    : [databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: "default", problem: "ViteHub has no resolved Database config. Run the command in a project that uses `hubDatabase()`." }), undefined]
+    : [databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: "default", problem: "ViteHub has no resolved Database config. Run the command in a project that uses `hubDatabase()`." }), undefined])
   if (error) {
     context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
     if (!dryRun) context.stderr.write("[vitehub] To apply the migrations without the check, run `vitehub database migrate --allow-data-loss`.\n")

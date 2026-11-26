@@ -110,9 +110,9 @@ export function readPendingMigration(migrationsDir: string, tag: string, entries
     if (before) break
     // Index-only SQL cannot change table columns. Anything else leaves the schema unknown;
     // never carry a stale snapshot across arbitrary contributed DDL.
-    const intervening = splitSqlStatements(readFileSync(migrationSqlFile(migrationsDir, entries[previous]!.tag), "utf8"))
+    const intervening = splitSqlStatements(readFileSync(migrationSqlFile(migrationsDir, entries[previous]!.tag), "utf8"), dialect)
     if (!intervening.every(statement => /^\s*(?:CREATE\s+(?:UNIQUE\s+)?INDEX\s|DROP\s+INDEX\s)/i.test(statement))) break
     before = new Map<string, string[]>()
   }
-  return { dataLoss: findDataLoss(statements, before, references), name: tag, statements }
+  return { dataLoss: findDataLoss(statements, before, references, dialect), name: tag, statements }
 }

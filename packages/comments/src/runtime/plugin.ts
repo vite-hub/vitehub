@@ -50,6 +50,8 @@ export interface CommentsPluginOptions extends CommentsSessionOptions {
   dialect?: InstallCommentsOptions["dialect"]
   /** Loads `@vite-hub/webhooks`, when `defineComments({ send })` is on. */
   webhooks?: InstallCommentsOptions["webhooks"]
+  /** Loads `@vite-hub/comments/realtime`, when the app has the page presence rooms. */
+  realtime?: InstallCommentsOptions["realtime"]
   /** Install more segments of the pill, such as the **Console** segment of `vite-hub`. Only with the overlay on. */
   pillSegments?: ReadonlyArray<(nitroApp: unknown, context: { base?: string, development: boolean }) => void>
 }
@@ -90,6 +92,7 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
         ...(options.attachments ? { attachments: options.attachments } : {}),
         ...(options.rateLimit ? { rateLimit: options.rateLimit } : {}),
         ...(options.webhooks ? { webhooks: options.webhooks } : {}),
+        ...(options.realtime ? { realtime: options.realtime } : {}),
       })
     })().catch((error: unknown) => {
       building = undefined
