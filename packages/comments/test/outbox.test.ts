@@ -137,6 +137,29 @@ function createSlowStore() {
   return { store, plan }
 }
 
+function createSerialStore() {
+  const memory = createMemoryOutboxStore()
+  const plan: Array<Promise<void>> = []
+  let queue: Promise<unknown> = Promise.resolve()
+  const serial = <T>(run: () => Promise<T>): Promise<T> => {
+    const result = queue.then(run)
+    queue = result.catch(() => undefined)
+    return result
+  }
+  const store: CommentsOutboxStore = {
+    persisted: false,
+    list: account => serial(() => memory.list(account)),
+    update(account, change) {
+      const step = plan.shift()
+      return serial(async () => {
+        await step
+        return memory.update(account, change)
+      })
+    },
+  }
+  return { store, plan }
+}
+
 function gate() {
   let open!: () => void
   const promise = new Promise<void>(resolve => open = resolve)
@@ -149,6 +172,7 @@ const stops: Array<() => void> = []
 afterEach(() => {
   for (const stop of stops.splice(0)) stop()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe("the comments outbox", () => {
@@ -616,6 +640,67 @@ describe("the comments outbox", () => {
     await first
     await vi.waitFor(() => expect(client.outbox.entries).toHaveLength(0))
     expect(server.creates.map(input => input.body)).toEqual(["First", "Second"])
+  })
+
+  it.each(["create", "reply"] as const)("keeps one tab's %s calls in order when another tab's write lands first", async (kind) => {
+    const { store, plan } = createSerialStore()
+    const browser = createBrowser()
+    const server = createServer()
+    const parent = await server.memory.create({ subject, anchor, body: "Parent" })
+    const first = setup({ browser, server, store })
+    const second = setup({ browser, server, store })
+    await vi.waitFor(() => expect([first.client.status, second.client.status]).toEqual(["ready", "ready"]))
+    const write = gate()
+    plan.push(write.promise)
+    const send = (client: typeof first.client, body: string) => kind === "create" ? client.create({ subject, anchor, body }) : client.reply({ threadId: parent.id, body })
+    await send(second.client, "Other tab")
+    await send(first.client, "One")
+    await send(first.client, "Two")
+    write.open()
+    await vi.waitFor(() => expect(first.client.outbox.entries).toHaveLength(0))
+    await vi.waitFor(() => expect(second.client.outbox.entries).toHaveLength(0))
+    const sent = (kind === "create" ? server.creates : server.replies).map(input => input.body)
+    expect(sent).toEqual(["Other tab", "One", "Two"])
+  })
+
+  it("keeps the replies of a comment whose save failed with it, and asks before the page leaves", async () => {
+    const unload = new Set<EventListener>()
+    vi.stubGlobal("addEventListener", (type: string, listener: EventListener) => type === "beforeunload" && unload.add(listener))
+    vi.stubGlobal("removeEventListener", (type: string, listener: EventListener) => type === "beforeunload" && unload.delete(listener))
+    const leave = () => {
+      const event = new Event("beforeunload", { cancelable: true })
+      for (const listener of unload) listener(event)
+      return event.defaultPrevented
+    }
+    const { store, plan } = createSlowStore()
+    const browser = createBrowser()
+    const server = createServer()
+    const { client, stop } = setup({ browser, server, store })
+    await vi.waitFor(() => expect(client.status).toBe("ready"))
+    plan.push(Object.assign(new Error("The disk is full."), { name: "QuotaExceededError" }))
+    const thread = await client.create({ subject, anchor, body: "Wrong price" })
+    await vi.waitFor(() => expect(client.outbox.failures).toHaveLength(1))
+    const replied = await client.reply({ threadId: thread.id, body: "Yearly too" })
+    expect(replied.messages.map(message => message.body)).toEqual(["Wrong price", "Yearly too"])
+    await settle()
+    expect(await store.list(ana.id)).toEqual([])
+
+    const reloaded = setup({ browser, server, store })
+    await vi.waitFor(() => expect(reloaded.client.status).toBe("ready"))
+    await settle()
+    expect(reloaded.client.outbox.entries).toEqual([])
+    expect(server.replies).toHaveLength(0)
+    reloaded.stop()
+
+    stop()
+    expect(leave()).toBe(true)
+    stops.push(client.start())
+    await client.outbox.retry(thread.id)
+    await vi.waitFor(() => expect(server.memory.threads).toHaveLength(1))
+    await vi.waitFor(() => expect(leave()).toBe(false))
+    const [stored] = server.memory.threads
+    expect(server.replies.map(input => input.threadId)).toEqual([stored!.id])
+    expect(stored!.messages.map(message => message.body)).toEqual(["Wrong price", "Yearly too"])
   })
 
   it("keeps a comment whose save failed, and Retry saves and sends it", async () => {

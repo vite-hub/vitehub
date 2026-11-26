@@ -309,7 +309,7 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
   const filesLock = (id: string): string => `vitehub-comments-files:${account}:${id}`
   let entries: CommentsOutboxEntry[] = []
   let stored: CommentsOutboxEntry[] = []
-  const unsaved = new Map<string, { entry: CommentsOutboxEntry, saved: boolean, write?: Promise<void> }>()
+  const unsaved = new Map<string, { entry: CommentsOutboxEntry, saved: boolean, parked?: boolean, write?: Promise<void> }>()
   const arriving = new Map<string, Promise<void>>()
   const written = new Set<string>()
   let lastOrder = 0
@@ -349,7 +349,19 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
   const merge = (): void => {
     const ids = new Set(stored.map(entry => entry.id))
     entries = sortEntries([...stored, ...[...unsaved.values()].flatMap(local => ids.has(local.entry.id) ? [] : [local.entry])])
+    guardUnload([...unsaved.values()].some(local => !local.saved))
     host.changed()
+  }
+  let guarded = false
+  const holdPage = (event: Event): void => {
+    event.preventDefault()
+    Reflect.set(event, "returnValue", "")
+  }
+  const guardUnload = (on: boolean): void => {
+    if (on === guarded || typeof globalThis.addEventListener !== "function") return
+    guarded = on
+    if (on) globalThis.addEventListener("beforeunload", holdPage)
+    else globalThis.removeEventListener("beforeunload", holdPage)
   }
   const changed = async (): Promise<void> => {
     await reload()
@@ -436,7 +448,7 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
     const waiting = new Set([...list, ...[...unsaved.values()].map(local => local.entry)].flatMap(entry => entry.kind === "create" ? [entry.id] : []))
     return list.find(entry => entry.status !== "failed" && !(entry.kind === "reply" && waiting.has(entry.input.threadId)))
   }
-  const saving = (order: number): boolean => [...unsaved.values()].some(local => !local.saved && local.entry.status !== "failed" && local.entry.order < order)
+  const saving = (order: number): boolean => [...unsaved.values()].some(local => !local.saved && !local.parked && local.entry.status !== "failed" && local.entry.order < order)
   const aborted = (signal: AbortSignal): Promise<void> => new Promise((resolve) => {
     if (signal.aborted) resolve()
     else signal.addEventListener("abort", () => resolve(), { once: true })
@@ -586,17 +598,31 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
     const local = unsaved.get(id)
     if (!local) return Promise.resolve()
     const run = async (): Promise<void> => {
+      local.parked = false
+      let group = [local]
       try {
-        await update((drafts) => {
-          const key = keyOf(local.entry)
-          if ([...drafts.values()].some(draft => keyOf(draft) === key)) return
+        const parked = await update((drafts) => {
+          const parent = local.entry.kind === "reply" ? unsaved.get(local.entry.input.threadId) : undefined
+          if (parent && !parent.saved && !drafts.has(parent.entry.id)) return true
           let order = local.entry.order
           for (const draft of drafts.values()) if (!written.has(draft.id)) order = Math.max(order, draft.order + 1)
-          if (order !== local.entry.order) order = Math.max(order, lastOrder + 1)
-          lastOrder = Math.max(lastOrder, order)
+          const later = [...unsaved.values()].filter(other => other !== local && !drafts.has(other.entry.id) && other.entry.order > local.entry.order)
+          let previous = order
+          for (const other of later.sort((a, b) => a.entry.order - b.entry.order)) {
+            previous = Math.max(other.entry.order, previous + 1)
+            other.entry = { ...other.entry, order: previous }
+          }
+          lastOrder = Math.max(lastOrder, previous)
           local.entry = { ...local.entry, order }
-          drafts.set(id, local.entry)
+          group = [local, ...[...unsaved.values()].filter(other => other.parked && other.entry.kind === "reply" && other.entry.input.threadId === id)]
+          const keys = new Set([...drafts.values()].map(keyOf))
+          for (const member of group) if (!keys.has(keyOf(member.entry))) drafts.set(member.entry.id, member.entry)
+          return false
         })
+        if (parked) {
+          local.parked = true
+          return
+        }
       }
       catch (cause) {
         local.entry = { ...local.entry, status: "failed", error: deliveryError(cause) }
@@ -606,7 +632,7 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
       finally {
         if (local.write === write) local.write = undefined
       }
-      local.saved = true
+      for (const member of group) Object.assign(member, { saved: true, parked: false })
       await changed().catch(() => undefined)
       kick()
     }
