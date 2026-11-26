@@ -2822,6 +2822,7 @@
     align-items: center;
     border-block-end: 1px solid var(--vh-border);
     display: flex;
+    flex-wrap: wrap;
     gap: 0.5rem;
     justify-content: space-between;
     padding: 0.5rem 0.5rem 0.5rem 0.75rem;
@@ -2837,14 +2838,20 @@
   [data-slot="comment-panel-filters"] {
     display: flex;
     flex: 1;
+    flex-wrap: wrap;
     gap: 0.25rem;
   }
 
   [data-slot="comment-panel-actions"] {
     align-items: center;
     display: flex;
+    flex-wrap: wrap;
     gap: 0.25rem;
     margin-block: -0.25rem;
+  }
+
+  [data-slot="comment-panel-actions"]:empty {
+    display: none;
   }
 
   [data-slot="comment-panel-items"] {

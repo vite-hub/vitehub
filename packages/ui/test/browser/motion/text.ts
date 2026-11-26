@@ -1,4 +1,5 @@
 import UButton from "@nuxt/ui/components/Button.vue";
+import UFieldGroup from "@nuxt/ui/components/FieldGroup.vue";
 import { h, ref } from "vue";
 import type { VNode } from "vue";
 
@@ -43,6 +44,10 @@ export function textRows(row: (title: string, children: VNode[]) => VNode): VNod
       }),
       h(CopyButton, { "data-test": "copy", "value": "pnpm add vite-hub", "aria-label": "Copy the install command" }),
       h(CopyButton, { "data-test": "copy-page", "value": "# Page", "label": "Copy page", "variant": "outline" }),
+      h(UFieldGroup, { "data-test": "copy-group", "size": "sm" }, () => [
+        h(CopyButton, { "data-test": "copy-joined", "value": "# Page", "label": "Copy page", "variant": "outline" }),
+        h(UButton, { "icon": "i-lucide-chevron-down", "variant": "outline", "aria-label": "More page actions" }),
+      ]),
       h(UButton, { "data-test": "label-toggle", "variant": "outline", "label": label.value, "onClick": () => (label.value = label.value === "Copy link" ? "Copied" : "Copy link") }),
       h(UButton, { "data-test": "loading-only", "label": "Save", "loading": loading.value }),
       h(UButton, { "data-test": "loading-toggle", "label": "Toggle loading", "onClick": () => (loading.value = !loading.value) }),

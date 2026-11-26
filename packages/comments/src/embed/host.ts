@@ -1,5 +1,6 @@
 import { viteHubPageToolsWanted } from "@vite-hub/internal/runtime/page-tools-shared"
 
+import { gitHubRepositoryOf } from "../agent-prompt.ts"
 import { commentsAnswerError, commentsUnansweredError } from "../client-diagnostics.ts"
 import { embedChannelName, embedCodeParam, embedConnectType, embedPath } from "./protocol.ts"
 
@@ -102,7 +103,7 @@ async function relayed(channel: BroadcastChannel, code: string): Promise<boolean
   })
 }
 
-async function start(projectId: string, consoleOrigin: string): Promise<void> {
+async function start(projectId: string, consoleOrigin: string, repository: string | undefined): Promise<void> {
   const code = takeCode()
   const hint = `vitehub-comments:${projectId}`
   if (!code && !remembered(hint) && !viteHubPageToolsWanted(location.search, document.cookie)) return
@@ -111,12 +112,13 @@ async function start(projectId: string, consoleOrigin: string): Promise<void> {
   const frame = connect(consoleOrigin, projectId)
   const redeem = async (value: string) => (await (await frame).call("redeem", value)).value === true
   const tools = import("./tools.ts")
+  const project = { id: projectId, console: consoleOrigin, ...(repository ? { repository } : {}) }
   channel.addEventListener("message", ({ data }: MessageEvent<EmbedRelay>) => {
     if (data.type !== "code") return
     void redeem(data.code).then((done) => {
       if (done) {
         channel.postMessage({ type: "redeemed", code: data.code } satisfies EmbedRelay)
-        void tools.then(({ mountHostedComments }) => mountHostedComments(frame, { id: projectId, console: consoleOrigin }))
+        void tools.then(({ mountHostedComments }) => mountHostedComments(frame, project))
       }
     }, () => undefined)
   })
@@ -126,9 +128,9 @@ async function start(projectId: string, consoleOrigin: string): Promise<void> {
     return
   }
   const { mountHostedComments } = await tools
-  await mountHostedComments(frame, { id: projectId, console: consoleOrigin })
+  await mountHostedComments(frame, project)
 }
 
 const script = document.querySelector<HTMLScriptElement>("script[data-vitehub-comments]")
 const projectId = script?.dataset.vitehubComments
-if (projectId) void start(projectId, new URL(import.meta.url).origin)
+if (projectId) void start(projectId, new URL(import.meta.url).origin, gitHubRepositoryOf(script?.dataset.vitehubRepo))
