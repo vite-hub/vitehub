@@ -1149,7 +1149,7 @@ it("rolls back partial Vercel output when the server bundle fails", async () => 
   expect(existsSync(join(rootDir, ".vercel", "output", "config.json"))).toBe(false)
 })
 
-it("removes root Vercel output before writing an isolated Workflow function in the same root", async () => {
+it("removes root Vercel output before writing an isolated Workflow function in the same root", { timeout: buildOutputTestTimeout }, async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-root-to-isolated-")
   const configFile = join(rootDir, ".vercel", "output", "config.json")
 
@@ -1223,7 +1223,7 @@ it("rolls back marker-owned output after an atomic state write fails", async () 
   expect(existsSync(functionRoot)).toBe(false)
 })
 
-it("preserves the active Vercel function after ownership state bookkeeping fails", async () => {
+it("preserves the active Vercel function after ownership state bookkeeping fails", { timeout: buildOutputTestTimeout }, async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-active-state-error-")
   const functionRoot = join(rootDir, ".vercel", "output", "functions", "__server.func")
   const functionFile = join(functionRoot, "index.mjs")
@@ -1248,7 +1248,7 @@ it("preserves the active Vercel function after ownership state bookkeeping fails
   expect(existsSync(join(rootDir, ".vercel", "output", "config.json"))).toBe(true)
 })
 
-it("preserves the previous Vercel function when replacement ownership fails", async () => {
+it("preserves the previous Vercel function when replacement ownership fails", { timeout: buildOutputTestTimeout }, async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-replacement-state-error-")
   const previousFunctionRoot = join(rootDir, ".vercel", "output", "functions", "__server.func")
   const replacementFunctionRoot = join(rootDir, ".vercel", "output", "functions", "__workflow.func")

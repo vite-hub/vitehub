@@ -157,8 +157,9 @@ With the account address, the agent works on the apps of the team that you opene
 | `check_app` | Answers `linked: true` when the app takes its link's signed calls. |
 | `unlink_app` | Unlinks an app and permanently deletes its hosted comment threads and replies. Pass `deleteHostedComments: true` after the user confirms. Remove the link's variable from the app as well. |
 | `list_operations` | Lists the [operations](/docs/console/operations) of an app that you may call, each with its kind, description, and input JSON Schema. |
-| `read_operation` | Runs one operation that only reads, such as `kv.list`. The app refuses an operation that changes data. |
-| `run_operation` | Runs one operation that changes data, such as `comments.create`. |
+| `read_operation` | Runs a read or dry run, such as `kv.list` or `content.publish` with `dryRun: true`. The app refuses a call that changes data. |
+| `run_operation` | Runs `comments.reply` or `comments.resolve` without confirmation. |
+| `run_destructive_operation` | Runs any other change, including operations of kind `write` such as `kv.set` and `blob.put`. Requires `confirm: true`. |
 
 To link an app, have the agent call `link_app` with its URL, set the returned line in the app's environment with `console: true`, and deploy. `check_app` then answers `linked: true`. A [supported production deploy with `vitehub deploy`](/docs/cli/project#link-the-app-in-the-console) can link the app and set the key for you. Before skipping manual setup, check that `console: true` is set, `--no-console` is not set, and `vitehub whoami` shows an owner or admin login for the same Console and team as MCP `whoami`. Check that deploy reports the expected app link and `linked: true`.
 
@@ -172,15 +173,15 @@ The CLI covers these tasks, but a Console login and a direct app signing key giv
 | `check_app` | `vitehub apps check <id>` |
 | `unlink_app` | `vitehub apps unlink <id> --delete-hosted-comments` |
 | `list_operations` | `vitehub project get --url <app>` reports the operation names allowed for the CLI caller, not the MCP caller's list or schemas. Namespace `--help` shows commands from local config, not remote operations. |
-| `read_operation`, `run_operation` | `vitehub <namespace> <operation> --url <app>` runs an operation that has a CLI command. |
+| `read_operation`, `run_operation`, `run_destructive_operation` | `vitehub <namespace> <operation> --url <app>` runs an operation that has a CLI command. For a destructive change, the CLI prompts interactively or accepts `--yes` for non-interactive use. |
 
 The `--url` commands above call the app directly. Give the CLI [its own app signing key](/docs/console/signed-requests#make-a-key-for-the-cli). `vitehub login` alone does not sign direct app requests.
 
-The Console runs each operation with a [signed request](/docs/console/signed-requests), as its UI does, so the app's `console.authorize` gets `via: "console"` and your Console user and decides what the agent may do. The agent's sign-in and the link's key never reach your app or the agent. An operation's `mcp` field can hide it (`false`). `read_operation` is marked read-only, so clients can run it without asking before a change. The app refuses a change through it. A `destructive` operation, such as `content.publish`, runs only when the agent sends `confirm: true`, so the agent asks you first.
+The Console runs each operation with a [signed request](/docs/console/signed-requests), as its UI does, so the app's `console.authorize` gets `via: "console"` and your Console user and decides what the agent may do. The agent's sign-in and the link's key never reach your app or the agent. An operation's `mcp` field can hide it (`false`). Clients that prompt only for tools marked destructive let agents reply to and resolve comments through `run_operation` without asking. Other changes use `run_destructive_operation`, which is marked destructive. The client decides whether to prompt based on that hint. The agent must ask before passing `confirm: true`: this is the caller's assertion, not proof of consent. The app refuses other changes from signed MCP callers without signed confirmation.
 
 ### Comments that an agent handles
 
-`comments.threads` lists the open comment threads of an app. After the agent makes the change that a thread asks for, it resolves the thread with `comments.resolve` and a reply that says what changed, such as the commit or a link. Resolved threads leave the page, and open ones stay on it. The agent resolves all the threads that it handled in one `run_operation` call, with `{ threads: [{ threadId, reply }] }`, so you approve it once. See [Resolve what you handled](/docs/comments/operations/server-api#resolve-what-you-handled).
+`comments.threads` lists the open comment threads of an app. After the agent makes the change that a thread asks for, it resolves the thread with `comments.resolve` and a reply that says what changed, such as the commit or a link. Resolved threads leave the page, and open ones stay on it. The agent resolves all the threads that it handled in one `run_operation` call, with `{ threads: [{ threadId, reply }] }`. See [Resolve what you handled](/docs/comments/operations/server-api#resolve-what-you-handled).
 
 ## Use it with the ViteHub skill
 

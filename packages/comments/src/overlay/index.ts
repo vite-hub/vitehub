@@ -214,7 +214,6 @@ class CommentsOverlay extends HTMLElement {
     this.on(document, "visibilitychange", () => {
       if (document.visibilityState === "visible") this.control?.refresh()
     })
-    // Writes from the server API (Console, Agents) reach open pages within 30 seconds.
     const poll = setInterval(() => {
       if (document.visibilityState === "visible") this.control?.refresh()
     }, 30_000)

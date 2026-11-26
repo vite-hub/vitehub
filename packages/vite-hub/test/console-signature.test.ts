@@ -47,12 +47,13 @@ const hidden = defineOperation<Record<string, never>, string>({
   section: false,
   mcp: false,
 })
-const drop = defineOperation<{ key: string }, { dropped: string }>({
+const drop = defineOperation<{ dryRun?: boolean, key: string }, { dropped: string } | { wouldDrop: string }>({
   description: "Delete one key.",
-  input: v.object({ key: v.string() }),
+  input: v.object({ dryRun: v.optional(v.boolean()), key: v.string() }),
   kind: "destructive",
   name: "test.drop",
-  run: async ({ key }) => ({ dropped: key }),
+  readOnlyWhen: input => input.dryRun === true,
+  run: async ({ dryRun, key }) => dryRun ? { wouldDrop: key } : { dropped: key },
   section: false,
 })
 const store = defineOperation<{ text: string }, { bytes: number }>({
@@ -377,7 +378,7 @@ describe("calls of the ViteHub MCP in the Console", () => {
     expect(project.ok && Reflect.get(Object(project.value), "operations")).toEqual(expect.arrayContaining(["test.whoami", "test.drop"]))
     expect(project.ok && Reflect.get(Object(project.value), "operations")).not.toContain("test.hidden")
     const reference = project.ok ? Reflect.get(Object(project.value), "reference") : undefined
-    expect(reference).toEqual(expect.arrayContaining([{ description: "Delete one key.", input: { properties: { key: { type: "string" } }, required: ["key"], type: "object" }, kind: "destructive", name: "test.drop" }]))
+    expect(reference).toEqual(expect.arrayContaining([{ description: "Delete one key.", input: { properties: { dryRun: { type: "boolean" }, key: { type: "string" } }, required: ["key"], type: "object" }, kind: "destructive", name: "test.drop" }]))
     expect(reference).not.toContainEqual(expect.objectContaining({ name: "test.hidden" }))
     // The sections of the Console page are for the page, not for MCP clients.
     expect(project.ok && Object.hasOwn(Object(project.value), "navigation")).toBe(false)
@@ -404,6 +405,15 @@ describe("calls of the ViteHub MCP in the Console", () => {
     await expect(callAsMcp("test.drop", { key: "a" }, reader)).resolves.toMatchObject({ error: { code: "CONSOLE_ACCESS_DENIED", message: "test.drop is a destructive operation, and this caller may only read.", status: 403 }, ok: false })
   })
 
+  it("requires signed MCP confirmation for ordinary writes but not for dry runs or CLI writes", async () => {
+    stubKeys(link.env)
+    install()
+    await expect(callAsMcp("test.store", { text: "x" })).resolves.toMatchObject({ error: { status: 409 }, ok: false })
+    await expect(callAsMcp("test.store", { text: "x" }, mcpCaller(true))).resolves.toMatchObject({ ok: true, value: { bytes: 1 } })
+    await expect(callAsMcp("test.store", { text: "x" }, { ...person, surface: "cli" })).resolves.toMatchObject({ ok: true, value: { bytes: 1 } })
+    await expect(callAsMcp("test.drop", { dryRun: true, key: "a" }, { ...person, readOnly: true, surface: "mcp" })).resolves.toMatchObject({ ok: true, value: { wouldDrop: "a" } })
+  })
+
   it("does not take the confirmation from an unsigned header or a changed caller", async () => {
     stubKeys(link.env)
     install()
@@ -421,6 +431,6 @@ describe("calls of the ViteHub MCP in the Console", () => {
     stubKeys(link.env)
     install()
     const text = "x".repeat(512 * 1024)
-    await expect(callAsMcp("test.store", { text })).resolves.toMatchObject({ ok: true, value: { bytes: text.length } })
+    await expect(callAsMcp("test.store", { text }, mcpCaller(true))).resolves.toMatchObject({ ok: true, value: { bytes: text.length } })
   })
 })

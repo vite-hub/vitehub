@@ -6,7 +6,7 @@ import { captureMarked } from "../src/overlay/marker.ts"
 import { pageTools, press, serveComments, startOverlay, tool, type } from "./overlay-harness.ts"
 
 vi.mock("@vite-hub/realtime/client", () => ({
-  connectRealtimeRoom: vi.fn(() => ({ states: () => new Map(), people: () => [], onUpdate: vi.fn(), onChange: vi.fn(), notify: vi.fn(), setLocal: vi.fn(), destroy: vi.fn() })),
+  connectRealtimeRoom: vi.fn(() => ({ states: () => new Map(), people: () => [], onUpdate: vi.fn(), onChange: vi.fn(), onNotice: vi.fn(), notify: vi.fn(), setLocal: vi.fn(), destroy: vi.fn() })),
 }))
 // Happy DOM draws no pixels, so the screenshot is a stand-in. The browser test takes a real one.
 vi.mock("../src/overlay/marker.ts", async importOriginal => ({
@@ -155,6 +155,30 @@ describe("Highlight in the Comments segment", () => {
     expect(thread!.messages[0]!.body).toBe("This price is wrong")
     expect(thread!.messages[0]!.attachments).toEqual(["files/highlight.webp"])
     expect(stored).toEqual(["highlight.webp image/webp"])
+  })
+
+  it("sends a file the reader picked with the picture that arrives after Send", async () => {
+    let picture!: (blob: Blob | undefined) => void
+    vi.mocked(captureMarked).mockReturnValueOnce(new Promise((resolve) => { picture = resolve }))
+    const { bar, shadow, comments, stored } = await site()
+    tool(bar, "Highlight")!.click()
+    await vi.waitFor(() => expect(layer()).not.toBeNull())
+    stroke([[20, 20], [70, 22], [120, 24]])
+    await vi.waitFor(() => expect(button(bar, "Done")?.disabled).toBe(false))
+    button(bar, "Done")!.click()
+    await vi.waitFor(() => expect(commentBox(shadow)).not.toBeNull())
+    const picker = shadow.querySelector<HTMLInputElement>('[data-slot="comment-layer-popover"] input[type="file"]')!
+    Object.defineProperty(picker, "files", { configurable: true, value: [new File(["png bytes"], "shot.png", { type: "image/png" })] })
+    picker.dispatchEvent(new Event("change", { bubbles: true }))
+    await type(commentBox(shadow)!, "Both pictures")
+    await vi.waitFor(() => expect(shadow.querySelector('[data-slot="comment-layer-popover"] [data-slot="comment-image-stack"] img[alt="shot.png"]')).not.toBeNull())
+    press(commentBox(shadow)!, "Enter")
+    await vi.waitFor(() => expect(commentBox(shadow)).toBeNull())
+
+    picture(new Blob(["webp bytes"], { type: "image/webp" }))
+    await vi.waitFor(async () => expect((await comments.list())[1]).toHaveLength(1))
+    expect((await comments.list())[1]![0]!.messages[0]!.attachments).toEqual(["files/shot.png", "files/highlight.webp"])
+    expect(stored).toEqual(["shot.png image/png", "highlight.webp image/webp"])
   })
 
   it("toggles with B, undoes the last stroke, keeps the page still, and cancels with Esc", async () => {
