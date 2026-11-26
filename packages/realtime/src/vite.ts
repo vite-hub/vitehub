@@ -203,6 +203,7 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
   let inspectionDriver: RealtimeInspectionDriver = options.driver ?? "auto"
   let inspectionContributed: DiscoveredRealtimeDefinition[] = []
   let hasRoomDriver = false
+  let noticeBase = ""
   const databaseImport = options.databaseImport ?? "@vite-hub/database/drizzle"
   let databasePlugin: DatabaseVitePlugin | undefined
   let postgresDatabase = false
@@ -335,8 +336,10 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       nitro.features = { ...nitro.features, websocket: true }
       const kit = createNitroServerKit(nitro)
       const { mount } = viteHubPageToolsBase(config)
+      const { base: nitroBase } = viteHubPageToolsBase({ base: nitro.baseURL ?? process.env.NITRO_APP_BASE_URL })
+      noticeBase = `${nitroBase}${mount}`
       // Each definition sets `authorize` or `access: "public"`, and the handler checks it.
-      kit.addHandler({ handler: handlerFile, lazy: true, meta: { ...ownAccessRouteMeta }, route: `${mount}/_vitehub/realtime/**` })
+      kit.addHandler({ handler: handlerFile, lazy: !nodeDriver, meta: { ...ownAccessRouteMeta }, route: `${mount}/_vitehub/realtime/**` })
       if (durablePlugin) kit.addPlugin(durablePlugin)
       if (busPlugin) kit.addPlugin(busPlugin)
       for (const plugin of contribution?.plugins ?? []) kit.addPlugin(plugin)
@@ -362,7 +365,7 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       filter: { id: /^\0#vitehub\/realtime\/availability$/ },
       handler(id) {
         if (id === resolvedRealtimeAvailabilityId) {
-          return hasRoomDriver ? "export default { available: true }\n" : `export default ${JSON.stringify(unavailable)}\n`
+          return hasRoomDriver ? `export default { available: true${noticeBase ? `, noticeBase: ${JSON.stringify(noticeBase)}` : ""} }\n` : `export default ${JSON.stringify(unavailable)}\n`
         }
       },
     },

@@ -121,7 +121,7 @@ Comments normalizes `page` before storing or comparing: it drops the query and h
 
 `COMMENTS_NOT_INSTALLED` means the method ran before the server installed Comments, such as at import time. See [Limits and errors](/docs/comments/limits-and-errors).
 
-When the host has Realtime, open pages read their threads again as soon as a server-side change is written. Without Realtime, they see the change on tab focus, or within 30 seconds while visible.
+When the host has Realtime, open pages displaying the changed subject read their threads again after a server write. This also works for custom subjects shared by several paths, even when a thread has no creation URL. Without Realtime, pages see the change on tab focus, or within 30 seconds while visible.
 
 ## Types
 
@@ -380,6 +380,8 @@ Field paths use dots between keys, such as `hero.title` or `cards.0.title`. An i
 When the host has a [Realtime room driver](/docs/realtime/configure#choose-a-driver), Comments adds the Realtime Definition `comments`, with one room per page. The overlay connects read-only and shares only presence: who is on the page, and each cursor as an element and a point in its box. The room stores nothing; threads stay in the Database.
 
 The server sets each person in the room from `identify` or the Auth session, and checks `authorize` with `read` and the page subject. Clients send the normalized page in `params: { page }`, and the server checks that the room is `commentRoom(page)` before it grants access. After a change, the overlay sends other browsers a data-free hint, and they reload threads over HTTP.
+
+The overlay also joins `comments-notices` for its current subject. The server resolves the subject from the requested page and checks the same read policy before granting access. This room does not share presence; its notices only tell tabs to reload through the Comments API.
 
 `connectRealtimeRoom(definition, documentId, options?)` from `vite-hub/realtime/client` is the overlay's client. It joins one room for presence without editing the document. See [Realtime server API](/docs/realtime/server-api#presence-without-an-editor).
 

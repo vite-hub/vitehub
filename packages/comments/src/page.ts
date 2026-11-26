@@ -1,6 +1,6 @@
 import { pagePathOf } from "./operations-core/path.ts"
 
-import type { CommentThread } from "./operations-core/types.ts"
+import type { CommentSubject } from "./operations-core/types.ts"
 
 /**
  * The numbering scope of page threads: subjects of kind `page`, which the overlay pins on the app's pages. Threads on
@@ -10,6 +10,7 @@ export const commentsPageScope = "site"
 
 /** Name of the Realtime Definition that holds one presence room per page. */
 export const commentsRealtimeDefinition = "comments"
+export const commentsNoticeDefinition = "comments-notices"
 
 /** The route prefix of the Comments API, below the app base. */
 export const commentsRoute = "/_vitehub/comments"
@@ -52,8 +53,6 @@ export function commentRoom(page: string): string {
   return `pages/${a.toString(16).padStart(8, "0")}${b.toString(16).padStart(8, "0")}`
 }
 
-/** The page that shows a thread: the id of its `page` subject, else the page where someone started it. */
-export function commentThreadPage(thread: Pick<CommentThread, "context" | "subject">): string | undefined {
-  if (thread.subject.kind === "page") return normalizeCommentPage(thread.subject.id)
-  return thread.context?.url ? normalizeCommentPage(thread.context.url) : undefined
+export function commentNoticeRoom(subject: CommentSubject): string {
+  return `subjects/${encodeURIComponent(JSON.stringify([subject.kind, subject.id]))}`
 }
