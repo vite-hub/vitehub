@@ -32,7 +32,6 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-/** A site where `user` is signed in, and Ada and Grace may be mentioned. */
 async function site(user: CommentsUser | null = ada, options: Parameters<typeof serveComments>[0] = {}, before?: (comments: Awaited<ReturnType<typeof serveComments>>["comments"]) => Promise<unknown>) {
   const server = await serveComments({
     identify: () => user,
@@ -334,7 +333,6 @@ describe("the Comments overlay on the comment parts", () => {
     await vi.waitFor(async () => expect((await comments.list())[1]).toHaveLength(1))
     expect((await comments.list())[1]![0]!.author).toEqual(ada)
     const sent = requests.find(request => request.method === "POST" && request.path.endsWith("/threads"))!
-    // The server prefers the account; the headers of an earlier guest session change nothing.
     expect(sent.headers.get("x-vitehub-comments-guest-id")).toBe(readGuest()!.id)
   })
 
@@ -442,6 +440,82 @@ describe("the Comments overlay on the comment parts", () => {
     expect((await comments.list())[1]![0]).toMatchObject({ subject: { kind: "drop", id: "pricing" }, revision: 4 })
   })
 
+  it("closes the composer on Send, takes the next comment while the first goes out, and keeps a refused one for Retry", async () => {
+    const confirm = vi.fn(() => false)
+    vi.stubGlobal("confirm", confirm)
+    const { shadow, comments, fetch, context } = await site()
+    const served = fetch.getMockImplementation()!
+    const held: Array<(answer?: Response) => void> = []
+    fetch.mockImplementation(async (input, init = {}) => {
+      if (init.method !== "POST" || !String(input).endsWith("/threads")) return await served(input, init)
+      const answer = await new Promise<Response | undefined>(resolve => held.push(resolve))
+      return answer ?? await served(input, init)
+    })
+    const pins = () => [...shadow.querySelectorAll<HTMLElement>("[data-slot='comment-pin'][data-thread-id]")]
+
+    press(document.body, "c")
+    await clickPage(shadow, 60, 20)
+    await vi.waitFor(() => expect(composer(shadow, "Comment")).not.toBeNull())
+    await type(composer(shadow, "Comment")!, "The first note")
+    press(composer(shadow, "Comment")!, "Enter")
+    await vi.waitFor(() => expect(composer(shadow, "Comment")).toBeNull())
+    await vi.waitFor(() => expect(pins().map(pin => pin.dataset.pending)).toEqual(["true"]))
+    await vi.waitFor(() => expect(held).toHaveLength(1))
+
+    await clickPage(shadow, 300, 200)
+    await vi.waitFor(() => expect(composer(shadow, "Comment")).not.toBeNull())
+    await type(composer(shadow, "Comment")!, "The second note")
+    press(composer(shadow, "Comment")!, "Enter")
+    await vi.waitFor(() => expect(composer(shadow, "Comment")).toBeNull())
+    await vi.waitFor(() => expect(pins().map(pin => pin.dataset.pending)).toEqual(["true", "true"]))
+    const beforeExit = (context.beforeExit.mock.calls as unknown as Array<[() => boolean]>)[0]![0]
+    expect(beforeExit()).toBe(true)
+    expect(confirm).not.toHaveBeenCalled()
+
+    held[0]!(Response.json({ error: { code: "COMMENTS_TEST", why: "The page is locked." } }, { status: 422 }))
+    await vi.waitFor(() => expect(held).toHaveLength(2))
+    held[1]!()
+    await vi.waitFor(async () => expect((await comments.list())[1]!.map(thread => thread.messages[0]!.body)).toEqual(["The second note"]))
+    await vi.waitFor(() => expect(shadow.querySelector("[data-slot='comment-pin'][data-failed='true']")).not.toBeNull())
+
+    shadow.querySelector<HTMLElement>("[data-slot='comment-pin'][data-failed='true']")!.click()
+    await vi.waitFor(() => expect(shadow.querySelector("[data-slot='comment-thread']:not([data-preview])")?.textContent).toContain("The first note"))
+    const thread = shadow.querySelector("[data-slot='comment-thread']:not([data-preview])")!
+    expect(thread.textContent).toContain("The page is locked.")
+    const retry = [...thread.querySelectorAll("button")].find(button => button.textContent?.trim() === "Retry")!
+    retry.click()
+    await vi.waitFor(() => expect(held).toHaveLength(3))
+    held[2]!()
+    await vi.waitFor(async () => expect((await comments.list())[1]!.map(thread => thread.messages[0]!.body).sort()).toEqual(["The first note", "The second note"]))
+    await vi.waitFor(() => expect(shadow.querySelector("[data-slot='comment-pin'][data-pending], [data-slot='comment-pin'][data-failed]")).toBeNull())
+  })
+
+  it("lets the author retry a comment held after a 401", async () => {
+    const { shadow, comments, fetch } = await site()
+    const served = fetch.getMockImplementation()!
+    let signedIn = false
+    fetch.mockImplementation(async (input, init = {}) => {
+      if (!signedIn && init.method === "POST" && String(input).endsWith("/threads")) {
+        return Response.json({ error: { code: "COMMENTS_TEST", why: "Sign in to send." } }, { status: 401 })
+      }
+      return served(input, init)
+    })
+
+    press(document.body, "c")
+    await clickPage(shadow, 60, 20)
+    await vi.waitFor(() => expect(composer(shadow, "Comment")).not.toBeNull())
+    await type(composer(shadow, "Comment")!, "Keep this note")
+    press(composer(shadow, "Comment")!, "Enter")
+    const pin = "[data-slot='comment-pin'][data-pending='true']"
+    await vi.waitFor(() => expect(shadow.querySelector(pin)).not.toBeNull())
+    shadow.querySelector<HTMLElement>(pin)!.click()
+    const retry = () => [...shadow.querySelectorAll("button")].find(button => button.textContent?.trim() === "Retry")
+    await vi.waitFor(() => expect(retry()).toBeDefined())
+    signedIn = true
+    retry()!.click()
+    await vi.waitFor(async () => expect((await comments.list())[1]![0]?.messages[0]?.body).toBe("Keep this note"))
+  })
+
   it("keeps comments paused and offers Retry when the session of the new page fails", async () => {
     const session = api.session
     let fail = true
@@ -456,7 +530,6 @@ describe("the Comments overlay on the comment parts", () => {
     press(document.body, "c")
     history.pushState(null, "", "/d/abc")
     await vi.waitFor(() => expect(shadow.querySelector(".toast")?.textContent).toContain("Comments are paused"))
-    // No comment starts on a guessed subject.
     expect(shadow.querySelector("[data-slot='comment-layer-overlay']")).toBeNull()
     fail = false
     const retry = [...shadow.querySelectorAll<HTMLButtonElement>(".toast button")].find(button => button.textContent === "Retry")!
@@ -492,7 +565,6 @@ describe("the Comments overlay on the comment parts", () => {
     history.pushState(null, "", "/d/next")
     await vi.waitFor(() => expect(vi.mocked(api.session)).toHaveBeenCalledWith("/d/next"))
     await vi.waitFor(() => expect(shadow.querySelector(".toast")).toBeNull())
-    // A click that was already on its way when the toast went.
     retry.click()
     const calls = vi.mocked(api.session).mock.calls.length
     release()
@@ -506,7 +578,6 @@ describe("the Comments overlay on the comment parts", () => {
     const held = new Promise<void>((resolve) => { release = resolve })
     let calls = 0
     vi.spyOn(api, "session").mockImplementation(async (page) => {
-      // The first answer for /d/abc comes last and is out of date.
       if (page === "/d/abc" && calls++ === 0) {
         await held
         const [error, answer] = await session(page)
@@ -518,7 +589,6 @@ describe("the Comments overlay on the comment parts", () => {
       subjects: [defineCommentSubject({ kind: "drop", scope: id => `drop:${id}` })],
       page: ({ url }) => url.pathname.startsWith("/d/") ? { kind: "drop", id: url.pathname.slice(3) } : undefined,
     })
-    // Each navigation asks the session route before the next one starts.
     for (const path of ["/d/abc", "/d/other", "/d/abc"]) {
       const before = vi.mocked(api.session).mock.calls.length
       history.pushState(null, "", path)
@@ -562,7 +632,6 @@ describe("the Comments overlay on the comment parts", () => {
     await vi.waitFor(() => expect(commentsButton(bar)!.getAttribute("aria-pressed")).toBe("true"))
     history.pushState(null, "", "/d/abc")
     await vi.waitFor(() => expect(shadow.querySelector("[data-slot='comment-layer-overlay']")).toBeNull())
-    // Comment mode waits for the subject, and the button still shows it on.
     expect(commentsButton(bar)!.getAttribute("aria-pressed")).toBe("true")
     commentsButton(bar)!.click()
     await vi.waitFor(() => expect(commentsButton(bar)!.getAttribute("aria-pressed")).toBe("false"))
@@ -588,13 +657,11 @@ describe("the Comments overlay on the comment parts", () => {
     history.pushState(null, "", "/d/abc")
     await vi.waitFor(() => expect(shadow.querySelector("[data-slot='comment-layer-overlay']")).toBeNull())
     press(document.querySelector("h1")!, "Enter")
-    // C turns the waiting comment mode off and on again, and starts nothing.
     press(document.body, "c")
     press(document.body, "c")
     await new Promise(resolve => setTimeout(resolve, 20))
     expect(composer(shadow, "Comment")).toBeNull()
     answer()
-    // Comment mode comes back on the drop, and a comment typed now stays.
     await clickPage(shadow, 60, 20)
     await vi.waitFor(() => expect(composer(shadow, "Comment")).not.toBeNull())
     await type(composer(shadow, "Comment")!, "On abc")
@@ -620,7 +687,6 @@ describe("the Comments overlay on the comment parts", () => {
     expect(panel.textContent).toContain("Open one")
     panel.querySelector<HTMLButtonElement>('[data-slot="comment-panel-filter"][data-state="off"]')!.click()
     await vi.waitFor(() => expect(panel.textContent).toContain("Done one"))
-    // Resolved pins show on the page while the list shows resolved threads.
     await vi.waitFor(() => expect(shadow.querySelectorAll('[data-slot="comment-pin"][data-status="resolved"]')).toHaveLength(1))
   })
 

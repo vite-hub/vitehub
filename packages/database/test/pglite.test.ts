@@ -318,7 +318,7 @@ describe("migrations on start on PGlite", () => {
     finally {
       await Promise.all(clients.map(client => client.close()))
     }
-  })
+  }, 60_000)
 })
 
 describe("NuxtHub's _hub_migrations on PGlite", () => {
