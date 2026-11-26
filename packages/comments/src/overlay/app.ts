@@ -305,15 +305,14 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const panelOpen = ref(false)
   const panelTarget = shallowRef<HTMLElement>()
   const editing = ref(false)
-  /** The ink being drawn, how much there is, the tip and color, and whether Done is taking the screenshot. */
   let marker: MarkerSession | undefined
   const marking = ref(false)
   const marks = ref(0)
   const markTip = ref<MarkerTip>("marker")
   const markColor = ref<MarkerColor>("pink")
-  const finishing = ref(false)
   /** Strokes that stay on the page while their comment is written, and that comment. */
   let ink: { session: MarkerSession, draft: unknown } | undefined
+  const pictures = new WeakMap<CommentAnchor, { files: Promise<File[]>, sent: boolean }>()
   const hover = shallowRef<Element>()
   const drafted = ref(new Set<string>())
   const naming = ref(false)
@@ -416,10 +415,15 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const create = next.create
     next.create = (input) => {
       const shown = input.revision ?? revision
+      const picture = pictures.get(input.anchor)
+      pictures.delete(input.anchor)
+      if (picture) picture.sent = true
+      const files = picture ? Promise.all([input.files ?? [], picture.files]).then(([own, taken]) => [...own, ...taken]) : input.files
       const sent: CommentCreateInput & CommentsClientFiles & { context?: CommentContext } = {
         ...input,
         context: contexts.get(input.anchor) ?? captureContext(undefined),
         ...(shown === undefined ? {} : { revision: shown }),
+        ...(files ? { files } : {}),
       }
       return create(sent)
     }
@@ -517,7 +521,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       tip: () => markTip.value,
       color: () => markerColors[markColor.value],
       onChange: () => (marks.value = marker?.strokes().length ?? 0),
-      onSubmit: () => void finishMarking(),
+      onSubmit: finishMarking,
     })
     marks.value = 0
     marking.value = true
@@ -533,46 +537,48 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     ink = undefined
   }
   /**
-   * Done: a screenshot of the screen with the strokes on it, then a new comment on the area they cover, as in Drop. The
-   * screenshot starts in the comment's box as an attached file, and the strokes stay on the page while it is written.
+   * Done: a new comment on the area the strokes cover, as in Drop, and a screenshot of the screen with the strokes on
+   * it. The box opens at once and the strokes stay on the page while it is written. The screenshot reads the page as
+   * it is at Done and draws the strokes from their points, and the comment sends with it once it is taken.
    */
-  async function finishMarking() {
+  function finishMarking() {
     const session = marker
     // A label being typed goes down as it is.
     session?.commit()
     const strokes = session?.strokes() ?? []
     const box = markerBox(strokes)
-    if (!session || !box || finishing.value) return
-    finishing.value = true
+    if (!session || !box) return
     session.freeze()
+    const shot = captureMarked(strokes, node => node instanceof Element && ignored(node))
+    marker = undefined
+    marking.value = false
+    marks.value = 0
+    const before = state.draft.value
+    const element = areaContainer(box, markerTips.marker.width / 2 + 1)
     try {
-      const shot = await captureMarked(strokes, node => node instanceof Element && ignored(node))
-      // Cancel or Esc while the screenshot was taken.
-      if (marker !== session) return
-      marker = undefined
-      marking.value = false
-      marks.value = 0
-      if (!shot) showToast({ text: "This page could not be drawn as a picture. The comment marks the area without one.", kind: "info" })
-      const files = shot ? [new File([shot], "highlight.webp", { type: shot.type })] : []
-      const before = state.draft.value
-      const element = areaContainer(box, markerTips.marker.width / 2 + 1)
-      try {
-        if (element) {
-          const area = clip(box, element)
-          state.startDraft(element, { area, point: { x: area.left, y: area.top }, files })
-        }
-        else state.startDraft("page", { files })
+      if (element) {
+        const area = clip(box, element)
+        state.startDraft(element, { area, point: { x: area.left, y: area.top } })
       }
-      catch {
-        // The area is outside the page.
-      }
-      // A box that still holds text keeps its draft, and the strokes go.
-      if (state.draft.value === before) session.remove()
-      else ink = { session, draft: state.draft.value }
+      else state.startDraft("page")
     }
-    finally {
-      finishing.value = false
+    catch {
+      // The area is outside the page.
     }
+    const draft = state.draft.value
+    if (!draft || draft === before) {
+      session.remove()
+      return
+    }
+    ink = { session, draft }
+    const picture = {
+      files: shot.then(blob => blob ? [new File([blob], "highlight.webp", { type: blob.type })] : [], () => []),
+      sent: false,
+    }
+    pictures.set(toRaw(draft.anchor), picture)
+    void picture.files.then((files) => {
+      if (!files.length && (picture.sent || state.draft.value === draft)) showToast({ text: "This page could not be drawn as a picture. The comment marks the area without one.", kind: "info" })
+    })
   }
 
   // The Realtime client, with Yjs, is a chunk of its own: only a site with presence loads it, after the threads.
@@ -833,7 +839,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       // are found again then.
       watch([pageChanges, state.pageThreads, state.openId, state.hoverId, () => state.draft.value?.anchor, state.shown], paintHighlights, { flush: "post" })
       watch(() => state.draft.value, trackSelection)
-      // The strokes go once their comment is sent or closed.
       watch(() => state.draft.value, (draft) => {
         if (ink && draft !== ink.draft) dropInk()
       })
@@ -914,7 +919,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
 
   /** While the person highlights: the tips, the colors, Undo, Cancel, and Done, as Drop's Marker controls. */
   function markerToolbar(): VNode {
-    const busy = finishing.value
     // A press on a color keeps the focus in the label being typed, so the color goes to that label.
     const keepFocus = (event: MouseEvent) => event.preventDefault()
     return h("div", { class: "toolbar", role: "group", "aria-label": "Highlight" }, [
@@ -926,7 +930,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         "aria-keyshortcuts": markerTips[tip].key,
         "aria-pressed": String(markTip.value === tip),
         title: `${markerTips[tip].label} (${markerTips[tip].key})`,
-        disabled: busy,
         onClick: () => pickTip(tip),
       }, tipIcons[tip]()))),
       h("span", { class: "sep" }),
@@ -936,7 +939,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         type: "button",
         "aria-label": `${name[0]!.toUpperCase()}${name.slice(1)} ink`,
         "aria-pressed": String(markColor.value === name),
-        disabled: busy,
         onMousedown: keepFocus,
         onClick: () => {
           markColor.value = name
@@ -944,9 +946,9 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         },
       }, h("span", { style: { background: markerColors[name] } })))),
       h("span", { class: "sep" }),
-      h("button", { type: "button", class: "icon", "aria-label": "Undo", "aria-keyshortcuts": "Meta+Z Control+Z", title: "Undo", disabled: busy || marks.value === 0, onClick: () => marker?.undo() }, undoIcon()),
-      h("button", { type: "button", disabled: busy, onClick: () => setMode("view"), title: "Cancel (Esc)" }, "Cancel"),
-      h("button", { type: "button", class: "done", "aria-keyshortcuts": "Enter", "aria-busy": busy ? "true" : undefined, disabled: !busy && marks.value === 0, onClick: () => void finishMarking(), title: "Comment on the highlighted area (Enter)" }, busy ? "Taking picture…" : "Done"),
+      h("button", { type: "button", class: "icon", "aria-label": "Undo", "aria-keyshortcuts": "Meta+Z Control+Z", title: "Undo", disabled: marks.value === 0, onClick: () => marker?.undo() }, undoIcon()),
+      h("button", { type: "button", onClick: () => setMode("view"), title: "Cancel (Esc)" }, "Cancel"),
+      h("button", { type: "button", class: "done", "aria-keyshortcuts": "Enter", disabled: marks.value === 0, onClick: finishMarking, title: "Comment on the highlighted area (Enter)" }, "Done"),
     ])
   }
 
@@ -970,7 +972,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
    */
   function toolbar(): VNode {
     void tick.value
-    if (marking.value || finishing.value) return markerToolbar()
+    if (marking.value) return markerToolbar()
     const signOutUrl = session?.signOut
     const github = signOutUrl ? session?.github : undefined
     const people = showPresence ? others(room?.people() ?? [], me.value?.id) : []
@@ -1181,10 +1183,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       page.value = next
       search.value = location.search
       panelThread.value = null
-      // Strokes mark the screen of the old page.
       if (marking.value) setMode("view")
       dropInk()
-      // The Retry of the previous page does not apply here.
       clearRetry()
       // Comment mode pauses until the subject is known: in it, Enter on an element starts a comment.
       paused.value = paused.value || state.active.value
@@ -1231,7 +1231,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         const tip = tipOfKey(event)
         if (tip) pickTip(tip)
         else if (event.key === "Escape") setMode("view")
-        else if (event.key === "Enter") void finishMarking()
+        else if (event.key === "Enter") finishMarking()
         else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") marker?.undo()
         // The ink stays where it was drawn, so the keys do not scroll the page either.
         else if (![" ", "PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown"].includes(event.key)) return

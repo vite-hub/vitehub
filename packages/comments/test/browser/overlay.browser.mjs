@@ -57,6 +57,13 @@ function commentsApi() {
   }
 }
 
+/** The bytes of the picture that went with the comment `body`, once the comment reaches the server. */
+async function sentPicture(api, body) {
+  const thread = (await api.stored(threads => threads.some(item => item.messages[0].body === body))).find(item => item.messages[0].body === body)
+  const [key] = thread.messages[0].attachments
+  return [...api.files.get(key).data]
+}
+
 const highlights = page => page.evaluate(() => Object.fromEntries([...CSS.highlights].map(([name, highlight]) => [name, highlight.size])))
 
 async function drag(page, from, to) {
@@ -262,7 +269,6 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     const box = await page.locator("#second").boundingBox()
     const body = await page.locator("body").boundingBox()
     assert.ok(body.y + body.height < 680, "the test page ends above the drag")
-    // Away from the pin of the area above.
     await drag(page, { x: box.x + 300, y: box.y + 4 }, { x: box.x + 500, y: 680 })
     await page.waitForTimeout(300)
     assert.equal(await composer.count(), 0)
@@ -409,7 +415,6 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     if (evidence) await page.screenshot({ path: `${evidence}/highlight-drawing.png` })
     await page.locator("vitehub-tool button", { hasText: "Done" }).click()
     await composer.waitFor({ timeout: 10000 })
-    await page.locator("vitehub-comments [data-slot='comment-layer-popover'] [data-slot='attachment']").waitFor({ timeout: 5000 })
     // The strokes stay where they were drawn while the comment is written, and the page takes clicks again.
     assert.equal(await layer.evaluate(element => element.hasAttribute("data-frozen")), true)
     await composer.fill("This flight is wrong")
@@ -485,13 +490,13 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
       await tips.locator("vitehub-tool button", { hasText: "Done" }).click()
       const box = tips.locator("vitehub-comments textarea[aria-label='Comment']")
       await box.waitFor({ timeout: 10000 })
-      const file = tips.locator("vitehub-comments [data-slot='comment-layer-popover'] [data-slot='attachment'] img")
-      await file.waitFor({ timeout: 10000 })
       await box.fill("Each tip, in its color")
       if (evidence) await tips.screenshot({ path: `${evidence}/tips-comment.png` })
+      await box.press("Enter")
+      const bytes = await sentPicture(api, "Each tip, in its color")
       // The picture: each tip's ink where it was drawn, in its color.
-      const counts = await file.evaluate(async (image, at) => {
-        const blob = await (await fetch(image.src)).blob()
+      const counts = await tips.evaluate(async ({ bytes, at }) => {
+        const blob = new Blob([new Uint8Array(bytes)], { type: "image/webp" })
         const bitmap = await createImageBitmap(blob)
         const canvas = new OffscreenCanvas(bitmap.width, bitmap.height)
         const context = canvas.getContext("2d")
@@ -513,7 +518,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
           // Nothing drawn in the blank band between the text and the pen.
           blank: count(220, 420, 400, 20, (r, g, b) => !(r > 240 && g > 240 && b > 240)),
         }
-      }, { left: Math.round(line.left), right: Math.round(line.right), y: Math.round(line.y) })
+      }, { bytes, at: { left: Math.round(line.left), right: Math.round(line.right), y: Math.round(line.y) } })
       if (evidence) await writeFile(`${evidence}/tips-picture.webp`, Buffer.from(counts.picture))
       assert.deepEqual(counts.size, [1024, 720])
       assert.ok(counts.pink > 60, `${counts.pink} pink pixels on the marked line`)
@@ -548,17 +553,20 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
       await scrolled.locator("vitehub-marker .layer").waitFor({ timeout: 5000 })
       await drag(scrolled, { x: 300, y: 300 }, { x: 600, y: 300 })
       await scrolled.locator("vitehub-tool button", { hasText: "Done" }).click()
-      const file = scrolled.locator("vitehub-comments [data-slot='comment-layer-popover'] [data-slot='attachment'] img")
-      await file.waitFor({ timeout: 10000 })
-      // The picture in the box: the header stays at the top, and the site's fixed Menu button at the bottom left.
-      const colors = await file.evaluate(async (image) => {
-        const bitmap = await createImageBitmap(await (await fetch(image.src)).blob())
+      const box = scrolled.locator("vitehub-comments textarea[aria-label='Comment']")
+      await box.waitFor({ timeout: 10000 })
+      await box.fill("The header stays on top")
+      await box.press("Enter")
+      const bytes = await sentPicture(api, "The header stays on top")
+      // The picture: the header stays at the top, and the site's fixed Menu button at the bottom left.
+      const colors = await scrolled.evaluate(async (bytes) => {
+        const bitmap = await createImageBitmap(new Blob([new Uint8Array(bytes)], { type: "image/webp" }))
         const canvas = new OffscreenCanvas(bitmap.width, bitmap.height)
         const context = canvas.getContext("2d")
         context.drawImage(bitmap, 0, 0)
         const pixel = (x, y) => [...context.getImageData(x, y, 1, 1).data.slice(0, 3)]
         return { header: pixel(500, 20), menu: pixel(30, 680), size: [bitmap.width, bitmap.height] }
-      })
+      }, bytes)
       if (evidence) await scrolled.screenshot({ path: `${evidence}/highlight-scrolled.png` })
       assert.deepEqual(colors.size, [1024, 720])
       assert.ok(colors.header.every((channel, index) => Math.abs(channel - [18, 52, 86][index]) < 12), `header ${colors.header}`)
@@ -733,7 +741,6 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     const log = await page.evaluate(() => window.pinLog)
     const leave = log.find(entry => entry.leaving)
     assert.ok(leave, `the pin popped out: ${JSON.stringify(log)}`)
-    // Shown since the send, then it leaves.
     assert.ok(leave.at >= 1800 && leave.at < 3000, `the new comment showed for ${leave.at}ms`)
     assert.ok(leave.hidden && leave.copy, `the pin hid and a copy of it folded away: ${JSON.stringify(leave)}`)
     // The page keeps the hidden pin for commentLeaveMs, while its copy folds away.
