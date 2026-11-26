@@ -122,6 +122,7 @@ it.each([true, false])("gives prerendered pages site meta and Schema.org with im
     // The action renders once on the server; after hydration it moves into the active shell.
     expect(install).toMatch(/<div[^>]*data-docs-sidebar-head/)
     expect(install).toContain("vh-docs-aside-footer")
+    expect(install).toContain("Built with <a href=\"https://vitehub.dev/docs/docs-site\"")
     expect(install.match(/data-custom-docs-action/g)).toHaveLength(1)
     const noSidebar = await page("docs/guide/no-sidebar")
     expect(noSidebar).not.toMatch(/<div[^>]*data-docs-sidebar-head/)

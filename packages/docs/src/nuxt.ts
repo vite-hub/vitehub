@@ -122,6 +122,8 @@ export interface DocsModuleOptions {
   socials?: DocsLink[]
   /** Site pages linked at the end of every docs page, such as About and Privacy, so each one has a link to it. */
   footer?: DocsLink[]
+  /** A "Built with ViteHub Docs" line at the end of every docs page. `false` removes it. */
+  builtWith?: boolean
   /** One line above every docs page, such as a release status. */
   banner?: string
   /** More paths for `/sitemap.xml`, such as app pages outside the content folder. Every docs page is listed already. */
@@ -229,6 +231,7 @@ export interface DocsPublicConfig {
   start?: { section: string, links: DocsLink[] }
   socials: DocsLink[]
   footer: DocsLink[]
+  builtWith: boolean
   banner: string | null
   sitemap: string[]
   /** `stars` is the repository's star count when the build could read it, else `null`. */
@@ -1349,6 +1352,7 @@ function publicConfig(options: DocsModuleOptions, base: string, appBase: string)
     start: options.start ? { section: options.start.section, links: options.start.links ?? [] } : undefined,
     socials: options.socials ?? [],
     footer: options.footer ?? [],
+    builtWith: options.builtWith !== false,
     banner: options.banner ?? null,
     sitemap: options.sitemap ?? [],
     github: options.github ? { branch: "main", dir, ...options.github, url: `https://github.com/${options.github.repo}`, stars: null } : false,
