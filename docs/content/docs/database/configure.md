@@ -451,7 +451,6 @@ When the migrations table already lists every folder, startup runs no DDL. An ow
 Postgres refuses some statements in a transaction, with error `25001`:
 
 - `CREATE INDEX CONCURRENTLY`, `REINDEX CONCURRENTLY`, `DROP INDEX CONCURRENTLY`, and `VACUUM`
-- `BEGIN`, `COMMIT`, and `ROLLBACK` in the migration file
 
 Put such statements in a migration file of their own, and make `-- vitehub:no-transaction` its first line:
 
@@ -462,10 +461,12 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS "posts_slug_idx" ON "posts" ("slug");
 
 ViteHub runs this file outside a transaction, one statement at a time, and records it in the migrations table after its last statement. On start and in `vitehub database migrate`, the files before it and after it still run in transactions. `vitehub database migrate --dry-run` prints `(outside a transaction, one statement at a time)` after the name of such a file. Without the marker, the statement fails with `DATABASE_MIGRATION_FAILED`, and its fix names the marker.
 
-- When a statement fails, the statements before it stay applied, and the file is not recorded. The next run starts again at its first statement. Write every statement with `IF NOT EXISTS`, or another form that can run again. A failed `CREATE INDEX CONCURRENTLY` leaves an invalid index, and `IF NOT EXISTS` keeps it. ViteHub then fails with `DATABASE_MIGRATION_PARTLY_APPLIED`, which names the statement and lists the invalid indexes. Drop each one with `DROP INDEX CONCURRENTLY IF EXISTS`, then run the migrations again.
+- Use a name for every concurrent index. A failed `CREATE INDEX CONCURRENTLY` can leave that index invalid, and `IF NOT EXISTS` keeps it. ViteHub reports the invalid index and leaves the migration pending. Drop the listed index with `DROP INDEX CONCURRENTLY IF EXISTS`, then run the migrations again.
+- When a statement fails, earlier statements stay applied, and the file is not recorded. The next run starts again at its first statement. Use `IF NOT EXISTS` or another form that can run again.
+- Do not use transaction control such as `BEGIN` and `COMMIT` in marked files. Use dollar quotes for SQL routine bodies instead of `BEGIN ATOMIC`. Use `E'...'` for a backslash before a quote.
 - A run with such a file keeps one connection and holds the session-level lock `pg_try_advisory_lock(hashtext('vitehub:migrations'))` on it until the run ends. It needs a session connection with `postgres`, `pg`, or PGlite. A transaction-mode pooler, such as PgBouncer with `pool_mode = transaction`, can give each statement another connection, so connect to Postgres directly or through a session-mode pooler.
 - The statements of the file do not get the five-second `lock_timeout`. A `CONCURRENTLY` statement waits for the transactions that are open on the table when it starts.
-- A value that `ALTER TYPE ... ADD VALUE` adds to an enum cannot be used in the transaction that adds it. Add the value in one migration and use it in the next one. The marker is not necessary for this.
+- A value that `ALTER TYPE ... ADD VALUE` adds to an enum cannot be used in the transaction that adds it. If both files are pending, mark the file that adds the value so it commits before the next file uses it.
 - SQLite, libSQL, and D1 have no such statements. They ignore the marker and apply the file as usual.
 
 ### Several instances on D1 over HTTP

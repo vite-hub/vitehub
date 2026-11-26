@@ -4,7 +4,7 @@ import { basename, join } from "pathe"
 
 import { describeDatabaseContribution } from "../contributions.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
-import { splitSqlStatements } from "./migration-sql.ts"
+import { hasNoTransactionMarker, splitSqlStatements } from "./migration-sql.ts"
 
 import type { ResolvedDatabaseMigrations } from "../contributions.ts"
 import type { DatabaseDialect } from "../types.ts"
@@ -12,6 +12,7 @@ import type { DatabaseDialect } from "../types.ts"
 /** A `.sql` file of a contributed migrations folder. */
 export interface ContributedMigration {
   contribution: ResolvedDatabaseMigrations
+  dialect: DatabaseDialect
   /** Absolute path of the `.sql` file. */
   file: string
   /** The end of the migration folder name, after its timestamp. It identifies the file in the migrations folder. */
@@ -49,7 +50,7 @@ export function listContributedMigrations(contribution: ResolvedDatabaseMigratio
       const fileDialect = dialectSuffix.exec(name)?.[1]
       if (fileDialect && fileDialect !== dialect) return []
       const stem = name.replace(dialectSuffix, "").replace(/\.sql$/, "")
-      return [{ contribution, file: join(dir, name), key: slug(`${contribution.name}_${stem}`) }]
+      return [{ contribution, dialect, file: join(dir, name), key: slug(`${contribution.name}_${stem}`) }]
     })
 }
 
@@ -114,8 +115,8 @@ export function orderGeneratedMigrations(migrationsDir: string, foldersBefore: r
  * only the first statement of a part, so a file without breakpoints is split at the semicolons outside quotes and
  * comments. A file that already has breakpoints is copied as written.
  */
-export function toMigrationSql(sql: string): string {
-  if (sql.includes(statementBreakpoint)) return sql
+export function toMigrationSql(sql: string, dialect: DatabaseDialect = "sqlite"): string {
+  if ((dialect === "postgresql" && hasNoTransactionMarker(sql)) || sql.includes(statementBreakpoint)) return sql
   return `${splitSqlStatements(sql).join(`\n${statementBreakpoint}\n`)}\n`
 }
 
@@ -133,7 +134,7 @@ export function writeContributedMigrations(migrationsDir: string, pending: reado
     const folder = `${folderStamp(time)}_${migration.key}`
     time += 1000
     mkdirSync(join(migrationsDir, folder), { recursive: true })
-    writeFileSync(join(migrationsDir, folder, "migration.sql"), toMigrationSql(readFileSync(migration.file, "utf8")))
+    writeFileSync(join(migrationsDir, folder, "migration.sql"), toMigrationSql(readFileSync(migration.file, "utf8"), migration.dialect))
     return folder
   })
 }

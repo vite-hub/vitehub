@@ -3,7 +3,7 @@ import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 import { applyD1MigrationFiles, readD1LedgerOf } from "../internal/d1-ledger.ts"
 import { ledgerUpgradeProblem, ledgerUpgradeStatements, matchLedger, toLedgerRow } from "../internal/migration-ledger.ts"
-import { withoutNewTableDataLoss } from "../internal/migration-sql.ts"
+import { concurrentIndexTarget, withoutNewTableDataLoss } from "../internal/migration-sql.ts"
 
 import type { D1Ledger } from "../internal/d1-ledger.ts"
 import type { LedgerMatch, LedgerRow } from "../internal/migration-ledger.ts"
@@ -147,7 +147,6 @@ function planByName(
   }
   const ordered = [...pending.values()].sort((a, b) => a.migration.when - b.migration.when || a.migration.name.localeCompare(b.migration.name))
   if (allowDataLoss) return ordered
-  // Check the migrations in the order they run, so a table that this run creates can lose its rows.
   const checked = withoutNewTableDataLoss(ordered.map(({ migration }) => migration), dialect)
   for (const database of databases) {
     const losses = checked.flatMap((migration, index) => ordered[index]!.name === database.name
@@ -710,8 +709,12 @@ async function withPostgresSessionLocks(groups: PostgresTarget[][], log: (messag
       let failure: Error | undefined
       try {
         if (locked) {
-          await session.unsafe("reset client_min_messages")
-          await session.unsafe("select pg_advisory_unlock(hashtext($1))", [postgresMigrationLock])
+          try {
+            await session.unsafe("reset client_min_messages")
+          }
+          finally {
+            await session.unsafe("select pg_advisory_unlock(hashtext($1))", [postgresMigrationLock])
+          }
         }
       }
       catch (error) {
@@ -736,24 +739,45 @@ async function inSessionTransaction<T>(session: PostgresMigrationSession, run: (
   }
 }
 
-async function readInvalidIndexes(sql: PostgresMigrationSql): Promise<string[] | undefined> {
-  try {
-    const rows = await sql.unsafe("select format('%I.%I', n.nspname, c.relname) as name from pg_index i join pg_class c on c.oid = i.indexrelid join pg_namespace n on n.oid = c.relnamespace where not i.indisvalid order by 1")
-    return Array.from(rows).map(row => String(row.name))
-  }
-  catch {
-    return undefined
-  }
+async function readConcurrentIndex(sql: PostgresMigrationSql, target: NonNullable<ReturnType<typeof concurrentIndexTarget>>) {
+  const [row] = Array.from(await sql.unsafe(`
+    select i.indisvalid as valid, format('%I.%I', n.nspname, c.relname) as name
+    from pg_catalog.pg_index i
+    join pg_catalog.pg_class c on c.oid = i.indexrelid
+    join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+    where i.indrelid = pg_catalog.to_regclass($1) and c.relname = $2::name
+  `, [target.table, target.name]))
+  return row && { name: String(row.name), valid: row.valid === true }
 }
 
 async function runOutsideTransaction(session: PostgresMigrationSession, { migration, name }: PendingEntry) {
   for (const [index, statement] of migration.statements.entries()) {
+    const target = concurrentIndexTarget(statement)
+    let invalidIndex: string | undefined
+    let ran = false
     try {
       await session.unsafe(statement)
+      ran = true
+      if (target) {
+        const created = await readConcurrentIndex(session, target)
+        if (!created?.valid) {
+          invalidIndex = created?.name
+          throw new Error(created ? "The concurrent index is still invalid." : "The concurrent index does not exist on the target table.")
+        }
+      }
     }
     catch (error) {
-      const invalidIndexes = await readInvalidIndexes(session)
-      if (index === 0 && invalidIndexes?.length === 0) throw error
+      let invalidIndexes: string[] | undefined = invalidIndex ? [invalidIndex] : []
+      if (target && !ran) {
+        try {
+          const created = await readConcurrentIndex(session, target)
+          if (created && !created.valid) invalidIndexes = [created.name]
+        }
+        catch {
+          invalidIndexes = undefined
+        }
+      }
+      if (!ran && index === 0 && invalidIndexes?.length === 0) throw error
       throw databaseErrorDiagnostics.DATABASE_MIGRATION_PARTLY_APPLIED({
         applied: index,
         cause: error,
@@ -765,7 +789,19 @@ async function runOutsideTransaction(session: PostgresMigrationSession, { migrat
       })
     }
   }
-  await session.unsafe(`insert into ${postgresLedger} ("hash", "created_at", "name") values ($1, $2, $3)`, [migration.hash, migration.when, migration.name])
+  try {
+    await session.unsafe(`insert into ${postgresLedger} ("hash", "created_at", "name") values ($1, $2, $3)`, [migration.hash, migration.when, migration.name])
+  }
+  catch (error) {
+    throw databaseErrorDiagnostics.DATABASE_MIGRATION_PARTLY_APPLIED({
+      applied: migration.statements.length,
+      cause: error,
+      database: name,
+      invalidIndexes: [],
+      migration: migration.name,
+      problem: error instanceof Error ? error.message : String(error),
+    })
+  }
 }
 
 async function applyPostgresSession(session: PostgresMigrationSession, pending: PendingEntry[], progress: { running?: PendingEntry }, applied: (entry: PendingEntry) => void) {
@@ -862,6 +898,7 @@ export async function migratePostgres(targets: PostgresTarget[], options: Migrat
       database: progress.running.name,
       ...progress.session && { kept: progress.applied.map(({ migration }) => migration.name) },
       migration: progress.running.migration.name,
+      outsideTransaction: progress.running.migration.noTransaction,
       ...!progress.running.migration.noTransaction && Reflect.get(Object(error), "code") === "25001" && { needsMarker: true },
       problem: error instanceof Error ? error.message : String(error),
     })

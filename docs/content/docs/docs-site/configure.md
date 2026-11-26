@@ -390,7 +390,7 @@ export default defineNuxtConfig({
 })
 ```
 
-The docs sidebar starts with the brand and search. At its foot, `github` adds a GitHub link with the star count when available. `socials` adds community links, followed by the color mode button. Other pages and phones show these controls in the header. `footer` links site pages, such as About and Privacy, at the end of every docs page. `banner` shows one line above every docs page.
+The docs sidebar starts with the brand and search. At its foot, `github` adds a GitHub link with the star count when available. `socials` adds community links, followed by the color mode button. Other pages and phones show these controls in the header. `footer` adds links to site pages, such as About and Privacy, below the catalog. Every docs page ends with a "Built with ViteHub Docs" line. Set `builtWith: false` to remove that line. `banner` shows one line above every docs page.
 
 ## Design
 

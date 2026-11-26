@@ -360,6 +360,25 @@ describe("-- vitehub:no-transaction migrations on PGlite", () => {
       await client.close()
     }
   })
+
+  it("reports that marked SQL stays applied when its ledger write fails", async () => {
+    const { PGlite } = await import("@electric-sql/pglite")
+    const { drizzle } = await import("drizzle-orm/pglite")
+    const client = new PGlite("memory://")
+    const db = drizzle({ client })
+    const run = (migrations: ReturnType<typeof migration>[]) => migrateOnStart([{ db, dialect: "postgresql", migrations, name: "default" }], { log: () => {} })
+    try {
+      await run([init])
+      await client.exec("alter table drizzle.__drizzle_migrations add constraint only_init check (name = 'init')")
+      await expect(run([init, migration("body", 2, ["ALTER TABLE notes ADD COLUMN body text"], true)]))
+        .rejects.toMatchObject({ code: "DATABASE_MIGRATION_PARTLY_APPLIED", why: expect.stringContaining("the ledger write failed after all statements ran") })
+      await expect(client.query("select body from notes")).resolves.toMatchObject({ rows: [{ body: null }, { body: null }] })
+      await expect(client.query("select name from drizzle.__drizzle_migrations")).resolves.toMatchObject({ rows: [{ name: "init" }] })
+    }
+    finally {
+      await client.close()
+    }
+  })
 })
 
 describe("a Postgres Database on PGlite in app tests", () => {

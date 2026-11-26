@@ -57,10 +57,10 @@ export default defineEventHandler(async () => {
 | `DATABASE_D1_STATEMENT_TOO_LONG`, `DATABASE_D1_TOO_MANY_PARAMETERS`, `DATABASE_D1_VALUE_TOO_LARGE` | When a query to D1 is above a [D1 limit](#d1-limits), before D1 runs it |
 | `DATABASE_NAME_REQUIRED`, `DATABASE_NOT_FOUND` | By `useDatabase()`, when the name does not select one Database |
 | `DATABASE_DISABLED`, `DATABASE_INVALID_D1_HTTP_URL`, `DATABASE_MISSING_CONNECTION`, `DATABASE_MISSING_D1_HTTP_CONFIG`, `DATABASE_NO_D1_BINDING`, `DATABASE_NOT_FOUND`, `DATABASE_PGLITE_NOT_INSTALLED` | When code first uses the database |
-| `DATABASE_MIGRATION_CHECK_FAILED`, `DATABASE_MIGRATION_DATA_LOSS`, `DATABASE_MIGRATION_FAILED`, `DATABASE_MIGRATION_PARTLY_APPLIED` | Printed by `vitehub database migrate`, which then exits with code 1 |
+| `DATABASE_MIGRATION_CHECK_FAILED`, `DATABASE_MIGRATION_DATA_LOSS`, `DATABASE_MIGRATION_FAILED` | Printed by `vitehub database migrate`, which then exits with code 1 |
 | `DATABASE_MIGRATIONS_OLD_LAYOUT` | Printed by `vitehub database generate` and `vitehub database migrate`, which then exit with code 1. Also by the build with `migrateOnStart`, and by test mode |
 | `DATABASE_EXPORT_FAILED` | Printed by `vitehub database export`, which then exits with code 1 |
-| `DATABASE_MIGRATION_BACKUP_FAILED`, `DATABASE_MIGRATION_BACKUP_UNSUPPORTED`, `DATABASE_MIGRATION_DATA_LOSS`, `DATABASE_MIGRATION_FAILED`, `DATABASE_MIGRATION_PARTLY_APPLIED`, `DATABASE_MIGRATE_ON_START_UNSUPPORTED` | When a Node server migrates on start, before it listens. `DATABASE_MIGRATION_BACKUP_UNSUPPORTED` and `DATABASE_MIGRATE_ON_START_UNSUPPORTED` also fail the build |
+| `DATABASE_MIGRATION_BACKUP_FAILED`, `DATABASE_MIGRATION_BACKUP_UNSUPPORTED`, `DATABASE_MIGRATION_DATA_LOSS`, `DATABASE_MIGRATION_FAILED`, `DATABASE_MIGRATE_ON_START_UNSUPPORTED` | When a Node server migrates on start, before it listens. `DATABASE_MIGRATION_BACKUP_UNSUPPORTED` and `DATABASE_MIGRATE_ON_START_UNSUPPORTED` also fail the build |
 | `DATABASE_SEED_FAILED`, `DATABASE_SEED_NOT_FOUND`, `DATABASE_SEED_PENDING_MIGRATIONS` | Printed by `vitehub seed`, which then exits with code 1 |
 | `DATABASE_DRIZZLE_OPTION_REMOVED`, `DATABASE_INVALID_DIALECT`, `DATABASE_INVALID_DRIVER`, `DATABASE_INVALID_NAME`, `DATABASE_INVALID_OPTIONS`, `DATABASE_UNKNOWN_OPTION` | By `defineDatabase()`, or by the build when it reads the Definition |
 | Every other code | During discovery, the build, or `vitehub provision run` |
@@ -178,12 +178,6 @@ Run `vitehub database migrate --dry-run` to read the SQL. To keep the data, chan
 A statement of a pending Postgres migration failed. `error.why` names the migration and has the Postgres message, and `error.cause` is the Postgres error. All pending migrations of the run share one transaction, so the database keeps none of them, and the ledger is as it was before. A server that migrates on start stops before it listens. Fix the SQL of the migration, or the data that it conflicts with, then run `vitehub database migrate` or start the server again.
 
 When a pending file starts with `-- vitehub:no-transaction`, the run commits the files before it, and that file, on their own. Then the database keeps the migrations that the run applied before the failed one, and `error.why` lists them. When Postgres refuses a statement in a transaction (`25001`), such as `CREATE INDEX CONCURRENTLY`, the fix tells you to move it to a file with that marker. Read [Run a Postgres migration outside a transaction](/docs/database/configure#run-a-postgres-migration-outside-a-transaction).
-
-### DATABASE_MIGRATION_PARTLY_APPLIED
-
-A statement of a Postgres migration that runs outside a transaction (`-- vitehub:no-transaction`) failed. The statements before it stay applied, and the migration is not recorded, so the next run starts again at its first statement. `error.why` names the statement and lists the invalid indexes of the database, such as the one that a failed `CREATE INDEX CONCURRENTLY` leaves. `error.cause` is the Postgres error.
-
-Drop each invalid index with `DROP INDEX CONCURRENTLY IF EXISTS <name>` in `vitehub database sql`, because `CREATE INDEX CONCURRENTLY IF NOT EXISTS` keeps an invalid index. Fix the statement, or the data that it conflicts with, such as duplicate rows for a unique index. Then run `vitehub database migrate` or start the server again.
 
 ### DATABASE_MIGRATE_ON_START_UNSUPPORTED
 

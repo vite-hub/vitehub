@@ -67,7 +67,112 @@ export function hasNoTransactionMarker(sql: string): boolean {
  * statements as one transaction, so each one goes alone. Dollar-quoted bodies stay whole.
  */
 export function noTransactionStatements(sql: string): string[] {
-  return sql.split(statementBreakpoint).flatMap(part => scanSqlStatements(part, { dollarQuotes: true }).statements)
+  const statements: string[] = []
+  const word = /[A-Z_a-z\u0080-\uFFFF][\w$\u0080-\uFFFF]*/y
+  const dollar = /\$(?:[A-Z_a-z\u0080-\uFFFF][\w\u0080-\uFFFF]*)?\$/y
+  let statement = ""
+  let previousWord = ""
+  let escapeString = false
+  let index = 0
+  const finish = () => {
+    if (!statement.trim() || statement.trim() === ";") return
+    const text = statement.trim()
+    if (/^(?:BEGIN|START\s+TRANSACTION|COMMIT|END|ROLLBACK|ABORT|SAVEPOINT|RELEASE|PREPARE\s+TRANSACTION)\b/i.test(text)) {
+      throw new Error("Transaction control is not supported in a marked migration.")
+    }
+    if (concurrentIndex.test(text) && !concurrentIndexTarget(text)) {
+      throw new Error("Give each concurrent index an explicit name and use plain or double-quoted identifiers for the index and table.")
+    }
+    statements.push(text)
+  }
+  while (index < sql.length) {
+    const start = index
+    const char = sql[index]!
+    const pair = sql.slice(index, index + 2)
+    if (pair === "--") {
+      while (index < sql.length && !/[\r\n]/.test(sql[index]!)) index++
+      if (sql.slice(start, index).trimEnd() === statementBreakpoint) {
+        finish()
+        statement = ""
+        previousWord = ""
+        escapeString = false
+      }
+      continue
+    }
+    if (pair === "/*") {
+      let depth = 1
+      index += 2
+      while (index < sql.length && depth > 0) {
+        const pair = sql.slice(index, index + 2)
+        if (pair === "/*" || pair === "*/") {
+          depth += pair === "/*" ? 1 : -1
+          index += 2
+        }
+        else index++
+      }
+      if (depth) throw new Error("Unclosed block comment in a marked migration.")
+      statement += " "
+      continue
+    }
+    word.lastIndex = dollar.lastIndex = index
+    const tag = dollar.exec(sql)?.[0]
+    const token = word.exec(sql)?.[0]
+    if (tag) {
+      const close = sql.indexOf(tag, index + tag.length)
+      if (close < 0) throw new Error("Unclosed dollar quote in a marked migration.")
+      index = close + tag.length
+    }
+    else if (char === "'" || char === '"' || /^e'$/i.test(pair)) {
+      const quote = /^e'$/i.test(pair) ? "'" : char
+      const escapes = quote === "'" && (char !== "'" || escapeString)
+      index += quote === char ? 1 : 2
+      while (index < sql.length) {
+        if (escapes && sql[index] === "\\") index += 2
+        else if (quote === "'" && !escapes && sql[index] === "\\" && sql[index + 1] === "'") {
+          throw new Error("Use an escape string (E'...') for a backslash before a quote in a marked migration.")
+        }
+        else if (sql[index] === quote && sql[index + 1] !== quote) break
+        else index += sql[index] === quote ? 2 : 1
+      }
+      if (index >= sql.length) throw new Error("Unclosed quote in a marked migration.")
+      statement += sql.slice(start, ++index)
+      previousWord = ""
+      escapeString = escapes
+      continue
+    }
+    else if (token) {
+      if (previousWord === "BEGIN" && token.toUpperCase() === "ATOMIC") {
+        throw new Error("Use a dollar-quoted SQL body instead of BEGIN ATOMIC in a marked migration.")
+      }
+      previousWord = token.toUpperCase()
+      escapeString = false
+      statement += token
+      index += token.length
+      continue
+    }
+    else index++
+    statement += sql.slice(start, index)
+    if (char === ";") {
+      finish()
+      statement = ""
+    }
+    if (!/\s/.test(char)) {
+      escapeString = false
+      previousWord = ""
+    }
+  }
+  finish()
+  return statements
+}
+
+const postgresName = String.raw`(?:"(?:[^"]|"")+"|[A-Z_a-z\u0080-\uFFFF][\w$\u0080-\uFFFF]*)`
+const concurrentIndex = /^CREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY\b/i
+const namedConcurrentIndex = new RegExp(String.raw`^CREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY\s+(?:IF\s+NOT\s+EXISTS\s+)?(${postgresName})\s+ON\s+(?:ONLY\s+)?(${postgresName}(?:\s*\.\s*${postgresName})?)(?=\s|\()`, "i")
+
+export function concurrentIndexTarget(statement: string) {
+  const [, name, table] = namedConcurrentIndex.exec(statement) ?? []
+  if (!name || !table) return
+  return { name: name.startsWith('"') ? name.slice(1, -1).replaceAll('""', '"') : name.replace(/[A-Z]/g, char => char.toLowerCase()), table }
 }
 
 function addPartBreakpoints(sql: string): string {
@@ -91,7 +196,7 @@ function addPartBreakpoints(sql: string): string {
 }
 
 /** The statements of `splitSqlStatements()`, and the index after the semicolon that ends each one. */
-function scanSqlStatements(sql: string, { dollarQuotes = false } = {}): { ends: number[], statements: string[] } {
+function scanSqlStatements(sql: string): { ends: number[], statements: string[] } {
   const ends: number[] = []
   const statements: string[] = []
   let current = ""
@@ -99,14 +204,6 @@ function scanSqlStatements(sql: string, { dollarQuotes = false } = {}): { ends: 
   for (let index = 0; index < sql.length; index++) {
     const char = sql[index]!
     const next = sql[index + 1]
-    const tag = dollarQuotes && !quote && char === "$" && !/[\w$]/.test(sql[index - 1] ?? "") ? /^\$(?:[A-Z_a-z]\w*)?\$/.exec(sql.slice(index))?.[0] : undefined
-    if (tag) {
-      const close = sql.indexOf(tag, index + tag.length)
-      const end = close === -1 ? sql.length : close + tag.length
-      current += sql.slice(index, end)
-      index = end - 1
-      continue
-    }
     if (quote) {
       current += char
       if (char === quote) {
@@ -251,9 +348,9 @@ function describeReferencingRows(table: string, references: TableReferences | un
  * Lists the statements of one migration that remove rows, columns, or tables.
  * `before` holds the columns of each table before the migration, so a SQLite table rebuild that keeps every column is safe.
  */
-export function findDataLoss(statements: readonly string[], before?: TableColumns, references?: TableReferences): DataLossStatement[] {
-  const split = statements.flatMap(splitSqlStatements)
-  const rebuilds = findRebuilds(split)
+export function findDataLoss(statements: readonly string[], before?: TableColumns, references?: TableReferences, noTransaction = false): DataLossStatement[] {
+  const split = noTransaction ? statements : statements.flatMap(splitSqlStatements)
+  const rebuilds = noTransaction ? new Map<string, Rebuild>() : findRebuilds(split)
   const found: DataLossStatement[] = []
   for (const statement of split) {
     const loss = classifyStatement(statement, rebuilds, before, references)
@@ -336,6 +433,7 @@ function keywordIndexes(sql: string, keyword: string): number[] {
 /** A migration with the statements it runs and the data loss that `findDataLoss()` found in them. */
 export interface DataLossMigration {
   dataLoss: DataLossStatement[]
+  noTransaction?: true
   statements: readonly string[]
 }
 
@@ -526,8 +624,13 @@ function trackNewTables(statement: string, tables: NewTables) {
  * must be schema-qualified because the search path can resolve the same unqualified name to different tables.
  */
 export function withoutNewTableDataLoss<T extends DataLossMigration>(migrations: readonly T[], dialect: DatabaseDialect = "sqlite"): T[] {
-  const tables: NewTables = { deleteOrUpdateTriggers: new Set(), dialect, fedByTrigger: new Set(), inTrigger: false, noOlderRows: new Set(), referencedBy: new Map(), temporaryTableSeen: false, unknownTriggerSeen: false }
+  const newTables = (): NewTables => ({ deleteOrUpdateTriggers: new Set(), dialect, fedByTrigger: new Set(), inTrigger: false, noOlderRows: new Set(), referencedBy: new Map(), temporaryTableSeen: false, unknownTriggerSeen: false })
+  let tables = newTables()
   return migrations.map((migration) => {
+    if (dialect === "postgresql" && migration.noTransaction) {
+      tables = newTables()
+      return migration
+    }
     const losses = [...migration.dataLoss]
     const dataLoss: DataLossStatement[] = []
     for (const statement of migration.statements.flatMap(splitSqlStatements)) {

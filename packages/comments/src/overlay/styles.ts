@@ -1,10 +1,8 @@
-/**
- * Styles of the overlay's own pieces. The comment parts bring theirs from `@vite-hub/ui/styles.css`. All of them live
- * in shadow roots, so the host page's CSS does not reach them: the overlay, its toolbar in the page tools pill, and
- * the list in the pill's window. The overlay takes ViteHub's theme, as Drop does: Geist when the page has it (else the system
- * sans-serif), the neutral primary, and the comment blue. It follows the page's light or dark scheme. It sets the Nuxt UI
- * tokens that the parts read, because their fallbacks follow `currentColor`, which is white inside a pin.
- */
+const deliveryStyles = `
+[data-slot="comment-reply-status"] { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--ui-text-muted); }
+.delivery[data-failed] { color: var(--vh-error); }
+`
+
 export const overlayStyles = `
 :host {
   all: initial;
@@ -129,6 +127,7 @@ export const overlayStyles = `
 .selection { position: fixed; z-index: 2147483001; translate: -50% -100%; }
 .selection[data-below="true"] { translate: -50% 0; }
 [data-slot="comment-selection-bar-action"]:focus-visible { outline: 2px solid var(--vh-inverted); outline-offset: 1px; }
+${deliveryStyles}
 `
 
 /**
@@ -143,6 +142,7 @@ export const panelStyles = `
 }
 .panel-root { height: 100%; }
 [data-slot="comment-panel"] { height: 100%; background: var(--vh-bg); }
+${deliveryStyles}
 `
 
 /** The toolbar in the pill, after the pill's button styles. It takes the pill's font and colors. */

@@ -38,6 +38,19 @@ describe("-- vitehub:no-transaction", () => {
       "SELECT 'it''s; fine', price$1 FROM t;",
     ])
   })
+
+  it("keeps Postgres escapes, arrays, quoted breakpoints, and nested comments in their statement", () => {
+    const statement = String.raw`SELECT E'it\'s; fine', '--> statement-breakpoint', ARRAY['[', ']'], $日本語$a;b$日本語$;`
+    expect(noTransactionStatements(`${statement}\n/* a /* b; */ c; */ VACUUM;`)).toEqual([statement, "VACUUM;"])
+  })
+
+  it.each([
+    ["/* prefix */ START TRANSACTION; VACUUM;", "Transaction control"],
+    ["SELECT 1; ROLLBACK;", "Transaction control"],
+    ["CREATE PROCEDURE p() LANGUAGE SQL BEGIN /* body */ ATOMIC SELECT 1; END;", "BEGIN ATOMIC"],
+  ])("rejects unsupported marked SQL before running it: %s", (source, message) => {
+    expect(() => noTransactionStatements(source)).toThrow(message)
+  })
 })
 
 function reasons(sql: string | string[], before?: Map<string, string[]>) {
