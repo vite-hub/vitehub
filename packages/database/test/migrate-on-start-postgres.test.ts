@@ -912,7 +912,7 @@ describe.skipIf(!adminUrl)("migrationsSchema on Postgres", () => {
     expect(await sql`select to_regclass('app.__drizzle_migrations')::text as name`).toEqual([{ name: null }])
     expect(await readLedger(sql)).toEqual(shared)
 
-    expect(error?.fix).toMatch(/^Remove `migrationsSchema` to keep the ledger in "drizzle"\./)
+    expect(error?.fix).toMatch(/^Remove `migrationsSchema` only if you verify that the ledger in "drizzle" lists all migrations this app has applied/)
     const statements = fixStatements(error?.fix)
     expect(statements).toHaveLength(3)
     for (const statement of statements) await sql.unsafe(statement)

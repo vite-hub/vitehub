@@ -966,6 +966,8 @@ export default defineDatabase({
 
 Definitions on one Postgres database share its migrations table, so they must set the same `migrationsSchema`. Otherwise they fail with `DATABASE_MIGRATION_SCHEMA_CONFLICT`. A SQLite Definition with `migrationsSchema` fails with `DATABASE_UNKNOWN_OPTION`.
 
+Before changing the ledger schema of an existing database, verify which migrations this app has applied and copy only those rows to the new ledger before migrating or starting the app. Leave shared ledgers intact. An unreadable ledger, a ledger in a previous custom schema, or a successful dry run is not proof that a migration has never run.
+
 ### Read from replicas
 
 Set `connection.replicas` to the URLs of read replicas. ViteHub opens one client of the Definition's driver for each one, postgres.js or node-postgres, and gives you Drizzle's [`withReplicas()`](https://orm.drizzle.team/docs/read-replicas) database:
