@@ -1,3 +1,6 @@
+import { isPlainObject } from "@vite-hub/internal/object"
+import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
+
 /** An entity of a Drizzle Kit 1.0 SQLite snapshot, such as a table, a column, an index, or a UNIQUE constraint. */
 interface SqliteDdlEntity {
   entityType: string
@@ -13,7 +16,7 @@ export interface SqliteSnapshot {
 }
 
 /** The column names of an index or constraint. Undefined when one of them is an expression. */
-function columnNames(entity: SqliteDdlEntity): string[] | undefined {
+function columnNames(entity: { columns?: unknown[] }): string[] | undefined {
   const names: string[] = []
   for (const column of entity.columns ?? []) {
     if (typeof column === "string") names.push(column)
@@ -63,4 +66,60 @@ export function recordUniqueIndexesAsConstraints(snapshot: SqliteSnapshot, schem
     return { ...constraint }
   })
   return replaced
+}
+
+function clipIdentifier(name: string, bytes: number): string {
+  if (Buffer.byteLength(name) <= bytes) return name
+  let clipped = ""
+  for (const char of name) {
+    bytes -= Buffer.byteLength(char)
+    if (bytes < 0) break
+    clipped += char
+  }
+  return clipped
+}
+
+function postgresObjectName(table: string, columns: string | undefined, suffix: string): string {
+  let tableBytes = Buffer.byteLength(table)
+  let columnBytes = columns === undefined ? 0 : Buffer.byteLength(columns)
+  const available = 63 - suffix.length - (columns === undefined ? 1 : 2)
+  while (tableBytes + columnBytes > available) {
+    if (tableBytes > columnBytes) tableBytes--
+    else columnBytes--
+  }
+  const head = clipIdentifier(table, tableBytes)
+  return columns === undefined ? `${head}_${suffix}` : `${head}_${clipIdentifier(columns, columnBytes)}_${suffix}`
+}
+
+function generatedNames(entity: Record<string, unknown>): string[] {
+  const columns = Array.isArray(entity.columns) && columnNames({ columns: entity.columns })
+  const table = entity.table
+  if (typeof table !== "string" || !columns) return []
+  const columnPart = columns.join("_")
+  const prefix = `${table}_${columnPart}`
+  const native = (suffix: string) => postgresObjectName(table, columnPart, suffix)
+  switch (entity.entityType) {
+    case "pks": return [postgresObjectName(table, undefined, "pkey"), `${prefix}_pk`]
+    case "uniques": return [native("key"), `${prefix}_unique`]
+    case "indexes": return [native("idx"), `${prefix}_index`]
+    case "fks": {
+      const to = `${prefix}_${entity.tableTo}_${Array.isArray(entity.columnsTo) ? entity.columnsTo.join("_") : ""}`
+      return [native("fkey"), `${to}_fk`, `${to}_fkey`]
+    }
+    default: return []
+  }
+}
+
+/**
+ * `drizzle-kit pull` marks every constraint and index name as explicit. This marks the names that Postgres, Drizzle Kit
+ * 0.x, or Drizzle Kit 1.0 generate as not explicit, as `drizzle-kit up` does for a Drizzle Kit 0.x snapshot. `generate` then keeps these
+ * names when the Definitions do not name the constraint, instead of renaming it. Postgres cuts names to 63 bytes.
+ */
+export function markGeneratedPostgresNames(snapshot: unknown): void {
+  if (!isPlainObject(snapshot) || !Array.isArray(snapshot.ddl)) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: "Drizzle Kit wrote a snapshot without a DDL array." })
+  for (const entity of snapshot.ddl) {
+    if (!isPlainObject(entity)) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: "Drizzle Kit wrote a snapshot DDL entity that is not an object." })
+    if (entity.nameExplicit !== true || typeof entity.name !== "string") continue
+    if (generatedNames(entity).some(name => clipIdentifier(name, 63) === entity.name)) entity.nameExplicit = false
+  }
 }
