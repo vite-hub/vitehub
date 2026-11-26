@@ -1,6 +1,6 @@
 import { expect, it, vi } from "vitest"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../../agent/src/invocations.ts"
-import { listConsoleInvocations } from "../src/console/runtime/server/invocations.get.ts"
+import { listConsoleInvocations } from "../src/agent/console/invocations.get.ts"
 
 const getConsoleInvocations = vi.hoisted(() => vi.fn())
 vi.mock("../src/console/runtime/server/invocations.ts", () => ({ getConsoleInvocations }))

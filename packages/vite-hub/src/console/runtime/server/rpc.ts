@@ -259,15 +259,7 @@ const guardedRpc = withConsoleAccess((event, access) => {
   return handleConsoleRpcRequest(req, { access, env: runtime?.cloudflare?.env, event, waitUntil })
 }, { anySection: true })
 
-/**
- * `<base>/_vitehub/rpc`: one Console operation for each signed `POST`. Each operation checks its own section. A browser
- * that opens `GET <base>/_vitehub/rpc?ticket=<ticket>` redeems a one-time ticket that an operation made, such as for
- * impersonation. The ticket is the only proof that a `GET` needs. See `tickets.ts`.
- */
-const consoleRpcRoute: ConsoleRoute = consoleRoute(async (event) => {
-  const request = getStandardContext(event).req
-  if (request.method === "GET" && new URL(request.url).searchParams.has("ticket")) return (await import("./tickets.ts")).redeemConsoleTicket(event)
-  return guardedRpc(event)
-})
+/** `<base>/_vitehub/rpc`: one Console operation for each signed `POST`. Each operation checks its own section. */
+const consoleRpcRoute: ConsoleRoute = consoleRoute(guardedRpc)
 
 export default consoleRpcRoute

@@ -135,7 +135,7 @@ const impersonation = computed(() => {
 });
 const stopping = ref(false);
 const stopError = ref("");
-/** Opens a one-time link that ends the impersonation of this browser and restores your own app session. */
+/** Opens the app in a new tab, where a token that the Console signs ends the impersonation and restores your own app session. */
 async function stopImpersonating() {
   stopping.value = true;
   stopError.value = "";

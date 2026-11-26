@@ -91,7 +91,7 @@ The editor reports every 15 seconds, or 60 while hidden. After 15 minutes withou
 
 Select the **Open the preview in a new tab** button in the editor header. A new tab opens the page of the document on your app, with its saved draft. The rest of the page shows published content. Edits that are not saved yet do not show, so wait for the draft to save first.
 
-The button needs `url` on the collection, so the document has a page. The Console asks your app for a [one-time link](/docs/console/site-access#one-time-links), and the app checks that you may read the document. Your app renders the draft with the [preview frame](/docs/content/preview) of `server/content.ts`.
+The button needs `url` on the collection, so the document has a page. The Console asks your app first, and the app checks that you may read the document. Then the Console opens the page with a [signed `preview` token](/docs/console/site-access#impersonation-and-content-preview). Your app renders the draft with the [preview frame](/docs/content/preview) of `server/content.ts`.
 
 The side browser with **Draft** and **Published** views, and click to edit, needed the Console that the app served, which is removed.
 

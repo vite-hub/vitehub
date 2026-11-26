@@ -344,7 +344,7 @@ The same callback protects [Blob serve routes](/docs/blob/configure#protect-serv
 
 The generated access middleware checks each request that an access route matches. A route ending in `/**` matches its base path and descendants. Exact routes match only that path. A route has no other pattern syntax: `*`, `:name`, `(`, `{`, and `?`, also when percent-encoded, and `.` or `..` segments fail with `AUTH_C0068`. A `GET` route also guards `HEAD`. The middleware reads the path as the Nitro router does, so `/api/billing/` and `/api/%62illing` match `/api/billing`. All matching rules apply. Unmatched requests do not load the Auth Definition or session.
 
-The [Console](/docs/console/access#who-can-call-the-endpoint) endpoint does not use these access routes. It takes only signed requests and one-time links.
+The [Console](/docs/console/access#who-can-call-the-endpoint) endpoint does not use these access routes. It takes only signed requests and signed Site access tokens.
 
 Other generated ViteHub routes check access on every request, even without an app rule. These are Realtime and Comments, Blob signed links, Connections, MCP with `auth: true` and its `publicRoute`, the Content GitHub webhook, and the page tools session. Each runs a required `authorize` policy, an explicit `access` rule, a required access token, or a signature check. The access routes still apply to them, so an app rule such as an admin check stays in force. Routes that can run without a check stay unmarked: `/_vitehub/browser-errors`, Forms, Sync, Blob serve routes, and Agent webhooks. Middleware of your own that guards the whole app can skip the marked routes and the Console with `checksOwnAccess(event)`:
 

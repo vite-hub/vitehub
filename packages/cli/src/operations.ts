@@ -317,12 +317,18 @@ function acceptedRoots(rootDir: string): string[] {
 
 async function throughConsole(url: string, context: ViteHubCliContext, signal: AbortSignal): Promise<{ target: string, authorization: string } | undefined> {
   if (Object.keys(context.env).some(name => name.startsWith("VITEHUB_CONSOLE_PRIVATE_KEY_") && context.env[name])) return
+  const warnDiscoveryFailed = () => {
+    context.stderr.write("Warning: Console discovery failed. The CLI will call the app directly if time remains.\n")
+  }
   try {
     const credential = await readConsoleCredential(context.env, undefined, signal)
     if (!credential) return
     const { body } = await consoleClient(context, credential, signal).request("/api/projects")
     signal.throwIfAborted()
-    if (!Array.isArray(body.projects)) throw new Error("Missing Console project list.")
+    if (!Array.isArray(body.projects)) {
+      warnDiscoveryFailed()
+      return
+    }
     if (body.cliForwarding !== true) return
     const projects: unknown[] = body.projects
     for (const project of projects) {
@@ -334,7 +340,7 @@ async function throughConsole(url: string, context: ViteHubCliContext, signal: A
     }
   }
   catch {
-    context.stderr.write("Warning: Console discovery failed. The CLI will call the app directly if time remains.\n")
+    warnDiscoveryFailed()
   }
 }
 

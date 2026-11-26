@@ -3,8 +3,8 @@ import { createLibsqlAgentInvocationStore } from "@vite-hub/agent/invocations";
 import { defineAgentInvocations } from "@vite-hub/agent/server";
 import { expect, it } from "vitest";
 import { readAgentUsage } from "@vite-hub/agent/usage";
-import { createUsageSummary, usageQueryWindow } from "../src/console/runtime/server/usage.ts";
-import type { UsageQuery } from "../src/console/runtime/server/usage.ts";
+import { createUsageSummary, usageQueryWindow } from "../src/agent/console/usage.ts";
+import type { UsageQuery } from "../src/agent/console/usage.ts";
 
 const timestamp = "2026-09-05T12:00:00.000Z";
 

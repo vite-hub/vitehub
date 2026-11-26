@@ -868,7 +868,6 @@ describe("vitehub", () => {
         connections: false,
         console: expect.stringMatching(/console\/runtime\/server\/agent-console\.(?:ts|js)$/),
         db: "@vite-hub/database/runtime/registry",
-        email: "vite-hub/email",
         i18n: false,
         kv: "vite-hub/kv",
         realtime: false,
@@ -945,6 +944,10 @@ describe("vitehub", () => {
       runtimeCapabilityImports: expect.objectContaining({ console: false, db: false }),
     }))
     expect(integrationMocks.hubWorkflow).toHaveBeenCalledTimes(workflowCallsBefore)
+    vitehub({ agent: true, email: true, host: "node" })
+    expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
+      runtimeCapabilityImports: expect.objectContaining({ email: "vite-hub/email" }),
+    }))
     vitehub({ agent: true, console: { auth: false }, host: "node" })
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
       runtimeCapabilityImports: expect.objectContaining({ console: expect.stringMatching(/console\/runtime\/server\/agent-console\.(?:ts|js)$/) }),

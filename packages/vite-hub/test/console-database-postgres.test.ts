@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { integer, jsonb, pgSchema, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
@@ -7,6 +7,7 @@ import { consoleState } from "../src/console/internal.ts";
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts";
 import { installConsoleDatabase } from "../src/console/runtime/server/database.ts";
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts";
+import { installViteHubConsoleOperations } from "./support/console-operations.ts";
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts";
 import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts";
 
@@ -57,6 +58,10 @@ afterEach(async () => {
   delete consoleState().database;
   delete consoleState().sections;
   delete consoleState().navigationSections;
+});
+
+beforeEach(async () => {
+  await installViteHubConsoleOperations();
 });
 
 describe("Console database inspection on Postgres", () => {

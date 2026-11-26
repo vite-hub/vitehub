@@ -8,6 +8,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { readConsolePublicKeys } from "@vite-hub/internal/console-signature"
 import { createSiteState, siteStateHash, verifySiteToken } from "@vite-hub/internal/site-token"
 
+import { readSiteIntent, siteIntentCookie, siteIntentLifetime, siteIntentSetCookie } from "../src/site-access.ts"
+
 import { operationRpcRequest, operationRpcResponse } from "../../internal/test-utils/operation-rpc.ts"
 
 import type { OperationRpcTestResult } from "../../internal/test-utils/operation-rpc.ts"
@@ -90,7 +92,8 @@ async function setup() {
     const response = await (path ? endpoints.item : endpoints.list).fetch(request)
     return { status: response.status, body: await response.json() as Record<string, unknown>, headers: response.headers }
   }
-  return { client, project, api }
+  const open = async (body: unknown, headers: Record<string, string> = {}) => await siteApi.fetch(new Request(`${consoleOrigin}/api/projects/${project.id}/site/open`, { method: "POST", headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json", ...headers }, body: JSON.stringify(body) }))
+  return { client, project, api, open }
 }
 
 function cookieOf(response: Response): string {
@@ -393,5 +396,124 @@ describe("Site access in the Console", () => {
     for (const query of ["app=https%3A%2F%2Fapp.example.com&state=short", `app=https%3A%2F%2Fapp.example.com&state=${"a".repeat(43)}&return=%2F%2Fevil.example`, `state=${"a".repeat(43)}`]) {
       expect((await visit.fetch(new Request(`${consoleOrigin}/visit?${query}`))).status, query).toBe(400)
     }
+  })
+})
+
+describe("Impersonation and Content preview in the Console", () => {
+  const start = { kind: "impersonate", target: { action: "start", userId: "app-user-1" } }
+
+  async function intentVisit(url: string, cookie: string, app = "https://app.example.com/portal") {
+    const link = new URL(url)
+    const appState = createSiteState()
+    const query = new URLSearchParams({ app, state: await siteStateHash(appState), return: link.searchParams.get("return")!, project: link.searchParams.get("project")!, intent: link.searchParams.get("intent")! })
+    const response = await visit.fetch(new Request(`${consoleOrigin}/visit?${query}`, { headers: cookie ? { cookie } : {} }))
+    return { response, appState, location: response.headers.get("location") ?? "" }
+  }
+
+  it("checks the action with the app as the member, keeps it in this browser for 60 seconds, and signs a token of its kind at /visit", async () => {
+    const { project, open } = await setup()
+    app.answer = { ok: true, value: { path: "/" } }
+    const opened = await open(start)
+    expect(opened.status).toBe(201)
+    const body = await opened.json() as { url: string, expiresAt: string }
+    const url = new URL(body.url)
+    expect(`${url.origin}${url.pathname}`).toBe("https://app.example.com/portal/_vitehub/site")
+    expect(Object.fromEntries(url.searchParams)).toEqual({ return: "/", project: project.id, intent: expect.stringMatching(/^[\w-]{43}$/) })
+    expect(Date.parse(body.expiresAt) - Date.now()).toBeLessThanOrEqual(siteIntentLifetime)
+    const [cookieLine] = opened.headers.getSetCookie()
+    expect(cookieLine).toMatch(new RegExp(`^__Host-vitehub-site-intent-${url.searchParams.get("intent")}=[\\w-]+; Path=/; HttpOnly; SameSite=Lax; Max-Age=60; Secure$`))
+    expect(app.calls).toEqual([{ operation: "auth.impersonate", user: "u-ada" }])
+
+    state.user = { id: "u-ada" }
+    const visited = await intentVisit(body.url, cookieOf(opened))
+    expect(visited.response.status).toBe(303)
+    const keys = readConsolePublicKeys({ [project.keyVariable]: project.publicKey })
+    if (!(keys instanceof Map)) throw new Error(keys.message)
+    const location = new URL(visited.location)
+    expect(location.searchParams.get("intent")).toBe(url.searchParams.get("intent"))
+    const verified = await verifySiteToken({ token: location.searchParams.get("token")!, keys, origin: "https://app.example.com/portal", state: visited.appState, kinds: ["impersonate"] })
+    expect(verified).toMatchObject({ ok: true, claims: { kind: "impersonate", target: start.target, roles: [], path: "/", sub: "u-ada" } })
+    expect(await verifySiteToken({ token: location.searchParams.get("token")!, keys, origin: "https://app.example.com/portal", state: visited.appState })).toMatchObject({ ok: false, code: "SITE_TOKEN_KIND" })
+    expect(visited.response.headers.getSetCookie()).toEqual([expect.stringMatching(/^__Host-vitehub-site-intent-[\w-]{43}=; .*Max-Age=0/)])
+    expect(app.calls).toEqual([{ operation: "auth.impersonate", user: "u-ada" }, { operation: "auth.impersonate", user: "u-ada" }])
+
+    expect((await intentVisit(body.url, "")).response.status).toBe(410)
+  })
+
+  it("opens an action only from a JSON request of the Console origin, and /visit uses the intent only with GET", async () => {
+    const { open } = await setup()
+    app.answer = { ok: true, value: { path: "/" } }
+    expect((await open(start, { "content-type": "text/plain" })).status).toBe(415)
+    expect((await open(start, { "sec-fetch-site": "same-site" })).status).toBe(403)
+    expect(app.calls).toEqual([])
+    const opened = await open(start, { "sec-fetch-site": "same-origin" })
+    expect(opened.status).toBe(201)
+    state.user = { id: "u-ada" }
+    const link = new URL((await opened.json() as { url: string }).url)
+    const query = new URLSearchParams({ app: "https://app.example.com/portal", state: await siteStateHash(createSiteState()), return: "/", project: link.searchParams.get("project")!, intent: link.searchParams.get("intent")! })
+    expect((await visit.fetch(new Request(`${consoleOrigin}/visit?${query}`, { method: "HEAD", headers: { cookie: cookieOf(opened) } }))).status).toBe(405)
+  })
+
+  it("answers the path of a document preview from the app", async () => {
+    const { open } = await setup()
+    app.answer = { ok: true, value: { path: "/blog/hello?draft=1" } }
+    const opened = await open({ kind: "preview", target: { collection: "posts", id: "hello", section: "content" } })
+    expect(opened.status).toBe(201)
+    expect(new URL((await opened.json() as { url: string }).url).searchParams.get("return")).toBe("/blog/hello?draft=1")
+    expect(app.calls).toEqual([{ operation: "documents.preview", user: "u-ada" }])
+  })
+
+  it("refuses an action that is malformed, or that the app refuses, and keeps nothing in the browser", async () => {
+    const { open } = await setup()
+    for (const body of [{ kind: "site", target: {} }, { kind: "impersonate", target: { action: "start" } }, { kind: "preview", target: { collection: "posts" } }, { kind: "impersonate", target: "x" }]) {
+      const response = await open(body)
+      expect(response.status, JSON.stringify(body)).toBe(400)
+      expect(await response.json()).toMatchObject({ code: "CONSOLE_SITE_ACTION_INVALID" })
+      expect(response.headers.getSetCookie()).toEqual([])
+    }
+    app.answer = { ok: false, code: "CONSOLE_ACCESS_DENIED", message: "Impersonation is off.", status: 404 }
+    const refused = await open(start)
+    expect(refused.status).toBe(404)
+    expect(await refused.json()).toMatchObject({ code: "CONSOLE_ACCESS_DENIED", message: "The app refused it: Impersonation is off." })
+    expect(refused.headers.getSetCookie()).toEqual([])
+    app.answer = { ok: true, value: { path: "https://evil.example/" } }
+    expect((await open(start)).status).toBe(502)
+  })
+
+  it("signs no token for another Console account, another app, or after the app refuses the action at /visit", async () => {
+    const { open } = await setup()
+    app.answer = { ok: true, value: { path: "/" } }
+    const opened = await open(start)
+    const { url } = await opened.json() as { url: string }
+    const cookie = cookieOf(opened)
+
+    state.user = { id: "u-bob" }
+    const bob = await intentVisit(url, cookie)
+    expect(bob.response.status).toBe(403)
+    expect(bob.response.headers.getSetCookie()).toEqual([expect.stringMatching(/Max-Age=0/)])
+
+    state.user = { id: "u-ada" }
+    const elsewhere = await intentVisit(url, cookie, "https://other.example.com")
+    expect(elsewhere.response.status).toBe(400)
+    expect(elsewhere.location).toBe("")
+
+    app.answer = { ok: false, code: "CONSOLE_ACCESS_DENIED", message: "Only admins impersonate.", status: 403 }
+    const refused = await intentVisit(url, cookie)
+    expect(refused.response.status).toBe(403)
+    expect(await refused.response.text()).toContain("Only admins impersonate. (CONSOLE_ACCESS_DENIED)")
+    expect(refused.location).toBe("")
+  })
+
+  it("reads an intent cookie only while it is valid and before it expires", () => {
+    const intent = { user: "u-ada", project: "p1", kind: "preview" as const, target: { collection: "posts", id: "hello", section: "content" }, expiresAt: 2_000 }
+    const value = siteIntentSetCookie("i".repeat(43), intent, false).split(";")[0]!.split("=")[1]!
+    expect(siteIntentCookie("i".repeat(43), false)).toBe(`vitehub-site-intent-${"i".repeat(43)}`)
+    expect(readSiteIntent(value, 1_000)).toEqual(intent)
+    expect(readSiteIntent(value, 2_000)).toBeUndefined()
+    expect(readSiteIntent(undefined)).toBeUndefined()
+    expect(readSiteIntent("not-json", 1_000)).toBeUndefined()
+    const site = siteIntentSetCookie("i".repeat(43), { ...intent, kind: "site" as never }, false).split(";")[0]!.split("=")[1]!
+    expect(readSiteIntent(site, 1_000)).toBeUndefined()
+    expect(siteIntentSetCookie("i".repeat(43), undefined, true)).toBe(`__Host-vitehub-site-intent-${"i".repeat(43)}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure`)
   })
 })

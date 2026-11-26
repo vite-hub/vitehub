@@ -9,7 +9,7 @@ import { consoleRequestError, consoleRoute, isConsoleDevelopmentRuntime } from "
 import { isConsoleLoopbackRequest } from "./loopback.ts"
 import { withPageTools } from "./site.ts"
 import { readConsoleSiteVisitor } from "./site-visitor.ts"
-import { appOrigin, seeOther } from "./tickets.ts"
+import { appOrigin, seeOther } from "./site-pages.ts"
 
 import type { ConsoleRequestEvent, ConsoleRoute } from "./request.ts"
 
@@ -156,10 +156,9 @@ export const siteEntryRoute: ConsoleRoute = consoleRoute(async (event) => {
   return seeOther(`${base}/_vitehub/site?${new URLSearchParams({ return: page })}`)
 })
 
-/** `/_vitehub` in an app without Comments: the page of the app in the ViteHub Console. It has no `/_vitehub/site`. */
+/** `/_vitehub` in an app without Comments: the page of the app in the ViteHub Console. */
 export const consoleEntryRoute: ConsoleRoute = consoleRoute(async (event) => {
   const { origin, request } = await enterRequest(event)
-  if (new URL(request.url).pathname.endsWith("/_vitehub/site")) throw consoleRequestError(404, "Site access needs the Comments pill. Add server/comments.ts, or set comments in vitehub() without overlay: false.")
   const location = siteEntryConsoleUrl(request, origin)
   if (!location) throw consoleRequestError(404, "The ViteHub Console opens only apps on https:, or on http: at localhost. Open the app on such an origin.")
   return seeOther(location)

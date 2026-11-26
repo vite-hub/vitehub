@@ -393,6 +393,19 @@ describe("generated operation commands", () => {
       expect(fetch).toHaveBeenCalledTimes(2)
     })
 
+    it("warns and calls the app directly when discovery has no project list", async () => {
+      const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        if (String(url) === `${console}/api/projects`) return Response.json({ cliForwarding: true })
+        expect(String(url)).toBe(`${app.url}/_vitehub/rpc`)
+        expect(new Headers(init?.headers).has("authorization")).toBe(false)
+        return operationRpcResponse(init?.body, { ok: true, value: {} })
+      })
+      const result = await run(["reports", "list", "acme", "--url", app.url], { env, fetch })
+      expect(result.code, result.stderr).toBe(0)
+      expect(result.stderr).toContain("Console discovery failed")
+      expect(fetch).toHaveBeenCalledTimes(2)
+    })
+
     it("does not replay a failed proxied operation against the app", async () => {
       const fetch = vi.fn(async (url: string | URL | Request) => {
         if (String(url) === `${console}/api/projects`) return Response.json({ cliForwarding: true, projects: [app] })

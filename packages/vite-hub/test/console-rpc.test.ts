@@ -1,6 +1,6 @@
 
 import * as v from "valibot"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { defineOperation } from "@vite-hub/internal/operations"
 
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
@@ -10,6 +10,7 @@ import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
+import { installViteHubConsoleOperations } from "./support/console-operations.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
@@ -27,6 +28,10 @@ function call(body: string, init: RequestInit = {}): Promise<Response> {
 afterEach(() => {
   vi.unstubAllGlobals()
   Reflect.deleteProperty(globalThis, consoleStateKey)
+})
+
+beforeEach(async () => {
+  await installViteHubConsoleOperations()
 })
 
 describe("Console RPC", () => {

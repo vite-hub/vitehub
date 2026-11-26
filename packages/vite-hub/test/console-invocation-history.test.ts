@@ -1,6 +1,6 @@
 import { createMessage, defineAgent } from "@vite-hub/agent"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
@@ -8,6 +8,7 @@ import { installConsoleAgentDefinitions } from "../src/console/runtime/server/ag
 import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 
 import type { AgentRunContext, MessagePart } from "@vite-hub/agent"
+import { installViteHubConsoleOperations } from "./support/console-operations.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 import { signedConsoleAccess } from "./support/console-signature.ts"
 import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
@@ -41,6 +42,10 @@ function setup() {
     waitUntil,
   }
 }
+
+beforeEach(async () => {
+  await installViteHubConsoleOperations()
+})
 
 describe("Console invocation history", () => {
   it("preserves the signed Invoker without a console.authorize callback", async () => {
