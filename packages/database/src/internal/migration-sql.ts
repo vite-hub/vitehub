@@ -40,6 +40,7 @@ const statementBreakpoint = "--> statement-breakpoint"
  * so a file that Drizzle Kit wrote keeps its bytes and its hash. The statements of a SQLite trigger body stay together.
  */
 export function addStatementBreakpoints(sql: string, dialect: DatabaseDialect = "sqlite"): string {
+  if (dialect === "postgresql") return addPartBreakpoints(sql, dialect)
   return breakpointParts(sql, dialect).map(part => addPartBreakpoints(part, dialect)).join(statementBreakpoint)
 }
 
@@ -80,7 +81,8 @@ function addPartBreakpoints(sql: string, dialect: DatabaseDialect): string {
     if (dialect === "sqlite" && /^CREATE\s+(?:TEMP(?:ORARY)?\s+)?TRIGGER\b/i.test(statement)) trigger = true
     if (trigger && !/^END\s*;$/i.test(statement)) continue
     trigger = false
-    if (index < statements.length - 1) cuts.push(ends[index]!)
+    const end = ends[index]
+    if (end !== undefined && index < statements.length - 1) cuts.push(end)
   }
   let result = ""
   let start = 0
@@ -92,8 +94,8 @@ function addPartBreakpoints(sql: string, dialect: DatabaseDialect): string {
 }
 
 /** The statements of `splitSqlStatements()`, and the index after the semicolon that ends each one. */
-function scanSqlStatements(sql: string, dialect: DatabaseDialect): { ends: number[], statements: string[], breakpoints: number[] } {
-  const ends: number[] = []
+function scanSqlStatements(sql: string, dialect: DatabaseDialect): { ends: (number | undefined)[], statements: string[], breakpoints: number[] } {
+  const ends: (number | undefined)[] = []
   const statements: string[] = []
   const breakpoints: number[] = []
   const postgres = dialect === "postgresql"
@@ -103,9 +105,21 @@ function scanSqlStatements(sql: string, dialect: DatabaseDialect): { ends: numbe
   let current = ""
   let quote: "'" | '"' | "`" | "]" | undefined
   let escapeString = false
+  let standardStrings = true
   let parens = 0
   let atomicDepth = 0
   let pendingBegin = false
+  const finish = (end?: number) => {
+    const statement = current.trim()
+    if (!statement) return
+    if (postgres) {
+      const setting = /^SET\s+(?:(?:LOCAL|SESSION)\s+)?standard_conforming_strings\s*(?:=|\bTO\b)\s*'?([\w]+)'?$/i.exec(statement)?.[1]
+      if (setting) standardStrings = !/^(?:off|false|no|0)$/i.test(setting)
+      else if (/^RESET\s+(?:standard_conforming_strings|ALL)$/i.test(statement)) standardStrings = true
+    }
+    statements.push(end === undefined ? statement : `${statement};`)
+    ends.push(end)
+  }
   for (let index = 0; index < sql.length; index++) {
     const char = sql[index]!
     const next = sql[index + 1]
@@ -132,6 +146,9 @@ function scanSqlStatements(sql: string, dialect: DatabaseDialect): { ends: numbe
       const end = postgres ? (lineEnd.exec(sql)?.index ?? -1) : sql.indexOf("\n", index)
       if (postgres && !atomicDepth && !parens && sql.slice(index, end === -1 ? sql.length : end).trimEnd() === statementBreakpoint) {
         breakpoints.push(index)
+        finish()
+        if (ends.length) ends[ends.length - 1] = undefined
+        current = ""
       }
       index = end === -1 ? sql.length : end - 1
       continue
@@ -177,6 +194,7 @@ function scanSqlStatements(sql: string, dialect: DatabaseDialect): { ends: numbe
     }
     if (char === "'" || char === "\"" || (!postgres && char === "`")) {
       quote = char
+      escapeString = postgres && char === "'" && !standardStrings
       current += char
       continue
     }
@@ -188,16 +206,13 @@ function scanSqlStatements(sql: string, dialect: DatabaseDialect): { ends: numbe
     if (postgres && char === "(") parens++
     if (postgres && char === ")") parens--
     if (char === ";" && !parens && !atomicDepth) {
-      if (current.trim()) {
-        statements.push(`${current.trim()};`)
-        ends.push(index + 1)
-      }
+      finish(index + 1)
       current = ""
       continue
     }
     current += char
   }
-  if (current.trim()) statements.push(current.trim())
+  finish()
   return { breakpoints, ends, statements }
 }
 

@@ -21,7 +21,7 @@ import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 import { resolveLocalSqlitePath } from "./runtime/local-path.ts"
 import { runsOnPglite } from "./runtime/postgres-env.ts"
 import { readOldMigrationsLayout } from "./internal/migrations-layout.ts"
-import { addStatementBreakpoints, isNoTransactionMigration, splitSqlStatements } from "./internal/migration-sql.ts"
+import { addStatementBreakpoints, isNoTransactionMigration, migrationParts, splitSqlStatements } from "./internal/migration-sql.ts"
 
 import type { OldMigrationsLayout } from "./internal/migrations-layout.ts"
 
@@ -981,7 +981,7 @@ async function readReplayedSqliteSnapshot(
 
 /**
  * Replays Postgres SQL files on a temporary PGlite folder, and returns the snapshot that `drizzle-kit pull` writes for it.
- * A file that starts with `-- vitehub:no-transaction` runs statement by statement, the others in one transaction each.
+ * A file with `-- vitehub:no-transaction` runs statement by statement, between batches of transactional migrations.
  */
 async function readReplayedPostgresSnapshot(
   context: ViteHubCliContext,
@@ -997,27 +997,57 @@ async function readReplayedPostgresSnapshot(
   await mkdir(resolve(projectRoot, ".vitehub/database"), { recursive: true })
   const dir = await mkdtemp(resolve(projectRoot, ".vitehub/database/migration-replay-"))
   try {
+    const history = moves.map(({ file, sql }) => ({ file, parts: migrationParts(sql, "postgresql"), noTransaction: isNoTransactionMigration(sql) }))
+    const replay = async (database: InstanceType<typeof PGlite>, prefixLength = 0) => {
+      let file = ""
+      const apply = async (entry: typeof history[number], exec: (sql: string) => Promise<unknown>) => {
+        file = entry.file
+        for (const part of entry.parts) await exec(part)
+      }
+      try {
+        for (let index = 0; index < history.length;) {
+          const entry = history[index]!
+          if (entry.noTransaction) {
+            await apply(entry, part => database.exec(part))
+            index++
+            continue
+          }
+          await database.transaction(async (tx) => {
+            do {
+              await apply(history[index]!, part => tx.exec(part))
+              index++
+            } while (index < history.length && index !== prefixLength && !history[index]!.noTransaction)
+          })
+        }
+      }
+      catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        const enumHelp = (error as { code?: string })?.code === "55P04"
+          ? " Commit the enum addition before using the new value: convert and apply the prefix through the enum addition first, then add the dependent migrations."
+          : ""
+        throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ cause: error, problem: `Could not replay ${file}: ${message}.${enumHelp}` })
+      }
+    }
     const dataDir = join(dir, "pglite")
     const database = new PGlite(dataDir)
     try {
-      for (const { file, sql } of moves) {
-        try {
-          if (isNoTransactionMigration(sql)) {
-            for (const statement of splitSqlStatements(sql, "postgresql")) await database.query(statement)
-          }
-          else {
-            await database.transaction(async (tx) => {
-              await tx.exec(sql)
-            })
-          }
-        }
-        catch (error) {
-          throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ cause: error, problem: `Could not replay ${file}: ${error instanceof Error ? error.message : String(error)}` })
-        }
-      }
+      await replay(database)
     }
     finally {
       await database.close()
+    }
+    for (const [index, entry] of history.entries()) {
+      if (index === 0 || entry.noTransaction || history[index - 1]!.noTransaction) continue
+      const addsEnumValue = entry.parts.some(part => splitSqlStatements(part, "postgresql")
+        .some(statement => /^ALTER\s+TYPE\s+[\s\S]+?\s+ADD\s+VALUE\b/i.test(statement)))
+      if (!addsEnumValue) continue
+      const upgrade = new PGlite()
+      try {
+        await replay(upgrade, index)
+      }
+      finally {
+        await upgrade.close()
+      }
     }
     const out = join(dir, "out")
     const result = await context.spawn(process.execPath, [bin, "pull", "--dialect", "postgresql", "--driver", "pglite", "--url", dataDir, "--out", out], {

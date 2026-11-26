@@ -422,6 +422,11 @@ describe("vitehub database up", () => {
     await writeFile(join(project.migrationsDir, "0002_touch_posts.sql"), [
       project.files["0002_touch_posts.sql"].replaceAll("$$", tag),
       String.raw`CREATE TABLE messages (body text DEFAULT E'it\'s; ready', marker text DEFAULT '--> statement-breakpoint');`,
+      "SET LOCAL standard_conforming_strings = off;",
+      "--> statement-breakpoint",
+      String.raw`ALTER TABLE messages ADD COLUMN legacy text DEFAULT 'it\'s; legacy';`,
+      "--> statement-breakpoint",
+      "RESET standard_conforming_strings;",
       "/* outer /* nested */ ; remains in comment */",
       "CREATE FUNCTION answer() RETURNS integer LANGUAGE SQL BEGIN ATOMIC SELECT CASE WHEN true THEN 42 END; END;",
       "",
@@ -436,7 +441,7 @@ describe("vitehub database up", () => {
     await expect(readFile(join(project.migrationsDir, tags[0]!, "migration.sql"), "utf8")).resolves.toBe(project.files["0000_init.sql"])
     await expect(readFile(join(project.migrationsDir, tags[1]!, "migration.sql"), "utf8")).resolves.toMatch(/NOT NULL\);\n--> statement-breakpoint\n\nALTER TABLE "posts" ADD CONSTRAINT/)
     const touch = await readFile(join(project.migrationsDir, tags[2]!, "migration.sql"), "utf8")
-    expect(touch.split("\n--> statement-breakpoint\n")).toHaveLength(4)
+    expect(touch.split("\n--> statement-breakpoint\n")).toHaveLength(7)
     expect(touch).toContain(`RETURN NEW; END; ${tag};`)
     expect(existsSync(join(project.migrationsDir, tags[1]!, "snapshot.json"))).toBe(false)
     const snapshot = JSON.parse(await readFile(join(project.migrationsDir, tags[2]!, "snapshot.json"), "utf8")) as { dialect: string, ddl: { entityType: string, name: string }[] }
@@ -446,7 +451,7 @@ describe("vitehub database up", () => {
 
     await expect(project.run("migrate")).resolves.toMatchObject({ exitCode: 0, stderr: "" })
     await expect(pgliteRows(project.rootDir, "insert into users (email) values ('a@b.c') returning id")).resolves.toEqual([{ id: 1 }])
-    await expect(pgliteRows(project.rootDir, "insert into messages default values returning body, marker, answer() as answer")).resolves.toEqual([{ answer: 42, body: "it's; ready", marker: "--> statement-breakpoint" }])
+    await expect(pgliteRows(project.rootDir, "insert into messages default values returning body, legacy, marker, answer() as answer")).resolves.toEqual([{ answer: 42, body: "it's; ready", legacy: "it's; legacy", marker: "--> statement-breakpoint" }])
     await expect(pgliteRows(project.rootDir, "select name from drizzle.__drizzle_migrations order by id")).resolves.toEqual(tags.map(name => ({ name })))
   }, 120_000)
 
@@ -503,6 +508,25 @@ describe("vitehub database up", () => {
     for (const [file, sql] of Object.entries(project.files)) await expect(readFile(join(project.migrationsDir, file), "utf8")).resolves.toBe(sql)
     await expect(readdir(join(project.rootDir, ".vitehub/database"))).resolves.toEqual([])
     expect(existsSync(join(project.rootDir, ".vitehub/data/database/pglite"))).toBe(false)
+  }, 120_000)
+
+  it("does not convert a Postgres enum history that only works on an empty database", async () => {
+    const project = await createFlatPostgresProject()
+    const files = {
+      "0003_create_status.sql": "CREATE TYPE status AS ENUM ('draft');",
+      "0004_publish.sql": "ALTER TYPE status ADD VALUE 'published';",
+      "0005_default_status.sql": "ALTER TABLE posts ADD COLUMN status status DEFAULT 'published';",
+    }
+    for (const [file, sql] of Object.entries(files)) await writeFile(join(project.migrationsDir, file), sql)
+    const before = await readdir(project.migrationsDir)
+
+    const failed = await project.run("up")
+    expect(failed.exitCode).toBe(1)
+    expect(failed.stderr).toContain("DATABASE_MIGRATION_CONVERSION_FAILED")
+    expect(failed.stderr).toContain("Could not replay 0005_default_status.sql: unsafe use of new value")
+    expect(failed.stderr).toContain("Commit the enum addition before using the new value")
+    await expect(readdir(project.migrationsDir)).resolves.toEqual(before)
+    for (const [file, sql] of Object.entries(files)) await expect(readFile(join(project.migrationsDir, file), "utf8")).resolves.toBe(sql)
   }, 120_000)
 
   it("converts hand-written SQL files next to an incomplete Drizzle Kit 0.x journal, and keeps what Wrangler applied", async () => {
