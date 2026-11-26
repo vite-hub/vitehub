@@ -922,7 +922,7 @@ export default defineDatabase({
 
 Drizzle keeps its migrations table in the schema `drizzle`, and ViteHub creates that schema. When the role cannot create a schema, or you want the table in your own schema, set `migrationsSchema`:
 
-```ts [server/databases/default.ts]
+```ts [server/databases/default.ts] fragment
 export default defineDatabase({
   dialect: 'postgresql',
   migrationsSchema: 'app',
