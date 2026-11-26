@@ -1,10 +1,11 @@
 import { spawn as spawnProcess } from "node:child_process"
 import { createHash } from "node:crypto"
 import { existsSync } from "node:fs"
-import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, join } from "node:path"
 
+import { PGlite } from "@electric-sql/pglite"
 import { createClient } from "@libsql/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -46,6 +47,25 @@ async function rows(rootDir: string, sql: string) {
   finally {
     client.close()
   }
+}
+
+function sha256(sql: string) {
+  return createHash("sha256").update(sql).digest("hex")
+}
+
+async function pgliteRows(rootDir: string, sql: string) {
+  const client = new PGlite(join(rootDir, ".vitehub/data/database/pglite"))
+  try {
+    return (await client.query<Record<string, unknown>>(sql)).rows
+  }
+  finally {
+    await client.close()
+  }
+}
+
+// Without `id`: a PGlite that Drizzle Kit did not close skips 32 sequence values on the next open.
+async function pgliteLedger(rootDir: string) {
+  return await pgliteRows(rootDir, "select hash, created_at::text, name, applied_at is not null as applied from drizzle.__drizzle_migrations order by id")
 }
 
 async function folder(migrationsDir: string, tag: string, sql: string) {
@@ -741,19 +761,105 @@ describe("vitehub database migrate", () => {
     await expect(readFile(join(project.database.migrationsDir, pending, "migration.sql"), "utf8")).resolves.toBe(seed)
   }, 120_000)
 
-  it("migrates a Postgres Database on PGlite with Drizzle Kit, not the Postgres server migrator", async () => {
+  it("migrates PGlite without drizzle-kit", async () => {
     const project = await createProject()
     Object.assign(project.database, { connection: undefined, dialect: "postgresql" })
-    await mkdir(project.database.migrationsDir, { recursive: true })
-    const spawn = vi.fn(async () => ({ exitCode: 0 }))
+    const init = "CREATE TABLE \"notes\" (\"id\" serial PRIMARY KEY NOT NULL);"
+    const title = "ALTER TABLE \"notes\" ADD COLUMN \"title\" text;\n--> statement-breakpoint\nINSERT INTO \"notes\" (\"title\") VALUES ('first');"
+    await folder(project.database.migrationsDir, "20260101000000_init", init)
+    await folder(project.database.migrationsDir, "20260102000000_title", title)
+    const spawn = vi.fn(realSpawn)
 
-    // No URL and no PG* variables: the generated Kit config uses PGlite in .vitehub/data/database/pglite.
+    const migrated = await project.run("migrate", [], {}, spawn)
+    expect(migrated).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(migrated.stdout).toContain("[vitehub] Database \"default\": applied 20260102000000_title.")
+
+    expect(spawn).not.toHaveBeenCalled()
+    await expect(pgliteRows(project.rootDir, "select id, title from notes")).resolves.toEqual([{ id: 1, title: "first" }])
+    await expect(pgliteLedger(project.rootDir)).resolves.toEqual([
+      { applied: true, created_at: String(Date.UTC(2026, 0, 1)), hash: sha256(init), name: "20260101000000_init" },
+      { applied: true, created_at: String(Date.UTC(2026, 0, 2)), hash: sha256(title), name: "20260102000000_title" },
+    ])
+    await expect(project.run("migrate", ["--dry-run"], {}, spawn)).resolves.toMatchObject({ exitCode: 0, stdout: expect.stringContaining("(PGlite .vitehub/data/database/pglite): no pending migrations.") })
+    expect(spawn).not.toHaveBeenCalled()
+  }, 120_000)
+
+  it("refuses conflicting generated PGlite migrations before writing a database", async () => {
+    const project = await createProject()
+    Object.assign(project.database, { connection: undefined, dialect: "postgresql" })
+    const kit = join(dirname(createRequire(import.meta.url).resolve("drizzle-kit")), "bin.js")
+    const generate = async (out: string, defaultValue: string, name: string) => {
+      await writeFile(join(project.rootDir, "schema.ts"), `
+        import { pgTable, text } from 'drizzle-orm/pg-core'
+        export const notes = pgTable('notes', { content: text().default(${JSON.stringify(defaultValue)}) })
+      `)
+      await expect(realSpawn(process.execPath, [kit, "generate", "--dialect", "postgresql", "--schema", "./schema.ts", "--out", out, "--name", name], { cwd: project.rootDir })).resolves.toEqual({ exitCode: 0 })
+    }
+    await generate("migrations", "base", "init")
+    const [init] = await migrationTags(project.database.migrationsDir)
+    await rename(join(project.database.migrationsDir, init!), join(project.database.migrationsDir, "20260101000000_init"))
+    const spawn = vi.fn(realSpawn)
+    await expect(project.run("migrate", ["--dry-run"], {}, spawn)).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+    expect(spawn).not.toHaveBeenCalled()
+    const branch = join(project.rootDir, "branch")
+    await cp(project.database.migrationsDir, branch, { recursive: true })
+    await generate("migrations", "left", "left")
+    await generate("branch", "right", "right")
+    const left = (await migrationTags(project.database.migrationsDir)).find(tag => tag.endsWith("_left"))!
+    const right = (await migrationTags(branch)).find(tag => tag.endsWith("_right"))!
+    await rename(join(project.database.migrationsDir, left), join(project.database.migrationsDir, "20260102000000_left"))
+    await rename(join(branch, right), join(project.database.migrationsDir, "20260103000000_right"))
+
+    await expect(realSpawn(process.execPath, [kit, "check", "--dialect", "postgresql", "--out", "migrations"], { cwd: project.rootDir })).resolves.toEqual({ exitCode: 1 })
+    for (const args of [["--allow-data-loss"], ["--dry-run"], []]) {
+      await expect(project.run("migrate", args, {})).resolves.toMatchObject({ exitCode: 1, stderr: expect.stringContaining("drizzle-kit check failed") })
+      expect(existsSync(join(project.rootDir, ".vitehub/data/database/pglite"))).toBe(false)
+    }
+  }, 120_000)
+
+  it("refuses a PGlite config override without migrating the default target", async () => {
+    const project = await createProject()
+    Object.assign(project.database, { connection: undefined, dialect: "postgresql" })
+    await folder(project.database.migrationsDir, "20260101000000_init", "CREATE TABLE notes (id integer PRIMARY KEY);")
+    await writeFile(join(project.rootDir, "alternate.config.ts"), "export default { dialect: 'postgresql', driver: 'pglite', out: './alternate', migrations: { schema: 'alternate' }, dbCredentials: { url: './alternate-db' } }\n")
+    const spawn = vi.fn(realSpawn)
+
+    for (const args of [["--config", "alternate.config.ts"], ["--config=alternate.config.ts", "--dry-run"]]) {
+      await expect(project.run("migrate", args, {}, spawn)).resolves.toMatchObject({ exitCode: 1, stderr: expect.stringContaining("does not support --config") })
+      expect(existsSync(join(project.rootDir, ".vitehub/data/database/pglite"))).toBe(false)
+    }
+    expect(spawn).not.toHaveBeenCalled()
+  }, 120_000)
+
+  it("reads the ledger that drizzle-kit wrote to a PGlite folder, and writes rows that drizzle-kit reads", async () => {
+    const project = await createProject()
+    Object.assign(project.database, { connection: undefined, dialect: "postgresql" })
+    const init = "CREATE TABLE \"notes\" (\"id\" serial PRIMARY KEY NOT NULL);"
+    const title = "ALTER TABLE \"notes\" ADD COLUMN \"title\" text;"
+    await folder(project.database.migrationsDir, "20260101000000_init", init)
+    await writeFile(join(project.rootDir, "kit.config.ts"), "export default { dialect: 'postgresql', driver: 'pglite', out: './migrations', dbCredentials: { url: '.vitehub/data/database/pglite' } }\n")
+    const kit = join(dirname(createRequire(import.meta.url).resolve("drizzle-kit")), "bin.js")
+    const runKit = () => realSpawn(process.execPath, [kit, "migrate", "--config", "kit.config.ts"], { cwd: project.rootDir, env: { ...process.env, PGHOST: "", PGDATABASE: "" } })
+    await mkdir(join(project.rootDir, ".vitehub/data/database"), { recursive: true })
+    await expect(runKit()).resolves.toEqual({ exitCode: 0 })
+    const [kitRow] = await pgliteLedger(project.rootDir)
+    expect(kitRow).toEqual({ applied: true, created_at: String(Date.UTC(2026, 0, 1)), hash: sha256(init), name: "20260101000000_init" })
+
+    await folder(project.database.migrationsDir, "20260102000000_title", title)
+    const spawn = vi.fn(realSpawn)
+    const dryRun = await project.run("migrate", ["--dry-run"], {}, spawn)
+    expect(dryRun).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(dryRun.stdout).toContain("(PGlite .vitehub/data/database/pglite): 1 pending migration.")
+    expect(dryRun.stdout).toContain("  20260102000000_title")
     await expect(project.run("migrate", [], {}, spawn)).resolves.toMatchObject({ exitCode: 0, stderr: "" })
 
-    expect(spawn).toHaveBeenCalledOnce()
-    expect(spawn.mock.calls[0]).toEqual(expect.arrayContaining([expect.arrayContaining(["migrate"])]))
-    expect(existsSync(join(project.rootDir, ".vitehub/data/database"))).toBe(true)
-  })
+    expect(spawn).not.toHaveBeenCalled()
+    await expect(pgliteRows(project.rootDir, "select column_name from information_schema.columns where table_name = 'notes' order by ordinal_position")).resolves.toEqual([{ column_name: "id" }, { column_name: "title" }])
+    const ledger = [kitRow, { applied: true, created_at: String(Date.UTC(2026, 0, 2)), hash: sha256(title), name: "20260102000000_title" }]
+    await expect(pgliteLedger(project.rootDir)).resolves.toEqual(ledger)
+    await expect(runKit()).resolves.toEqual({ exitCode: 0 })
+    await expect(pgliteLedger(project.rootDir)).resolves.toEqual(ledger)
+  }, 120_000)
 
   it("fails without a resolved Database config instead of skipping the check", async () => {
     const spawn = vi.fn(async () => ({ exitCode: 0 }))

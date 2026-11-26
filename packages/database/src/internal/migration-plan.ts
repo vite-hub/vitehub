@@ -1,13 +1,13 @@
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync } from "node:fs"
 import { createRequire } from "node:module"
 
 import { createClient } from "@libsql/client"
-import { join, resolve } from "pathe"
+import { dirname, join, resolve } from "pathe"
 
 import { resolveConfigValue } from "../config-value.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 import { localPgliteDir, resolveLocalSqlitePath } from "../runtime/local-path.ts"
-import { migratePostgres, toPostgresMigrationClient } from "../runtime/migrate-on-start.ts"
+import { migratePostgres, toPgliteMigrationClient, toPostgresMigrationClient } from "../runtime/migrate-on-start.ts"
 import { runsOnPglite } from "../runtime/postgres-env.ts"
 import { invariantError } from "@vite-hub/internal/invariant"
 
@@ -21,7 +21,7 @@ import type postgres from "postgres"
 import type { Result } from "@vite-hub/runtime"
 import type { ResolvedDrizzleDatabaseConfig } from "../types.ts"
 import type { D1HttpTarget } from "./d1-migrations.ts"
-import type { PostgresMigrationClient } from "../runtime/migrate-on-start.ts"
+import type { PostgresMigrationClient, PostgresMigrationSql, PostgresTarget } from "../runtime/migrate-on-start.ts"
 import type { LedgerMatch, LedgerRow } from "./migration-ledger.ts"
 import type { MigrationEntry, PendingMigration } from "./migration-journal.ts"
 
@@ -290,36 +290,54 @@ function connectMigrationPostgres(target: { url?: string }, projectRoot: string,
   return { begin: run => sql.begin(run), end: () => sql.end({ timeout: 5 }), unsafe: (query, parameters) => sql.unsafe(query, parameters) }
 }
 
+async function readPostgresLedgerRows(sql: PostgresMigrationSql): Promise<LedgerRow[]> {
+  const [table] = Array.from(await sql.unsafe("select to_regclass('drizzle.__drizzle_migrations')::text as name"))
+  if (!table?.name) return []
+  return Array.from(await sql.unsafe(`select * from ${postgresMigrationsTable}`)).map(row => toLedgerRow(row))
+}
+
 async function readPostgresLedger(target: Extract<MigrationTarget, { kind: "postgres" }>, options: MigrationPlanOptions, driver?: string): Promise<LedgerRow[]> {
   const sql = connectMigrationPostgres(target, options.projectRoot, options.env, driver)
   try {
-    const [table] = Array.from(await sql.unsafe("select to_regclass('drizzle.__drizzle_migrations')::text as name"))
-    if (!table?.name) return []
-    return Array.from(await sql.unsafe(`select * from ${postgresMigrationsTable}`)).map(row => toLedgerRow(row))
+    return await readPostgresLedgerRows(sql)
   }
   finally {
     await sql.end()
   }
 }
 
+function requireProjectPglite(projectRoot: string): typeof import("@electric-sql/pglite").PGlite {
+  return (createRequire(join(projectRoot, "package.json"))("@electric-sql/pglite") as typeof import("@electric-sql/pglite")).PGlite
+}
+
+function connectMigrationPglite(path: string, projectRoot: string, database: ResolvedDrizzleDatabaseConfig): CliPostgresClient {
+  let PGlite: typeof import("@electric-sql/pglite").PGlite
+  try {
+    PGlite = requireProjectPglite(projectRoot)
+  }
+  catch (error) {
+    throw databaseErrorDiagnostics.DATABASE_PGLITE_NOT_INSTALLED({ cause: error, database: database.name, reason: database.driver === "pglite" ? "driver" : "no-connection" })
+  }
+  // PGlite creates the folder, but not its parent directories.
+  mkdirSync(dirname(path), { recursive: true })
+  const client = new PGlite(path)
+  return { ...toPgliteMigrationClient(client), end: () => client.close() }
+}
+
 async function readPgliteLedger(path: string, projectRoot: string, fail: CheckFailure): Promise<LedgerRow[]> {
   let PGlite: typeof import("@electric-sql/pglite").PGlite
   try {
-    // Drizzle Kit loads PGlite from the project too.
-    ({ PGlite } = createRequire(join(projectRoot, "package.json"))("@electric-sql/pglite") as typeof import("@electric-sql/pglite"))
+    PGlite = requireProjectPglite(projectRoot)
   }
   catch (error) {
-    // Check it before the folder exists too: Drizzle Kit needs it to apply the first migration.
+    // Check it before the folder exists too: `vitehub database migrate` needs it to apply the first migration.
     throw fail("It runs on PGlite, because the Definition sets `driver: \"pglite\"` or has no `connection.url` and no PG* variables, but the project cannot load `@electric-sql/pglite`. Set `connection.url` to migrate a Postgres server, or install PGlite with `pnpm add -D @electric-sql/pglite`.", error)
   }
   // A missing folder has no applied migrations. Do not let PGlite create it.
   if (!existsSync(path)) return []
   const client = new PGlite(path)
   try {
-    const { rows: [table] } = await client.query<{ name: string | null }>("select to_regclass('drizzle.__drizzle_migrations')::text as name")
-    if (!table?.name) return []
-    const { rows } = await client.query<Record<string, unknown>>(`select * from ${postgresMigrationsTable}`)
-    return rows.map(row => toLedgerRow(row))
+    return await readPostgresLedgerRows(toPgliteMigrationClient(client))
   }
   finally {
     await client.close()
@@ -490,7 +508,8 @@ export async function migrateD1Http(
 /**
  * Applies the pending migrations of the Postgres databases with the runtime's `migratePostgres()`, the one that a server
  * runs on start. It holds the same advisory lock, so `vitehub database migrate` and a starting server never migrate at the
- * same time, and Definitions on one Postgres database migrate together. Returns the error when the migrations do not apply.
+ * same time, and Definitions on one Postgres database migrate together. A PGlite folder migrates the same way, and gets
+ * the same ledger rows as `drizzle-kit migrate`. Returns the error when the migrations do not apply.
  */
 export async function migratePostgresDatabases(
   databases: ResolvedDrizzleDatabaseConfig[],
@@ -499,12 +518,15 @@ export async function migratePostgresDatabases(
 ): Promise<unknown> {
   const clients: CliPostgresClient[] = []
   try {
-    const targets = databases.map((database) => {
+    const targets = databases.map((database): PostgresTarget => {
       const target = resolveTarget(database, options)
-      if (target?.kind !== "postgres") throw invariantError("`vitehub database migrate` passes only Postgres databases to migratePostgresDatabases()")
-      const client = connectMigrationPostgres(target, options.projectRoot, options.env, database.driver)
+      if (target?.kind !== "postgres" && target?.kind !== "pglite") throw invariantError("`vitehub database migrate` passes only Postgres databases to migratePostgresDatabases()")
+      const migrations = readStartMigrations(database.migrationsDir, database.dialect)
+      const client = target.kind === "pglite"
+        ? connectMigrationPglite(target.path, options.projectRoot, database)
+        : connectMigrationPostgres(target, options.projectRoot, options.env, database.driver)
       clients.push(client)
-      return { client, database: { migrations: readStartMigrations(database.migrationsDir, database.dialect), name: database.name } }
+      return { client, database: { migrations, name: database.name }, ...target.kind === "pglite" && { key: `pglite:${target.path}` } }
     })
     await migratePostgres(targets, { allowDataLoss: options.allowDataLoss, log })
   }
