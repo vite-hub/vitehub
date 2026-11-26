@@ -33,7 +33,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-async function site(visitor: ViteHubSiteVisitor, threads: number) {
+async function site(visitor: ViteHubSiteVisitor, openThreads: number, resolvedThreads = 0) {
   installViteHubSiteVisitor(async () => visitor)
   const subject = { kind: "drop", id: "42" }
   const server = await serveComments({
@@ -41,19 +41,12 @@ async function site(visitor: ViteHubSiteVisitor, threads: number) {
     page: ({ url }) => url.pathname === "/pricing" ? subject : undefined,
   })
   const ids: string[] = []
-  for (let index = 0; index < threads; index++) {
+  for (let index = 0; index < openThreads + resolvedThreads; index++) {
     const author = { id: "grace", name: "Grace" }
     const [, thread] = await server.comments.create({ subject, anchor, body: `Fix ${index}`, author })
-    if (index === 1) {
-      const [, resolved] = await server.comments.resolve(thread!.id, { by: author })
-      const now = vi.spyOn(Date, "now").mockReturnValue(resolved!.resolvedAt! + 1)
-      try {
-        const [error] = await server.comments.reply(thread!.id, { body: "Still needs work", author }, { allowResolved: true })
-        expect(error).toBeUndefined()
-      }
-      finally {
-        now.mockRestore()
-      }
+    if (index >= openThreads) {
+      const [error] = await server.comments.resolve(thread!.id, { by: author })
+      expect(error).toBeUndefined()
     }
     ids.push(thread!.id)
   }
@@ -67,13 +60,15 @@ describe("Copy prompt in the comment pill", () => {
   it("copies three lines that send a Console member's agent to the open threads through the ViteHub MCP", async () => {
     const writeText = vi.fn(async (_text: string) => undefined)
     vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } })
-    const { bar, ids } = await site(member, 2)
+    const { bar, ids: [firstOpen, secondOpen, resolved] } = await site(member, 2, 1)
     await vi.waitFor(() => expect(copyButton(bar)).not.toBeNull())
     expect(copyButton(bar)!.getAttribute("aria-label")).toBe("Copy a prompt for your agent: 2 open comments")
     copyButton(bar)!.click()
     await vi.waitFor(() => expect(writeText).toHaveBeenCalledOnce())
-    expect(writeText.mock.calls[0]![0]).toContain(`Fix the 2 open ViteHub comments on ${location.origin}/pricing`)
-    for (const value of [...ids, project.url, project.teamId, "comments.get", "comments.resolve"]) expect(writeText.mock.calls[0]![0]).toContain(value)
+    const [prompt] = writeText.mock.calls[0]!
+    expect(prompt).toContain(`Fix the 2 open ViteHub comments on ${location.origin}/pricing`)
+    for (const value of [firstOpen, secondOpen, project.url, project.teamId, "comments.get", "comments.resolve"]) expect(prompt).toContain(value)
+    expect(prompt).not.toContain(resolved)
   })
 
   it("does not offer a prompt when the member only has page access", async () => {
