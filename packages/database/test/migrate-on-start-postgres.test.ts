@@ -919,6 +919,7 @@ describe.skipIf(!adminUrl)("migrationsSchema on Postgres", () => {
     expect(await sql`select to_regclass('app.__drizzle_migrations')::text as name`).toEqual([{ name: null }])
     expect(await readLedger(sql)).toEqual(shared)
 
+    expect(error?.fix).toMatch(/^Remove `migrationsSchema` to keep the ledger in "drizzle"\./)
     const statements = fixStatements(error?.fix)
     expect(statements).toHaveLength(3)
     for (const statement of statements) await sql.unsafe(statement)
@@ -927,6 +928,30 @@ describe.skipIf(!adminUrl)("migrationsSchema on Postgres", () => {
     expect(log).toEqual([])
     expect((await readLedger(sql, "app")).map(({ applied, created_at, hash, name }) => ({ applied, created_at, hash, name }))).toEqual([{ ...ledgerRow(widgets), applied: true }, { ...ledgerRow(clearWidgets), applied: true }])
     expect(await sql`select id from widgets`).toEqual([{ id: 1 }])
+    expect(await readLedger(sql)).toEqual(shared)
+  })
+
+  it("applies a new folder with the SQL of a migration that the printed SQL copied to the app ledger", { timeout: 60_000 }, async () => {
+    const app = await createProject([widgets, clearWidgets], inApp)
+    const url = await createDatabase()
+    const sql = connect(url)
+    await migratePostgres([{ client: sql, database: { migrations: readStartMigrations(app.migrationsDir, "postgresql"), name: "default" } }], { log: () => {} })
+    await sql.unsafe("CREATE SCHEMA app")
+    const shared = await readLedger(sql)
+    const [error] = await readMigrationPlan(postgresDatabase(url, app.migrationsDir, "app"), { env: {}, projectRoot: app.root })
+    for (const statement of fixStatements(error?.fix)) await sql.unsafe(statement)
+    await sql.unsafe("INSERT INTO widgets (id) VALUES (2)")
+
+    const clearAgain = { sql: clearWidgets.sql, tag: "20260102000002_clear_widgets_again", when: 1_767_312_002_000 }
+    await writeMigrations(app.root, [widgets, clearWidgets, clearAgain])
+    const [planError, plan] = await readMigrationPlan(postgresDatabase(url, app.migrationsDir, "app"), { env: {}, projectRoot: app.root })
+    expect(planError).toBeUndefined()
+    expect(plan?.pending.map(migration => migration.name)).toEqual([clearAgain.tag])
+    const log: string[] = []
+    await migratePostgres(startTarget(sql, app.migrationsDir), { log: message => log.push(message) })
+    expect(log).toEqual([`[vitehub] Database "default": applied ${clearAgain.tag}.`])
+    expect(await sql`select id from widgets`).toEqual([])
+    expect((await readLedger(sql, "app")).map(({ name }) => name)).toEqual([widgets.tag, clearWidgets.tag, clearAgain.tag])
     expect(await readLedger(sql)).toEqual(shared)
   })
 
@@ -944,6 +969,9 @@ describe.skipIf(!adminUrl)("migrationsSchema on Postgres", () => {
     const failure = { code: "DATABASE_MIGRATION_LEDGER_MISPLACED", why: expect.stringContaining(`does not list "${clearWidgets.tag}".`) }
     const [error] = await readMigrationPlan(postgresDatabase(url, app.migrationsDir, "app"), { env: {}, projectRoot: app.root })
     expect(error).toMatchObject(failure)
+    expect(error?.fix).toMatch(/^Keep `migrationsSchema`: the ledger in "app" lists 1 migration\(s\)/)
+    expect(error?.fix).not.toContain("Remove `migrationsSchema`")
+    expect(fixStatements(error?.fix)).toHaveLength(2)
     await expect(migratePostgres(startTarget(sql, app.migrationsDir), { log: () => {} })).rejects.toMatchObject(failure)
     expect(await sql`select id from widgets`).toEqual([{ id: 1 }])
     expect(await readLedger(sql, "app")).toEqual(own)

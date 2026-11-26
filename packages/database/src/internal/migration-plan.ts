@@ -359,8 +359,9 @@ export async function readPostgresMigrationPlans(databases: ResolvedDrizzleDatab
         const problem = drizzleLedgerProblem(match, database.migrationsDir)
         if (problem) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: database.name, problem })
         const history = await reconcilePostgresHistory(client, group.map(({ database, entries }) => ({ name: database.name, tags: entries.map(entry => entry.tag) })), match.applied, schema)
-        const misplaced = await findMisplacedMigrations(client, { pending: migrations.filter(entry => !match.applied.has(entry.tag) && !history.adopted.includes(entry.tag)), schema })
-        if (misplaced.length) throw misplacedLedgerError(database.name, schema!, migrations.filter(entry => misplaced.includes(entry.tag)))
+        const recorded = [...rows.map(row => row.hash), ...migrations.filter(entry => history.adopted.includes(entry.tag)).map(entry => entry.hash)]
+        const misplaced = await findMisplacedMigrations(client, { applied: recorded, pending: migrations.filter(entry => !match.applied.has(entry.tag) && !history.adopted.includes(entry.tag)), schema })
+        if (misplaced.length) throw misplacedLedgerError(database.name, schema!, migrations.filter(entry => misplaced.includes(entry.tag)), recorded.length)
         for (const { database, target, entries } of group) {
           const adopted = new Map(entries.filter(entry => history.adopted.includes(entry.tag)).map(entry => [entry.tag, hubMigrationsTable]))
           const plan = buildMigrationPlan(database, target, options, entries, match.applied, adopted)
