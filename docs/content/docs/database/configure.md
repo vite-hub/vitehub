@@ -239,7 +239,7 @@ For D1 HTTP, `vitehub database migrate` uses Wrangler's migrations table (`cloud
 
 ### Keep an existing migrations table
 
-A database that another tool migrated already has a migrations table, such as NuxtHub's `_hub_migrations` or Wrangler's `d1_migrations`. `vitehub database migrate` reads it, so it does not run those migrations again. This works for local SQLite, libSQL, and D1 HTTP.
+A database that another tool migrated already has a migrations table, such as NuxtHub's `_hub_migrations` or Wrangler's `d1_migrations`. `vitehub database migrate` reads it, so it does not run those migrations again. This works for local SQLite, libSQL, D1 HTTP, Postgres, and PGlite. On Postgres and PGlite, ViteHub reads `_hub_migrations` only in the `search_path` of the connection, because another app on the same database can have its own table.
 
 Keep the migration files when you move them, for example from `server/db/migrations/sqlite/` to `server/databases/default/migrations/`. Convert files of Drizzle Kit 0.x with `vitehub database up`, then check what ViteHub reads:
 
@@ -263,9 +263,9 @@ A migration counts as applied when a migrations table lists one of its names:
 - the old file name that its folder keeps, such as `0000_init.sql` for the folder `20261027095547_0000_init`
 - in Drizzle's `__drizzle_migrations`, the SQL hash of a folder that you renamed
 
-`vitehub database migrate` then records these migrations in the table it uses: Drizzle's `__drizzle_migrations` for SQLite and libSQL, and Wrangler's table for D1 HTTP. It reads `_hub_migrations`, `d1_migrations`, `__drizzle_migrations`, and `cloudflare.migrationsTable`. When a table lists a name that now has another number, such as `0000_init` for the migration that is now `0001_init.sql`, the check fails with `DATABASE_MIGRATION_CHECK_FAILED`.
+`vitehub database migrate` then records these migrations in the table it uses: Drizzle's `__drizzle_migrations` for SQLite, libSQL, Postgres, and PGlite, and Wrangler's table for D1 HTTP. It reads `_hub_migrations`, `d1_migrations`, `__drizzle_migrations`, and `cloudflare.migrationsTable`. When a table lists a name that now has another number, such as `0000_init` for the migration that is now `0001_init.sql`, the check fails with `DATABASE_MIGRATION_CHECK_FAILED`. The fix renames the row with `vitehub database sql`. A name that matches no folder does not block, because you can delete old files. `--dry-run` lists it as `Not in the migrations folder`.
 
-Run `vitehub database migrate` once before a server migrates on start, because [Migrate when the server starts](#migrate-when-the-server-starts) reads only Drizzle's table. Postgres reads only Drizzle's table too.
+On SQLite, run `vitehub database migrate` once before a server migrates on start, because [Migrate when the server starts](#migrate-when-the-server-starts) reads only Drizzle's table there. On Postgres and PGlite, migrate on start reads `_hub_migrations` too.
 
 A native Cloudflare D1 binding is migrated with Wrangler, which tracks filenames in its own table instead of NuxtHub's normalized names in `_hub_migrations`. To baseline an existing D1 database:
 

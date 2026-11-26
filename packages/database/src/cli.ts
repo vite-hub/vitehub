@@ -1065,6 +1065,10 @@ function writeMigrationPlan(plan: MigrationPlan, context: ViteHubCliContext) {
     const names = plan.adopted.filter(migration => migration.from === from).map(migration => migration.name)
     lines.push(`  Applied before, as ${from} lists: ${names.join(", ")}`)
   }
+  for (const from of new Set(plan.unmatched?.map(migration => migration.from))) {
+    const names = plan.unmatched!.filter(migration => migration.from === from).map(migration => migration.name)
+    lines.push(`  Not in the migrations folder, as ${from} lists: ${names.join(", ")}`)
+  }
   for (const migration of plan.pending) {
     lines.push("", `  ${migration.name}`)
     for (const statement of migration.statements) lines.push(...statement.split("\n").map(line => `    ${line}`))
