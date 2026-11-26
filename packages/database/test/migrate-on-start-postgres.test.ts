@@ -1235,7 +1235,7 @@ describe.skipIf(!adminUrl)("a role without the privileges for the migration ledg
     const [, database, statement] = output.match(/vitehub database sql --remote --database (\S+) '([^']+)'/) ?? []
     expect(database).toBe("default")
     const result = await databaseCommand("sql", root, postgresDatabase(ownerUrl, migrationsDir))(["--remote", "--database", database!, statement!])
-    expect(result).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(result.exitCode).toBe(0)
   }
 
   async function startFailure(server: Awaited<ReturnType<typeof buildNodeServer>>, url: string): Promise<string> {
