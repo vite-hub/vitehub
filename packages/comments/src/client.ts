@@ -106,6 +106,11 @@ export interface CommentsClient {
   readonly outbox: CommentsOutbox | undefined
 }
 
+function observed<T extends CommentsClientFiles>(input: T): T {
+  for (const files of [input.files, input.deferredFiles]) if (files && !Array.isArray(files)) files.catch(() => {})
+  return input
+}
+
 async function filesArrived<T extends CommentsClientFiles>({ files, deferredFiles, ...input }: T) {
   if (deferredFiles) return { ...input, files: [...(files ?? []), ...await deferredFiles] }
   return { ...input, ...(files ? { files: await files } : {}) }
@@ -294,8 +299,14 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
       upsert(thread)
       return shown(thread.id) ?? thread
     },
-    create: async input => outbox ? outbox.create(input) : upsert(await transport.create(await filesArrived(input))),
-    reply: input => outbox ? outbox.reply(input) : mutate(input.threadId, async () => upsert(await transport.reply(await filesArrived(input)))),
+    create: async (input) => {
+      observed(input)
+      return outbox ? outbox.create(input) : upsert(await transport.create(await filesArrived(input)))
+    },
+    reply: (input) => {
+      observed(input)
+      return outbox ? outbox.reply(input) : mutate(input.threadId, async () => upsert(await transport.reply(await filesArrived(input))))
+    },
     edit: async (input) => {
       if (outbox?.owns(input.threadId, input.messageId)) {
         if (!await outbox.edit(input.messageId, input.body, input.mentions)) throw commentsClientDiagnostics.COMMENTS_OUTBOX_SENDING()

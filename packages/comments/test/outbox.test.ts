@@ -952,6 +952,25 @@ describe("the comments outbox", () => {
     expect(await Promise.all(server.creates[0]!.files!.map(file => file.text()))).toEqual(["picked", "later"])
   })
 
+  it("a replayed request whose deferred files fail raises no unhandled rejection", async () => {
+    const { server, client } = setup()
+    await vi.waitFor(() => expect(client.status).toBe("ready"))
+    await client.create({ subject, anchor, requestId: "once", body: "Sent once" })
+    await vi.waitFor(() => expect(server.creates).toHaveLength(1))
+    const unhandled = vi.fn()
+    process.on("unhandledRejection", unhandled)
+    try {
+      const replay = await client.create({ subject, anchor, requestId: "once", body: "Sent once", deferredFiles: Promise.reject(new Error("no picture")) })
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(replay).toMatchObject({ n: 1, requestId: "once" })
+      expect(server.creates).toHaveLength(1)
+      expect(unhandled).not.toHaveBeenCalled()
+    }
+    finally {
+      process.off("unhandledRejection", unhandled)
+    }
+  })
+
   it("keeps picked files through a reload while deferred ones are on their way", async () => {
     const browser = createBrowser()
     const server = createServer()
