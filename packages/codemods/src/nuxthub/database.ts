@@ -27,6 +27,8 @@ export interface SchemaMove {
   oldModule?: string
   edits: FileEdit[]
   followUps: FollowUp[]
+  /** The codemod wrote the Database Definition. */
+  definition?: boolean
 }
 
 /** Every relative import or export source in a module, with the node that holds it. */
@@ -106,6 +108,7 @@ export async function moveSchema(cwd: string, dialect: Dialect, options: HubData
   const skipped = () => {
     const value = (item: StaticValue) => item.kind === "env" ? `process.env[${JSON.stringify(item.name)}]` : JSON.stringify(item.value)
     if (options.hyperdriveId) result.followUps.push({ file: definitionFile, message: `No Definition was generated. Move hub.db.connection.hyperdriveId to cloudflare.hyperdriveId: ${value(options.hyperdriveId)} in your Database Definition. Keep cloudflare.binding: "POSTGRES" or rename the Hyperdrive binding to HYPERDRIVE.` })
+    if (options.migrationsSchema) result.followUps.push({ file: definitionFile, message: `No Definition was generated. Move hub.db.migrationsSchema to migrationsSchema: ${value(options.migrationsSchema)} in your Database Definition.` })
     if (options.d1Http) result.followUps.push({ file: definitionFile, message: `No Definition was generated. Move hub.db.driver: "d1-http" to cloudflare: { http: true, databaseId: ${options.d1Http.databaseId ? value(options.d1Http.databaseId) : "process.env.CLOUDFLARE_D1_DATABASE_ID"} } in your Database Definition. Rename NUXT_HUB_CLOUDFLARE_ACCOUNT_ID to CLOUDFLARE_ACCOUNT_ID, NUXT_HUB_CLOUDFLARE_API_TOKEN to CLOUDFLARE_API_TOKEN, and NUXT_HUB_CLOUDFLARE_DATABASE_ID to CLOUDFLARE_D1_DATABASE_ID if using the implicit ID.` })
     return result
   }
@@ -206,6 +209,7 @@ export async function moveSchema(cwd: string, dialect: Dialect, options: HubData
     "",
     "export default defineDatabase({",
     ...(dialect === "postgresql" ? [`${indent}dialect: ${quoteString("postgresql", style)},`] : []),
+    ...(dialect === "postgresql" && options.migrationsSchema ? [`${indent}migrationsSchema: ${value(options.migrationsSchema)},`] : []),
     ...(cloudflare.length ? [`${indent}cloudflare: {`, ...cloudflare.map(entry => `${indent}${indent}${entry},`), `${indent}},`] : []),
     // NuxtHub reads these variables, in this order, when hub.db sets no URL.
     ...(dialect === "postgresql" ? [`${indent}connection: {`, `${indent}${indent}url: process.env.POSTGRES_URL || process.env.POSTGRESQL_URL || process.env.DATABASE_URL,`, `${indent}},`] : []),
@@ -222,6 +226,90 @@ export async function moveSchema(cwd: string, dialect: Dialect, options: HubData
     "",
   ].join("\n")
   result.edits.push({ path: definitionFile, before: undefined, after: definition })
+  result.definition = true
+  return result
+}
+
+const nuxthubMarker = "-- nuxthub:no-transaction"
+const vitehubMarker = "-- vitehub:no-transaction"
+
+/**
+ * Moves NuxtHub's marker to ViteHub's. NuxtHub accepts it after other comment lines, and ViteHub reads only the first
+ * non-blank line, so the marker moves to the top. Returns undefined for a file without the marker.
+ */
+export function rewriteNoTransactionMarker(sql: string): string | undefined {
+  const lines = sql.split("\n")
+  for (const [index, text] of lines.entries()) {
+    const trimmed = text.trim()
+    if (!trimmed) continue
+    if (!trimmed.startsWith("--")) return undefined
+    if (trimmed !== nuxthubMarker) continue
+    const firstLine = lines.findIndex(entry => entry.trim())
+    if (index === firstLine) return [...lines.slice(0, index), text.replace(nuxthubMarker, vitehubMarker), ...lines.slice(index + 1)].join("\n")
+    return [vitehubMarker, ...lines.slice(0, index), ...lines.slice(index + 1)].join("\n")
+  }
+  return undefined
+}
+
+export interface MigrationsMove {
+  edits: FileEdit[]
+  followUps: FollowUp[]
+  /** The number of NuxtHub Postgres migrations that the codemod found. */
+  files: number
+  /** The codemod moved them to the migrations folder of the Definition. */
+  moved: boolean
+}
+
+const migrationsTarget = "server/databases/default/migrations"
+
+async function findPostgresMigrations(cwd: string): Promise<{ sql: Map<string, string>, meta: string[] }> {
+  const root = "server/db/migrations"
+  const sql = new Map<string, string>()
+  for (const file of (await glob(["postgresql/*.sql"], { cwd: join(cwd, root) })).sort()) sql.set(posix.basename(file), `${root}/${file}`)
+  for (const file of (await glob(["*.sql"], { cwd: join(cwd, root) })).sort()) {
+    const dialect = /\.(postgresql|sqlite|mysql)\.sql$/.exec(file)?.[1]
+    if (dialect && dialect !== "postgresql") continue
+    const name = dialect ? file.replace(/\.postgresql\.sql$/, ".sql") : file
+    if (!dialect && sql.has(name)) continue
+    sql.set(name, `${root}/${file}`)
+  }
+  const meta = (await glob(["postgresql/meta/*.json"], { cwd: join(cwd, root) })).sort().map(file => `${root}/${file}`)
+  return { sql, meta }
+}
+
+/**
+ * Moves NuxtHub's Postgres migrations to the migrations folder of the Definition, so `vitehub database up` can give each
+ * one its own folder. Like NuxtHub's `getDatabaseMigrationFiles()`, it takes `postgresql/*.sql`, `*.postgresql.sql`, and
+ * the files without a dialect that no Postgres file replaces. The file names keep the names that `_hub_migrations` lists, and the Drizzle Kit 0.x journal comes
+ * along so the folders keep their timestamps. Without a generated Definition, the files stay and the report lists them.
+ */
+export async function movePostgresMigrations(cwd: string, definition: boolean): Promise<MigrationsMove> {
+  const result: MigrationsMove = { edits: [], followUps: [], files: 0, moved: false }
+  const { sql, meta } = await findPostgresMigrations(cwd)
+  if (!sql.size) return result
+  result.files = sql.size
+  const marked: string[] = []
+  const occupied = existsSync(join(cwd, migrationsTarget)) && (await glob(["**/*"], { cwd: join(cwd, migrationsTarget) })).length > 0
+  if (!definition || occupied) {
+    for (const file of sql.values()) {
+      if (rewriteNoTransactionMarker(await readFile(join(cwd, file), "utf8")) !== undefined) marked.push(file)
+    }
+    result.followUps.push({ file: [...sql.values()][0], message: `${occupied ? `${migrationsTarget}/ already has files` : "No Definition was generated"}, so the codemod did not move NuxtHub's Postgres migrations. Move ${[...sql.values()].join(", ")} to the migrations folder of your Database Definition, with the names that _hub_migrations lists (without .postgresql), then run \`vitehub database up\`.` })
+    if (marked.length) result.followUps.push({ file: marked[0], message: `Replace the first line \`${nuxthubMarker}\` with \`${vitehubMarker}\` in ${marked.join(", ")}. ViteHub reads the marker only on the first non-blank line.` })
+    return result
+  }
+  for (const [name, file] of sql) {
+    const code = await readFile(join(cwd, file), "utf8")
+    const rewritten = rewriteNoTransactionMarker(code)
+    if (rewritten !== undefined) marked.push(`${migrationsTarget}/${name}`)
+    result.edits.push({ path: file, before: code, after: null }, { path: `${migrationsTarget}/${name}`, before: undefined, after: rewritten ?? code })
+  }
+  for (const file of meta) {
+    const code = await readFile(join(cwd, file), "utf8")
+    result.edits.push({ path: file, before: code, after: null }, { path: `${migrationsTarget}/meta/${posix.basename(file)}`, before: undefined, after: code })
+  }
+  result.moved = true
+  if (marked.length) result.followUps.push({ file: marked[0], message: `The codemod replaced \`${nuxthubMarker}\` with \`${vitehubMarker}\` in ${marked.join(", ")}. ViteHub runs these files outside a transaction, statement by statement. They need a session connection, not a transaction-mode pooler such as PgBouncer.` })
   return result
 }
 

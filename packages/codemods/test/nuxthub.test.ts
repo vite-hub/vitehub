@@ -437,6 +437,74 @@ describe("nuxthub", () => {
       expect(messages(result)).toContainEqual(expect.stringContaining("migrateOnStart: false"))
     })
 
+    it.each([
+      ["'app_migrations'", "\"app_migrations\""],
+      ["process.env.MIGRATIONS_SCHEMA", "process.env.MIGRATIONS_SCHEMA"],
+    ])("carries hub.db.migrationsSchema %s into the Definition", async (input, output) => {
+      const result = await migrate(`migrations-schema-${output.length}`, {
+        "nuxt.config.ts": nuxtConfig(`{ dialect: 'postgresql', migrationsSchema: ${input} }`),
+        "server/db/schema.ts": "export const tables = {}\n",
+      })
+      expect(definitionOf(result)).toContain(`  dialect: "postgresql",\n  migrationsSchema: ${output},\n`)
+      expect(messages(result).join("\n")).not.toContain("hub.db also set")
+    })
+
+    it("keeps NuxtHub's Postgres migrations with the names that _hub_migrations lists", async () => {
+      const result = await migrate("postgres-history", {
+        "nuxt.config.ts": nuxtConfig("'postgresql'"),
+        "server/db/schema.ts": "export const tables = {}\n",
+        "server/db/migrations/postgresql/0000_init.sql": "CREATE TABLE \"users\" (\"id\" serial PRIMARY KEY);\n",
+        "server/db/migrations/postgresql/meta/_journal.json": "{\"entries\":[]}\n",
+        "server/db/migrations/0001_seed.postgresql.sql": "INSERT INTO users DEFAULT VALUES;\n",
+        "server/db/migrations/0001_seed.sqlite.sql": "SELECT 1;\n",
+        "server/db/migrations/0002_view.sql": "CREATE VIEW v AS SELECT 1;\n",
+        "server/db/migrations/sqlite/0000_init.sql": "SELECT 1;\n",
+      })
+      const written = result.edits.filter(edit => edit.after !== null && edit.path.startsWith("server/databases/default/migrations/")).map(edit => edit.path).sort()
+      expect(written).toEqual([
+        "server/databases/default/migrations/0000_init.sql",
+        "server/databases/default/migrations/0001_seed.sql",
+        "server/databases/default/migrations/0002_view.sql",
+        "server/databases/default/migrations/meta/_journal.json",
+      ])
+      expect(result.edits.filter(edit => edit.after === null).map(edit => edit.path)).not.toContain("server/db/migrations/sqlite/0000_init.sql")
+      const report = messages(result).join("\n")
+      expect(report).toContain("Keep NuxtHub's migration files")
+      expect(report).toContain("vitehub database up")
+      expect(report).toContain("reads NuxtHub's _hub_migrations")
+      expect(report).not.toMatch(/generate --name baseline|IF NOT EXISTS/)
+      expect(result.notes.join("\n")).not.toContain("baseline")
+
+      const sqlite = await migrate("sqlite-history", {
+        "nuxt.config.ts": nuxtConfig("'sqlite'"),
+        "server/db/schema.ts": "export const tables = {}\n",
+        "server/db/migrations/sqlite/0000_init.sql": "SELECT 1;\n",
+        "wrangler.jsonc": "{ \"d1_databases\": [{ \"binding\": \"DB\", \"database_id\": \"d1-id\", \"migrations_table\": \"_hub_migrations\" }] }\n",
+      })
+      expect(sqlite.edits.map(edit => edit.path)).not.toContain("server/databases/default/migrations/0000_init.sql")
+      expect(sqlite.edits.find(edit => edit.path === "wrangler.jsonc")?.after).not.toContain("_hub_migrations")
+      expect(messages(sqlite).join("\n")).toContain("generate --name baseline")
+    })
+
+    it("rewrites NuxtHub's no-transaction marker in the Postgres migrations it moves", async () => {
+      const files = {
+        "nuxt.config.ts": nuxtConfig("'postgresql'"),
+        "server/db/migrations/postgresql/0003_index.sql": "-- nuxthub:no-transaction\nCREATE INDEX CONCURRENTLY IF NOT EXISTS a ON t (a);\n",
+        "server/db/migrations/postgresql/0004_index.sql": "\n-- add an index\n  -- nuxthub:no-transaction\nCREATE INDEX CONCURRENTLY IF NOT EXISTS b ON t (b);\n",
+        "server/db/migrations/postgresql/0005_plain.sql": "CREATE TABLE x (a int);\n-- nuxthub:no-transaction\n",
+      }
+      const result = await migrate("no-transaction", { ...files, "server/db/schema.ts": "export const tables = {}\n" })
+      const moved = (name: string) => result.edits.find(edit => edit.path === `server/databases/default/migrations/${name}`)?.after
+      expect(moved("0003_index.sql")).toBe("-- vitehub:no-transaction\nCREATE INDEX CONCURRENTLY IF NOT EXISTS a ON t (a);\n")
+      expect(moved("0004_index.sql")).toBe("-- vitehub:no-transaction\n\n-- add an index\nCREATE INDEX CONCURRENTLY IF NOT EXISTS b ON t (b);\n")
+      expect(moved("0005_plain.sql")).toBe(files["server/db/migrations/postgresql/0005_plain.sql"])
+      expect(messages(result)).toContainEqual(expect.stringContaining("with `-- vitehub:no-transaction` in server/databases/default/migrations/0003_index.sql, server/databases/default/migrations/0004_index.sql."))
+
+      const kept = await migrate("no-transaction-kept", files)
+      expect(kept.edits.map(edit => edit.path).filter(path => path.includes("migrations"))).toEqual([])
+      expect(messages(kept)).toContainEqual(expect.stringContaining("with `-- vitehub:no-transaction` in server/db/migrations/postgresql/0003_index.sql, server/db/migrations/postgresql/0004_index.sql."))
+    })
+
     it("moves the Hyperdrive id and the D1 HTTP driver to the Definition", async () => {
       const hyperdrive = await migrate("postgres-hyperdrive", {
         "nuxt.config.ts": nuxtConfig("{ dialect: 'postgresql', connection: { hyperdriveId: process.env.HYPERDRIVE_ID }, applyMigrationsDuringBuild: false }"),

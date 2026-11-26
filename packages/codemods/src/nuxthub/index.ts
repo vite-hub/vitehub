@@ -5,7 +5,7 @@ import { nuxtServerLayout } from "../shared/nuxt-server-layout.ts"
 import { allowsNuxt5 } from "../shared/nuxt-version.ts"
 import { editPackageJson } from "../shared/package-json.ts"
 import { editConfig, moduleName, readDatabaseOptions, readHub } from "./config.ts"
-import { casingFollowUp, findLayerSchemas, moveSchema } from "./database.ts"
+import { casingFollowUp, findLayerSchemas, movePostgresMigrations, moveSchema } from "./database.ts"
 import { findRedisKVSource } from "./kv-env.ts"
 import { rewriteSources } from "./sources.ts"
 import { findNuxtHubModuleFollowUps } from "./modules.ts"
@@ -14,7 +14,7 @@ import { findWranglerFile, planWrangler, readCloudflareResourceOptions } from ".
 
 import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from "../types.ts"
 import type { Dialect, HubDatabaseOptions } from "./config.ts"
-import type { SchemaMove } from "./database.ts"
+import type { MigrationsMove, SchemaMove } from "./database.ts"
 
 /**
  * The Drizzle ORM and Kit versions that `@vite-hub/database` accepts. Not `^1.0.0-rc.5`: Drizzle publishes snapshot
@@ -32,14 +32,21 @@ function runner(installCommand: string): string {
 
 type DatabasePlan = HubDatabaseOptions & { dialect: Dialect }
 
-function dataFollowUps(run: string, input: { database?: DatabasePlan, d1: boolean, kv: boolean, blob: boolean, cloudflare: boolean, kvBinding: string }): FollowUp[] {
+function dataFollowUps(run: string, input: { database?: DatabasePlan, migrations: number, d1: boolean, kv: boolean, blob: boolean, cloudflare: boolean, kvBinding: string }): FollowUp[] {
   const followUps: FollowUp[] = []
   if (input.database) {
     const postgres = input.database.dialect === "postgresql"
-    followUps.push(
-      postgres
-        ? { message: "Back up the existing database and stop the app. For local PGlite, copy NuxtHub's .data/db/pglite folder to ViteHub's default location with `mkdir -p .vitehub/data/database && cp -R .data/db/pglite .vitehub/data/database/pglite`." }
-        : { message: "Back up the existing database and stop the app. For local SQLite, copy NuxtHub's .data/db/sqlite.db to ViteHub's default location with `mkdir -p .vitehub/data/database && cp .data/db/sqlite.db .vitehub/data/database/sqlite.db`, together with its -wal and -shm files if they exist." },
+    if (postgres) {
+      followUps.push(
+        { message: "Back up the existing database and stop the app. For local PGlite, copy NuxtHub's .data/db/pglite folder to ViteHub's default location with `mkdir -p .vitehub/data/database && cp -R .data/db/pglite .vitehub/data/database/pglite`." },
+        input.migrations
+          ? { message: `Keep NuxtHub's migration files. Do not write a baseline. Run \`${run} vitehub database up\` to move each file in server/databases/default/migrations/ to its own migration folder.` }
+          : { message: `The codemod found no NuxtHub Postgres migrations in server/db/migrations/. Generate the first migration with \`${run} vitehub database generate\`. For an existing database, check its SQL before you apply it.` },
+        { message: `ViteHub reads NuxtHub's _hub_migrations table and does not run the migrations that it lists again. Run \`${run} vitehub database migrate --dry-run\` and check that only new migrations are pending. Then run \`${run} vitehub database migrate\`.` },
+      )
+    }
+    else followUps.push(
+      { message: "Back up the existing database and stop the app. For local SQLite, copy NuxtHub's .data/db/sqlite.db to ViteHub's default location with `mkdir -p .vitehub/data/database && cp .data/db/sqlite.db .vitehub/data/database/sqlite.db`, together with its -wal and -shm files if they exist." },
       { message: `Create the migration baseline with \`${run} vitehub database generate --name baseline\`. It writes server/databases/default/migrations/. Do not copy NuxtHub's server/db/migrations/ there.` },
       { message: "Compare the baseline SQL with the existing tables, columns, indexes, and constraints. When they match, add IF NOT EXISTS to each CREATE statement in the baseline folder's migration.sql, for example `CREATE TABLE IF NOT EXISTS`. The baseline then changes nothing in the existing database and creates the schema in a new one. Keep the folder name and snapshot.json." },
       input.d1
@@ -49,7 +56,7 @@ function dataFollowUps(run: string, input: { database?: DatabasePlan, d1: boolea
     // NuxtHub applied migrations during the build, except on D1. ViteHub never migrates during the build.
     if (input.database.migrationsDuringBuild && !input.d1) {
       followUps.push(postgres
-        ? { message: `NuxtHub applied migrations during the build. ViteHub applies Postgres migrations when a Node server starts, with database.migrateOnStart. Until the baseline is in place, set vitehub: { database: { migrateOnStart: false } }. On other hosts, run \`${run} vitehub database migrate\` before each deploy. See https://vitehub.dev/docs/database/configure#migrate-when-the-server-starts.` }
+        ? { message: `NuxtHub applied migrations during the build. ViteHub applies Postgres migrations when a Node server starts, with database.migrateOnStart. Until the dry run shows only new migrations, set vitehub: { database: { migrateOnStart: false } }. On other hosts, run \`${run} vitehub database migrate\` before each deploy. See https://vitehub.dev/docs/database/configure#migrate-when-the-server-starts.` }
         : { message: `NuxtHub applied migrations during the build. ViteHub does not migrate SQLite on its own. Run \`${run} vitehub database migrate\` before each deploy, or set vitehub: { database: { migrateOnStart: true } } for a Node server. See https://vitehub.dev/docs/database/configure#migrate-when-the-server-starts.` })
     }
   }
@@ -77,6 +84,8 @@ async function migrate({ cwd, dependencyRoot = cwd }: CodemodContext): Promise<C
   let schema: SchemaMove | undefined
   const database: DatabasePlan | undefined = features.database ? { dialect: features.database, ...readDatabaseOptions(config, features.database) } : undefined
   if (database) schema = await moveSchema(cwd, database.dialect, database)
+  let migrations: MigrationsMove | undefined
+  if (database?.dialect === "postgresql") migrations = await movePostgresMigrations(cwd, schema?.definition === true)
   const skip = new Set([config.fileName, ...(schema?.moved.values() ?? [])])
   const sources = await rewriteSources({ cwd, features, schema, skip, layout: await nuxtServerLayout(cwd, config) })
 
@@ -96,7 +105,7 @@ async function migrate({ cwd, dependencyRoot = cwd }: CodemodContext): Promise<C
   const edits: FileEdit[] = [{ path: config.fileName, before: config.code, after: configResult.code }]
   if (packageResult.edit) edits.push(packageResult.edit)
   if (wrangler.edit) edits.push(wrangler.edit)
-  edits.push(...(schema?.edits ?? []), ...sources.edits)
+  edits.push(...(schema?.edits ?? []), ...(migrations?.edits ?? []), ...sources.edits)
 
   const notes = [
     await allowsNuxt5(cwd)
@@ -104,13 +113,14 @@ async function migrate({ cwd, dependencyRoot = cwd }: CodemodContext): Promise<C
       : "NuxtHub auto-imported kv, blob, db, and schema in server code. The codemod imports them from vite-hub/* in each server file, so the files keep working on Nuxt 5, which turns server auto-imports off.",
     "Local data stays in .data/. ViteHub reads .vitehub/data/. The follow-ups list the commands that copy it.",
   ]
-  if (features.database) notes.push("NuxtHub's server/db/migrations/ stays in place for reference. ViteHub writes new migrations to server/databases/default/migrations/ and does not apply them during dev or build. Delete the old folder after the baseline.")
+  if (migrations?.moved) notes.push("NuxtHub's Postgres migrations moved to server/databases/default/migrations/ with the names that _hub_migrations lists. ViteHub writes new migrations there too and does not apply them during dev or build.")
+  else if (features.database) notes.push("NuxtHub's server/db/migrations/ stays in place for reference. ViteHub writes new migrations to server/databases/default/migrations/ and does not apply them during dev or build. Delete the old folder after the baseline.")
   if (features.cache) notes.push("Cached handlers come from Nitro and use the cache store of cache: true. In Nitro 3, import defineCachedHandler() (formerly cachedEventHandler()) and defineCachedFunction() from nitro/cache.")
   return {
-    summary: `moved ${enabled.length ? enabled.join(", ") : "no features"} from hub to vitehub${configResult.host ? ` with host "${configResult.host}"` : ""}, rewrote ${sources.imports} import${sources.imports === 1 ? "" : "s"} and ${sources.calls} KV and Blob call${sources.calls === 1 ? "" : "s"}${schema?.moved.size ? `, and moved the schema to server/databases/default/` : ""}.`,
+    summary: `moved ${enabled.length ? enabled.join(", ") : "no features"} from hub to vitehub${configResult.host ? ` with host "${configResult.host}"` : ""}, rewrote ${sources.imports} import${sources.imports === 1 ? "" : "s"} and ${sources.calls} KV and Blob call${sources.calls === 1 ? "" : "s"}${schema?.moved.size ? `, and moved the schema to server/databases/default/` : ""}${migrations?.moved ? ` with ${migrations.files} Postgres migration${migrations.files === 1 ? "" : "s"}` : ""}.`,
     edits,
     requiresNitro3: true,
-    followUps: [...configResult.followUps, ...await findGlobalH3Overrides(cwd), ...await findNuxtHubModuleFollowUps(cwd, config, dependencyRoot), ...wrangler.followUps, ...(schema?.followUps ?? []), ...databaseCodeFollowUps, ...sources.followUps, ...dataFollowUps(run, { database, d1: wrangler.d1, kv: features.kv && !configResult.redisKV, blob: features.blob, cloudflare, kvBinding: configResult.written.kv?.binding ?? "KV" })],
+    followUps: [...configResult.followUps, ...await findGlobalH3Overrides(cwd), ...await findNuxtHubModuleFollowUps(cwd, config, dependencyRoot), ...wrangler.followUps, ...(schema?.followUps ?? []), ...(migrations?.followUps ?? []), ...databaseCodeFollowUps, ...sources.followUps, ...dataFollowUps(run, { database, migrations: migrations?.files ?? 0, d1: wrangler.d1, kv: features.kv && !configResult.redisKV, blob: features.blob, cloudflare, kvBinding: configResult.written.kv?.binding ?? "KV" })],
     notes,
     nextSteps: [
       `Run \`${packageResult.installCommand}\` to install ${packageResult.installs} and remove ${moduleName}.`,
