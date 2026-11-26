@@ -141,7 +141,7 @@ beforeAll(async () => {
     const confirmed = verified.caller.via === "console" && verified.caller.confirmed === true
     const readOnly = verified.caller.via === "console" && verified.caller.readOnly === true
     if (operation === "project.get") return answer({ ok: true, value: { name: "probe", operations: ["kv.list", "kv.del", "content.save"], protocol: 1, sections: ["kv", "content"], vitehub: "0.0.1", ...(mcp && !olderApp ? { reference: operationReference } : {}) } })
-    if (readOnly && operation !== "kv.list") return answer({ code: "CONSOLE_ACCESS_DENIED", message: `${operation} is a write operation, and this caller may only read.`, ok: false, status: 403 })
+    if (readOnly && operation !== "kv.list" && !(operation === "content.publish" && Reflect.get(Object(input), "dryRun") === true)) return answer({ code: "CONSOLE_ACCESS_DENIED", message: `${operation} is a write operation, and this caller may only read.`, ok: false, status: 403 })
     if (mcp && operation === "documents.action") return answer({ code: "CONSOLE_ACCESS_DENIED", message: "documents.action is not open to MCP clients. Use it from the Console.", ok: false, status: 403 })
     if (mcp && operation === "content.save" && Reflect.get(Object(input), "ifDigest") === undefined) return answer({ code: "CONTENT_R0009", message: "content.save requires ifDigest on MCP calls.", ok: false, status: 400 })
     if (mcp && operation === "kv.del" && !confirmed) return answer({ code: "INTERNAL_R0026", message: "Confirm the change.", ok: false, status: 409 })
@@ -172,7 +172,7 @@ interface Answer {
 async function rpc(server: typeof publicServer, path: string, method: string, params?: unknown, token?: string) {
   const req = new Request(`${origin}${path}`, {
     body: JSON.stringify({ id: 1, jsonrpc: "2.0", method, ...(params ? { params } : {}) }),
-    headers: { "accept": "application/json, text/event-stream", "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+    headers: { "accept": "application/json, text/event-stream", "content-type": "application/json", "mcp-protocol-version": "2025-11-25", ...(token ? { authorization: `Bearer ${token}` } : {}) },
     method: "POST",
   })
   // SAFETY: The MCP handler reads only `req` and `url`, and passes the event to the tools, which do not read it.
@@ -219,10 +219,11 @@ describe("ViteHub MCP at /mcp/account", () => {
 
   it("lists the docs tools and the account tools to a signed-in member", async () => {
     const { body } = await rpc(accountServer, "/mcp/account", "tools/list", undefined, tokens.bob)
-    expect(body!.result.tools.map(tool => tool.name).sort()).toEqual(["check_app", "get-page", "link_app", "list-pages", "list_apps", "list_operations", "read_operation", "run_operation", "unlink_app", "whoami"])
+    expect(body!.result.tools.map(tool => tool.name).sort()).toEqual(["check_app", "get-page", "link_app", "list-pages", "list_apps", "list_operations", "read_operation", "run_destructive_operation", "run_operation", "unlink_app", "whoami"])
     const annotations = Object.fromEntries(body!.result.tools.map(tool => [tool.name, tool.annotations]))
     expect(annotations.read_operation).toMatchObject({ destructiveHint: false, readOnlyHint: true })
-    expect(annotations.run_operation).toMatchObject({ destructiveHint: true, readOnlyHint: false })
+    expect(annotations.run_operation).toMatchObject({ destructiveHint: false, readOnlyHint: false })
+    expect(annotations.run_destructive_operation).toMatchObject({ destructiveHint: true, readOnlyHint: false })
     for (const name of ["check_app", "get-page", "list-pages", "list_apps", "list_operations", "whoami"]) expect(annotations[name]).toMatchObject({ destructiveHint: false, readOnlyHint: true })
     const { body: apps } = await call("list_apps", {}, tokens.bob)
     expect(apps!.result.structuredContent).toEqual({ apps: [], team: { id: teamId, name: "Acme", role: "member" } })
@@ -267,15 +268,29 @@ describe("ViteHub MCP at /mcp/account", () => {
     expect(listed).toMatchObject({ name: "probe", operations: operationReference, sections: ["kv", "content"] })
     expect(listed).not.toHaveProperty("reference")
 
-    const refused = await call("run_operation", { id, input: { key: "a" }, operation: "kv.del" }, tokens.bob)
-    expect(refused.body!.result.isError).toBe(true)
-    expect(refused.body!.result.content[0]!.text).toContain("confirm: true")
-    const confirmed = await call("run_operation", { confirm: true, id, input: { key: "a" }, operation: "kv.del" }, tokens.bob)
-    expect(confirmed.body!.result).toMatchObject({ isError: false, structuredContent: { deleted: 1 } })
+    const beforeWrites = appCalls.length
+    for (const operation of ["kv.del", "kv.set", "blob.put", "content.advance"]) {
+      const refused = await call("run_operation", { confirm: true, id, operation }, tokens.bob)
+      expect(refused.body!.result).toMatchObject({ content: [{ text: expect.stringContaining("run_destructive_operation with confirm: true") }], isError: true })
+    }
+    for (const args of [{}, { confirm: false }]) {
+      const refused = await call("run_destructive_operation", { ...args, id, operation: "kv.del" }, tokens.bob)
+      expect(refused.body!.result).toMatchObject({ content: [{ text: expect.stringContaining("confirm") }], isError: true })
+    }
+    expect(appCalls).toHaveLength(beforeWrites)
 
-    const hidden = await call("run_operation", { confirm: true, id, input: { action: "remove", body: {}, section: "content" }, operation: "documents.action" }, tokens.bob)
+    for (const operation of ["comments.reply", "comments.resolve"]) {
+      const result = await call("run_operation", { id, operation }, tokens.bob)
+      expect(result.body!.result.isError).toBe(false)
+    }
+    const confirmed = await call("run_destructive_operation", { confirm: true, id, input: { key: "a" }, operation: "kv.del" }, tokens.bob)
+    expect(confirmed.body!.result).toMatchObject({ isError: false, structuredContent: { deleted: 1 } })
+    const set = await call("run_destructive_operation", { confirm: true, id, input: { key: "a", value: 1 }, operation: "kv.set" }, tokens.bob)
+    expect(set.body!.result.isError).toBe(false)
+
+    const hidden = await call("run_destructive_operation", { confirm: true, id, input: { action: "remove", body: {}, section: "content" }, operation: "documents.action" }, tokens.bob)
     expect(hidden.body!.result).toMatchObject({ content: [{ text: expect.stringContaining("CONSOLE_ACCESS_DENIED: documents.action is not open to MCP clients") }], isError: true })
-    const save = await call("run_operation", { id, input: { collection: "posts", id: "hello", text: "# Hi" }, operation: "content.save" }, tokens.bob)
+    const save = await call("run_destructive_operation", { confirm: true, id, input: { collection: "posts", id: "hello", text: "# Hi" }, operation: "content.save" }, tokens.bob)
     expect(save.body!.result).toMatchObject({ content: [{ text: expect.stringContaining("CONTENT_R0009") }], isError: true })
 
     for (const { caller, headers } of appCalls) {
@@ -284,25 +299,33 @@ describe("ViteHub MCP at /mcp/account", () => {
       expect(caller).toMatchObject({ team: { id: teamId, role: "member" }, user: { email: "bob@example.com" }, via: "console" })
     }
     const runs = appCalls.filter(entry => entry.operation !== "project.get")
-    expect(runs.map(entry => entry.caller.via === "console" && [entry.caller.surface, entry.caller.confirmed])).toEqual([
-      ["mcp", undefined],
-      ["mcp", true],
-      ["mcp", true],
-      ["mcp", undefined],
+    expect(runs.map(entry => entry.caller.via === "console" && [entry.operation, entry.caller.surface, entry.caller.confirmed])).toEqual([
+      ["comments.reply", "mcp", undefined],
+      ["comments.resolve", "mcp", undefined],
+      ["kv.del", "mcp", true],
+      ["kv.set", "mcp", true],
+      ["documents.action", "mcp", true],
+      ["content.save", "mcp", true],
     ])
     expect(appCalls.filter(entry => entry.operation === "project.get").map(entry => entry.caller.via === "console" && entry.caller.surface)).toEqual(["mcp", "mcp"])
   })
 
-  it("runs reads with read_operation, signed read-only, and sends changes to run_operation", async () => {
+  it("runs reads and dry runs signed read-only, and routes changes to the right tool", async () => {
     const apps = (await call("list_apps", {}, tokens.bob)).body!.result.structuredContent as { apps: Array<{ id: string }> }
     const id = apps.apps[0]!.id
     const read = await call("read_operation", { id, input: { prefix: "a" }, operation: "kv.list" }, tokens.bob)
     expect(read.body!.result).toMatchObject({ isError: false, structuredContent: { deleted: 1 } })
+    const dryRun = await call("read_operation", { id, input: { dryRun: true }, operation: "content.publish" }, tokens.bob)
+    expect(dryRun.body!.result.isError).toBe(false)
     const write = await call("read_operation", { id, input: { key: "a" }, operation: "kv.del" }, tokens.bob)
-    expect(write.body!.result).toMatchObject({ content: [{ text: "kv.del changes data, and read_operation runs only operations that read. Call run_operation." }], isError: true })
+    expect(write.body!.result).toMatchObject({ content: [{ text: expect.stringContaining("run_destructive_operation with confirm: true") }], isError: true })
+    const reply = await call("read_operation", { id, operation: "comments.reply" }, tokens.bob)
+    expect(reply.body!.result).toMatchObject({ content: [{ text: expect.stringContaining("Use run_operation") }], isError: true })
     expect(appCalls.map(entry => entry.caller.via === "console" && [entry.operation, entry.caller.surface, entry.caller.readOnly, entry.caller.confirmed])).toEqual([
       ["kv.list", "mcp", true, undefined],
+      ["content.publish", "mcp", true, undefined],
       ["kv.del", "mcp", true, undefined],
+      ["comments.reply", "mcp", true, undefined],
     ])
   })
 
@@ -311,7 +334,7 @@ describe("ViteHub MCP at /mcp/account", () => {
     const id = apps.apps[0]!.id
     olderApp = true
     try {
-      for (const [tool, args] of [["read_operation", { id, operation: "kv.list" }], ["run_operation", { id, operation: "kv.list" }], ["list_operations", { id }]] as const) {
+      for (const [tool, args] of [["read_operation", { id, operation: "kv.list" }], ["run_operation", { id, operation: "comments.reply" }], ["run_destructive_operation", { confirm: true, id, operation: "kv.del" }], ["list_operations", { id }]] as const) {
         const answer = await call(tool, args, tokens.bob)
         expect(answer.body!.result.isError).toBe(true)
         expect(answer.body!.result.content[0]!.text).toContain("CONSOLE_APP_VITEHUB_OUTDATED: The app runs vite-hub 0.0.1, which does not accept this call of the ViteHub MCP.")

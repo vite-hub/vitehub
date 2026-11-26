@@ -4,7 +4,7 @@ import { connectRealtimeRoom } from "@vite-hub/realtime/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@vite-hub/realtime/client", () => ({
-  connectRealtimeRoom: vi.fn(() => ({ onUpdate: vi.fn(), onChange: vi.fn(), destroy: vi.fn(), people: () => [], states: () => [] })),
+  connectRealtimeRoom: vi.fn(() => ({ onUpdate: vi.fn(), onChange: vi.fn(), onNotice: vi.fn(), destroy: vi.fn(), people: () => [], states: () => [] })),
 }))
 
 const tool = { id: "comments", label: "Comments", icon: "i-lucide-message-square-text", hotkey: "c", script: "/overlay.js" }

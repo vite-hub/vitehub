@@ -7,7 +7,7 @@ import { commentsButton, openList, press, serveComments, type } from "./overlay-
 import type { ElementAnchor } from "../src/types.ts"
 
 vi.mock("@vite-hub/realtime/client", () => ({
-  connectRealtimeRoom: vi.fn(() => ({ onUpdate: vi.fn(), onChange: vi.fn(), notify: vi.fn(), setLocal: vi.fn(), destroy: vi.fn(), people: () => [], states: () => new Map() })),
+  connectRealtimeRoom: vi.fn(() => ({ onUpdate: vi.fn(), onChange: vi.fn(), onNotice: vi.fn(), notify: vi.fn(), setLocal: vi.fn(), destroy: vi.fn(), people: () => [], states: () => new Map() })),
 }))
 
 const ada = { id: "ada", name: "Ada Lovelace" }

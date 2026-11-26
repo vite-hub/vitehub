@@ -19,6 +19,7 @@ icon: i-lucide-code-2
 | `@vite-hub/realtime/client/browser.js` | The same client as one prebuilt ES module, for a script on [another site](#from-another-site) that has no bundler. |
 | `refreshRealtimeDocument` from `vite-hub/realtime/server` | Tell a document's open room that its stored copy changed. |
 | `requestRealtimeRoom` from `vite-hub/realtime/server` | Ask the one browser in a room and wait for its answer ([Requests to a browser](#requests-to-a-browser)). |
+| `notifyRealtimeRoom` from `vite-hub/realtime/server` | Tell every browser in a room that something changed ([Notices to every browser](#notices-to-every-browser)). |
 | `isRealtimeAvailable` from `vite-hub/realtime/server` | Check if this build has a room driver ([Builds without Realtime](/docs/realtime/configure#builds-without-realtime)). |
 | `workspaceDocument` from `vite-hub/realtime/server` | The Workspace document adapter, to wrap or combine. |
 | `blobDocument` from `vite-hub/realtime/server` | A document adapter that stores each document as one Blob file ([Blob documents](#blob-documents)). |
@@ -478,6 +479,28 @@ const [error, answer] = await requestRealtimeRoom('tabs', tab, { want: 'title' }
 `user: null` asks the anonymous room. A request without `user` returns `REALTIME_ROOM_REFUSED`. A tab joins with the identity it has when it connects, so a tab that signs in reaches its new scope after it reconnects. The [page bridge](/docs/agents/capabilities/page) keeps its rooms this way.
 
 [Room request errors](/docs/realtime/limits-and-errors#room-request-errors) lists every code.
+
+### Notices to every browser
+
+Server code can tell every browser in a room of a presence definition that something changed, and not wait for an answer. Use it when the server changes data that open pages show, so they load it again:
+
+```ts fragment
+import { notifyRealtimeRoom } from 'vite-hub/realtime/server'
+
+await notifyRealtimeRoom('tabs', tab, { type: 'orders' })
+```
+
+The browser reads it with `onNotice()`:
+
+```ts fragment
+room.onNotice(() => void loadOrders())
+```
+
+- Every browser in the room gets the notice. A room without a browser drops it.
+- It needs no `requests: true`, and it never throws.
+- Set `awareness: false` on a presence definition when its rooms should carry notices without sharing presence or cursors.
+- On Cloudflare the notice goes to the Durable Object that holds the rooms. With Redis or Postgres it also reaches browsers on the other instances.
+- A definition with `scope: "user"` needs `{ user }`, as with requests.
 
 ### From another site
 

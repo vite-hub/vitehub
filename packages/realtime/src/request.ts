@@ -1,4 +1,5 @@
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
+import runtime from "#vitehub/realtime/availability"
 
 import { isRealtimeAvailable } from "./availability.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
@@ -174,6 +175,62 @@ export async function requestRealtimeRoom(definition: string, documentId: string
     return await request(definition, documentId, body, local)
   }
   return roomRequestError("REALTIME_ROOM_EMPTY")
+}
+
+export interface RealtimeRoomNotifyOptions {
+  /**
+   * The person whose room this is, for a Definition with `scope: "user"`: their Auth user id, or `null` for the shared
+   * anonymous scope. Required there; ignored elsewhere.
+   */
+  user?: string | null
+  /** On Cloudflare, the `$DurableObject` binding that holds the rooms. Defaults to the binding of the running Worker. */
+  durableObjects?: RealtimeDurableObjectNamespace
+}
+
+export type LocalNotify = (definitionName: string, documentId: string, body: unknown, user: string | null | undefined) => Promise<void>
+
+const localNotifyKey: unique symbol = Symbol.for("vitehub.realtime.local-notify")
+// SAFETY: This module owns the process slot shared by separately bundled handlers and callers.
+const notifyScope = globalThis as typeof globalThis & { [localNotifyKey]?: Set<WeakRef<LocalNotify>> }
+
+export function localNotifiers(): Set<WeakRef<LocalNotify>> {
+  notifyScope[localNotifyKey] ??= new Set()
+  return notifyScope[localNotifyKey]
+}
+
+/**
+ * Sends `body` to every browser in a room of a presence Definition, and does not wait for an answer. Browsers read it
+ * with `room.onNotice()` from `@vite-hub/realtime/client`. Use it to tell open pages that the server changed their data,
+ * so they load it again. A room with no browser drops the notice. On Cloudflare the notice goes through the Durable
+ * Object that holds the rooms. On Node it reaches the rooms of this process, and with Redis or Postgres also the rooms
+ * of the other instances. A Definition with `scope: "user"` keeps a room per person: pass `{ user }`, or no room gets
+ * the notice. The body must fit in JSON. It never throws.
+ */
+export async function notifyRealtimeRoom(definition: string, documentId: string, body: unknown, options: RealtimeRoomNotifyOptions = {}): Promise<void> {
+  const binding = options.durableObjects ?? workerDurableObjects()
+  if (binding) {
+    const room = documentId.split("/").map(encodeURIComponent).join("/")
+    try {
+      await binding.get(binding.idFromName(durableRoomsInstance)).fetch(new Request(
+        `https://vitehub.internal${runtime.noticeBase ?? ""}${routePrefix}${encodeURIComponent(definition)}/${room}?notice=1`,
+        {
+          method: "POST",
+          headers: { [internalRequestHeader]: "1", "content-type": "application/json" },
+          body: JSON.stringify({ body, ...(options.user !== undefined ? { user: options.user } : {}) }),
+        },
+      ))
+    }
+    catch {}
+    return
+  }
+  for (const reference of localNotifiers()) {
+    const notify = reference.deref()
+    if (!notify) {
+      localNotifiers().delete(reference)
+      continue
+    }
+    await notify(definition, documentId, body, options.user).catch(() => {})
+  }
 }
 
 async function requestDurableRoom(binding: RealtimeDurableObjectNamespace, definition: string, documentId: string, body: unknown, options: LocalRequestOptions): Promise<RealtimeRoomRequestResult> {
