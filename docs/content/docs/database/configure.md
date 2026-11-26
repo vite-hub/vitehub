@@ -922,7 +922,7 @@ export default defineDatabase({
 
 Drizzle keeps its migrations table in the schema `drizzle`, and ViteHub creates that schema. That needs `CREATE` on the database. Without it, migrate, `--dry-run`, and start fail with [`DATABASE_MIGRATION_SCHEMA_DENIED`](/docs/database/diagnostics/database_migration_schema_denied), and the fix prints the `GRANT` to run. When the role cannot get that privilege, or you want the table in your own schema, set `migrationsSchema`:
 
-```ts [server/databases/default.ts]
+```ts [server/databases/default.ts] fragment
 export default defineDatabase({
   dialect: 'postgresql',
   migrationsSchema: 'app',

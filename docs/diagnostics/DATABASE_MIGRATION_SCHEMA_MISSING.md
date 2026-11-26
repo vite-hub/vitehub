@@ -1,6 +1,6 @@
 ---
 description: "Fix DATABASE_MIGRATION_SCHEMA_MISSING in ViteHub. Create the schema that migrationsSchema names, because ViteHub does not create it."
-seo.title: "DATABASE_MIGRATION_SCHEMA_MISSING: migrationsSchema does not exist"
+seo.title: "DATABASE_MIGRATION_SCHEMA_MISSING"
 ---
 
 A Postgres Definition sets `migrationsSchema`, but the database has no schema with that name. ViteHub does not create a schema that you choose, and it stops before any change.

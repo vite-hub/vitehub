@@ -1,6 +1,6 @@
 ---
 description: "Fix DATABASE_MIGRATION_LEDGER_MISPLACED in ViteHub. Move the Drizzle migrations table into migrationsSchema, so applied migrations do not run again."
-seo.title: "DATABASE_MIGRATION_LEDGER_MISPLACED: migrations table in drizzle"
+seo.title: "DATABASE_MIGRATION_LEDGER_MISPLACED"
 ---
 
 A Postgres Definition sets `migrationsSchema`, but Drizzle's migrations table in the schema `drizzle` lists applied migrations that the table in `migrationsSchema` does not list. ViteHub would apply them again, so it stops before any change.
