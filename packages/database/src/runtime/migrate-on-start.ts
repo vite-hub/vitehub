@@ -628,11 +628,7 @@ async function planPostgres(sql: PostgresMigrationSql, group: PostgresTarget[], 
   const databases = group.map(target => target.database)
   const migrations = databases.flatMap(database => database.migrations.map(migration => ({ hash: migration.hash, tag: migration.name, when: migration.when })))
   const [existing] = Array.from(await sql.unsafe("select to_regclass('drizzle.__drizzle_migrations') as ledger"))
-  if (!existing?.ledger) {
-    await sql.unsafe("CREATE SCHEMA IF NOT EXISTS \"drizzle\"")
-    await sql.unsafe(createPostgresLedger)
-  }
-  else {
+  if (existing?.ledger) {
     const columns = Array.from(await sql.unsafe("select column_name from information_schema.columns where table_schema = 'drizzle' and table_name = '__drizzle_migrations'")).map(row => row.column_name)
     if (!columns.includes("name")) {
       const rows = Array.from(await sql.unsafe(`SELECT id, hash, created_at FROM ${postgresLedger} ORDER BY id ASC`)).map(row => toLedgerRow(row))
@@ -651,18 +647,24 @@ async function planPostgres(sql: PostgresMigrationSql, group: PostgresTarget[], 
       for (const { column, name, value } of backfill) await sql.unsafe(`UPDATE ${postgresLedger} SET "name" = $1, "applied_at" = NULL WHERE "${column}" = $2`, [name, value])
     }
   }
-  const rows = Array.from(await sql.unsafe(`select id, hash, created_at, name from ${postgresLedger}`)).map(row => toLedgerRow(row))
+  const rows = existing?.ledger
+    ? Array.from(await sql.unsafe(`select id, hash, created_at, name from ${postgresLedger}`)).map(row => toLedgerRow(row))
+    : []
   const match = matchLedger(rows, migrations)
-  const adopted = await adoptHubMigrations(sql, databases, match.applied)
+  const history = await reconcilePostgresHistory(sql, databases.map(({ name, migrations }) => ({ name, tags: migrations.map(migration => migration.name) })), match.applied)
+  if (!existing?.ledger) {
+    await sql.unsafe("CREATE SCHEMA IF NOT EXISTS \"drizzle\"")
+    await sql.unsafe(createPostgresLedger)
+  }
+  const adopted = await recordHubMigrations(sql, databases, history.adopted)
   const applied = new Set([...match.applied, ...adopted.map(entry => entry.tag)])
   const pending = planByName(databases, { applied, hashes: ledgerHashes(rows, match.backfill) }, { allowDataLoss: options.allowDataLoss, dialect: "postgresql", place: "Postgres database" })
   return { adopted, pending }
 }
 
-async function adoptHubMigrations(sql: PostgresMigrationSql, databases: ReadonlyArray<Pick<StartMigrationDatabase, "migrations" | "name">>, applied: ReadonlySet<string>): Promise<AdoptedEntry[]> {
-  const match = await reconcilePostgresHistory(sql, databases.map(({ name, migrations }) => ({ name, tags: migrations.map(migration => migration.name) })), applied)
+async function recordHubMigrations(sql: PostgresMigrationSql, databases: ReadonlyArray<Pick<StartMigrationDatabase, "migrations" | "name">>, tags: readonly string[]): Promise<AdoptedEntry[]> {
   const adopted: AdoptedEntry[] = []
-  for (const tag of match.adopted) {
+  for (const tag of tags) {
     const database = databases.find(database => database.migrations.some(migration => migration.name === tag))!
     const migration = database.migrations.find(migration => migration.name === tag)!
     await sql.unsafe(`insert into ${postgresLedger} ("hash", "created_at", "name") values ($1, $2, $3)`, [migration.hash, migration.when, migration.name])

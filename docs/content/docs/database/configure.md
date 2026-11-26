@@ -263,6 +263,8 @@ A migration counts as applied when a migrations table lists one of its names:
 - the old file name that its folder keeps, such as `0000_init.sql` for the folder `20261027095547_0000_init`
 - in Drizzle's `__drizzle_migrations`, the SQL hash of a folder that you renamed
 
+For Postgres and PGlite, a folder can keep a NuxtHub file name without a number. For example, `20261027095547_bootstrap` matches `bootstrap`, and `20261027095547_0001_init.postgresql` matches `0001_init`. These names take precedence over the numbers ViteHub assigns from folder order.
+
 `vitehub database migrate` then records these migrations in the table it uses: Drizzle's `__drizzle_migrations` for SQLite, libSQL, Postgres, and PGlite, and Wrangler's table for D1 HTTP. It reads `_hub_migrations`, `d1_migrations`, `__drizzle_migrations`, and `cloudflare.migrationsTable`. When a table lists a name that now has another number, such as `0000_init` for the migration that is now `0001_init.sql`, the check fails with `DATABASE_MIGRATION_CHECK_FAILED`. For Postgres or PGlite, verify which SQL ran and use the SQL in the diagnostic to rename the row on the affected database. A name that matches no folder does not block, because you can delete old files. When the check reads `_hub_migrations`, `--dry-run` lists such names as `Not in the migrations folder`.
 
 On SQLite, run `vitehub database migrate` once before a server migrates on start, because [Migrate when the server starts](#migrate-when-the-server-starts) reads only Drizzle's table there. On Postgres and PGlite, migrate on start reads `_hub_migrations` too.
