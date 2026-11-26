@@ -88,10 +88,11 @@ Hosted Comments works on any site that can load a script. The Console signs revi
 
 ```html
 <script type="module" src="https://console.vitehub.dev/hosted-comments.js"
-  data-vitehub-comments="PROJECT_ID"></script>
+  data-vitehub-comments="PROJECT_ID"
+  data-vitehub-repo="OWNER/NAME"></script>
 ```
 
-Use the project ID from the Console. If your site sets a Content Security Policy, allow the Console origin in `script-src` and `frame-src`, and allow inline styles in `style-src`: the embed adds its styles inside its shadow root.
+Use the project ID from the Console. `data-vitehub-repo` is optional: it is the GitHub repository that **Open in T3 Code** opens. If your site sets a Content Security Policy, allow the Console origin in `script-src` and `frame-src`, and allow inline styles in `style-src`: the embed adds its styles inside its shadow root.
 
 Open the site with `?vitehub` and choose **Comments** to sign in. Team members can start threads, reply, and resolve them. Hosted Comments starts with its own thread history. Confirming an unlink permanently deletes that project's hosted threads and replies.
 
@@ -867,12 +868,16 @@ The Comments section of the [Console](/docs/console) lists the 500 threads with 
 
 Connect the Agent to the [ViteHub MCP](/docs/console/mcp) of the Console. It runs the Comments operations of your app, such as `comments.threads` and `comments.reply`: it lists open threads, reads their page context and source files, and changes the code. Then it resolves every thread that it handled with one `comments.resolve` call, each with a reply that says what changed, such as the commit or a link, so the threads leave the page. It acts as you, and `authorize` applies to each call. The `page` filter takes a path such as `/pricing` or a full URL of the page. When `authorize` hides threads, the list says how many and why, and `hidden` counts them.
 
-A Console team member who opens the app through Site access sees **Copy prompt** when the page has open threads and their Console MCP access allows `comments.get`. The prompt identifies the linked app and team and names the exact threads in the pill. It asks the Agent to resolve them only if the member's MCP access allows `comments.resolve`; otherwise the Agent reports the fixes for the member to review. Site access guests do not see the button. Build the same text with `commentsAgentPrompt({ url, threadIds, mcp, project, resolve })` from `vite-hub/comments/client`, where `project` is the linked app's `{ id, teamId, url }`.
+Each open thread has **Open in T3 Code** and **Copy** in its header. The list of open threads has **Open in T3 Code** and **Copy open** in its top row, for all the open threads of the page. Both buttons give the same prompt: the page URL, the text and replies of each thread, the element, the version, and the URLs of its files. Every person who may read the comments gets them. When the person is a Console team member whose MCP access allows `comments.get`, the prompt also tells the Agent to check the linked app and team and read the threads through the ViteHub MCP. It asks the Agent to resolve them only if that access allows `comments.resolve`. For other people, it asks the Agent to report what it changed.
+
+**Open in T3 Code** opens `https://app.t3.codes/new` with the prompt, and with `repo=owner/name` when Comments knows the GitHub repository of the app: `forge.repository`, else the repository of the build. On a Hosted Comments site, add `data-vitehub-repo="owner/name"` to the script tag. A link is at most 8,000 characters. A long prompt keeps its steps: first its messages and anchors get shorter, then each thread keeps only its ID and a short title. With MCP access, the link can keep just the IDs and instructions. If the link still does not fit, use **Copy** or **Copy open** for the full prompt. Build the full text with `commentsAgentPrompt({ url, threads, agent })` and the link with `commentsT3CodeLink(input, repository)` from `@vite-hub/comments/client`. The link function returns `undefined` when no link fits. `agent` is `{ mcp, project, resolve }`, where `project` is the linked app's `{ id, teamId, url }`.
 
 ```txt [Prompt]
-Fix the 2 open ViteHub comments on https://app.example.com/portal/pricing
-In the ViteHub MCP (https://console.vitehub.dev/mcp/account), use list_apps to verify team team-1 and app https://app.example.com/portal (id: app-1). If the team is different, ask me to switch to that team in the Console; if the app is missing, ask me to check the link. Only after both match, call read_operation with the app id, operation "comments.get", and input { threadId } for each ID in ["thread-1","thread-2"].
-After each fix, use run_operation with the app id, operation "comments.resolve", and input { threadId, reply }. In the reply, say what changed.
+Fix this comment on https://app.example.com/portal/pricing
+"The title wraps on a phone. Keep it on one line." — Max, on main > h1 (version 4)
+Files: https://app.example.com/_vitehub/comments/files/f_8k2
+In the ViteHub MCP (https://console.vitehub.dev/mcp/account), use list_apps to verify team team-1 and app https://app.example.com/portal (id: app-1). If the team is different, ask me to switch to that team in the Console; if the app is missing, ask me to check the link. Only after both match, call read_operation with the app id, operation "comments.get", and input { threadId } for thread thread-1.
+When the fix is live, use run_operation with the app id, operation "comments.resolve", and input { threadId, reply }. In the reply, say what you changed.
 ```
 
 To hand the comments over without a paste, turn on [Send](/docs/comments/send): it posts them to your Agent's thread through a signed webhook.

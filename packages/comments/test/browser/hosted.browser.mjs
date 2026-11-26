@@ -21,7 +21,7 @@ const token = "token-1"
 const sitePage = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Guide</title></head><body>
 <main><h1>Guide</h1><p id="first">Most of you will fly in on Friday and leave on Sunday.</p></main>
 <vitehub-pill>App tools</vitehub-pill>
-<script type="module" src="${consoleOrigin}/hosted-comments.js" data-vitehub-comments="p-1"></script>
+<script type="module" src="${consoleOrigin}/hosted-comments.js" data-vitehub-comments="p-1" data-vitehub-repo="acme/site"></script>
 </body></html>`
 
 const vueRouterHashHistoryPage = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>App</title>
@@ -180,6 +180,27 @@ test("hosted Comments sign in through a new tab and comment through the Console 
     assert.ok(api.seen.api.every(request => !request.cookie))
     const storage = await page.evaluate(() => JSON.stringify({ ...sessionStorage, ...localStorage }))
     assert.doesNotMatch(storage, new RegExp(token))
+  })
+
+  await t.test("the mobile panel shows filters and bulk actions with the repository after sign-in", async () => {
+    const viewport = page.viewportSize()
+    await page.setViewportSize({ width: 375, height: 720 })
+    try {
+      await page.getByTitle("Comment on the page (C)").click()
+      await page.getByTitle("All comments on this page").click()
+      const panel = page.locator('[data-slot="comment-panel"]')
+      const open = panel.getByRole("link", { name: "Open in T3 Code" })
+      await open.waitFor()
+      assert.equal(new URL(await open.getAttribute("href")).searchParams.get("repo"), "acme/site")
+      await open.click({ trial: true })
+      await panel.getByRole("button", { name: "Copy open" }).click({ trial: true })
+      await panel.getByRole("radio", { name: /Open/ }).click({ trial: true })
+      await panel.getByRole("radio", { name: /Resolved/ }).click({ trial: true })
+      assert.ok(await panel.evaluate(element => element.scrollWidth <= element.clientWidth))
+    }
+    finally {
+      await page.setViewportSize(viewport)
+    }
   })
 
   await t.test("the person replies and resolves through the frame, and may not edit or delete", async () => {
