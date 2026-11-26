@@ -2,7 +2,7 @@ import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 import { applyD1MigrationFiles, readD1LedgerOf } from "../internal/d1-ledger.ts"
-import { ledgerUpgradeProblem, ledgerUpgradeStatements, matchLedger, toLedgerRow } from "../internal/migration-ledger.ts"
+import { hubMigrationsTable, ledgerUpgradeProblem, ledgerUpgradeStatements, matchHubMigrations, matchLedger, numberMigrationFolders, toLedgerRow } from "../internal/migration-ledger.ts"
 import { withoutNewTableDataLoss } from "../internal/migration-sql.ts"
 
 import type { D1Ledger } from "../internal/d1-ledger.ts"
@@ -582,9 +582,9 @@ async function readPostgresIdentity(client: PostgresMigrationSql) {
  * Groups the Definitions by the Postgres database that their clients reach, and sorts the groups by that key. Every
  * process then takes the locks of several databases in the same order, so two of them never wait for each other.
  */
-async function groupPostgresTargets(targets: PostgresTarget[]): Promise<PostgresTarget[][]> {
+export async function groupPostgresTargets<T extends Pick<PostgresTarget, "client" | "key"> & { database: { name: string } }>(targets: T[]): Promise<T[][]> {
   if (targets.length < 2) return targets.length ? [targets] : []
-  const groups = new Map<string, { session: string, targets: PostgresTarget[] }>()
+  const groups = new Map<string, { session: string, targets: T[] }>()
   for (const target of targets) {
     const { key, session } = target.key === undefined ? await readPostgresIdentity(target.client) : { key: target.key, session: "" }
     const group = groups.get(key)
@@ -600,20 +600,35 @@ async function groupPostgresTargets(targets: PostgresTarget[]): Promise<Postgres
   return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, group]) => group.targets)
 }
 
+export async function reconcilePostgresHistory(sql: PostgresMigrationSql, databases: readonly { name: string, tags: string[] }[], applied: ReadonlySet<string>) {
+  if (databases.every(database => database.tags.every(tag => applied.has(tag)))) return { adopted: [], unmatched: [] }
+  const [table] = Array.from(await sql.unsafe("select format('%I.%I', nspname, relname) as name from pg_catalog.pg_class join pg_catalog.pg_namespace on relnamespace = pg_namespace.oid where nspname = current_schema() and relname = $1", [hubMigrationsTable]))
+  if (typeof table?.name !== "string") return { adopted: [], unmatched: [] }
+  const names = Array.from(await sql.unsafe(`select name from ${table.name} order by name`)).flatMap(row => typeof row.name === "string" ? [row.name] : [])
+  const files = databases.flatMap(({ name, tags }) => numberMigrationFolders(tags).map(file => ({ ...file, database: name })))
+  const match = matchHubMigrations(names, files, applied)
+  if ("problem" in match) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: databases[0]!.name, problem: match.problem })
+  return match
+}
+
+interface AdoptedEntry {
+  name: string
+  tag: string
+}
+
 /**
  * Creates or upgrades Drizzle's ledger and lists the pending migrations of a group. Call it in the transaction that
  * holds the lock. A ledger of Drizzle Kit 0.x has no `name` column: like Drizzle 1.0, it adds `name` and `applied_at`
  * and writes the name of each row, and it refuses a row that matches no migration folder.
+ *
+ * A migration that NuxtHub's `_hub_migrations` lists is applied: it gets its row in Drizzle's ledger in this
+ * transaction, and does not run again.
  */
-async function planPostgres(sql: PostgresMigrationSql, group: PostgresTarget[], options: MigrateOnStartOptions): Promise<PendingEntry[]> {
+async function planPostgres(sql: PostgresMigrationSql, group: PostgresTarget[], options: MigrateOnStartOptions): Promise<{ adopted: AdoptedEntry[], pending: PendingEntry[] }> {
   const databases = group.map(target => target.database)
   const migrations = databases.flatMap(database => database.migrations.map(migration => ({ hash: migration.hash, tag: migration.name, when: migration.when })))
   const [existing] = Array.from(await sql.unsafe("select to_regclass('drizzle.__drizzle_migrations') as ledger"))
-  if (!existing?.ledger) {
-    await sql.unsafe("CREATE SCHEMA IF NOT EXISTS \"drizzle\"")
-    await sql.unsafe(createPostgresLedger)
-  }
-  else {
+  if (existing?.ledger) {
     const columns = Array.from(await sql.unsafe("select column_name from information_schema.columns where table_schema = 'drizzle' and table_name = '__drizzle_migrations'")).map(row => row.column_name)
     if (!columns.includes("name")) {
       const rows = Array.from(await sql.unsafe(`SELECT id, hash, created_at FROM ${postgresLedger} ORDER BY id ASC`)).map(row => toLedgerRow(row))
@@ -632,9 +647,30 @@ async function planPostgres(sql: PostgresMigrationSql, group: PostgresTarget[], 
       for (const { column, name, value } of backfill) await sql.unsafe(`UPDATE ${postgresLedger} SET "name" = $1, "applied_at" = NULL WHERE "${column}" = $2`, [name, value])
     }
   }
-  const rows = Array.from(await sql.unsafe(`select id, hash, created_at, name from ${postgresLedger}`)).map(row => toLedgerRow(row))
+  const rows = existing?.ledger
+    ? Array.from(await sql.unsafe(`select id, hash, created_at, name from ${postgresLedger}`)).map(row => toLedgerRow(row))
+    : []
   const match = matchLedger(rows, migrations)
-  return planByName(databases, { applied: match.applied, hashes: ledgerHashes(rows, match.backfill) }, { allowDataLoss: options.allowDataLoss, dialect: "postgresql", place: "Postgres database" })
+  const history = await reconcilePostgresHistory(sql, databases.map(({ name, migrations }) => ({ name, tags: migrations.map(migration => migration.name) })), match.applied)
+  if (!existing?.ledger) {
+    await sql.unsafe("CREATE SCHEMA IF NOT EXISTS \"drizzle\"")
+    await sql.unsafe(createPostgresLedger)
+  }
+  const adopted = await recordHubMigrations(sql, databases, history.adopted)
+  const applied = new Set([...match.applied, ...adopted.map(entry => entry.tag)])
+  const pending = planByName(databases, { applied, hashes: ledgerHashes(rows, match.backfill) }, { allowDataLoss: options.allowDataLoss, dialect: "postgresql", place: "Postgres database" })
+  return { adopted, pending }
+}
+
+async function recordHubMigrations(sql: PostgresMigrationSql, databases: ReadonlyArray<Pick<StartMigrationDatabase, "migrations" | "name">>, tags: readonly string[]): Promise<AdoptedEntry[]> {
+  const adopted: AdoptedEntry[] = []
+  for (const tag of tags) {
+    const database = databases.find(database => database.migrations.some(migration => migration.name === tag))!
+    const migration = database.migrations.find(migration => migration.name === tag)!
+    await sql.unsafe(`insert into ${postgresLedger} ("hash", "created_at", "name") values ($1, $2, $3)`, [migration.hash, migration.when, migration.name])
+    adopted.push({ name: database.name, tag })
+  }
+  return adopted
 }
 
 /** Runs `run` in a transaction that holds the migration lock of the group's database. */
@@ -681,11 +717,16 @@ export async function migratePostgres(targets: PostgresTarget[], options: Migrat
   const log = options.log ?? (message => console.info(message))
   const groups = await groupPostgresTargets(targets)
   // The transaction callback sets these, so the catch can name the migration that failed.
-  const progress: { applied: PendingEntry[], running?: PendingEntry } = { applied: [] }
+  const progress: { adopted: AdoptedEntry[], applied: PendingEntry[], running?: PendingEntry } = { adopted: [], applied: [] }
   try {
     await withPostgresLocks(groups, log, async (sqls) => {
       const plans: PendingEntry[][] = []
-      for (const [index, group] of groups.entries()) plans.push(await planPostgres(sqls[index]!, group, options))
+      progress.adopted = []
+      for (const [index, group] of groups.entries()) {
+        const plan = await planPostgres(sqls[index]!, group, options)
+        progress.adopted.push(...plan.adopted)
+        plans.push(plan.pending)
+      }
       await options.beforeApply?.()
       for (const [index, pending] of plans.entries()) {
         const sql = sqls[index]!
@@ -708,6 +749,7 @@ export async function migratePostgres(targets: PostgresTarget[], options: Migrat
       problem: error instanceof Error ? error.message : String(error),
     })
   }
+  for (const { name, tag } of progress.adopted) log(`[vitehub] Database "${name}": recorded ${tag} as applied, as ${hubMigrationsTable} lists it.`)
   for (const { migration, name } of progress.applied) log(`[vitehub] Database "${name}": applied ${migration.name}.`)
   return progress.applied.map(({ migration }) => migration.name)
 }

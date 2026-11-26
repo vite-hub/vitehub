@@ -1,7 +1,7 @@
 import "#vitehub/console/app"
 import { consoleBodySha256 } from "@vite-hub/internal/console-signature"
 import { answerOperationRpc, operationRpcRefusal, readOperationRpcCall } from "@vite-hub/internal/operation-rpc"
-import { assertOperationConfirmation, assertOperationConfirmed, assertOperationProject, operationAccessAllows, operationAccessDenial, operationCall, operationRootHeader, operationSection, operationSurfaceHeader, parseOperationInput, projectRootHash } from "@vite-hub/internal/operations"
+import { assertOperationConfirmation, assertOperationConfirmed, assertOperationProject, isPromptFreeMcpWrite, operationAccessAllows, operationAccessDenial, operationCall, operationRootHeader, operationSection, operationSurfaceHeader, parseOperationInput, projectRootHash } from "@vite-hub/internal/operations"
 import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import * as v from "valibot"
 
@@ -198,6 +198,11 @@ async function runConsoleOperation(operation: AnyOperation, rawInput: unknown, r
   }
   assertOperationConfirmation(request, classification)
   if (context.access.surface) assertOperationConfirmed(classification, context.access.confirmed === true)
+  if (context.access.surface === "mcp" && classification.kind === "write" && !classification.readOnly && !isPromptFreeMcpWrite(operation.name) && context.access.confirmed !== true) {
+    throw consoleHttpError(409, Object.assign(consoleDiagnostic("CONSOLE_CONFLICT", `${operation.name} requires signed confirmation on the MCP surface.`), {
+      fix: "Ask the user to approve the change, then call run_destructive_operation with confirm: true.",
+    }))
+  }
   // Navigation and other reads that do not need a person skip the session lookup.
   const user = operation.user === false ? undefined : await readConsoleOperationUser(context.access)
   const operationContext: OperationContext = {
