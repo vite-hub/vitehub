@@ -14,6 +14,12 @@ const ENV_KEY = "sk_env_fallback_key_1"
 const STORED_KEY = "sk_live_stored_key_1"
 const URL_ITEMS = "https://api.example.com/items"
 
+function deferred<T = void>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>(done => { resolve = done })
+  return { promise, resolve }
+}
+
 function harness(fallback: ConnectionApiKeyFallback, options: { access?: ConnectionDefinition["access"], store?: ConnectionStore | (() => ConnectionStore) } = {}) {
   const keys: Array<string | null> = []
   let fallbackCalls = 0
@@ -51,8 +57,8 @@ describe("API key fallback", () => {
   })
 
   it("sends concurrent fallback requests while an earlier one is still waiting for the provider", async () => {
-    const enteredSlow = Promise.withResolvers<void>()
-    const slow = Promise.withResolvers<void>()
+    const enteredSlow = deferred()
+    const slow = deferred()
     const runtime = createConnectionsRuntime({
       definitions: { executor: defineConnection({ provider: apiKey({ origins: ["https://api.example.com"], fallback: () => ENV_KEY }) }) },
       fetch: async (input) => {
@@ -65,22 +71,21 @@ describe("API key fallback", () => {
       store: createStore(),
     })
     const client = runtime.client("executor", {})
-    const pending = client.fetch("https://api.example.com/slow").then(response => {
-      expect(response.status).toBe(200)
-    })
+    const pending = client.fetch("https://api.example.com/slow")
     try {
-      await Promise.race([enteredSlow.promise, pending])
+      expect(await Promise.race([enteredSlow.promise, pending])).toBeUndefined()
       expect((await client.fetch(URL_ITEMS)).status).toBe(200)
     }
     finally {
       slow.resolve()
-      await pending
+      await Promise.allSettled([pending])
     }
+    expect((await pending).status).toBe(200)
   })
 
   it("checks the fallback grant again before a scheduled retry", async () => {
-    const enteredProvider = Promise.withResolvers<void>()
-    const providerResponse = Promise.withResolvers<Response>()
+    const enteredProvider = deferred()
+    const providerResponse = deferred<Response>()
     let calls = 0
     const runtime = createConnectionsRuntime({
       definitions: { executor: defineConnection({ provider: apiKey({ origins: ["https://api.example.com"], fallback: () => ENV_KEY, requests: { retry: { attempts: 2, delayMs: 0 } } }) }) },
@@ -190,8 +195,8 @@ describe("API key fallback", () => {
     const agent = runtime.client("executor", { access: agentEnvAccess({ name: "support" }) })
     await expect(agent.fetch(URL_ITEMS, { body: "{}", method: "POST" })).rejects.toMatchObject({ code: "CONNECTIONS_APPROVAL_REQUIRED" })
     const [approval] = (await runtime.approvals({ name: "executor", status: "pending" })).approvals
-    const enteredAudit = Promise.withResolvers<void>()
-    const audit = Promise.withResolvers<void>()
+    const enteredAudit = deferred()
+    const audit = deferred()
     const append = store.access.append.bind(store.access)
     store.access.append = async (entry) => {
       if (entry.action === "use" && entry.outcome === "started" && entry.revision === "fallback") {
