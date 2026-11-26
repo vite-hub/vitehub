@@ -154,12 +154,13 @@ describe("Copy open in the panel header", () => {
     await vi.waitFor(() => expect(actions()?.querySelector('[data-action="copy-open-prompt"]')).toBeTruthy())
     expect(actions()?.querySelector('[data-action="open-in-t3-code"]')).toBeTruthy()
     const fetchComments = tools.server.fetch.getMockImplementation()!
-    const session = Promise.withResolvers<void>()
+    let endSession = () => {}
+    const session = new Promise<void>((resolve) => { endSession = resolve })
     let loading = false
     tools.server.fetch.mockImplementation(async (input, init) => {
       if (String(input).includes("/session")) {
         loading = true
-        await session.promise
+        await session
       }
       return fetchComments(input, init)
     })
@@ -169,7 +170,7 @@ describe("Copy open in the panel header", () => {
       await vi.waitFor(() => expect(actions()).toBeFalsy())
     }
     finally {
-      session.resolve()
+      endSession()
     }
     await vi.waitFor(() => expect(tools.panel()?.querySelector('[data-slot="comment-panel-empty"]')).toBeTruthy())
     expect(actions()?.querySelector('[data-action="copy-open-prompt"], [data-action="open-in-t3-code"]')).toBeFalsy()
