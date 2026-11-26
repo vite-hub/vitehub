@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { flushPromises, mount } from "@vue/test-utils";
 import { afterEach, expect, it, vi } from "vitest";
-import { Comment, h } from "vue";
+import { Comment, Fragment, h } from "vue";
 import { AgentSession, AgentSessionTimeline } from "../src/agent-session.ts";
 
 const surfaces = [
@@ -106,21 +106,29 @@ it("renders an open work row through the detail slot and keeps the text when the
   const entries = [
     { id: "edit", kind: "edit" as const, label: "Edit app.vue", detail: "@@ -1 +1 @@\n-a\n+b" },
     { id: "run", kind: "command" as const, label: "pnpm test", detail: "1 passed" },
+    { id: "list", kind: "command" as const, label: "ls", detail: "app.vue" },
+    { id: "read", kind: "command" as const, label: "cat app.vue", detail: "<template />" },
   ];
+  const empty = {
+    run: () => [h(Comment)],
+    list: () => [h(Fragment, [])],
+    read: () => [h(Fragment, [h(Comment), h(Fragment, [])])],
+  } as Record<string, () => ReturnType<typeof h>[]>;
   const wrapper = mount(AgentSessionTimeline, {
     props: { items: [{ type: "work", id: "work", entries, defaultOpen: true }] },
     slots: {
-      "work-detail": ({ entry }: { entry: { kind: string; detail?: string } }) =>
-        entry.kind === "edit" ? h("div", { class: "diff" }, entry.detail) : h(Comment),
+      "work-detail": ({ entry }: { entry: { id: string; detail?: string } }) =>
+        empty[entry.id]?.() ?? [h("div", { class: "diff" }, entry.detail)],
     },
     global: { stubs: { UIcon: true } },
   });
-  const lines = wrapper.findAll("[data-slot='agent-session-work-row'] button");
-  await lines[0]!.trigger("click");
-  await lines[1]!.trigger("click");
-  const details = wrapper.findAll("[data-slot='agent-session-work-detail']");
-  expect(details[0]!.find(".diff").text()).toContain("+b");
-  expect(details[1]!.element.tagName).toBe("PRE");
-  expect(details[1]!.text()).toBe("1 passed");
+  for (const line of wrapper.findAll("[data-slot='agent-session-work-row'] button")) await line.trigger("click");
+  const [edit, ...rest] = wrapper.findAll("[data-slot='agent-session-work-detail']");
+  expect(edit!.find(".diff").text()).toContain("+b");
+  expect(rest.map((detail) => [detail.element.tagName, detail.text()])).toEqual([
+    ["PRE", "1 passed"],
+    ["PRE", "app.vue"],
+    ["PRE", "<template />"],
+  ]);
   wrapper.unmount();
 });

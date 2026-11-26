@@ -6,7 +6,9 @@ import {
   Comment,
   computed,
   defineComponent,
+  Fragment,
   h,
+  isVNode,
   onBeforeUnmount,
   onMounted,
   ref,
@@ -15,6 +17,7 @@ import {
   type PropType,
   type SlotsType,
   type VNode,
+  type VNodeArrayChildren,
 } from "vue";
 import { useUIComponent } from "../internal/nuxt-ui.ts";
 import { kitSlot } from "../internal/slot-part.ts";
@@ -611,9 +614,17 @@ export interface AgentSessionWorkDetailScope {
 
 type WorkDetailSlot = (scope: AgentSessionWorkDetailScope) => VNode[];
 
+function hasContent(nodes: VNodeArrayChildren): boolean {
+  return nodes.some((node) => {
+    if (!isVNode(node)) return true;
+    if (node.type === Comment) return false;
+    return node.type !== Fragment || (Array.isArray(node.children) && hasContent(node.children));
+  });
+}
+
 function workDetail(entry: AgentSessionWorkEntry, slot: WorkDetailSlot | undefined): VNode {
-  const custom = slot?.({ entry })?.filter((node) => node.type !== Comment);
-  return custom?.length
+  const custom = slot?.({ entry });
+  return custom && hasContent(custom)
     ? h("div", { class: "vh-agent-session__work-detail-custom", "data-slot": "agent-session-work-detail" }, custom)
     : h("pre", { class: "vh-agent-session__work-detail", "data-slot": "agent-session-work-detail" }, entry.detail);
 }
