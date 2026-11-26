@@ -90,6 +90,8 @@ function fieldGroup(): { group: HTMLElement; copy: HTMLButtonElement; more: HTML
   copy.style.borderRadius = "6px 0 0 6px";
   const more = document.createElement("button");
   more.style.borderRadius = "0 6px 6px 0";
+  place(copy, { x: 0, y: 0, width: 100 });
+  place(more, { x: 99, y: 0, width: 40 });
   group.append(copy, more);
   document.body.append(group);
   return { group, copy, more };
@@ -104,9 +106,85 @@ it("rings the whole field group, rounded like its buttons, for a joined button",
   expect(group.style.borderRadius).toBe("6px");
   expect(copy.style.boxShadow).toBe("");
   expect(more.style.boxShadow).toBe("");
-  tick(framesUntilIdle());
+  framesUntilIdle();
   expect(ringing(copy)).toBe(false);
   expect(group.hasAttribute("style")).toBe(false);
+});
+
+it("rings the whole group even when the joined controls are square", () => {
+  const { group, copy, more } = fieldGroup();
+  copy.style.borderRadius = more.style.borderRadius = "0px";
+  ring(copy);
+  tick(3);
+  expect(group.style.boxShadow).toContain("0 0 0");
+  expect(group.style.borderRadius).toBe("");
+  expect(copy.style.boxShadow).toBe("");
+});
+
+it("rings a square control on its own when its neighbors are spaced apart", () => {
+  const { group, copy, more } = fieldGroup();
+  copy.style.borderRadius = "0px";
+  place(more, { x: 104, y: 0, width: 40 });
+  ring(copy);
+  tick(3);
+  expect(copy.style.boxShadow).toContain("0 0 0");
+  expect(group.style.boxShadow).toBe("");
+});
+
+it("rings a vertical group along its block axis", () => {
+  const { group, copy, more } = fieldGroup();
+  group.dataset.orientation = "vertical";
+  place(more, { x: 0, y: 39, width: 100 });
+  ring(more);
+  tick(3);
+  expect(group.style.boxShadow).toContain("0 0 0");
+  const shadow = group.style.boxShadow;
+  ring(copy);
+  expect(group.style.boxShadow).toBe(shadow);
+});
+
+it("honors the initiating button's opt-out without disabling its neighbor's ring", () => {
+  const { group, copy, more } = fieldGroup();
+  copy.dataset.motion = "none";
+  ring(copy);
+  tick(3);
+  expect(group.style.boxShadow).toBe("");
+  expect(copy.style.boxShadow).toBe("");
+  ring(more);
+  tick(3);
+  expect(group.style.boxShadow).toContain("0 0 0");
+});
+
+it("leaves a standalone button's inline corner radius alone", () => {
+  const button = document.createElement("button");
+  button.style.setProperty("border-top-left-radius", "31px", "important");
+  document.body.append(button);
+  ring(button);
+  framesUntilIdle();
+  expect(button.style.getPropertyValue("border-top-left-radius")).toBe("31px");
+  expect(button.style.getPropertyPriority("border-top-left-radius")).toBe("important");
+});
+
+it.each(["finish", "cancel"])("restores the group's original inline corners on %s", (end) => {
+  const { group, copy, more } = fieldGroup();
+  group.style.setProperty("border-top-left-radius", "0px", "important");
+  group.style.setProperty("border-bottom-right-radius", "0px");
+  ring(copy);
+  ring(more);
+  tick(3);
+  expect(group.style.borderRadius).toBe("6px");
+  if (end === "cancel") {
+    group.dataset.motion = "none";
+    ring(copy);
+  } else {
+    framesUntilIdle();
+  }
+  expect(ringing(copy)).toBe(false);
+  expect(group.style.getPropertyValue("border-top-left-radius")).toBe("0px");
+  expect(group.style.getPropertyPriority("border-top-left-radius")).toBe("important");
+  expect(group.style.getPropertyValue("border-bottom-right-radius")).toBe("0px");
+  expect(group.style.getPropertyPriority("border-bottom-right-radius")).toBe("");
+  expect(group.style.getPropertyValue("border-top-right-radius")).toBe("");
 });
 
 it("rings a lone button in a field group by itself", () => {
