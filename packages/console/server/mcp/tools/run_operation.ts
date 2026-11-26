@@ -1,5 +1,5 @@
-import { HTTPError } from "h3"
 import { isPromptFreeMcpWrite } from "@vite-hub/internal/operations"
+import { HTTPError } from "nitro/h3"
 import { defineMcpTool } from "vite-hub/mcp"
 import { z } from "zod"
 
