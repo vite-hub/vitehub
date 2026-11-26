@@ -11,7 +11,7 @@ import { flatPublicName, looksSecret, nuxtVariableName, pathLabel } from "./fiel
 
 import type { BaseIssue, BaseSchema } from "valibot"
 import type { FieldAccess } from "./field-schema.ts"
-import type { EnvField, EnvFieldKind, LiteralValue, PlannedFollowUp } from "./fields.ts"
+import type { EnvField, EnvFieldKind, Framework, LiteralValue, PlannedFollowUp } from "./fields.ts"
 import type { RuntimeConfigValue } from "./nuxt-config.ts"
 
 type JsonObject = Record<string, unknown>
@@ -174,12 +174,17 @@ const valibotJsonValidations = new Set([
   "value", "values",
 ])
 
-function addIssue(issues: Map<string, string[]>, path: readonly string[], issue: string): void {
+/** Rules that JSON Schema cannot hold, by dotted path, and the paths whose rules change the value. */
+export class SchemaIssues extends Map<string, string[]> {
+  readonly transforms = new Set<string>()
+}
+
+function addIssue(issues: SchemaIssues, path: readonly string[], issue: string): void {
   const key = path.join(".")
   issues.set(key, [...(issues.get(key) ?? []), issue])
 }
 
-function valibotIssues(schema: unknown, path: string[], issues: Map<string, string[]>): void {
+function valibotIssues(schema: unknown, path: string[], issues: SchemaIssues): void {
   if (!isRecord(schema)) return
   if (Array.isArray(schema.pipe)) {
     for (const action of schema.pipe.slice(1)) {
@@ -203,7 +208,7 @@ function zodDefinition(schema: unknown): JsonObject | undefined {
   return isRecord(schema) && isRecord(schema._zod) && isRecord(schema._zod.def) ? schema._zod.def : undefined
 }
 
-function zodIssues(schema: unknown, path: string[], issues: Map<string, string[]>): void {
+function zodIssues(schema: unknown, path: string[], issues: SchemaIssues): void {
   const definition = zodDefinition(schema)
   if (!definition) return
   for (const check of Array.isArray(definition.checks) ? definition.checks : []) {
@@ -233,13 +238,14 @@ function zodIssues(schema: unknown, path: string[], issues: Map<string, string[]
 
 // Checks that zod3ToJsonSchema writes as JSON Schema keywords. Other checks need follow-ups.
 const zod3JsonChecks = new Set(["url", "email", "uuid", "min", "max", "length", "regex", "int"])
+const zod3TransformChecks = new Set(["trim", "toLowerCase", "toUpperCase"])
 
-function zod3Issues(schema: unknown, path: string[], issues: Map<string, string[]>): void {
+function zod3Issues(schema: unknown, path: string[], issues: SchemaIssues): void {
   const definition = zod3Definition(schema)
   if (!definition) return
   for (const check of Array.isArray(definition.checks) ? definition.checks : []) {
     if (!isRecord(check) || typeof check.kind !== "string") continue
-    if (["trim", "toLowerCase", "toUpperCase"].includes(check.kind)) addIssue(issues, path, `a Zod ${check.kind} transform`)
+    if (zod3TransformChecks.has(check.kind)) addIssue(issues, path, `a Zod ${check.kind} transform`)
     else if (!zod3JsonChecks.has(check.kind)) addIssue(issues, path, `the Zod ${check.kind} check`)
   }
   const type = definition.typeName
@@ -289,12 +295,15 @@ function arktypeNarrows(json: unknown): boolean {
   return Object.values(json).some(arktypeNarrows)
 }
 
-function arktypeIssues(schema: unknown, path: string[], issues: Map<string, string[]>): void {
+function arktypeIssues(schema: unknown, path: string[], issues: SchemaIssues): void {
   if (!isRecordOrFunction(schema) || !isRecordOrFunction(schema.internal)) return
   const json = schema.json
   const object = schema.internal.kind !== "morph" && isRecord(json) && json.domain === "object" && json.proto === undefined
   if (!object) {
-    if (schema.internal.includesTransform === true) addIssue(issues, path, "an ArkType morph")
+    if (schema.internal.includesTransform === true) {
+      addIssue(issues, path, "an ArkType morph")
+      issues.transforms.add(path.join("."))
+    }
     if (arktypeNarrows(json)) addIssue(issues, path, "an ArkType narrow")
     return
   }
@@ -305,13 +314,103 @@ function arktypeIssues(schema: unknown, path: string[], issues: Map<string, stri
   }
 }
 
+function collectTransformPaths(schema: unknown, transforms: Set<string>): void {
+  function visit(node: unknown, path: string[]): void {
+    if (!isRecord(node)) return
+    const mark = () => transforms.add(path.join("."))
+    const at = (child: unknown, key: string) => visit(child, [...path, key])
+    const samePath = (child: unknown) => visit(child, path)
+    const entries = (shape: unknown) => {
+      if (isRecord(shape)) for (const [key, child] of Object.entries(shape)) at(child, key)
+    }
+    const items = (values: unknown) => {
+      if (Array.isArray(values)) values.forEach((child, index) => at(child, String(index)))
+    }
+    const options = (values: unknown) => {
+      if (Array.isArray(values)) values.forEach(samePath)
+    }
+
+    const zod = zodDefinition(node)
+    const definition = zod ?? zod3Definition(node)
+    if (definition) {
+      const checks = Array.isArray(definition.checks) ? definition.checks : []
+      const effect = isRecord(definition.effect) ? definition.effect.type : undefined
+      const changesValue = zod
+        ? definition.type === "transform" || checks.some(check => zodDefinition(check)?.check === "overwrite")
+        : effect === "transform" || effect === "preprocess" || checks.some(check => isRecord(check) && typeof check.kind === "string" && zod3TransformChecks.has(check.kind))
+      if (changesValue) mark()
+      switch (zod ? definition.type : definition.typeName) {
+        case "object":
+        case "ZodObject":
+          entries(typeof definition.shape === "function" ? Reflect.apply(definition.shape, undefined, []) : definition.shape)
+          at(definition.catchall, "*")
+          break
+        case "tuple":
+        case "ZodTuple":
+          items(definition.items)
+          at(definition.rest, "*")
+          break
+        case "array":
+        case "ZodArray":
+          at(zod ? definition.element : definition.type, "*")
+          break
+        case "record":
+        case "ZodRecord":
+        case "map":
+        case "ZodMap":
+          at(definition.keyType, "*")
+          at(definition.valueType, "*")
+          break
+        case "set":
+        case "ZodSet":
+          at(definition.valueType, "*")
+          break
+        case "union":
+        case "ZodUnion":
+        case "ZodDiscriminatedUnion":
+          options(definition.options)
+          break
+        case "intersection":
+        case "ZodIntersection":
+          samePath(definition.left)
+          samePath(definition.right)
+          break
+        case "pipe":
+        case "ZodPipeline":
+          samePath(definition.in)
+          samePath(definition.out)
+          break
+        case "ZodEffects": samePath(definition.schema); break
+        case "ZodBranded": samePath(definition.type); break
+        default: samePath(definition.innerType)
+      }
+    }
+    else if (node.kind === "schema" || node.kind === "transformation") {
+      if (node.kind === "transformation") mark()
+      if (Array.isArray(node.pipe)) {
+        options(node.pipe)
+        return
+      }
+      entries(node.entries)
+      items(node.items)
+      options(node.options)
+      samePath(node.wrapped)
+      at(node.item, "*")
+      at(node.rest, "*")
+      at(node.value, "*")
+    }
+  }
+  visit(schema, [])
+}
+
 /** Rules that JSON Schema cannot hold, such as transforms and custom checks, by dotted path. `""` is the schema root. */
-export function schemaIssues(schema: unknown): Map<string, string[]> {
-  const issues = new Map<string, string[]>()
+export function schemaIssues(schema: unknown): SchemaIssues {
+  const issues = new SchemaIssues()
   if (isValibotSchema(schema)) valibotIssues(schema, [], issues)
   else if (zodDefinition(schema)) zodIssues(schema, [], issues)
   else if (zod3Definition(schema)) zod3Issues(schema, [], issues)
   else if (isRecordOrFunction(schema) && isRecord(schema["~standard"]) && schema["~standard"].vendor === "arktype") arktypeIssues(schema, [], issues)
+  collectTransformPaths(schema, issues.transforms)
   return issues
 }
 
@@ -334,6 +433,7 @@ interface PlanInput {
   validateAtBuild?: boolean
   validateAtRuntime?: boolean
   rejectInvalidDefaults?: boolean
+  framework?: Framework
 }
 
 function resolveReference(root: JsonObject, node: unknown): JsonObject {
@@ -490,6 +590,8 @@ export async function planFromJsonSchema(input: PlanInput): Promise<SchemaPlan> 
     throw codemodError("The $schema must describe the runtimeConfig object, for example `v.object({ ... })`.")
   }
   const plan: SchemaPlan = { fields: [], unmigrated: [], followUps: [], needsSchemaModule: false }
+  const framework = input.framework ?? "nuxt"
+  const frameworkName = framework === "nitro" ? "Nitro" : "Nuxt"
   const follow = (message: string, anchor?: PlannedFollowUp["anchor"]) => plan.followUps.push({ message, anchor })
 
   for (const issue of input.issues.get("") ?? []) {
@@ -531,7 +633,7 @@ export async function planFromJsonSchema(input: PlanInput): Promise<SchemaPlan> 
     const access = schemaKind ? found : undefined
     const kind = schemaKind || plainFieldKind(leaf)
     const credential = looksSecret(configPath)
-    const variable = nuxtVariableName(section, configPath)
+    const variable = nuxtVariableName(section, configPath, framework)
     const stay = (reason: string) => {
       plan.unmigrated.push(label)
       follow(`${label} ${reason} It stays in runtimeConfig. Read it with useRuntimeConfig(), or move it to Env by hand.`, { runtimeConfig: label })
@@ -612,7 +714,7 @@ export async function planFromJsonSchema(input: PlanInput): Promise<SchemaPlan> 
     }
     else if (runtimeValue?.processEnv) {
       field.extraVariables = [runtimeValue.processEnv.name]
-      follow(`runtimeConfig.${label} read process.env.${runtimeValue.processEnv.name} when Nuxt loaded the config. Env now reads ${field.variable === runtimeValue.processEnv.name ? field.variable : `${field.variable}, then ${runtimeValue.processEnv.name}`}, ${section === "public" ? "during the build" : "when the server runs"}. Env treats an empty variable as unset.`, { env: field })
+      follow(`runtimeConfig.${label} read process.env.${runtimeValue.processEnv.name} when ${frameworkName} loaded the config. Env now reads ${field.variable === runtimeValue.processEnv.name ? field.variable : `${field.variable}, then ${runtimeValue.processEnv.name}`}, ${section === "public" ? "during the build" : "when the server runs"}. Env treats an empty variable as unset.`, { env: field })
     }
     if (defaultValue === undefined && !access) {
       const schemaDefaultValue = leaf.node.default
@@ -653,7 +755,7 @@ export async function planFromJsonSchema(input: PlanInput): Promise<SchemaPlan> 
 
   const rootRequired = requiredOf(root)
   for (const [key, node] of Object.entries(properties)) {
-    if (key === "public") {
+    if (key === "public" && framework === "nuxt") {
       const publicNode = describeLeaf(input.jsonSchema, isRecord(node) ? node : {})
       const publicProperties = publicNode.node.properties
       if (!isRecord(publicProperties)) {
@@ -669,7 +771,7 @@ export async function planFromJsonSchema(input: PlanInput): Promise<SchemaPlan> 
     }
     if (key === "app" || key === "nitro") {
       plan.unmigrated.push(key)
-      follow(`${key} is a reserved Nuxt runtimeConfig key. The codemod left it and its schema rules alone.`, { runtimeConfig: key })
+      follow(`${key} is a reserved ${frameworkName} runtimeConfig key. The codemod left it and its schema rules alone.`, { runtimeConfig: key })
       continue
     }
     await visit("server", [key], node, rootRequired.has(key))

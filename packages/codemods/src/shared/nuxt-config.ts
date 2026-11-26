@@ -31,6 +31,11 @@ export function findNuxtConfigName(cwd: string): string | undefined {
 export async function readNuxtConfig(cwd: string): Promise<NuxtConfigFile> {
   const fileName = findNuxtConfigName(cwd)
   if (!fileName) throw codemodError(`Cannot find nuxt.config in ${cwd}. Pass the Nuxt app directory as the first argument.`)
+  return readConfigFile(cwd, fileName, "defineNuxtConfig")
+}
+
+/** Reads a config file whose default export is an object literal, or a call such as `helper({ ... })` on one. */
+export async function readConfigFile(cwd: string, fileName: string, helper: string): Promise<NuxtConfigFile> {
   const path = join(cwd, fileName)
   const code = await readFile(path, "utf8")
   let program: File
@@ -41,7 +46,7 @@ export async function readNuxtConfig(cwd: string): Promise<NuxtConfigFile> {
     throw codemodError(`Cannot parse ${fileName}: ${error instanceof Error ? error.message : String(error)}`)
   }
   const root = findConfigObject(program)
-  if (!root) throw codemodError(`${fileName} must export an object literal, for example \`export default defineNuxtConfig({ ... })\`.`)
+  if (!root) throw codemodError(`${fileName} must export an object literal, for example \`export default ${helper}({ ... })\`.`)
   return { path, fileName, code, program, root }
 }
 
@@ -133,7 +138,11 @@ const previousHelpers = new WeakMap<object, PropertyDescriptor>()
 
 /** Runs nuxt.config with a `defineNuxtConfig` stub and returns the exported object. */
 export async function loadNuxtConfig(path: string): Promise<Record<string, unknown>> {
-  const key = "defineNuxtConfig"
+  return loadConfigFile(path, "defineNuxtConfig")
+}
+
+/** Runs a config file with a stub for the global `key` helper, such as `defineNitroConfig`, and returns the exported object. */
+export async function loadConfigFile(path: string, key: string): Promise<Record<string, unknown>> {
   const current: unknown = Reflect.get(globalThis, key)
   const helper = typeof current === "function" && "count" in current && typeof current.count === "number"
     ? current as { count: number }
