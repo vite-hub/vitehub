@@ -1,7 +1,7 @@
 import { spawn as spawnProcess } from "node:child_process"
 import { createHash } from "node:crypto"
 import { existsSync } from "node:fs"
-import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, join } from "node:path"
 
@@ -880,6 +880,53 @@ describe("vitehub database migrate", () => {
       { applied: true, created_at: String(Date.UTC(2026, 0, 2)), hash: sha256(title), name: "20260102000000_title" },
     ])
     await expect(project.run("migrate", ["--dry-run"], {}, spawn)).resolves.toMatchObject({ exitCode: 0, stdout: expect.stringContaining("(PGlite .vitehub/data/database/pglite): no pending migrations.") })
+    expect(spawn).not.toHaveBeenCalled()
+  }, 120_000)
+
+  it("refuses conflicting generated PGlite migrations before writing a database", async () => {
+    const project = await createProject()
+    Object.assign(project.database, { connection: undefined, dialect: "postgresql" })
+    const kit = join(dirname(createRequire(import.meta.url).resolve("drizzle-kit")), "bin.js")
+    const generate = async (out: string, defaultValue: string, name: string) => {
+      await writeFile(join(project.rootDir, "schema.ts"), `
+        import { pgTable, text } from 'drizzle-orm/pg-core'
+        export const notes = pgTable('notes', { content: text().default(${JSON.stringify(defaultValue)}) })
+      `)
+      await expect(realSpawn(process.execPath, [kit, "generate", "--dialect", "postgresql", "--schema", "./schema.ts", "--out", out, "--name", name], { cwd: project.rootDir })).resolves.toEqual({ exitCode: 0 })
+    }
+    await generate("migrations", "base", "init")
+    const [init] = await migrationTags(project.database.migrationsDir)
+    await rename(join(project.database.migrationsDir, init!), join(project.database.migrationsDir, "20260101000000_init"))
+    const spawn = vi.fn(realSpawn)
+    await expect(project.run("migrate", ["--dry-run"], {}, spawn)).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+    expect(spawn).not.toHaveBeenCalled()
+    const branch = join(project.rootDir, "branch")
+    await cp(project.database.migrationsDir, branch, { recursive: true })
+    await generate("migrations", "left", "left")
+    await generate("branch", "right", "right")
+    const left = (await migrationTags(project.database.migrationsDir)).find(tag => tag.endsWith("_left"))!
+    const right = (await migrationTags(branch)).find(tag => tag.endsWith("_right"))!
+    await rename(join(project.database.migrationsDir, left), join(project.database.migrationsDir, "20260102000000_left"))
+    await rename(join(branch, right), join(project.database.migrationsDir, "20260103000000_right"))
+
+    await expect(realSpawn(process.execPath, [kit, "check", "--dialect", "postgresql", "--out", "migrations"], { cwd: project.rootDir })).resolves.toEqual({ exitCode: 1 })
+    for (const args of [["--allow-data-loss"], ["--dry-run"], []]) {
+      await expect(project.run("migrate", args, {})).resolves.toMatchObject({ exitCode: 1, stderr: expect.stringContaining("drizzle-kit check failed") })
+      expect(existsSync(join(project.rootDir, ".vitehub/data/database/pglite"))).toBe(false)
+    }
+  }, 120_000)
+
+  it("refuses a PGlite config override without migrating the default target", async () => {
+    const project = await createProject()
+    Object.assign(project.database, { connection: undefined, dialect: "postgresql" })
+    await folder(project.database.migrationsDir, "20260101000000_init", "CREATE TABLE notes (id integer PRIMARY KEY);")
+    await writeFile(join(project.rootDir, "alternate.config.ts"), "export default { dialect: 'postgresql', driver: 'pglite', out: './alternate', migrations: { schema: 'alternate' }, dbCredentials: { url: './alternate-db' } }\n")
+    const spawn = vi.fn(realSpawn)
+
+    for (const args of [["--config", "alternate.config.ts"], ["--config=alternate.config.ts", "--dry-run"]]) {
+      await expect(project.run("migrate", args, {}, spawn)).resolves.toMatchObject({ exitCode: 1, stderr: expect.stringContaining("does not support --config") })
+      expect(existsSync(join(project.rootDir, ".vitehub/data/database/pglite"))).toBe(false)
+    }
     expect(spawn).not.toHaveBeenCalled()
   }, 120_000)
 
