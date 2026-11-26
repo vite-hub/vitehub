@@ -10,8 +10,9 @@ export const messageWorkspaceChange = 4
 export const messageRealtimeControl = 5
 export const messageAwareness = 1
 /**
- * A JSON request from the server to the one browser in a room, or that browser's answer. Only rooms of a presence
- * Definition with `requests: true` carry it. `kind` tells the direction, so a request from the browser can be added.
+ * A JSON request from the server to the one browser in a room, that browser's answer, or a notice from the server to
+ * every browser in a room. Requests go only to rooms of a presence Definition with `requests: true`; notices go to rooms
+ * of any presence Definition. `kind` tells which one it is.
  */
 export const messageRealtimeRequest = 6
 export const messageQueryAwareness = 3
@@ -119,6 +120,7 @@ export function readAwarenessClientIds(update: Uint8Array): number[] {
 }
 
 export type RealtimeRequestFrame =
+  | { kind: "notice", body: unknown }
   | { kind: "request", id: string, body: unknown }
   | { kind: "answer", id: string, ok: true, body: unknown }
   | { kind: "answer", id: string, ok: false, why: string }
@@ -134,6 +136,7 @@ export function encodeRealtimeRequestFrame(frame: RealtimeRequestFrame): Uint8Ar
 export function decodeRealtimeRequestFramePayload(decoder: decoding.Decoder): RealtimeRequestFrame | undefined {
   try {
     const value: unknown = JSON.parse(decoding.readVarString(decoder))
+    if (value && typeof value === "object" && "kind" in value && value.kind === "notice") return { kind: "notice", body: "body" in value ? value.body : undefined }
     if (!value || typeof value !== "object" || !("id" in value) || typeof value.id !== "string" || !value.id || value.id.length > 128) return
     if (!("kind" in value)) return
     if (value.kind === "request") return { kind: "request", id: value.id, body: "body" in value ? value.body : undefined }

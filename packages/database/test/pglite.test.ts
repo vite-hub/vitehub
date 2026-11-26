@@ -328,7 +328,7 @@ describe("NuxtHub's _hub_migrations on PGlite", () => {
     "INSERT INTO _hub_migrations (name) VALUES ('0000_init');",
   ].join("\n")
 
-  it.each(["preserved", "ambiguous", "fallback", "read-only"])("handles %s history without skipping pending SQL", async (scenario) => {
+  it.each(["preserved", "ambiguous", "normalized collision", "fallback", "read-only", "missing drizzle schema"])("handles %s history without skipping pending SQL", async (scenario) => {
     const { PGlite } = await import("@electric-sql/pglite")
     const { drizzle } = await import("drizzle-orm/pglite")
     const client = new PGlite("memory://")
@@ -346,9 +346,11 @@ describe("NuxtHub's _hub_migrations on PGlite", () => {
         await migrateOnStart([database], options)
         expect((await client.query("select to_regclass('next_seed')::text as name")).rows).toEqual([{ name: "next_seed" }])
       }
-      else if (scenario === "ambiguous") {
-        const first = makeDatabase("first", "20260101000000_init", "create table notes (id int)")
-        const second = makeDatabase("second", "20260102000000_init", "create table widgets (id int)")
+      else if (scenario === "ambiguous" || scenario === "normalized collision") {
+        const firstTag = scenario === "ambiguous" ? "20260101000000_init" : "20260101000000_0000_init"
+        const secondTag = scenario === "ambiguous" ? "20260102000000_init" : "20260102000000_0000_init.postgresql"
+        const first = makeDatabase("first", firstTag, "create table notes (id int)")
+        const second = makeDatabase("second", secondTag, "create table widgets (id int)")
         await expect(migrateOnStart([first, second], options)).rejects.toMatchObject({ code: "DATABASE_MIGRATION_CHECK_FAILED" })
         expect((await client.query("select to_regclass('drizzle.__drizzle_migrations') as ledger")).rows).toEqual([{ ledger: null }])
       }
@@ -356,6 +358,12 @@ describe("NuxtHub's _hub_migrations on PGlite", () => {
         await client.exec("create schema app; set search_path to app, public")
         await migrateOnStart([makeDatabase("default", "20260101000000_init", "create table widgets (id int)")], options)
         expect((await client.query("select to_regclass('app.widgets')::text as name")).rows).toEqual([{ name: "widgets" }])
+      }
+      else if (scenario === "missing drizzle schema") {
+        await client.exec("set search_path to drizzle, public")
+        await migrateOnStart([makeDatabase("default", "20260101000000_init", "create table notes (id int)")], options)
+        expect((await client.query("select name from drizzle.__drizzle_migrations")).rows).toEqual([{ name: "20260101000000_init" }])
+        expect((await client.query("select to_regclass('drizzle.notes') as name")).rows).toEqual([{ name: null }])
       }
       else {
         const database = makeDatabase("default", "20260101000000_init", "create table notes (id int)")
@@ -370,6 +378,29 @@ describe("NuxtHub's _hub_migrations on PGlite", () => {
       await client.close()
     }
   }, 30_000)
+
+  it.each([
+    ["20260101000000_bootstrap", "bootstrap"],
+    ["20260101000000_0001_create-users.postgresql", "0001_create-users"],
+  ])("does not replay the PGlite folder %s on start", async (tag, name) => {
+    const { PGlite } = await import("@electric-sql/pglite")
+    const { drizzle } = await import("drizzle-orm/pglite")
+    const client = new PGlite("memory://")
+    const log = vi.fn()
+    try {
+      await client.exec(nuxtHubHistory)
+      await client.query("update _hub_migrations set name = $1", [name])
+      await migrateOnStart([{ db: drizzle({ client }), dialect: "postgresql", migrations: [
+        { dataLoss: [], hash: `hash-${tag}`, name: tag, statements: ["CREATE TABLE \"notes\" (\"id\" serial PRIMARY KEY, \"title\" text NOT NULL);"], when: 1_767_225_600_000 },
+      ], name: "default" }], { log })
+
+      expect(log.mock.calls.map(([message]) => message)).toEqual([`[vitehub] Database "default": recorded ${tag} as applied, as _hub_migrations lists it.`])
+      expect((await client.query("select name from drizzle.__drizzle_migrations")).rows).toEqual([{ name: tag }])
+    }
+    finally {
+      await client.close()
+    }
+  })
 
   it("adopts on PGlite", async () => {
     const { PGlite } = await import("@electric-sql/pglite")
@@ -399,30 +430,51 @@ describe("NuxtHub's _hub_migrations on PGlite", () => {
     }
   })
 
-  it("--dry-run prints Applied before for a PGlite folder, and `vitehub database migrate` records it", async () => {
+  it.each([
+    ["20260101000000_init", "0000_init"],
+    ["20260101000000_bootstrap", "bootstrap"],
+    ["20260101000000_0001_create-users.postgresql", "0001_create-users"],
+  ])("previews and adopts the PGlite folder %s", async (tag, name) => {
     const root = await createProject([])
     const migrations = join(root, "server/databases/default/migrations")
-    await mkdir(join(migrations, "20260101000000_init"), { recursive: true })
-    await writeFile(join(migrations, "20260101000000_init/migration.sql"), "CREATE TABLE \"notes\" (\"id\" serial PRIMARY KEY, \"title\" text NOT NULL);\n")
+    await mkdir(join(migrations, tag), { recursive: true })
+    await writeFile(join(migrations, tag, "migration.sql"), "CREATE TABLE \"notes\" (\"id\" serial PRIMARY KEY, \"title\" text NOT NULL);\n")
     await mkdir(join(migrations, "20260102000000_add_body"), { recursive: true })
     await writeFile(join(migrations, "20260102000000_add_body/migration.sql"), "ALTER TABLE \"notes\" ADD COLUMN \"body\" text;\n")
     const { PGlite } = await import("@electric-sql/pglite")
     await mkdir(join(root, ".vitehub/data/database"), { recursive: true })
     const seeded = new PGlite(join(root, ".vitehub/data/database/pglite"))
     await seeded.exec(nuxtHubHistory)
+    await seeded.query("update _hub_migrations set name = $1", [name])
     await seeded.close()
     const plugin = await startVite(root, "serve")
 
     const dryRun = await runCli(plugin, root, "migrate", ["--dry-run"])
     expect(dryRun).toMatchObject({ exitCode: 0, stderr: "" })
-    expect(dryRun.stdout).toContain("1 pending migration.\n  Applied before, as _hub_migrations lists: 20260101000000_init\n")
+    expect(dryRun.stdout).toContain(`1 pending migration.\n  Applied before, as _hub_migrations lists: ${tag}\n`)
     const applied = await runCli(plugin, root, "migrate")
     expect(applied).toMatchObject({ exitCode: 0, stderr: "" })
-    expect(applied.stdout).toContain("recorded 20260101000000_init as applied, as _hub_migrations lists it.")
+    expect(applied.stdout).toContain(`recorded ${tag} as applied, as _hub_migrations lists it.`)
     expect(applied.stdout).toContain("applied 20260102000000_add_body.")
     const done = await runCli(plugin, root, "migrate", ["--dry-run"])
     expect(done.stdout).toContain("(PGlite .vitehub/data/database/pglite): no pending migrations.\n")
   }, 60_000)
+
+  it("reports a migration check failure when opening and closing the PGlite store both fail", async () => {
+    const root = await createProject([])
+    const migration = join(root, "server/databases/default/migrations/20260101000000_init")
+    await mkdir(migration, { recursive: true })
+    await writeFile(join(migration, "migration.sql"), "CREATE TABLE notes (id int);")
+    const path = join(root, ".vitehub/data/database/pglite")
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, "not a directory")
+    const plugin = await startVite(root, "serve")
+
+    const dryRun = await runCli(plugin, root, "migrate", ["--dry-run"])
+    expect(dryRun.exitCode).toBe(1)
+    expect(dryRun.stderr).toContain("DATABASE_MIGRATION_CHECK_FAILED")
+    expect(dryRun.stderr).toContain("ViteHub cannot read the pending migrations of the database \"default\".")
+  }, 30_000)
 })
 
 describe("migrationsSchema on PGlite", () => {

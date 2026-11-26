@@ -130,6 +130,10 @@ export interface NamedMigration {
   tag: string
 }
 
+function nuxtHubMigrationName(file: string): string {
+  return file.replace(/\.sql$/, "").replace(/\.postgresql$/, "")
+}
+
 /**
  * The names that other tools record for one migration, most exact first: the Wrangler file name, NuxtHub's name (the
  * file name without `.sql`), the Drizzle Kit folder, and the old flat file that a folder keeps in its name, such as
@@ -210,7 +214,11 @@ export function matchHubMigrations(names: readonly string[], files: readonly (Na
   const unmatched: string[] = []
   for (const name of names) {
     const stem = name.replace(/\.sql$/, "")
-    const preserved = files.filter(({ tag }) => tag === stem || /^\d{14}_(\d+_.+)$/.exec(tag)?.[1] === stem)
+    const exact = files.filter(({ tag }) => tag === stem)
+    const preserved = exact.length ? exact : files.filter(({ tag }) => {
+      const kept = folderTag.exec(tag)?.[1]
+      return kept !== undefined && nuxtHubMigrationName(kept) === stem
+    })
     const candidates = preserved.length ? preserved : files.filter(file => file.name === `${stem}.sql`)
     if (candidates.length > 1) {
       const folders = candidates.map(({ database, tag }) => `${database}/${tag}`).sort().join(", ")

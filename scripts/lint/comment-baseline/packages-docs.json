@@ -43,7 +43,6 @@
   "packages/docs/runtime/app/assistant/DocsAssistantOff.vue": 2,
   "packages/docs/runtime/app/assistant/DocsAssistantPanel.vue": 12,
   "packages/docs/runtime/app/components/AppHeader.vue": 7,
-  "packages/docs/runtime/app/components/AppSearch.vue": 4,
   "packages/docs/runtime/app/components/content/AgentOnly.vue": 1,
   "packages/docs/runtime/app/components/content/CodeTree.vue": 6,
   "packages/docs/runtime/app/components/content/ComarkHtml.vue": 9,

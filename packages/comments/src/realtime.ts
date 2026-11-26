@@ -1,11 +1,11 @@
 import { text } from "./identity.ts"
-import { commentRoom, normalizeCommentPage } from "./page.ts"
+import { commentNoticeRoom, commentRoom, commentsNoticeDefinition, normalizeCommentPage } from "./page.ts"
 import { resolveCommentsIdentity, resolveCommentsPage } from "./runtime/session.ts"
 
 import type { RealtimeDefinition, RealtimeUser } from "@vite-hub/realtime"
 import type { Comments } from "./index.ts"
 import type { CommentsIdentity, CommentsSessionOptions } from "./runtime/session.ts"
-import type { CommentsUser } from "./types.ts"
+import type { CommentThread, CommentsUser } from "./types.ts"
 
 function toRealtimeUser(user: CommentsUser): RealtimeUser {
   const result: RealtimeUser = { id: user.id }
@@ -24,7 +24,7 @@ function toRealtimeUser(user: CommentsUser): RealtimeUser {
  * Guests name themselves in the browser. ViteHub adds it as the `comments` definition when the host has a room
  * authority.
  */
-export function commentsRealtime(comments: Comments, options: CommentsSessionOptions = {}): RealtimeDefinition {
+export function commentsRealtime(comments: Comments, options: CommentsSessionOptions = {}, purpose: "presence" | "notices" = "presence"): RealtimeDefinition {
   // Realtime drops policy fields such as role. Keep the whole identity for this request's page-aware check.
   const readers = new WeakMap<object, CommentsIdentity>()
   return {
@@ -43,10 +43,21 @@ export function commentsRealtime(comments: Comments, options: CommentsSessionOpt
       if (!page) return false
       // Rooms stay one per page path. Comments hints travel in page awareness. The definition-wide events room exposes
       // other pages' activity.
-      if (documentId !== commentRoom(normalizeCommentPage(page))) return false
+      if (purpose === "presence" && documentId !== commentRoom(normalizeCommentPage(page))) return false
       const { subject } = await resolveCommentsPage(comments, event, request, page)
+      if (purpose === "notices" && documentId !== commentNoticeRoom(subject)) return false
       return await comments.can({ user: identity.user, action: "read", subject }, identity.gate)
     },
     document: false,
+    ...(purpose === "notices" ? { awareness: false } : {}),
   }
+}
+
+/** The notice that tells the open pages of a thread to load their threads again. */
+export const commentsChangeNotice = { type: "comments" } as const
+
+/** Tells the browsers on the page of a thread that it changed, so they load their threads again. It never throws. */
+export async function notifyCommentsChange(thread: Pick<CommentThread, "subject">): Promise<void> {
+  const realtime = await import("@vite-hub/realtime/server").catch(() => undefined)
+  await realtime?.notifyRealtimeRoom(commentsNoticeDefinition, commentNoticeRoom(thread.subject), commentsChangeNotice)
 }

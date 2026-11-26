@@ -759,6 +759,45 @@ describe.skipIf(!adminUrl)("NuxtHub's _hub_migrations on Postgres", () => {
     expect(again.stdout).not.toContain("Not in the migrations folder")
   })
 
+  it.each([
+    ["20231114221320_bootstrap", "bootstrap"],
+    ["20231114221320_0001_create-users.postgresql", "0001_create-users"],
+  ])("matches the NuxtHub file name that the folder %s keeps, in --dry-run and on start", { timeout: 60_000 }, async (tag, name) => {
+    const kept = { ...init, tag }
+    const { migrationsDir, root } = await createProject([kept, addEmail])
+    const url = await createDatabase()
+    const sql = connect(url)
+    await writeNuxtHubHistory(sql, [kept], [name])
+
+    const dryRun = await migrateCommand(root, postgresDatabase(url, migrationsDir))(["--dry-run"])
+    expect(dryRun).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(dryRun.stdout).toContain(`1 pending migration.\n  Applied before, as _hub_migrations lists: ${tag}\n\n  ${addEmail.tag}`)
+    const log: string[] = []
+    await migrateOnStart([{ db: drizzle({ client: sql }), dialect: "postgresql", migrations: readStartMigrations(migrationsDir, "postgresql"), name: "default" }], { log: message => log.push(message) })
+    expect(log).toEqual([
+      `[vitehub] Database "default": recorded ${tag} as applied, as _hub_migrations lists it.`,
+      `[vitehub] Database "default": applied ${addEmail.tag}.`,
+    ])
+    expect((await readLedger(sql)).map(row => row.name)).toEqual([tag, addEmail.tag])
+  })
+
+  it("adopts the history seen by --dry-run before creating a schema earlier on the search path", async () => {
+    const { migrationsDir, root } = await createProject([init])
+    const url = await createDatabase()
+    const sql = connect(url)
+    await writeNuxtHubHistory(sql, [init], ["0000_init"])
+    await sql`alter database ${sql(new URL(url).pathname.slice(1))} set search_path to drizzle, public`
+    const run = migrateCommand(root, postgresDatabase(url, migrationsDir))
+
+    const dryRun = await run(["--dry-run"])
+    expect(dryRun).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(dryRun.stdout).toContain(`Applied before, as _hub_migrations lists: ${init.tag}`)
+    const applied = await run([])
+    expect(applied).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(applied.stdout).toContain(`recorded ${init.tag} as applied, as _hub_migrations lists it.`)
+    expect(await sql`select to_regclass('drizzle.users')::text as name`).toEqual([{ name: null }])
+  })
+
   it("fails the check when _hub_migrations lists a migration that now has another number", { timeout: 60_000 }, async () => {
     const early = { sql: "SELECT 1;", tag: "20231114221319_early", when: 1_699_999_999_000 }
     const { migrationsDir, root } = await createProject([early, init])

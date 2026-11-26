@@ -686,11 +686,8 @@ async function planPostgres(sql: PostgresMigrationSql, group: PostgresTarget[], 
   const schema = databases[0]!.migrationsSchema
   const ledger = postgresLedgerTable(schema)
   const migrations = databases.flatMap(database => database.migrations.map(migration => ({ hash: migration.hash, tag: migration.name, when: migration.when })))
-  if (!await findPostgresLedger(sql, { database: databases[0]!.name, migrations, schema })) {
-    if (schema === undefined) await sql.unsafe(`CREATE SCHEMA IF NOT EXISTS ${quotePostgresName(defaultLedgerSchema)}`)
-    await sql.unsafe(createPostgresLedger(ledger))
-  }
-  else {
+  const exists = await findPostgresLedger(sql, { database: databases[0]!.name, migrations, schema })
+  if (exists) {
     const columns = Array.from(await sql.unsafe(`select column_name from information_schema.columns where table_schema = ${sqlString(schema ?? defaultLedgerSchema)} and table_name = '__drizzle_migrations'`)).map(row => row.column_name)
     if (!columns.includes("name")) {
       const rows = Array.from(await sql.unsafe(`SELECT id, hash, created_at FROM ${ledger} ORDER BY id ASC`)).map(row => toLedgerRow(row))
@@ -709,18 +706,24 @@ async function planPostgres(sql: PostgresMigrationSql, group: PostgresTarget[], 
       for (const { column, name, value } of backfill) await sql.unsafe(`UPDATE ${ledger} SET "name" = $1, "applied_at" = NULL WHERE "${column}" = $2`, [name, value])
     }
   }
-  const rows = Array.from(await sql.unsafe(`select id, hash, created_at, name from ${ledger}`)).map(row => toLedgerRow(row))
+  const rows = exists
+    ? Array.from(await sql.unsafe(`select id, hash, created_at, name from ${ledger}`)).map(row => toLedgerRow(row))
+    : []
   const match = matchLedger(rows, migrations)
-  const adopted = await adoptHubMigrations(sql, databases, match.applied, ledger)
+  const history = await reconcilePostgresHistory(sql, databases.map(({ name, migrations }) => ({ name, tags: migrations.map(migration => migration.name) })), match.applied, schema)
+  if (!exists) {
+    if (schema === undefined) await sql.unsafe(`CREATE SCHEMA IF NOT EXISTS ${quotePostgresName(defaultLedgerSchema)}`)
+    await sql.unsafe(createPostgresLedger(ledger))
+  }
+  const adopted = await recordHubMigrations(sql, databases, history.adopted, ledger)
   const applied = new Set([...match.applied, ...adopted.map(entry => entry.tag)])
   const pending = planByName(databases, { applied, hashes: ledgerHashes(rows, match.backfill) }, { allowDataLoss: options.allowDataLoss, dialect: "postgresql", place: "Postgres database" })
   return { adopted, pending }
 }
 
-async function adoptHubMigrations(sql: PostgresMigrationSql, databases: ReadonlyArray<Pick<StartMigrationDatabase, "migrations" | "migrationsSchema" | "name">>, applied: ReadonlySet<string>, ledger: string): Promise<AdoptedEntry[]> {
-  const match = await reconcilePostgresHistory(sql, databases.map(({ name, migrations }) => ({ name, tags: migrations.map(migration => migration.name) })), applied, databases[0]!.migrationsSchema)
+async function recordHubMigrations(sql: PostgresMigrationSql, databases: ReadonlyArray<Pick<StartMigrationDatabase, "migrations" | "name">>, tags: readonly string[], ledger: string): Promise<AdoptedEntry[]> {
   const adopted: AdoptedEntry[] = []
-  for (const tag of match.adopted) {
+  for (const tag of tags) {
     const database = databases.find(database => database.migrations.some(migration => migration.name === tag))!
     const migration = database.migrations.find(migration => migration.name === tag)!
     await sql.unsafe(`insert into ${ledger} ("hash", "created_at", "name") values ($1, $2, $3)`, [migration.hash, migration.when, migration.name])

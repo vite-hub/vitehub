@@ -345,7 +345,7 @@ const resolvedMarker = (thread: CommentThreadModel) =>
     ),
   );
 
-export { messagesSinceResolved, repliedSinceResolved } from "../internal/comment-status.ts";
+export { messagesSinceResolved } from "../internal/comment-status.ts";
 
 // The thread of one pin: the comment and its replies, a reply box, Resolve or Reopen, and Close.
 // With `preview` it is the hover card of a pin: the comment, the reply count, and no controls.
@@ -496,8 +496,6 @@ export const CommentThread = defineComponent({
       const { thread } = props;
       const resolved = thread.status === "resolved";
       const later = messagesSinceResolved(thread);
-      // A reply since the thread was resolved asks for a look: Resolve again marks it seen.
-      const resolvable = !resolved || later.length > 0;
       const first = thread.messages[0];
       const quote = thread.anchor.kind === "text" ? thread.anchor.exact : undefined;
       if (props.preview) {
@@ -528,10 +526,10 @@ export const CommentThread = defineComponent({
             h("span", { "data-slot": "comment-thread-spacer" }),
             slots.actions ? h("div", { "data-slot": "comment-thread-actions" }, slots.actions({ thread })) : null,
             !allowed("resolve") ? null : h(UButton, {
-              "aria-label": resolvable ? "Resolve" : "Reopen",
+              "aria-label": resolved ? "Reopen" : "Resolve",
               color: "neutral",
-              icon: resolvable ? icons.value.check : icons.value.reopen,
-              onClick: () => void act(resolvable ? props.onResolve : props.onReopen),
+              icon: resolved ? icons.value.reopen : icons.value.check,
+              onClick: () => void act(resolved ? props.onReopen : props.onResolve),
               size: "xs",
               variant: "ghost",
             }),

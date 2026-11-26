@@ -313,7 +313,6 @@ function buildMigrationPlan(database: ResolvedDrizzleDatabaseConfig, target: Mig
 
 export async function readPostgresMigrationPlans(databases: ResolvedDrizzleDatabaseConfig[], options: MigrationPlanOptions): Promise<Map<string, MigrationPlanResult>> {
   const plans = new Map<string, MigrationPlanResult>()
-  const clients = new Set<CliPostgresClient>()
   const targets: Array<{ client: CliPostgresClient, database: ResolvedDrizzleDatabaseConfig, entries: MigrationEntry[], key?: string, target: MigrationTarget }> = []
   try {
     for (const database of databases) {
@@ -327,7 +326,6 @@ export async function readPostgresMigrationPlans(databases: ResolvedDrizzleDatab
         }
         if (target.kind === "postgres") {
           const client = connectMigrationPostgres(target, options.projectRoot, options.env, database.driver)
-          clients.add(client)
           targets.push({ client, database, entries, target })
           continue
         }
@@ -344,7 +342,6 @@ export async function readPostgresMigrationPlans(databases: ResolvedDrizzleDatab
         }
         const db = new PGlite(target.path)
         const client = { ...toPgliteMigrationClient(db), end: () => db.close() }
-        clients.add(client)
         targets.push({ client, database, entries, key: `pglite:${target.path}`, target })
       }
       catch (error) {
@@ -376,7 +373,14 @@ export async function readPostgresMigrationPlans(databases: ResolvedDrizzleDatab
     for (const { database } of targets) plans.set(database.name, migrationCheckError(database, error))
   }
   finally {
-    await Promise.all([...clients].map(client => client.end()))
+    await Promise.all(targets.map(async ({ client, database }) => {
+      try {
+        await client.end()
+      }
+      catch (error) {
+        if (!plans.get(database.name)?.[0]) plans.set(database.name, migrationCheckError(database, error))
+      }
+    }))
   }
   return plans
 }
