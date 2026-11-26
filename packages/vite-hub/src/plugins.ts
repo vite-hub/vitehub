@@ -1956,7 +1956,6 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
       realtime: generatedModules.commentsRealtime,
       runtime: "vite-hub/comments/runtime",
       ...(configuredConsole ? { siteVisitor: generatedModules.consoleSiteVisitor } : {}),
-      webhooks: "vite-hub/webhooks",
     },
     ...configuredConsole ? { pillSegments: [{ module: generatedModules.consolePill, export: "installConsolePill", options: { version: readViteHubVersion(), useCurrentGrants: configuredConsole.authorize === undefined } }] } : {},
   })
