@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url"
 import type { DatabaseOptions } from "./types.ts"
 import type { ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "./types.ts"
 import type { ViteHubCliContributor as SharedViteHubCliContributor, ViteHubCliSeed, ViteHubCliSeedOptions } from "@vite-hub/internal/cli"
-import type { AdoptedMigration, MigrationPlan } from "./internal/migration-plan.ts"
+import type { AdoptedMigration, MigrationPlan, MigrationPlanResult } from "./internal/migration-plan.ts"
 import type { SqliteSnapshot } from "./internal/snapshot-uniques.ts"
 
 import { dirname, isAbsolute, join, relative, resolve } from "pathe"
@@ -523,7 +523,7 @@ async function dropTables(
       return 0
     }
     connection = opened.connection
-    const plan = await planDrop(connection)
+    const plan = await planDrop(connection, database.migrationsSchema)
     if (!plan.statements.length) {
       context.stdout.write(`[vitehub] Database "${database.name}" (${connection.target}): it has no tables to drop.\n`)
       return 0
@@ -688,9 +688,19 @@ async function runDrizzleKit(
   const upToDate = new Map<ResolvedDrizzleDatabaseConfig, MigrationPlan>()
   if (feature === "migrate" && (dryRun || !allowDataLoss)) {
     // Check every Database before the first one changes, so a refusal leaves all of them as they were.
+    const { readPostgresMigrationPlans } = await import("./internal/migration-plan.ts")
+    const postgresPlans = await readPostgresMigrationPlans(runs.flatMap(({ database }) => database?.dialect === "postgresql"
+      ? [{ ...database, migrationsDir: resolve(projectRoot, database.migrationsDir) }]
+      : []), { env: context.env ?? process.env, projectRoot })
+    const reported = new Set<unknown>()
     let exitCode = 0
     for (const { database } of runs) {
-      const check = await checkPendingMigrations(database, projectRoot, context, { allowDataLoss, dryRun })
+      const plan = database?.dialect === "postgresql" ? postgresPlans.get(database.name) : undefined
+      if (plan?.[0]) {
+        if (reported.has(plan[0])) continue
+        reported.add(plan[0])
+      }
+      const check = await checkPendingMigrations(database, projectRoot, context, { allowDataLoss, dryRun }, plan)
       exitCode = Math.max(exitCode, check.exitCode)
       if (database && check.plan && !check.plan.pending.length && check.plan.applied) upToDate.set(database, check.plan)
     }
@@ -1209,6 +1219,10 @@ function writeMigrationPlan(plan: MigrationPlan, context: ViteHubCliContext) {
     const names = plan.adopted.filter(migration => migration.from === from).map(migration => migration.name)
     lines.push(`  Applied before, as ${from} lists: ${names.join(", ")}`)
   }
+  for (const from of new Set(plan.unmatched?.map(migration => migration.from))) {
+    const names = plan.unmatched!.filter(migration => migration.from === from).map(migration => migration.name)
+    lines.push(`  Not in the migrations folder, as ${from} lists: ${names.join(", ")}`)
+  }
   for (const migration of plan.pending) {
     lines.push("", `  ${migration.name}${migration.noTransaction ? " (outside a transaction, one statement at a time)" : ""}`)
     for (const statement of migration.statements) lines.push(...statement.split("\n").map(line => `    ${line}`))
@@ -1255,16 +1269,17 @@ async function checkPendingMigrations(
   projectRoot: string,
   context: ViteHubCliContext,
   { allowDataLoss, dryRun }: { allowDataLoss: boolean, dryRun: boolean },
+  preparedPlan?: MigrationPlanResult,
 ): Promise<{ exitCode: number, plan?: MigrationPlan }> {
   // Keep the database driver and migration inspector out of config-time imports.
   // The CLI contributor is loaded while Vite resolves the project config.
   const { readMigrationPlan } = await import("./internal/migration-plan.ts")
-  const [error, plan] = database
+  const [error, plan] = preparedPlan ?? (database
     ? await readMigrationPlan({ ...database, migrationsDir: resolve(projectRoot, database.migrationsDir) }, { env: context.env ?? process.env, projectRoot })
-    : [databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: "default", problem: "ViteHub has no resolved Database config. Run the command in a project that uses `hubDatabase()`." }), undefined]
+    : [databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: "default", problem: "ViteHub has no resolved Database config. Run the command in a project that uses `hubDatabase()`." }), undefined])
   if (error) {
     context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
-    if (!dryRun) context.stderr.write("[vitehub] To apply the migrations without the check, run `vitehub database migrate --allow-data-loss`.\n")
+    if (!dryRun && databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED.is(error)) context.stderr.write("[vitehub] To apply the migrations without the check, run `vitehub database migrate --allow-data-loss`.\n")
     return { exitCode: 1 }
   }
   if (dryRun) writeMigrationPlan(plan, context)

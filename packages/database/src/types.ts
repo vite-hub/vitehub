@@ -119,6 +119,8 @@ export interface DatabaseDefinitionOptions<
   cloudflare?: CloudflareD1BindingConfig
   connection?: DatabaseConnectionConfig
   dialect?: "sqlite"
+  /** Only Postgres keeps its migration ledger in a schema. */
+  migrationsSchema?: never
   name?: string
   /**
    * Relations between tables, from Drizzle's `defineRelations(schema, r => ({ ... }))`. They type and run
@@ -168,6 +170,11 @@ export interface PostgresDatabaseDefinitionOptions<
   dialect: "postgresql"
   /** Without it, a Database that has no URL or PG* variables still runs on PGlite in development. */
   driver?: PostgresDatabaseDriver
+  /**
+   * The schema of Drizzle's migration ledger, `__drizzle_migrations`, instead of `drizzle`. ViteHub never creates it.
+   * NuxtHub's `_hub_migrations` in this schema counts too.
+   */
+  migrationsSchema?: string
   name?: string
   /** Relations between tables, from Drizzle's `defineRelations()`. See `DatabaseDefinitionOptions.relations`. */
   relations?: TRelations
@@ -184,6 +191,7 @@ export interface PostgresDatabaseDefinition<
   connection?: PostgresConnectionConfig
   dialect: "postgresql"
   driver?: PostgresDatabaseDriver
+  migrationsSchema?: string
   name: string
   relations: TRelations
   schema: TSchema
@@ -317,6 +325,8 @@ export interface ResolvedDrizzleDatabaseConfig extends RuntimeDrizzleDatabaseCon
   /** Postgres Definitions only. */
   hyperdrive?: ResolvedCloudflareHyperdriveConfig
   migrationsDir: string
+  /** Postgres Definitions only. */
+  migrationsSchema?: string
   mode: "default" | "named"
   orm: "drizzle"
 }

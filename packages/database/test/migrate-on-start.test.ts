@@ -1394,6 +1394,7 @@ describe("migratePostgres", () => {
         if (query === fail) throw new Error("relation \"missing_table\" does not exist")
         if (query.startsWith("select pg_try_advisory_xact_lock")) return [{ locked: busy-- <= 0 }]
         if (query.startsWith("select current_database()")) return [{ database, role, schemas, started }]
+        if (query.startsWith("select exists (select 1 from pg_namespace")) return [{ can_create: true, can_create_schema: true, can_use: true, database, found: Boolean(ledger), role }]
         if (query.startsWith("select to_regclass(")) return [{ ledger: ledger ? "drizzle.__drizzle_migrations" : null }]
         if (query.startsWith("select column_name")) return ledger ? ["id", "hash", "created_at", ...named ? ["name", "applied_at"] : []].map(column_name => ({ column_name })) : []
         if (query.startsWith("SELECT id, hash, created_at FROM")) return (ledger ?? []).map(({ created_at, hash, id }) => ({ created_at: String(created_at), hash, id }))
@@ -1415,9 +1416,11 @@ describe("migratePostgres", () => {
       ["select pg_try_advisory_xact_lock(hashtext($1)) as locked", [postgresMigrationLock]],
       ["set local lock_timeout = '5s'", undefined],
       ["set local client_min_messages = warning", undefined],
-      ["select to_regclass('drizzle.__drizzle_migrations') as ledger", undefined],
+      ["select exists (select 1 from pg_namespace where nspname = $1) as found, case when exists (select 1 from pg_namespace where nspname = $1) then has_schema_privilege($1, 'USAGE') end as can_use, case when exists (select 1 from pg_namespace where nspname = $1) then has_schema_privilege($1, 'CREATE') end as can_create, has_database_privilege(current_database(), 'CREATE') as can_create_schema, current_user as role, current_database() as database", ["drizzle"]],
+      ["select to_regclass('\"drizzle\".\"__drizzle_migrations\"') as ledger", undefined],
       ["select column_name from information_schema.columns where table_schema = 'drizzle' and table_name = '__drizzle_migrations'", undefined],
       [`select id, hash, created_at, name from ${ledgerTable}`, undefined],
+      ["select format('%I.%I', nspname, relname) as name from pg_catalog.pg_class join pg_catalog.pg_namespace on relnamespace = pg_namespace.oid where nspname = current_schema() and relname = $1", ["_hub_migrations"]],
       ["CREATE TABLE a (id int)", undefined],
       [`insert into ${ledgerTable} ("hash", "created_at", "name") values ($1, $2, $3)`, ["hash-0001_older", 1, "0001_older"]],
     ])
@@ -1440,7 +1443,7 @@ describe("migratePostgres", () => {
     // Drizzle Kit 0.x stored the journal `when` in milliseconds; Drizzle 1.0 matches the second.
     const { client, queries } = fakeClient({ ledger: [{ created_at: 1_700_000_000_417, hash: "hash-0x", id: 1 }] })
     await migratePostgres([{ client, database: { migrations: [migration("20231114221320_init", 1_700_000_000_000, ["CREATE TABLE a (id int)"])], name: "default" } }], { log: () => {} })
-    expect(queries.slice(5, 9)).toEqual([
+    expect(queries.slice(6, 10)).toEqual([
       [`SELECT id, hash, created_at FROM ${ledgerTable} ORDER BY id ASC`, undefined],
       [`ALTER TABLE ${ledgerTable} ADD COLUMN IF NOT EXISTS "name" text`, undefined],
       [`ALTER TABLE ${ledgerTable} ADD COLUMN IF NOT EXISTS "applied_at" timestamp with time zone DEFAULT now()`, undefined],

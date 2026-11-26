@@ -5,6 +5,7 @@ import { join } from "pathe"
 
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 import { applyD1MigrationFiles, createD1QueryAt, d1MigrationNamesFile, defaultD1MigrationsTable, readD1LedgerOf } from "./d1-ledger.ts"
+import { numberMigrationFolders } from "./migration-ledger.ts"
 
 import type { AdoptedMigration, D1Ledger, D1Query } from "./d1-ledger.ts"
 import type { MigrationEntry } from "./migration-journal.ts"
@@ -48,8 +49,6 @@ export interface D1MigrationFile {
   tag: string
 }
 
-const folderTag = /^\d{14}_(.+)$/
-
 export function readD1MigrationNames(migrationsDir: string): Record<string, string> {
   const file = join(migrationsDir, d1MigrationNamesFile)
   if (!existsSync(file)) return {}
@@ -65,11 +64,6 @@ export function readD1MigrationNames(migrationsDir: string): Record<string, stri
   const valid = isRecord(value) && !Array.isArray(value) && Object.values(value).every(name => typeof name === "string" && name.endsWith(".sql"))
   if (!valid) throw databaseErrorDiagnostics.DATABASE_D1_MIGRATION_INVALID({ problem: shape })
   return value as Record<string, string>
-}
-
-function migrationNumber(name: string): number {
-  const number = Number.parseInt(name.split("_")[0]!, 10)
-  return Number.isFinite(number) ? number : -1
 }
 
 /**
@@ -94,14 +88,8 @@ export function listD1Migrations(migrationsDir: string): D1MigrationFile[] {
     .filter(entry => entry.isDirectory() && existsSync(join(migrationsDir, entry.name, "migration.sql")))
     .map(entry => entry.name)
     .sort((a, b) => a.localeCompare(b))
-  let next = Math.max(-1, ...Object.values(recorded).map(migrationNumber), ...flat.map(migrationNumber)) + 1
   // Without the file, number every folder in order from 0000, as Drizzle Kit 0.x did, flat files aside.
-  if (!Object.keys(recorded).length) next = 0
-  const files: D1MigrationFile[] = folders.map(tag => ({
-    name: recorded[tag] ?? `${String(next++).padStart(4, "0")}_${folderTag.exec(tag)?.[1] ?? tag}.sql`,
-    source: join(migrationsDir, tag, "migration.sql"),
-    tag,
-  }))
+  const files: D1MigrationFile[] = numberMigrationFolders(folders, recorded, flat).map(file => ({ ...file, source: join(migrationsDir, file.tag, "migration.sql") }))
   for (const name of flat) {
     const folder = files.find(file => file.name === name)
     if (folder) {

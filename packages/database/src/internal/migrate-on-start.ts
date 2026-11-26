@@ -72,7 +72,7 @@ interface RenderMigrateOnStartOptions {
  * fails only the call that needs it, so a build that never migrates in the server does not fail.
  */
 export function renderShippedMigrationsModule(config: ResolvedDBViteConfig | undefined, settings: Pick<MigrateOnStartSettings, "allowDataLoss" | "backup"> | undefined): string {
-  const databases: Record<string, { d1?: StartD1Migrations, dialect: string, migrations: StartMigration[] } | { problem: string }> = {}
+  const databases: Record<string, { d1?: StartD1Migrations, dialect: string, migrations: StartMigration[], migrationsSchema?: string } | { problem: string }> = {}
   for (const name of config?.databaseNames ?? []) {
     try {
       const database = readShippedDatabaseMigrations(config!, name)
@@ -160,5 +160,5 @@ function readShippedDatabaseMigrations(config: ResolvedDBViteConfig, name: strin
       return { dataLoss, name: file.name, sql: readFileSync(file.source, "utf8"), statements, tag: file.tag }
     }),
   } : undefined
-  if (migrations.length || d1?.files.length) return { ...d1 && { d1 }, dialect: database.dialect, migrations }
+  if (migrations.length || d1?.files.length) return { ...d1 && { d1 }, dialect: database.dialect, migrations, ...database.migrationsSchema !== undefined && { migrationsSchema: database.migrationsSchema } }
 }
