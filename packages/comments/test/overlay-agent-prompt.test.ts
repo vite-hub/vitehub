@@ -147,6 +147,34 @@ describe("Copy open in the panel header", () => {
     expect(tools.panel()!.querySelector('[data-action="copy-open-prompt"]')).toBeNull()
   })
 
+  it("hides both prompt actions while the next page is loading", async () => {
+    const tools = await site(member, 1)
+    await listed(tools)
+    const actions = () => tools.panel()?.querySelector('[data-slot="comment-panel-actions"]')
+    await vi.waitFor(() => expect(actions()?.querySelector('[data-action="copy-open-prompt"]')).toBeTruthy())
+    expect(actions()?.querySelector('[data-action="open-in-t3-code"]')).toBeTruthy()
+    const fetchComments = tools.server.fetch.getMockImplementation()!
+    const session = Promise.withResolvers<void>()
+    let loading = false
+    tools.server.fetch.mockImplementation(async (input, init) => {
+      if (String(input).includes("/session")) {
+        loading = true
+        await session.promise
+      }
+      return fetchComments(input, init)
+    })
+    try {
+      history.pushState(null, "", "/details")
+      await vi.waitFor(() => expect(loading).toBe(true))
+      await vi.waitFor(() => expect(actions()).toBeFalsy())
+    }
+    finally {
+      session.resolve()
+    }
+    await vi.waitFor(() => expect(tools.panel()?.querySelector('[data-slot="comment-panel-empty"]')).toBeTruthy())
+    expect(actions()?.querySelector('[data-action="copy-open-prompt"], [data-action="open-in-t3-code"]')).toBeFalsy()
+  })
+
   it("offers the full copy instead of an oversized T3 Code link", async () => {
     const writeText = clipboard()
     const url = `${project.url}/${"x".repeat(t3CodeLinkLimit)}`
