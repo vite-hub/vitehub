@@ -16,8 +16,9 @@ function quoteList(values: readonly string[]): string {
   return values.map(value => JSON.stringify(value)).join(", ")
 }
 
-function ownerSql(database: string, statement: string): string {
-  return `As a role that owns the database, run \`${statement}\` in a SQL client, or run \`vitehub database sql --remote --database ${database} '${statement}'\` with that role in \`connection.url\`.`
+function ownerSql(database: string, statement: string, grantor = "a role that owns the database"): string {
+  const argument = `'${statement.replaceAll("'", "'\\''")}'`
+  return `As ${grantor}, run \`${statement}\` in a SQL client, or run \`vitehub database sql --remote --database ${database} ${argument}\` with that role in \`connection.url\`.`
 }
 
 function fileList(files: readonly string[]): string {
@@ -273,7 +274,8 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
         const grant = missing === "create-database"
           ? `GRANT CREATE ON DATABASE ${quotePostgresName(postgresDatabase)} TO ${quotePostgresName(role)}`
           : `GRANT ${missing === "usage" ? "USAGE" : "CREATE"} ON SCHEMA ${quotePostgresName(schema)} TO ${quotePostgresName(role)}`
-        return `${ownerSql(database, grant)} Or set \`migrationsSchema\` to an existing schema where the role has USAGE and CREATE.`
+        const grantor = missing === "create-database" ? undefined : `the owner of the schema "${schema}" or a role with the grant option on it`
+        return `${ownerSql(database, grant, grantor)} Or set \`migrationsSchema\` to an existing schema where the role has USAGE and CREATE.`
       },
     },
     DATABASE_MIGRATION_SCHEMA_MISSING: {

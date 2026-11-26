@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process"
+
 import { expect, it } from "vitest"
 
 import { databaseErrorDiagnostics } from "../src/error-diagnostics.ts"
@@ -27,4 +29,13 @@ it("requires verified history before reverting to the default Postgres ledger", 
   expect(verified.fix).toContain('only if you verify that the ledger in "drizzle" lists all migrations this app has applied')
   const ambiguous = databaseErrorDiagnostics.DATABASE_MIGRATION_LEDGER_MISPLACED({ ...params, unverified: ["20260102000000_clear"] })
   expect(ambiguous.fix).not.toContain("Remove `migrationsSchema`")
+})
+
+it("names the schema owner for a schema grant and quotes the SQL for the shell", () => {
+  const fix = databaseErrorDiagnostics.DATABASE_MIGRATION_SCHEMA_DENIED({ database: "default", missing: "usage", postgresDatabase: "app", role: "o'neil", schema: "team's ledger" }).fix ?? ""
+  const statement = `GRANT USAGE ON SCHEMA "team's ledger" TO "o'neil"`
+  expect(fix).toContain(`As the owner of the schema "team's ledger" or a role with the grant option on it, run \`${statement}\``)
+  const argument = fix.match(/--database default (.+)` with that role/)?.[1]
+  expect(execFileSync("sh", ["-c", `printf %s ${argument}`], { encoding: "utf8" })).toBe(statement)
+  expect(databaseErrorDiagnostics.DATABASE_MIGRATION_SCHEMA_DENIED({ database: "default", missing: "create-database", postgresDatabase: "app", role: "app_user", schema: "drizzle" }).fix).toMatch(/^As a role that owns the database, /)
 })
