@@ -25,6 +25,19 @@ vi.mock("vite-hub/realtime/server", async original => ({
   },
 }))
 
+const memberReads = vi.hoisted(() => ({ before: undefined as ((userId: string) => void) | undefined }))
+
+vi.mock("../src/site-access.ts", async (original) => {
+  const access = await original<typeof import("../src/site-access.ts")>()
+  return {
+    ...access,
+    siteMember: async (...input: Parameters<typeof access.siteMember>) => {
+      memberReads.before?.(input[2])
+      return await access.siteMember(...input)
+    },
+  }
+})
+
 const secret = "c".repeat(64)
 const consoleOrigin = "https://console.test"
 const allRoles = ["comments-read", "comments-write", "comments-resolve", "comments-delete"]
@@ -34,6 +47,7 @@ const anchor = { kind: "page" as const }
 afterEach(() => {
   clients.splice(0).forEach(client => client.close())
   notices.length = 0
+  memberReads.before = undefined
   vi.useRealTimers()
 })
 
@@ -528,6 +542,28 @@ describe("hosted Comments notices", () => {
     expect(notices.filter(notice => notice.user === lateSession).map(notice => notice.body)).toEqual([{ type: "comments", subject: { kind: "page", id: "/portal/docs" } }])
     expect(await joins(db, room, early)).toBe(false)
     expect(await count("console_comment_sessions")).toBe(1)
+  })
+
+  it("ends a token that expires while the Console checks its access, and sends it no notice", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    const { db, portal, grant, join } = await setup()
+    await join("u-bob")
+    const room = hostedCommentNoticeRoom(portal.id)
+    const start = Date.now()
+    const guest = await signIn(db, portal, { cookie: await grant("g-bob", allRoles, { createdBy: "u-bob" }) })
+    const guestSession = await joins(db, room, guest)
+    vi.setSystemTime(start + 3_600_000)
+    const ada = await signIn(db, portal, { userId: "u-ada" })
+    const adaSession = await joins(db, room, ada)
+    vi.setSystemTime(start + 12 * 3_600_000 - 1)
+    memberReads.before = (userId) => {
+      if (userId === "u-bob") vi.setSystemTime(start + 12 * 3_600_000)
+    }
+
+    expect((await call(db, portal.id, ada, "/threads", { method: "POST", json: { page: "/portal/docs", anchor, body: "Now" } })).status).toBe(200)
+    await vi.waitFor(() => expect(notices).toHaveLength(2))
+    expect(notices.filter(notice => notice.user === guestSession).map(notice => notice.body)).toEqual([{ type: "ended" }])
+    expect(notices.filter(notice => notice.user === adaSession).map(notice => notice.body)).toEqual([{ type: "comments", subject: { kind: "page", id: "/portal/docs" } }])
   })
 
   it("sends no notice to the open page of a revoked guest, ends its session, and tells the page to close", async () => {
