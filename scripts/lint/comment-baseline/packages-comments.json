@@ -81,7 +81,6 @@
   "packages/comments/test/overlay-page.test.ts": 3,
   "packages/comments/test/overlay-presence.test.ts": 3,
   "packages/comments/test/overlay-styles.test.ts": 3,
-  "packages/comments/test/overlay-window.test.ts": 3,
   "packages/comments/test/page-tool.test.ts": 5,
   "packages/comments/test/page-tools-mounted.test.ts": 3,
   "packages/comments/test/plugin.test.ts": 5,

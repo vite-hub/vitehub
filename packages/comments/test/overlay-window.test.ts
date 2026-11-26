@@ -12,10 +12,8 @@ vi.mock("@vite-hub/realtime/client", () => ({
 
 const ada = { id: "ada", name: "Ada Lovelace" }
 const anchor = { kind: "element", selector: "main > h1", x: 0, y: 0 } satisfies ElementAnchor
-// As the Comments plugin registers it: a lazy tool that `?comment=<n>` opens.
 const tool = { id: "comments", label: "Comments", icon: "i-lucide-message-square-text", hotkey: "c", script: "/overlay.js", lazy: true, param: "comment" }
 
-/** The page tools session, and the real Comments API of a site where Ada may comment. */
 async function site(lazy = false) {
   const server = await serveComments({ identify: () => ada })
   const api = server.fetch.getMockImplementation()!
@@ -104,7 +102,6 @@ describe("the Comments list in the pill's window", () => {
     list()!.click()
     expect(panel.querySelector('textarea[aria-label="Reply"]')).toBe(input)
     expect(input.value).toBe("Unsent reply")
-    // Turning the tools off asks first, because the reply was not sent.
     vi.mocked(window.confirm).mockReturnValue(false)
     document.querySelector("vitehub-pill")!.shadowRoot!.querySelector<HTMLButtonElement>("button[aria-label=\"Turn off ViteHub tools\"]")!.click()
     expect(window.confirm).toHaveBeenCalledOnce()
@@ -122,7 +119,10 @@ describe("the Comments list in the pill's window", () => {
     await type(input, "Sent reply")
     press(input, "Enter")
     await vi.waitFor(() => expect(panel.querySelectorAll('[data-slot="comment-reply"]')).toHaveLength(2))
-    expect((await comments.get(thread!.id))[1]!.messages.map(message => message.body)).toEqual(["Original comment", "Sent reply"])
+    await vi.waitFor(async () => {
+      const [, stored] = await comments.get(thread!.id)
+      expect(stored?.messages.map(message => message.body)).toEqual(["Original comment", "Sent reply"])
+    })
     await vi.waitFor(() => expect(panel.querySelector<HTMLTextAreaElement>('textarea[aria-label="Reply"]')!.value).toBe(""))
     document.querySelector("vitehub-pill")!.shadowRoot!.querySelector<HTMLButtonElement>("button[aria-label=\"Turn off ViteHub tools\"]")!.click()
     expect(window.confirm).not.toHaveBeenCalled()
