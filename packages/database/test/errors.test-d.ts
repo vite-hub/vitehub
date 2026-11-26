@@ -59,6 +59,7 @@ describe("Database error types", () => {
       | "DATABASE_MIGRATION_FAILED"
       | "DATABASE_MIGRATION_LEDGER_MISPLACED"
       | "DATABASE_MIGRATION_SCHEMA_CONFLICT"
+      | "DATABASE_MIGRATION_SCHEMA_DENIED"
       | "DATABASE_MIGRATION_SCHEMA_MISSING"
       | "DATABASE_MIGRATIONS_OLD_LAYOUT"
       | "DATABASE_MISSING_CONNECTION"
@@ -97,7 +98,7 @@ describe("Database error types", () => {
   })
 
   it("returns only the migration check errors from readMigrationPlan", () => {
-    expectTypeOf<Awaited<ReturnType<typeof readMigrationPlan>>[0]>().toEqualTypeOf<ResultError<"DATABASE_MIGRATION_CHECK_FAILED" | "DATABASE_MIGRATION_LEDGER_MISPLACED" | "DATABASE_MIGRATION_SCHEMA_MISSING"> | undefined>()
+    expectTypeOf<Awaited<ReturnType<typeof readMigrationPlan>>[0]>().toEqualTypeOf<ResultError<"DATABASE_MIGRATION_CHECK_FAILED" | "DATABASE_MIGRATION_LEDGER_MISPLACED" | "DATABASE_MIGRATION_SCHEMA_DENIED" | "DATABASE_MIGRATION_SCHEMA_MISSING"> | undefined>()
   })
 
   it("keeps the raw SQL handle of the Agent capability as a plain promise", () => {

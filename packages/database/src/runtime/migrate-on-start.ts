@@ -574,20 +574,42 @@ async function readPostgresLedgerRows(sql: PostgresMigrationSql, table: string):
   return Array.from(await sql.unsafe(`select * from ${table}`)).map(row => toLedgerRow(row))
 }
 
+interface PostgresSchemaAccess {
+  create: boolean
+  createSchema: boolean
+  database: string
+  found: boolean
+  role: string
+  usage: boolean
+}
+
+async function readPostgresSchemaAccess(sql: PostgresMigrationSql, schema: string): Promise<PostgresSchemaAccess> {
+  const [row] = Array.from(await sql.unsafe("select exists (select 1 from pg_namespace where nspname = $1) as found, case when exists (select 1 from pg_namespace where nspname = $1) then has_schema_privilege($1, 'USAGE') end as can_use, case when exists (select 1 from pg_namespace where nspname = $1) then has_schema_privilege($1, 'CREATE') end as can_create, has_database_privilege(current_database(), 'CREATE') as can_create_schema, current_user as role, current_database() as database", [schema]))
+  return { create: row?.can_create === true, createSchema: row?.can_create_schema === true, database: String(row?.database ?? ""), found: row?.found === true, role: String(row?.role ?? ""), usage: row?.can_use === true }
+}
+
 /**
  * Finds Drizzle's ledger of a Postgres database. With `schema`, the schema must exist, and the ledger must not be left
- * in `drizzle`: that ledger must not list a migration that the ledger in `schema` does not list. Returns whether the
- * ledger exists.
+ * in `drizzle`: that ledger must not list a migration that the ledger in `schema` does not list. The role must be able
+ * to read the ledger, or to create it when it is missing. It checks the privileges first, because `to_regclass()` fails
+ * with 42501 in a schema without USAGE. Returns whether the ledger exists.
  */
 export async function findPostgresLedger(sql: PostgresMigrationSql, { database, migrations, schema }: { database: string, migrations: readonly LedgerMigration[], schema?: string }): Promise<boolean> {
-  if (schema !== undefined) {
-    const [namespace] = Array.from(await sql.unsafe("select exists (select 1 from pg_namespace where nspname = $1) as found", [schema]))
-    if (namespace?.found !== true) throw databaseErrorDiagnostics.DATABASE_MIGRATION_SCHEMA_MISSING({ database, schema })
+  const ledgerSchema = schema ?? defaultLedgerSchema
+  const access = await readPostgresSchemaAccess(sql, ledgerSchema)
+  const denied = (missing: "create-database" | "create-schema" | "usage") => databaseErrorDiagnostics.DATABASE_MIGRATION_SCHEMA_DENIED({ database, missing, postgresDatabase: access.database, role: access.role, schema: ledgerSchema })
+  if (!access.found) {
+    if (schema !== undefined) throw databaseErrorDiagnostics.DATABASE_MIGRATION_SCHEMA_MISSING({ database, schema })
+    if (!access.createSchema) throw denied("create-database")
+    return false
   }
+  if (!access.usage) throw denied("usage")
   const table = postgresLedgerTable(schema)
   const [existing] = Array.from(await sql.unsafe(`select to_regclass(${sqlString(table)}) as ledger`))
   const exists = Boolean(existing?.ledger)
+  if (!exists && !access.create) throw denied("create-schema")
   if (schema === undefined || schema === defaultLedgerSchema) return exists
+  if (!(await readPostgresSchemaAccess(sql, defaultLedgerSchema)).usage) return exists
   const fallback = postgresLedgerTable()
   const [old] = Array.from(await sql.unsafe(`select to_regclass(${sqlString(fallback)}) as ledger`))
   if (!old?.ledger) return exists

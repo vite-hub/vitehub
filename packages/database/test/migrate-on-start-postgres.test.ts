@@ -864,3 +864,59 @@ describe.skipIf(!adminUrl)("migrationsSchema on Postgres", () => {
     expect(await schemas(sql)).toEqual(["app"])
   })
 })
+
+describe.skipIf(!adminUrl)("a role without the privileges for the migration ledger", () => {
+  async function createRoleDatabase() {
+    const admin = connect(adminUrl!)
+    const role = `vitehub_denied_${randomUUID().replaceAll("-", "").slice(0, 8)}`
+    await admin.unsafe(`create role ${role} login password 'denied'`)
+    cleanups.push(() => admin.unsafe(`drop role if exists ${role}`))
+    const url = await createDatabase()
+    const owner = connect(url)
+    await owner.unsafe(`grant usage, create on schema public to ${role}`)
+    const roleUrl = new URL(url)
+    roleUrl.username = role
+    roleUrl.password = "denied"
+    return { name: new URL(url).pathname.slice(1), owner, role, roleUrl: roleUrl.href, url }
+  }
+
+  async function startFailure(server: Awaited<ReturnType<typeof buildNodeServer>>, url: string): Promise<string> {
+    return server.start(url).then(() => "", (error: { stderr?: string }) => String(error.stderr).replaceAll("\\", ""))
+  }
+
+  it("fails when the role cannot create drizzle, on start and in --dry-run", { timeout: 60_000 }, async () => {
+    const { migrationsDir, root } = await createProject([init])
+    const { name, owner, role, roleUrl } = await createRoleDatabase()
+    const server = await buildNodeServer(root, {})
+    const grant = `GRANT CREATE ON DATABASE "${name}" TO "${role}"`
+
+    expect(await startFailure(server, roleUrl)).toMatch(new RegExp(`DATABASE_MIGRATION_SCHEMA_DENIED[\\s\\S]*no CREATE on the Postgres database "${name}"[\\s\\S]*vitehub database sql '${grant}'`))
+    const dryRun = await migrateCommand(root, postgresDatabase(roleUrl, migrationsDir))(["--dry-run"])
+    expect(dryRun.exitCode).toBe(1)
+    expect(dryRun.stderr).toContain("DATABASE_MIGRATION_SCHEMA_DENIED")
+    expect(dryRun.stderr).toContain(grant)
+    expect(await owner`select to_regclass('public.users')::text as name, exists (select 1 from pg_namespace where nspname = 'drizzle') as drizzle`).toEqual([{ drizzle: false, name: null }])
+
+    await owner.unsafe(grant)
+    expect((await server.start(roleUrl)).stdout.trim().split("\n")).toEqual([`[vitehub] Database "default": applied ${init.tag}.`, "[]"])
+  })
+
+  it("fails when drizzle has no USAGE, on start and in --dry-run", { timeout: 60_000 }, async () => {
+    const { migrationsDir, root } = await createProject([init, seed])
+    const { owner, role, roleUrl, url } = await createRoleDatabase()
+    const server = await buildNodeServer(root, {})
+    await server.start(url)
+    await owner.unsafe(`grant select on all tables in schema public to ${role}`)
+    const grant = `GRANT USAGE ON SCHEMA "drizzle" TO "${role}"`
+
+    expect(await startFailure(server, roleUrl)).toMatch(new RegExp(`DATABASE_MIGRATION_SCHEMA_DENIED[\\s\\S]*no USAGE on the schema "drizzle"[\\s\\S]*vitehub database sql '${grant}'`))
+    const dryRun = await migrateCommand(root, postgresDatabase(roleUrl, migrationsDir))(["--dry-run"])
+    expect(dryRun.exitCode).toBe(1)
+    expect(dryRun.stderr).toContain("DATABASE_MIGRATION_SCHEMA_DENIED")
+    expect(dryRun.stderr).toContain(grant)
+
+    await owner.unsafe(grant)
+    await owner.unsafe(`grant select on drizzle.__drizzle_migrations to ${role}`)
+    expect((await server.start(roleUrl)).stdout.trim()).toBe(JSON.stringify([{ id: 7, name: "Ada" }]))
+  })
+})

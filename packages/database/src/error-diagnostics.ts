@@ -243,6 +243,19 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ databases, schemas }: { databases: readonly [string, string], schemas: readonly [string | undefined, string | undefined] }) => `The databases "${databases[0]}" and "${databases[1]}" share one Postgres database and its migration ledger, but set different \`migrationsSchema\` values: ${schemas.map(schema => schema === undefined ? "none (\"drizzle\")" : JSON.stringify(schema)).join(" and ")}.`,
       fix: "Set the same `migrationsSchema` on every Definition that connects to this Postgres database, or remove it from all of them.",
     },
+    DATABASE_MIGRATION_SCHEMA_DENIED: {
+      why: ({ database, missing, postgresDatabase, role, schema }: { database: string, missing: "create-database" | "create-schema" | "usage", postgresDatabase: string, role: string, schema: string }) => `The database "${database}" migrates as the role "${role}", which ${missing === "usage"
+        ? `has no USAGE on the schema "${schema}", so it cannot read the migration ledger there`
+        : missing === "create-database"
+          ? `has no CREATE on the Postgres database "${postgresDatabase}", so it cannot create the schema "${schema}" for the migration ledger`
+          : `has no CREATE on the schema "${schema}", so it cannot create the migration ledger there`}.`,
+      fix: ({ missing, postgresDatabase, role, schema }: { database: string, missing: "create-database" | "create-schema" | "usage", postgresDatabase: string, role: string, schema: string }) => {
+        const grant = missing === "create-database"
+          ? `GRANT CREATE ON DATABASE ${postgresName(postgresDatabase)} TO ${postgresName(role)}`
+          : `GRANT ${missing === "usage" ? "USAGE" : "CREATE"} ON SCHEMA ${postgresName(schema)} TO ${postgresName(role)}`
+        return `As a role that owns the database, run \`vitehub database sql '${grant}'\`. Or set \`migrationsSchema\` to an existing schema where the role has USAGE and CREATE.`
+      },
+    },
     DATABASE_MIGRATION_SCHEMA_MISSING: {
       why: ({ database, schema }: { database: string, schema: string }) => `The database "${database}" sets \`migrationsSchema: "${schema}"\`, but the Postgres database has no schema "${schema}". ViteHub does not create a schema that you choose.`,
       fix: ({ schema }: { database: string, schema: string }) => `Create the schema with \`vitehub database sql 'CREATE SCHEMA ${postgresName(schema)}'\`, as a role that owns the database, or fix the name in \`migrationsSchema\`.`,
