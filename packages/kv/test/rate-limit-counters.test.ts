@@ -114,16 +114,13 @@ describe.each(targets)("Rate Limit kv driver on $name", (target) => {
     await expect(limiters[1]!.peek({ key: "198.51.100.7" })).resolves.toMatchObject({ remaining: 0, used: 60 })
   })
 
-  it("expires a window with its TTL, so the next request starts a new window", async () => {
+  it("expires the stored counter so the next request starts at one", async () => {
     const now = Date.now()
     const name = `ttl-${randomUUID()}`
     const [first, second] = target.stores(2).map(storage => createRateLimiter({ driver: kvRateLimitDriver({ now: () => now, storage: counterStorage(storage) }), limit: 2, name, window: "1s" }))
     await expect(first!.consume({ key: "user" })).resolves.toMatchObject({ allowed: true, used: 1 })
-    await expect(second!.consume({ key: "user" })).resolves.toMatchObject({ allowed: true, used: 2 })
-    await expect(first!.consume({ key: "user" })).resolves.toMatchObject({ allowed: false, used: 3 })
 
-    await sleep(1_300)
-    await expect(second!.peek({ key: "user" })).resolves.toMatchObject({ used: 0 })
+    await expect.poll(() => second!.peek({ key: "user" }), { timeout: 5_000 }).toMatchObject({ used: 0 })
     await expect(second!.consume({ key: "user" })).resolves.toMatchObject({ allowed: true, used: 1 })
   })
 

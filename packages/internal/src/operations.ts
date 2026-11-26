@@ -367,6 +367,7 @@ export interface OperationTarget {
   fetch?: typeof fetch
   /** Milliseconds. Defaults to 30 seconds. */
   timeout?: number
+  signal?: AbortSignal
   /** Generated commands set this after --yes or a prompt. False requires confirmation if the server parses a destructive call. */
   confirmed?: boolean
   /**
@@ -460,17 +461,19 @@ export async function callOperation(target: OperationTarget, name: string, input
       }
     }
     const outcome = await callOperationRpc(name, input ?? {}, async (body) => {
+      const signal = target.signal ?? AbortSignal.timeout(target.timeout ?? 30_000)
       // The signature covers the exact body, so the headers are made for each request.
       const headers = target.authorization ? operationHeaders() : await signedOperationHeaders(env, url, body)
       if (target.authorization) headers.set("authorization", target.authorization)
       if (target.confirmed !== undefined) headers.set(operationConfirmationHeader, target.confirmed ? "confirmed" : "required")
       if (target.roots?.length) headers.set(operationExpectedRootsHeader, target.roots.map(projectRootHash).join(","))
+      signal.throwIfAborted()
       const response = await (target.fetch ?? fetch)(url.href, {
         body,
         headers,
         method: "POST",
         redirect: "manual",
-        signal: AbortSignal.timeout(target.timeout ?? 30_000),
+        signal,
       })
       const text = await response.text()
       let json: unknown

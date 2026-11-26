@@ -196,7 +196,7 @@ describe("hubKV", () => {
     await configure(config)
 
     expect(config.nitro.handlers).toEqual([
-      { handler: middleware, middleware: true },
+      { handler: middleware, middleware: true, route: "/**" },
       { handler: "server/middleware/auth.ts", middleware: true },
     ])
     expect(existsSync(middleware)).toBe(true)
@@ -279,10 +279,10 @@ describe("hubKV", () => {
     if (setupOrder === "after") plugin.nitro.setup({ options })
 
     expect(options).toHaveProperty("cloudflare.wrangler.kv_namespaces", [{ binding: "KV" }])
-    expect(options.handlers).toEqual([{ handler: middleware, middleware: true }, auth])
+    expect(options.handlers).toEqual([{ handler: middleware, middleware: true, route: "/**" }, auth])
 
     await configureResolved(config)
-    expect(options.handlers).toEqual([{ handler: middleware, middleware: true }, auth])
+    expect(options.handlers).toEqual([{ handler: middleware, middleware: true, route: "/**" }, auth])
   })
 
   it("reads provisioned Cloudflare KV namespace ids into Nitro-owned output", async () => {

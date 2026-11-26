@@ -12,6 +12,8 @@ import { consoleOperationRegistry as installedRegistry, installConsoleOperations
 import { installConsoleProjectRoot } from "../src/console/runtime/server/project-root.ts"
 import consoleRpcHandler, { consoleOperationRegistry } from "../src/console/runtime/server/rpc.ts"
 import { callOperation, installedOperationRegistry, installOperationRegistryLoader, operationRootHeader, parseOperationInput, projectRootHash, runOperation } from "@vite-hub/internal/operations"
+import { consoleForwardCaller } from "../../console/src/caller.ts"
+import { forwardProjectRequest } from "../../console/src/forward.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 import { signedConsoleAccess } from "./support/console-signature.ts"
 import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
@@ -164,6 +166,45 @@ describe("operations that run app code", () => {
 })
 
 describe("contributed operations over the Console RPC", () => {
+  it("enforces deployed confirmation and keeps CLI behavior through the signed Console forwarder", async () => {
+    let dryRun = true
+    const run = vi.fn((input: { dryRun: boolean }, context: Parameters<typeof greet.run>[1]) => ({
+      dryRun: input.dryRun, surface: context.surface, user: context.user?.id,
+    }))
+    const operation = defineOperation({
+      description: "Normalize a fixture.", input: v.object({ dryRun: v.optional(v.boolean(), () => dryRun) }),
+      kind: "destructive", name: "fixture.normalized", readOnlyWhen: input => input.dryRun, run, section: "fixture",
+    })
+    installConsoleOperations([{ operations: [operation] }])
+    expect(await parseOperationInput(operation, {})).toEqual({ dryRun: true })
+    dryRun = false
+    const signer = await signedConsoleAccess()
+    const authorize = vi.fn(() => true)
+    installConsoleAccess({ authorize, mode: "token" })
+    try {
+      const caller = { key: { id: "login-key" }, roles: ["member"], teamId: "team", user: { id: "ada" } }
+      const proxy = (confirmed: boolean) => callOperation({
+        authorization: "Bearer login-key", confirmed, env: {}, url: "http://localhost:3001/p/app",
+        fetch: async (input, init) => {
+          const request = new Request(input, init)
+          return forwardProjectRequest(request, { caller: consoleForwardCaller(request, caller), key: signer.key, url: "http://vitehub.local" }, "/_vitehub/rpc", async (url, upstreamInit) => {
+            const upstream = new Request(url, upstreamInit)
+            expect(upstream.headers.has("authorization")).toBe(false)
+            return handleConsoleRpcRequest(upstream, { remoteAddress: "127.0.0.1" })
+          })
+        },
+      }, operation.name, {})
+      await expect(proxy(false)).resolves.toMatchObject({ ok: false, status: 409, code: "INTERNAL_R0026" })
+      expect(run).not.toHaveBeenCalled()
+      await expect(proxy(true)).resolves.toEqual({ ok: true, value: { dryRun: false, surface: "cli", user: "ada" } })
+      expect(run).toHaveBeenCalledOnce()
+      expect(authorize).toHaveBeenLastCalledWith(expect.objectContaining({ via: "console", surface: "cli", user: { id: "ada" }, team: { id: "team", role: "member" } }))
+    }
+    finally {
+      signer.restore()
+    }
+  })
+
   it("rejects an unconfirmed CLI call when server normalization makes it destructive", async () => {
     let dryRun = true
     const run = vi.fn(input => input)

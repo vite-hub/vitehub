@@ -8,7 +8,7 @@ import { callOperation, collectOperationContributions, createOperationRegistry, 
 import { resolve } from "pathe"
 
 import { cliErrorDiagnostics } from "./error-diagnostics.ts"
-import { listConsoleApps, openConsole } from "./setup/console-apps.ts"
+import { consoleClient } from "./setup/console-apps.ts"
 import { readConsoleCredential } from "./setup/console-auth.ts"
 
 import type { ViteHubCliCommandNamespace, ViteHubCliContext, ViteHubCliFeature } from "@vite-hub/internal/cli"
@@ -254,7 +254,7 @@ function parseCall(operation: AnyOperation, flags: readonly Flag[], args: readon
       else if (name === "input") whole = readWholeInput(take(), cwd)
       else if (name === "timeout") {
         const timeout = Number(take())
-        if (!Number.isInteger(timeout) || timeout < 1) throw usageError("--timeout must be a whole number of milliseconds.")
+        if (!Number.isInteger(timeout) || timeout < 1 || timeout > 2_147_483_647) throw usageError("--timeout must be a whole number of milliseconds between 1 and 2147483647.")
         parsed.timeout = timeout
       }
       else {
@@ -315,17 +315,26 @@ function acceptedRoots(rootDir: string): string[] {
   return [...new Set([rootDir, resolveViteHubProjectRoot(rootDir)])]
 }
 
-async function throughConsole(url: string, context: ViteHubCliContext): Promise<{ target: string, authorization: string } | undefined> {
+async function throughConsole(url: string, context: ViteHubCliContext, signal: AbortSignal): Promise<{ target: string, authorization: string } | undefined> {
   if (Object.keys(context.env).some(name => name.startsWith("VITEHUB_CONSOLE_PRIVATE_KEY_") && context.env[name])) return
-  const credential = await readConsoleCredential(context.env)
-  if (!credential) return
   try {
-    const client = await openConsole(context)
-    const app = (await listConsoleApps(client)).find(app => app.publicKey && sameApp(app.url, url))
-    if (app) return { authorization: `Bearer ${credential.token}`, target: `${client.origin}/p/${encodeURIComponent(app.id)}` }
+    const credential = await readConsoleCredential(context.env, undefined, signal)
+    if (!credential) return
+    const { body } = await consoleClient(context, credential, signal).request("/api/projects")
+    signal.throwIfAborted()
+    if (!Array.isArray(body.projects)) throw new Error("Missing Console project list.")
+    if (body.cliForwarding !== true) return
+    const projects: unknown[] = body.projects
+    for (const project of projects) {
+      if (project === null || typeof project !== "object") continue
+      const { id, publicKey, url: linked } = project as Record<string, unknown>
+      if (typeof id === "string" && id && typeof publicKey === "string" && publicKey && typeof linked === "string" && sameApp(linked, url)) {
+        return { authorization: `Bearer ${credential.token}`, target: `${credential.origin}/p/${encodeURIComponent(id)}` }
+      }
+    }
   }
-  catch (error) {
-    context.stderr.write(`Warning: the call does not go through the Console, because the Console failed: ${error instanceof Error ? error.message : String(error)}\n`)
+  catch {
+    context.stderr.write("Warning: Console discovery failed. The CLI will call the app directly if time remains.\n")
   }
 }
 
@@ -342,11 +351,11 @@ function sameApp(linked: string, url: string): boolean {
   }
 }
 
-async function resolveTarget(parsed: ParsedCall, context: ViteHubCliContext): Promise<{ target: string, roots?: string[], authorization?: string } | { failure: OperationFailure }> {
+function resolveTarget(parsed: ParsedCall, context: ViteHubCliContext): { target: string, roots?: string[] } | { failure: OperationFailure } {
   if (parsed.url) {
     const message = appUrlError(parsed.url)
     if (message) return { failure: failureOf(cliErrorDiagnostics.CLI_R0003({ message })) }
-    return await throughConsole(parsed.url, context) ?? { target: parsed.url }
+    return { target: parsed.url }
   }
   try {
     const roots = acceptedRoots(context.rootDir)
@@ -388,7 +397,7 @@ function featureOf(operation: AnyOperation): ViteHubCliFeature {
       catch (error) {
         return writeFailure(failureOf(error), parsed, context)
       }
-      const resolved = await resolveTarget(parsed, context)
+      const resolved = resolveTarget(parsed, context)
       if ("failure" in resolved) return writeFailure(resolved.failure, parsed, context)
       const target = resolved.target
       let confirmed = parsed.yes
@@ -398,14 +407,16 @@ function featureOf(operation: AnyOperation): ViteHubCliFeature {
         }
         confirmed = true
       }
+      const signal = AbortSignal.timeout(parsed.timeout ?? 30_000)
+      const proxy = parsed.url ? await throughConsole(parsed.url, context, signal) : undefined
       const rpcTarget = {
-        ...(resolved.authorization ? { authorization: resolved.authorization } : {}),
+        ...(proxy ? { authorization: proxy.authorization } : {}),
         confirmed,
         env: context.env,
         ...(context.fetch ? { fetch: context.fetch } : {}),
         ...(resolved.roots ? { roots: resolved.roots } : {}),
-        ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
-        url: target,
+        signal,
+        url: proxy?.target ?? target,
       }
       let result = await callOperation(rpcTarget, operation.name, parsed.input)
       if (!result.ok && result.status === 404 && result.code === "CONSOLE_NOT_FOUND"

@@ -52,8 +52,14 @@ async function readVisitor(request: Request, base: string, development: boolean)
   if (!app) return undefined
   const result = await verifySiteToken({ token: value.slice(siteStateLength + 1), keys, origin: app, state: value.slice(0, siteStateLength), lifetime: siteSessionLifetime })
   if (!result.ok) return undefined
-  const { sub, name, email, image, roles } = result.claims
-  return { id: sub, name, ...(email ? { email } : {}), ...(image ? { image } : {}), roles, kind: roles.includes("console") ? "member" : "guest" }
+  const { aud, sub, name, email, image, roles, commentsAgent } = result.claims
+  const kind = roles.includes("console") ? "member" : "guest"
+  return {
+    id: sub, name, ...(email ? { email } : {}), ...(image ? { image } : {}), roles, kind,
+    ...(kind === "member" && commentsAgent
+      ? { commentsAgent: { project: { id: commentsAgent.projectId, teamId: commentsAgent.teamId, url: aud }, resolve: commentsAgent.resolve } }
+      : {}),
+  }
 }
 
 /**

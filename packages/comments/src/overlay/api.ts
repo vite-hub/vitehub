@@ -4,6 +4,7 @@ import { Diagnostic } from "nostics"
 import { createCommentsRestRequest, createRestTransport } from "../rest-transport.ts"
 import { createCommentSendTransport } from "../send-transport.ts"
 
+import type { CommentsAgentPromptInput } from "../agent-prompt.ts"
 import type { CommentSendTransport } from "../client-send.ts"
 
 import type { CommentsRestAnswer, RestTransport } from "../rest-transport.ts"
@@ -29,6 +30,7 @@ export interface CommentsSession {
   content: boolean
   /** Send is on, and this person may hand the waiting comments to their agent. */
   send?: true
+  agent?: Pick<CommentsAgentPromptInput, "mcp" | "project" | "resolve">
   /** The subject of the page, which `page` of `defineComments()` decides on the server. */
   subject?: CommentSubject
   /** The version of the subject that new threads start on. */

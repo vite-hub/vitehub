@@ -14,7 +14,6 @@ import { access } from "./consumer/nuxt-primitives/access.ts"
 import { content } from "./consumer/nuxt-primitives/content.ts"
 import { jobs } from "./consumer/nuxt-primitives/jobs.ts"
 import { ops } from "./consumer/nuxt-primitives/ops.ts"
-import { isRow } from "./consumer/nuxt-primitives/row.ts"
 import { storage } from "./consumer/nuxt-primitives/storage.ts"
 
 const workflowSchema = object({ permissions: record(string(), string()), jobs: record(string(), object({
@@ -340,7 +339,7 @@ fi
     if (!command) throw new Error("consumer-select must select the consumer contracts")
     const paths = new Set(command.split(/\s+/))
     const repoRoot = fileURLToPath(new URL("..", import.meta.url))
-    const rows = [...storage, ...jobs, ...agents, ...content, ...access, ...ops].filter(isRow)
+    const rows = [...storage, ...jobs, ...agents, ...content, ...access, ...ops]
     const packed = await packedWorkspacePackages(repoRoot, ["vite-hub", ...rows.flatMap(row => row.packages.map(name => name.slice("@vite-hub/".length)))])
     const harness = [
       "test/consumer/nuxt-primitives",

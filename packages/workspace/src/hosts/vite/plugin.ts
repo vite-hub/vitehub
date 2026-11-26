@@ -690,7 +690,7 @@ function mergeNitroWorkspaceConfig(value: unknown, root: string, dev: boolean): 
     }]
   }
   // A failed request drops the cached Stores that hold only its staged writes.
-  kit.addHandler({ handler: ownModule(import.meta.url, "runtime/request"), middleware: true }, "start")
+  kit.addHandler({ handler: ownModule(import.meta.url, "runtime/request"), middleware: true, route: "/**" }, "start")
   // SAFETY: The kit preserves the Nitro config object shape while adding the generated plugin.
   return kit.config as NitroConfig
 }

@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { setTimeout as delay } from "node:timers/promises"
 import * as v from "valibot"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { writeViteHubDevServerFile } from "@vite-hub/internal/cli"
@@ -337,7 +338,7 @@ describe("generated operation commands", () => {
       const registry = createOperationRegistry([{ operations: operationList }])
       return vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
         expect(new Headers(init?.headers).get("authorization")).toBe("Bearer vhk_secret")
-        if (String(url) === `${console}/api/projects`) return Response.json({ projects: apps })
+        if (String(url) === `${console}/api/projects`) return Response.json({ cliForwarding: true, projects: apps })
         expect(String(url)).toBe(`${console}/p/a1b2c3d4-0/_vitehub/rpc`)
         expect(new Headers(init?.headers).has("x-vitehub-signature")).toBe(false)
         const { input, operation } = operationRpcRequest(init?.body)
@@ -352,6 +353,7 @@ describe("generated operation commands", () => {
       expect(read.code, read.stderr).toBe(0)
       expect(JSON.parse(read.stdout)).toEqual({ limit: null, team: "acme" })
       expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([`${console}/api/projects`, `${console}/p/a1b2c3d4-0/_vitehub/rpc`])
+      expect(fetch.mock.calls[0]?.[1]?.signal).toBe(fetch.mock.calls[1]?.[1]?.signal)
 
       const removed = await run(["reports", "delete", "r1", "--yes", "--url", "https://app.example.com"], { env, fetch: consoleServer() })
       expect(removed.code, removed.stderr).toBe(0)
@@ -360,7 +362,7 @@ describe("generated operation commands", () => {
 
     it("calls the app itself when the Console does not have it, or with a private key", async () => {
       const unknown = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
-        if (String(url) === `${console}/api/projects`) return Response.json({ projects: [{ ...app, url: "https://other.example.com" }] })
+        if (String(url) === `${console}/api/projects`) return Response.json({ cliForwarding: true, projects: [{ ...app, url: "https://other.example.com" }] })
         expect(String(url)).toBe("https://app.example.com/_vitehub/rpc")
         expect(new Headers(init?.headers).has("authorization")).toBe(false)
         return Response.json({ code: "CONSOLE_SIGNATURE_REQUIRED", message: "Sign the request.", ok: false, status: 401 }, { status: 401 })
@@ -377,6 +379,62 @@ describe("generated operation commands", () => {
       const keyed = await run(["reports", "list", "acme", "--url", "https://app.example.com"], { env: { ...env, VITEHUB_CONSOLE_PRIVATE_KEY_CI: cliPrivateKey }, fetch: signed })
       expect(keyed.code, keyed.stderr).toBe(0)
       expect(signed).toHaveBeenCalledTimes(1)
+    })
+
+    it("calls the app directly when the Console does not support forwarding", async () => {
+      const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        if (String(url) === `${console}/api/projects`) return Response.json({ projects: [app] })
+        expect(String(url)).toBe(`${app.url}/_vitehub/rpc`)
+        expect(new Headers(init?.headers).has("authorization")).toBe(false)
+        return operationRpcResponse(init?.body, { ok: true, value: {} })
+      })
+      const result = await run(["reports", "list", "acme", "--url", app.url], { env, fetch })
+      expect(result.code, result.stderr).toBe(0)
+      expect(fetch).toHaveBeenCalledTimes(2)
+    })
+
+    it("does not replay a failed proxied operation against the app", async () => {
+      const fetch = vi.fn(async (url: string | URL | Request) => {
+        if (String(url) === `${console}/api/projects`) return Response.json({ cliForwarding: true, projects: [app] })
+        return Response.json({ code: "CONSOLE_FORWARD_UNREACHABLE", status: 502, message: "The Console could not reach the app." }, { status: 502 })
+      })
+      const result = await run(["reports", "delete", "r1", "--yes", "--url", app.url], { env, fetch })
+      expect(result.code).toBe(1)
+      expect(result.stderr).toContain("CONSOLE_FORWARD_UNREACHABLE")
+      expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([`${console}/api/projects`, `${console}/p/${app.id}/_vitehub/rpc`])
+    })
+
+    it("does not dispatch when discovery exhausts the timeout", async () => {
+      const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        expect(String(url)).toBe(`${console}/api/projects`)
+        await delay(1000, undefined, { signal: init?.signal ?? undefined })
+        return Response.json({ cliForwarding: true, projects: [app] })
+      })
+      const result = await run(["reports", "list", "acme", "--url", app.url, "--timeout", "200"], { env, fetch })
+      expect(result.code).toBe(1)
+      expect(result.stderr).toContain("Console discovery failed")
+      expect(fetch).toHaveBeenCalledTimes(1)
+      expect(fetch.mock.calls[0]?.[1]?.signal?.aborted).toBe(true)
+    })
+
+    it("falls back on corrupt saved credentials without printing their contents", async () => {
+      const home = await mkdtemp(join(tmpdir(), "vitehub-cli-console-"))
+      try {
+        await mkdir(join(home, "vitehub"))
+        await writeFile(join(home, "vitehub", "credentials.json"), '"vhk_secret')
+        const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+          expect(String(url)).toBe(`${app.url}/_vitehub/rpc`)
+          return operationRpcResponse(init?.body, { ok: true, value: {} })
+        })
+        const result = await run(["reports", "list", "acme", "--url", app.url, "--json"], { env: { XDG_CONFIG_HOME: home }, fetch })
+        expect(result.code, result.stderr).toBe(0)
+        expect(result.stderr).toContain("Console discovery failed")
+        expect(result.stderr).not.toContain("vhk_secret")
+        expect(fetch).toHaveBeenCalledOnce()
+      }
+      finally {
+        await rm(home, { force: true, recursive: true })
+      }
     })
   })
 
