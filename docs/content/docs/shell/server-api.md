@@ -68,7 +68,7 @@ const analysis = await analyzeShellCommand('rg TODO src')
 // analysis.commands: ['rg'], analysis.hasPipelines: false, analysis.ok: true
 ```
 
-`analyzeShellCommand(command, options?)` uses `sh-syntax`. It returns `ok`, `parser`, `commands`, an optional `error`, and flags for pipelines, redirects, heredocs, and command substitution. `ShellAnalyzeOptions` accepts `maxInputBytes` and `timeoutMs`.
+`analyzeShellCommand(command, options?)` uses `sh-syntax`. It returns `ok`, `parser`, `commands`, an optional `error`, and flags for pipelines, redirects, heredocs, and command substitution. `ShellAnalyzeOptions` accepts `maxInputBytes` and `timeoutMs`. `timeoutMs` (default 100) limits the parse. It does not include the first call's load of the WebAssembly parser.
 
 Analysis does not enforce anything. The driver and your policy control what the command can do.
 

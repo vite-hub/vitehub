@@ -33,6 +33,7 @@ import { hubAgent } from "@vite-hub/agent/vite"
 import { hubContent } from "@vite-hub/content/vite"
 import { hubComments } from "@vite-hub/comments/vite"
 import { env, hubEnv } from "@vite-hub/env/vite"
+import { hubEmail } from "@vite-hub/email/vite"
 import { hubKV, kvStorageDriver } from "@vite-hub/kv/vite"
 import { hubRateLimit } from "../../rate-limit/src/vite.ts"
 import { hubRealtime } from "@vite-hub/realtime/vite"
@@ -409,7 +410,6 @@ describe("ViteHub Nuxt integration", () => {
     await writeFile(`${tmp}/vitehub-nuxt/package.json`, `${JSON.stringify({ name: "vitehub-nuxt" })}\n`)
     await rm(`${tmp}/vitehub-nuxt/app/package.json`, { force: true })
     await rm(`${tmp}/vitehub-nuxt/custom-server`, { force: true, recursive: true })
-    // Each test reads the Console plugin that it wrote, not one that an earlier test left.
     await rm(`${tmp}/vitehub-nuxt/.vitehub/nitro/console`, { force: true, recursive: true })
     mocks.objectHook.mockClear()
     mocks.agentHook.mockClear()
@@ -1895,7 +1895,7 @@ export default defineChannel({ adapter: webhook({ secret: false }), on: { webhoo
     expect(nitroOptions(development.nuxt).handlers).toContainEqual(expect.objectContaining({ route: "/_vitehub/**", handler: expect.stringMatching(/server\/entry\.js$/) }))
     expect(nitroOptions(development.nuxt).publicAssets ?? []).toEqual([])
     expect(development.nuxt.options.nitro).toMatchObject({
-      handlers: [{ route: "/_vitehub/**" }, { route: "/_vitehub" }, { route: "/_vitehub/rpc" }],
+      handlers: [{ route: "/_vitehub/**" }, { route: "/_vitehub" }, { route: "/_vitehub/rpc" }, { route: "/_vitehub/site" }],
       alias: { "#vitehub/console/app": `${tmp}/vitehub-nuxt/.vitehub/nitro/console/app-dev.mjs` },
     })
     expect(nitroOptions(development.nuxt).plugins ?? []).not.toContainEqual(expect.stringContaining("/nitro/console/"))
@@ -1927,7 +1927,7 @@ export default defineChannel({ adapter: webhook({ secret: false }), on: { webhoo
       production.nuxt,
     )
     expect(production.nuxt.options.nitro).toMatchObject({
-      handlers: [{ route: "/_vitehub/**" }, { route: "/_vitehub" }, { route: "/_vitehub/rpc" }],
+      handlers: [{ route: "/_vitehub/**" }, { route: "/_vitehub" }, { route: "/_vitehub/rpc" }, { route: "/_vitehub/site" }],
       alias: { "#vitehub/console/app": `${tmp}/vitehub-nuxt/.vitehub/nitro/console/app.mjs` },
     })
     expect(Object.keys(production.nuxt.options.routeRules ?? {})).not.toContain("/_vitehub/**")
@@ -2377,7 +2377,7 @@ export default defineChannel({ adapter: webhook({ secret: false }), on: { webhoo
       host: "node",
     }, development.nuxt)
     expect(development.nuxt.options.nitro).toMatchObject({
-      handlers: [{ route: "/_vitehub/**" }, { route: "/_vitehub" }, { route: "/_vitehub/rpc" }],
+      handlers: [{ route: "/_vitehub/**" }, { route: "/_vitehub" }, { route: "/_vitehub/rpc" }, { route: "/_vitehub/site" }],
     })
     expect(development.nuxt.options.vite.plugins).not.toContainEqual(expect.objectContaining({ name: "vite-hub/console-invocation-root" }))
     const generated = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/app-dev.mjs`, "utf8")
@@ -2901,7 +2901,7 @@ export default defineChannel({ adapter: webhook({ secret: false }), on: { webhoo
 
       await viteHubNuxtModule({ comments: false, console: productionConsole, database: true, host: "node" }, development.nuxt)
       expect(development.nuxt.options.nitro).toMatchObject({
-        handlers: [{ route: "/_vitehub/**" }, { route: "/_vitehub" }, { route: "/_vitehub/rpc" }],
+        handlers: [{ route: "/_vitehub/**" }, { route: "/_vitehub" }, { route: "/_vitehub/rpc" }, { route: "/_vitehub/site" }],
       })
       await development.runNitroConfigHook(nitroOptions(development.nuxt))
       const generated = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/app-dev.mjs`, "utf8")
@@ -2985,6 +2985,7 @@ export default defineChannel({ adapter: webhook({ secret: false }), on: { webhoo
           { route: "/_vitehub/**" },
           { route: "/_vitehub" },
           { route: "/_vitehub/rpc" },
+          { route: "/_vitehub/site" },
         ],
       })
       expect(development.nuxt.options.vite.plugins).not.toContainEqual(expect.objectContaining({ name: "vite-hub/console-invocation-root" }))
@@ -3121,6 +3122,7 @@ export default defineChannel({ adapter: webhook({ secret: false }), on: { webhoo
           { route: "/_vitehub/**" },
           { route: "/_vitehub" },
           { route: "/_vitehub/rpc" },
+          { route: "/_vitehub/site" },
         ],
       })
       const generated = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/app-dev.mjs`, "utf8")
@@ -3156,6 +3158,7 @@ export default defineChannel({ adapter: webhook({ secret: false }), on: { webhoo
           { route: "/_vitehub/**" },
           { route: "/_vitehub" },
           { route: "/_vitehub/rpc" },
+          { route: "/_vitehub/site" },
         ],
       })
       expect(development.nuxt.options.vite.plugins).not.toContainEqual(expect.objectContaining({ name: "vite-hub/console-invocation-root" }))
@@ -3239,6 +3242,16 @@ export default defineChannel({ adapter: webhook({ secret: false }), on: { webhoo
       console: { auth: false, authorize: hostManagedAuthorize },
       host: "cloudflare",
     }, production.nuxt)).rejects.toMatchObject({ code: "VITE_HUB_B0022" })
+  })
+
+  it("uses standalone owner plugins in the Nuxt Console app", async () => {
+    const { nuxt, runNitroConfigHook } = createNuxt(false, [hubEmail({ driver: "log" }), hubRealtime()])
+    await viteHubNuxtModule({ agent: true, console: productionConsole, host: "node" }, nuxt)
+    await runNitroConfigHook(nitroOptions(nuxt))
+
+    const app = await readFile(`${tmp}/vitehub-nuxt/.vitehub/nitro/console/app.mjs`, "utf8")
+    expect(app).toContain('import("vite-hub/email")')
+    expect(app).toContain('installConsoleAgentRealtime(() => import("vite-hub/realtime/agent"))')
   })
 
   it("passes host-managed invocation into the Nuxt Console plugin", async () => {

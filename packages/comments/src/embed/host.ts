@@ -9,13 +9,13 @@ const frameTimeout = 15_000
 const requestTimeout = 30_000
 const relayWait = 5_000
 
+const codeFragmentOrHashRoute = new RegExp(`^#(/?)${embedCodeParam}=([\\w-]+)$`)
+
 function takeCode(): string | undefined {
-  const params = new URLSearchParams(location.hash.slice(1))
-  const code = params.get(embedCodeParam)
-  if (!code) return undefined
-  params.delete(embedCodeParam)
-  const rest = params.toString()
-  history.replaceState(history.state, "", `${location.pathname}${location.search}${rest ? `#${rest}` : ""}`)
+  const match = codeFragmentOrHashRoute.exec(location.hash)
+  if (!match) return undefined
+  const [, hashRouteSlash, code] = match
+  history.replaceState(history.state, "", `${location.pathname}${location.search}${hashRouteSlash ? "#/" : ""}`)
   return code
 }
 
@@ -116,7 +116,7 @@ async function start(projectId: string, consoleOrigin: string): Promise<void> {
     void redeem(data.code).then((done) => {
       if (done) {
         channel.postMessage({ type: "redeemed", code: data.code } satisfies EmbedRelay)
-        void tools.then(({ mountHostedComments }) => mountHostedComments(frame, true))
+        void tools.then(({ mountHostedComments }) => mountHostedComments(frame))
       }
     }, () => undefined)
   })
@@ -126,7 +126,7 @@ async function start(projectId: string, consoleOrigin: string): Promise<void> {
     return
   }
   const { mountHostedComments } = await tools
-  await mountHostedComments(frame, redeemed)
+  await mountHostedComments(frame)
 }
 
 const script = document.querySelector<HTMLScriptElement>("script[data-vitehub-comments]")

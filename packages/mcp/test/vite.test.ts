@@ -77,7 +77,7 @@ describe("hubMcp", () => {
     const root = app({ "server/mcp/tools/add.ts": tool })
     const { config } = configure(root)
     expect(config.nitro?.handlers).toEqual([
-      { handler: join(root, ".vitehub/nitro/mcp/discovery.ts"), middleware: true },
+      { handler: join(root, ".vitehub/nitro/mcp/discovery.ts"), middleware: true, route: "/**" },
       { handler: join(root, ".vitehub/nitro/mcp/handler.ts"), meta: { vitehubOwnAccess: true }, route: "/mcp" },
     ])
     expect(readFileSync(join(root, ".vitehub/nitro/mcp/handler.ts"), "utf8")).toContain("verify: request => verifyMcpRequest(request)")
@@ -108,7 +108,7 @@ describe("hubMcp", () => {
     const root = app({ "server/mcp/tools/add.ts": tool })
     const { config } = configure(root, { auth: true, route: "/api/mcp/" })
     expect(config.nitro?.handlers).toEqual([
-      { handler: join(root, ".vitehub/nitro/mcp/discovery.ts"), middleware: true },
+      { handler: join(root, ".vitehub/nitro/mcp/discovery.ts"), middleware: true, route: "/**" },
       { handler: join(root, ".vitehub/nitro/mcp/handler.ts"), meta: { vitehubOwnAccess: true }, route: "/api/mcp" },
     ])
     expect(readFileSync(join(root, ".vitehub/nitro/mcp/handler.ts"), "utf8")).toContain("verify: request => verifyMcpRequest(request)")
@@ -119,7 +119,7 @@ describe("hubMcp", () => {
     const root = app({ "server/mcp/tools/add.ts": tool })
     const { config } = configure(root, { auth: "optional" })
     expect(config.nitro?.handlers).toEqual([
-      { handler: join(root, ".vitehub/nitro/mcp/discovery.ts"), middleware: true },
+      { handler: join(root, ".vitehub/nitro/mcp/discovery.ts"), middleware: true, route: "/**" },
       { handler: join(root, ".vitehub/nitro/mcp/handler.ts"), route: "/mcp" },
     ])
     const entry = readFileSync(join(root, ".vitehub/nitro/mcp/handler.ts"), "utf8")
@@ -138,7 +138,7 @@ describe("hubMcp", () => {
     const root = app({ "server/mcp/tools/add.ts": tool })
     const { config } = configure(root, { auth: true }, { nitro: { baseURL: "/portal/" } })
     expect(config.nitro?.handlers).toEqual([
-      { handler: join(root, ".vitehub/nitro/mcp/discovery.ts"), middleware: true },
+      { handler: join(root, ".vitehub/nitro/mcp/discovery.ts"), middleware: true, route: "/**" },
       { handler: join(root, ".vitehub/nitro/mcp/handler.ts"), meta: { vitehubOwnAccess: true }, route: "/mcp" },
     ])
     expect(readFileSync(join(root, ".vitehub/nitro/mcp/handler.ts"), "utf8")).toContain('route: "/portal/mcp"')
@@ -148,7 +148,7 @@ describe("hubMcp", () => {
     const root = app({ "server/mcp/tools/add.ts": tool })
     const { config, plugin } = configure(root, { auth: true, publicRoute: "/mcp/", route: "/mcp/account" }, { nitro: { baseURL: "/portal/" } })
     expect(config.nitro?.handlers).toEqual([
-      { handler: join(root, ".vitehub/nitro/mcp/discovery.ts"), middleware: true },
+      { handler: join(root, ".vitehub/nitro/mcp/discovery.ts"), middleware: true, route: "/**" },
       { handler: join(root, ".vitehub/nitro/mcp/handler.ts"), meta: { vitehubOwnAccess: true }, route: "/mcp/account" },
       { handler: join(root, ".vitehub/nitro/mcp/public.ts"), meta: { vitehubOwnAccess: true }, route: "/mcp" },
     ])

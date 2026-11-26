@@ -1,13 +1,13 @@
 ---
 title: Site access and Console links
-description: Sign browsers in to your app from the Console, invite guests, open previews with one-time links, and link your pages to the Console.
+description: Sign browsers in to your app from the Console, invite guests, impersonate users and open previews with signed tokens, and link your pages to the Console.
 navigation.title: Site access
 navigation.order: 12
 navigation.group: Use the Console
 icon: i-lucide-door-open
 ---
 
-From the Console you can open your app already signed in, sign in a phone and invite guests. One-time links open drafts and impersonation on your app's own origin, and your pages can link back to the Console.
+From the Console you can open your app already signed in, sign in a phone and invite guests. The same signed token opens drafts and impersonation on your app's own origin, and your pages can link back to the Console.
 
 With `console.authorize`, a member needs the `site` section. The result’s `grants` selects their [page tool roles](/docs/console/access#what-authorize-returns).
 
@@ -40,19 +40,22 @@ The app refuses a token for another app, for another browser, an expired token, 
 | --- | --- |
 | `site.access` | Returns the Site access of the caller: `write`, which follows write access to the `site` section, and `roles`, the page tool roles that the caller gets and may give guests. The Console calls it before it signs a token. |
 
-## One-time links
+## Impersonation and Content preview
 
-A draft preview needs your app's origin to render, and impersonation needs it to set the session cookie, but the Console runs on another origin. So it calls an operation with a signed request, which checks the section, the grant and the target, and gets back `{ url, expiresAt }`. It opens `url`, a `GET /_vitehub/rpc?ticket=<ticket>` on your app, in a new tab, and the app redeems the ticket once and answers with the draft or with a redirect home and the session cookies.
+A draft preview needs your app's origin to render, and impersonation needs it to set the session cookie, but the Console runs on another origin. So they use the route and the token of [Site access](#how-the-app-checks-a-visit), with the kind `preview` or `impersonate`. The app keeps no state and needs no store for them, and an app without Comments takes them too.
 
-| Operation | Opens | The app checks at redemption |
-| --- | --- | --- |
-| `documents.preview` | A document's page with its saved draft, through the [preview frame](/docs/content/preview). | The person may read the document. |
-| `auth.impersonate` | The app home as the user. See [impersonation](/docs/auth/console#changes-and-limits). | The browser's app session has the person's email and Better Auth's `impersonate` permission. |
-| `auth.stop-impersonating` | The app home as the administrator again. | The browser impersonates for the person. |
+1. In the Console, you click **Preview** or **Impersonate**. The Console calls the operation of the action on your app as you, with a signed request. The operation checks the section, the grant, and the target, and answers the app path to open.
+2. The Console keeps what you started for 60 seconds in a cookie of this browser, and opens `GET /_vitehub/site?intent=<id>` of your app in a new tab. The app sets a separate state cookie for that intent and sends the browser to the Console's `/visit`.
+3. The Console finds the cookie of the intent, checks that you are still signed in and a member of the team, and calls the operation again. Then it signs a token of the kind for 60 seconds, with the target, and sends the browser back to `GET /_vitehub/site?token=vst1.…&intent=<id>`.
+4. The app checks the token as for Site access: for this app, for the state of this browser, of a known key, and not older than 60 seconds. It runs the action in this request and keeps no cookie for the token.
 
-A ticket works for 60 seconds and only once, even when two instances get it at the same time. A used, expired or changed ticket gets `401` with `CONSOLE_TICKET_INVALID`, and one from another app, or in a browser signed in as another person, gets `403` with `CONSOLE_TICKET_MISMATCH`.
+| Operation | Kind | Opens | The app checks when it gets the token |
+| --- | --- | --- | --- |
+| `documents.preview` | `preview` | A document's page with its saved draft, through the [preview frame](/docs/content/preview). | The person may read the document. |
+| `auth.impersonate` | `impersonate` | The app home as the user. See [impersonation](/docs/auth/console#changes-and-limits). | The browser's app session has the person's email and Better Auth's `impersonate` permission. |
+| `auth.stop-impersonating` | `impersonate` | The app home as the administrator again. | The browser impersonates for the person. |
 
-The store is the verification table of Better Auth when the app has [Auth with a Database](/docs/auth/configure#keep-users-in-the-app-database). Without Auth, it is the app's default [KV store](/docs/kv) when its driver takes a key out once: Redis, Upstash, or the `database` driver. Cloudflare KV, Deno KV, and `fs-lite` cannot, because two instances could both read a ticket before either deletes it. A development server without a store keeps tickets in memory. A production app with none of these stores refuses tickets with `500` and `CONSOLE_TICKET_STORE_MISSING`.
+The app refuses a token for another app, for another browser, of another kind, and an expired token with `401` and `CONSOLE_SITE_TOKEN_REFUSED`. A `site` token cannot run an action, and an action token cannot sign a browser in to Site access. In a browser signed in to the app as another person, an impersonation gets `403` with `CONSOLE_SITE_ACCOUNT_MISMATCH`. When the app runs an action, its response clears the state cookie of the browser. After the browser applies that response, the app refuses the same token.
 
 ## Link to the Console
 

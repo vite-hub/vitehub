@@ -163,6 +163,7 @@ export interface CommentsState {
   readonly pageThreads: ComputedRef<CommentThread[]>;
   /** The threads that pass the filters, for the page or the whole site as `scope` says. The list shows them. */
   readonly listed: ComputedRef<CommentThread[]>;
+  readonly openThreads: ComputedRef<CommentThread[]>;
   readonly counts: ComputedRef<{ open: number; resolved: number }>;
   /** Pin positions by thread id, and `"draft"` for the comment being written. */
   readonly positions: ShallowRef<ReadonlyMap<string, AnchorPosition>>;
@@ -307,13 +308,12 @@ export function useComments(options: UseCommentsOptions): CommentsState {
   const listed = computed(() =>
     threads.value.filter(thread => (scope.value === "site" || onPage(thread)) && passes(thread)),
   );
-  const counts = computed(() => {
-    const scoped = threads.value.filter(thread => scope.value === "site" || onPage(thread));
-    return {
-      open: scoped.filter(isOpen).length,
-      resolved: scoped.filter(thread => thread.status === "resolved").length,
-    };
-  });
+  const scoped = computed(() => threads.value.filter(thread => scope.value === "site" || onPage(thread)));
+  const openThreads = computed(() => scoped.value.filter(isOpen));
+  const counts = computed(() => ({
+    open: openThreads.value.length,
+    resolved: scoped.value.filter(thread => thread.status === "resolved").length,
+  }));
   const opened = useSelectedComment(threads, openId);
   watch(opened, thread => {
     if (thread && thread.id !== openId.value) openId.value = thread.id;
@@ -696,6 +696,7 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     outbox,
     pageThreads,
     listed,
+    openThreads,
     counts,
     positions,
     draft,

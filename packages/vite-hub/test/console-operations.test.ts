@@ -12,6 +12,7 @@ import { consoleOperationRegistry as installedRegistry, installConsoleOperations
 import { installConsoleProjectRoot } from "../src/console/runtime/server/project-root.ts"
 import consoleRpcHandler, { consoleOperationRegistry } from "../src/console/runtime/server/rpc.ts"
 import { callOperation, installedOperationRegistry, installOperationRegistryLoader, operationRootHeader, parseOperationInput, projectRootHash, runOperation } from "@vite-hub/internal/operations"
+import { installViteHubConsoleOperations } from "./support/console-operations.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 import { signedConsoleAccess } from "./support/console-signature.ts"
 import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
@@ -203,7 +204,7 @@ describe("contributed operations over the Console RPC", () => {
 
   it("allows agent access through the built-in adapters without accepting forged Console grants", async () => {
     installConsoleAccess({ mode: "open", authorize: ({ user }) => user?.id === "editor" ? { sections: ["agents:read"] } : false })
-    const registry = installedRegistry()
+    const registry = await installViteHubConsoleOperations()
     const context = { access: { mode: "agent", sections: "all" as const }, surface: "agent" as const, user: { id: "editor" } }
     expect(await runOperation(registry, "sections.list", {}, context)).toMatchObject({ ok: true, value: { scoped: true } })
     expect(await runOperation(registry, "invocations.delete", { id: "unreachable" }, context)).toMatchObject({ ok: false, status: 403 })
@@ -283,7 +284,7 @@ describe("contributed operations over the Console RPC", () => {
   })
 
   it("installs the registry for agent tools, which need no prior RPC call", async () => {
-    const registry = installConsoleOperations([{ operations: [greet], plugin: "fixture-plugin" }])
+    const registry = await installViteHubConsoleOperations([{ operations: [greet], plugin: "fixture-plugin" }])
     expect(await installedOperationRegistry()).toBe(registry)
     expect(registry.get("fixture.greet")).toBeDefined()
     expect(registry.get("agents.list")).toBeDefined()

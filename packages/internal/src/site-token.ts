@@ -25,6 +25,12 @@ import type { ConsoleSigningKey } from "./console-signature.ts"
  *
  * The state binds a token to the browser that started the visit, so a token that leaks, or a link that someone else
  * made, does not sign in another browser. The module uses only Web Crypto, so it runs in Node, Workers, and browsers.
+ *
+ * Impersonation and Content preview use the same route and the same token, with the `kind` `impersonate` or `preview`
+ * and a {@link SiteTokenTarget}. A member starts them in the Console, which keeps what to open in a cookie of the Console
+ * for 60 seconds and opens `GET /_vitehub/site?return=/&intent=<id>`. At `/visit`, the Console reads the intent of the
+ * same browser, asks the app with the signed operation of the kind, as the member, and signs the token only when the
+ * app allows it. The app keeps no state for these tokens: a token works for 60 seconds, in the browser of the state.
  */
 export const siteRoute = "/_vitehub/site"
 
@@ -62,6 +68,53 @@ export type SiteTokenKind = "site" | "impersonate" | "preview"
 
 const kinds: readonly SiteTokenKind[] = ["site", "impersonate", "preview"]
 
+export interface SiteCommentsAgent {
+  projectId: string
+  teamId: string
+  resolve: boolean
+}
+
+/** Whether a value is a {@link SiteTokenKind}. */
+export function isSiteTokenKind(value: unknown): value is SiteTokenKind {
+  return kinds.some(kind => kind === value)
+}
+
+/**
+ * What an `impersonate` or `preview` token acts on, as short strings, such as `{ action: "start", userId: "u_1" }` or
+ * `{ section: "content", collection: "posts", id: "hello" }`. The app reads it only from a verified token.
+ */
+export type SiteTokenTarget = Record<string, string>
+
+const maximumTargetFields = 8
+
+/**
+ * The app operation that the Console calls as the member before it signs an `impersonate` or `preview` token, with its
+ * input, or `undefined` for a target that the kind does not take. The app answers `{ path }`, the app path to open.
+ *
+ * - `impersonate` `{ action: "start", userId }`: `auth.impersonate`. `{ action: "stop" }`: `auth.stop-impersonating`.
+ * - `preview` `{ section, collection, id }`: `documents.preview`.
+ */
+export function siteActionOperation(kind: SiteTokenKind, target: SiteTokenTarget): { operation: string, input: Record<string, string> } | undefined {
+  const names = Object.keys(target).sort().join(",")
+  if (kind === "impersonate" && target.action === "start" && target.userId && names === "action,userId") return { operation: "auth.impersonate", input: { userId: target.userId } }
+  if (kind === "impersonate" && target.action === "stop" && names === "action") return { operation: "auth.stop-impersonating", input: {} }
+  if (kind === "preview" && target.section && target.collection && target.id && names === "collection,id,section") return { operation: "documents.preview", input: { collection: target.collection, id: target.id, section: target.section } }
+  return undefined
+}
+
+/** Read an untrusted target, such as the target of a Console intent, or `undefined` when it is not a {@link SiteTokenTarget}. */
+export function readSiteTokenTarget(value: unknown): SiteTokenTarget | undefined {
+  if (!isRecord(value)) return undefined
+  const entries = Object.entries(value)
+  if (entries.length > maximumTargetFields) return undefined
+  const target: SiteTokenTarget = {}
+  for (const [name, field] of entries) {
+    if (!/^[A-Za-z]\w{0,31}$/.test(name) || typeof field !== "string" || !field || field.length > 512) return undefined
+    target[name] = field
+  }
+  return target
+}
+
 /** The person and the roles that a token signs in. */
 export interface SiteTokenClaims {
   /** The URL of the app, its origin and base path without a trailing `/`, such as `https://app.example.com/portal`. */
@@ -76,7 +129,10 @@ export interface SiteTokenClaims {
   image?: string
   /** The roles of the person, such as `console` and `comments-write`. */
   roles: string[]
+  commentsAgent?: SiteCommentsAgent
   kind: SiteTokenKind
+  /** What an `impersonate` or `preview` token acts on. A `site` token has none. */
+  target?: SiteTokenTarget
   /** The path of the app to open after the sign-in, such as `/docs`. */
   path: string
   /** The {@link siteStateHash} of the state cookie of the browser that started the visit. */
@@ -160,6 +216,16 @@ export function isSiteStateHash(value: string): boolean {
   return /^[\w-]{43}$/.test(value)
 }
 
+/** A new random id of a Console intent, 32 bytes as base64url, which the visit carries as `intent`. */
+export function createSiteIntent(): string {
+  return encodeConsoleBase64url(crypto.getRandomValues(new Uint8Array(32)))
+}
+
+/** Whether a value has the form of a {@link createSiteIntent} id. */
+export function isSiteIntent(value: string): boolean {
+  return /^[\w-]{43}$/.test(value)
+}
+
 /**
  * Whether a value is a path of the app, such as `/docs?tab=1`: it starts with one `/`, and has no `\` and no control
  * character, which URL parsers remove.
@@ -189,9 +255,13 @@ export function siteTokenUrl(app: string, token: string): string {
   return `${app.replace(/\/+$/, "")}${siteRoute}?token=${encodeURIComponent(token)}`
 }
 
-/** The Console URL that starts a visit, from the app's `GET /_vitehub/site`, with the `project` query of that request. */
-export function siteVisitUrl(input: { console: string, app: string, state: string, path: string, project?: string }): string {
+/**
+ * The Console URL that starts a visit, from the app's `GET /_vitehub/site`, with the `project` and `intent` queries of
+ * that request. An `intent` names the impersonation or preview that the member started in the Console.
+ */
+export function siteVisitUrl(input: { console: string, app: string, state: string, path: string, project?: string, intent?: string }): string {
   const query = new URLSearchParams({ app: input.app, state: input.state, return: input.path, ...(input.project ? { project: input.project } : {}) })
+  if (input.intent) query.set("intent", input.intent)
   return `${input.console.replace(/\/+$/, "")}/visit?${query}`
 }
 
@@ -247,12 +317,14 @@ function failure(code: SiteTokenCode, message: string): SiteTokenFailure {
 
 function readClaims(value: unknown): SiteTokenClaims | undefined {
   if (!isRecord(value)) return undefined
-  const { aud, email, exp, iat, image, kind, name, path, roles, state, sub } = value
+  const { aud, commentsAgent, email, exp, iat, image, kind, name, path, roles, state, sub, target } = value
   const text = (field: unknown, maximum = 512): field is string => typeof field === "string" && field.length > 0 && field.length <= maximum
   const optional = (field: unknown) => field === undefined || text(field, 2_048)
   const time = (field: unknown): field is number => typeof field === "number" && Number.isSafeInteger(field)
   if (!text(aud, maximumTokenLength) || !text(sub) || !text(name) || !text(path, 2_048) || !text(state) || !text(kind) || !time(iat) || !time(exp)) return undefined
   if (!optional(email) || !optional(image) || !Array.isArray(roles) || !roles.every(role => text(role, 64))) return undefined
+  const targetClaim = target === undefined ? undefined : readSiteTokenTarget(target)
+  if (target !== undefined && !targetClaim) return undefined
   return {
     aud,
     sub,
@@ -260,8 +332,12 @@ function readClaims(value: unknown): SiteTokenClaims | undefined {
     ...(typeof email === "string" ? { email } : {}),
     ...(typeof image === "string" ? { image } : {}),
     roles: roles.filter(role => typeof role === "string"),
+    ...(isRecord(commentsAgent) && text(commentsAgent.projectId) && text(commentsAgent.teamId) && typeof commentsAgent.resolve === "boolean"
+      ? { commentsAgent: { projectId: commentsAgent.projectId, teamId: commentsAgent.teamId, resolve: commentsAgent.resolve } }
+      : {}),
     // SAFETY: verifySiteToken() checks the kind against the kinds that the app accepts.
     kind: kind as SiteTokenKind,
+    ...(targetClaim ? { target: targetClaim } : {}),
     path,
     state,
     iat,

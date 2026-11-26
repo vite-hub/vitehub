@@ -300,6 +300,7 @@ pnpm vitehub deploy --temporary --yes --json
 - `--no-push`: do not check or push the checkout folders of `vitehub.lock`.
 - `--no-check`: do not request the `deploy.check` paths after the deploy. See [Check the deployed app](#check-the-deployed-app).
 - `--no-index-now`: do not send the sitemap URLs to IndexNow.
+- `--no-console`: do not link the app in the Console. See [Link the app in the Console](#link-the-app-in-the-console).
 - `--temporary`: deploy without an account. Only Cloudflare and Vercel have it, and only when no credentials are found.
 - `--yes`: deploy and create resources without the questions, and generate a missing `VITEHUB_SECRET`. Without a terminal, the command needs it and exits with `2` and a `rerun`.
 
@@ -366,9 +367,9 @@ After provisioning and the build, before migrations, env writes, or publishing c
 3. Deploy sets each name that the host lacks from its local value. `--push-env` also replaces the names that the host has. It uses the same rules as `vitehub env push`: it reads the env files in the recorded `envDir`, refuses a secret from a file that git tracks or does not ignore, never deletes a host variable, and prints names, never values.
 4. An optional name that is on neither prints one warning line.
 
-Cloudflare always uploads this stage's local values, including names already on the host, because Wrangler inherits omitted secrets from the latest uploaded version, which may be a preview. Every existing Worker secret (including undeclared and optional names) must have a local value for this stage. Otherwise deploy stops with `SETUP_DEPLOY_ENV_STAGE_UNSAFE`; set the listed names in the shell or a stage env file that git ignores. This also applies to a previously generated `VITEHUB_SECRET`: supply a locally managed value on subsequent deploys. Secrets are never read back from Cloudflare.
+Cloudflare always uploads this stage's local values, including names already on the host, because Wrangler inherits omitted secrets from the latest uploaded version, which may be a preview. Every existing Worker secret (including undeclared and optional names) must have a local value for this stage. Otherwise deploy stops with `SETUP_DEPLOY_ENV_STAGE_UNSAFE`; set the listed names in the shell or a stage env file that git ignores. This also applies to a previously generated `VITEHUB_SECRET`: supply a locally managed value on subsequent deploys. Secrets are never read back from Cloudflare. The exception is the `VITEHUB_CONSOLE_KEY_<NAME>` of a Console link: after a `vitehub login`, deploy gets that public key from the Console. See [Link the app in the Console](#link-the-app-in-the-console).
 
-On Cloudflare, deploy does not run `wrangler secret put`, because that would roll the old code out with the new values. It writes the values to a temporary JSON file with mode 600 and passes it to `wrangler deploy --secrets-file`, or to `wrangler versions upload` for `--preview`, so the values arrive with the new version. The file is deleted when the deploy ends. It is JSON because Wrangler's dotenv mode expands `$VAR` and lets the shell override file values. On Vercel, Netlify, and Deno, deploy sets the values with the host env CLI just before the deploy.
+On Cloudflare, deploy writes the stage values to a temporary JSON file with mode 600 and passes it to `wrangler deploy --secrets-file`, or to `wrangler versions upload` for `--preview`, so the values arrive with the new version. It does not use `wrangler secret put` for these values because that would roll the old code out with the new values. The file is deleted when the deploy ends. It is JSON because Wrangler's dotenv mode expands `$VAR` and lets the shell override file values. On Vercel, Netlify, and Deno, deploy sets the values with the host env CLI just before the deploy.
 
 A first deploy has no link target for the host, so the host has no names yet and every required name needs a local value. If the project already exists on the host, run `vitehub link --host <host>` first. Cloudflare creates the Worker with the uploaded secrets. On Vercel and Netlify, use `vitehub link --host <host> --create` for a new project. On Deno, create the app in Deno Deploy and run `vitehub link --host deno`. Without the required link, deploy exits with `SETUP_DEPLOY_ENV_NOT_LINKED`.
 
@@ -553,6 +554,27 @@ export default defineConfig({
 - A failed submission prints one line and does not fail the deploy. `--json` returns `indexNow: { submitted, status }`, or `indexNow: { error }`.
 - A `--preview` or `--temporary` deploy sends nothing. `--no-index-now` skips it for one deploy.
 
+### Link the app in the Console
+
+With `console: true` in `vitehub()` and a [`vitehub login`](#sign-in-to-a-console), a production deploy links the app in that Console. You do not copy a key by hand.
+
+1. After the host deploy, it links the production URL in the team of the login, as [`vitehub apps link`](#link-an-app-to-a-console) does. Deploy skips linking if Vercel does not report a production alias. If the installed key is for an old URL, deploy keeps the record and asks you to link the new URL and set its key.
+2. When the host lacks the `VITEHUB_CONSOLE_KEY_<NAME>` of the link, deploy sets it. On Cloudflare it is a Worker secret, and the Worker reads it at once. Vercel, Netlify, and Deno read a new variable only on the next deploy, so deploy deploys a second time.
+3. It checks that the app answers a signed request of the Console, as [`vitehub apps check`](#link-an-app-to-a-console) does, and prints the Console page of the app.
+
+```txt [vitehub deploy]
+Deployed my-app to cloudflare: https://my-app.example.workers.dev
+Linked the app in https://console.vitehub.dev as 9f3c2a1e-4b7d-4c1a-8e2f-0a1b2c3d4e5f.
+Set VITEHUB_CONSOLE_KEY_CONSOLE_9F3C2A1E on the host.
+Console: https://console.vitehub.dev/open?project=https%3A%2F%2Fmy-app.example.workers.dev
+```
+
+- A second deploy finds the link and sets nothing. On Cloudflare, it re-supplies the key from the Console with each version.
+- `--json` returns `console: { console, app, url, created, keySet, linked }`, and `problem` when the app did not answer.
+- Without a login, deploy works as before: the key must be on the host or in a local value. Deploy from CI with `VITEHUB_CONSOLE_TOKEN` and `VITEHUB_CONSOLE_URL` to link there too.
+- When the Console fails, deploy prints a warning and skips linking. If Cloudflare already has the key, deploy still needs its public value to keep production and preview separate. Copy the value from the existing link into the shell or an untracked `.env.production` file until the Console is available again.
+- Only owners and admins of the team link apps. A `--preview` or `--temporary` deploy links nothing.
+
 ### `SETUP_DEPLOY_CHECK_FAILED`
 
 The app is deployed, and it serves production, but a `deploy.check` path did not answer with a `2xx` status. The `why` lists each failed path with its status or error. Run the rollback command in the `fix`, then fix the app and deploy again. `rollback` has the previous deployment. Pass `--no-check` only when the check itself is wrong. The command exits with `1`.
@@ -615,7 +637,7 @@ The project installs `@vite-hub/workspace/checkout` or `vite-hub/workspace/check
 
 ### `SETUP_DEPLOY_ENV_MISSING`
 
-A required env name is on neither the host nor a local value for the stage. Nothing was deployed. Run `vitehub env push --host <host>`, set the name in the host dashboard, or set it in the shell or `.env.<stage>`. On a first deploy, every required name needs a local value. `missing` lists the names, and `env` the check. The command exits with `2`.
+A required env name is on neither the host nor a local value for the stage. Nothing was deployed. Run `vitehub env push --host <host>`, set the name in the host dashboard, or set it in the shell or `.env.<stage>`. On a first deploy, every required name needs a local value. For `VITEHUB_CONSOLE_KEY_*`, run `vitehub login`, and deploy sets it. `missing` lists the names, and `env` the check. The command exits with `2`.
 
 ### `SETUP_DEPLOY_ENV_NOT_LINKED`
 
@@ -661,6 +683,43 @@ The device flow did not finish: the Console did not answer, the person denied th
 ### `CLI_CONSOLE_SIGNED_OUT`
 
 The CLI has no valid key for the Console: there is no saved key, or the Console answered `401` because the key expired or was revoked. Run `vitehub login`, or set `VITEHUB_CONSOLE_TOKEN`.
+
+## Link an app to a Console
+
+`vitehub apps` lists, links, checks, and unlinks the apps of your team in the Console, with the key of `vitehub login`. It needs no project. The commands cover the same tasks as the Console MCP tools. `--json` prints a CLI result, not an MCP tool response.
+
+| CLI | Console MCP tool |
+| --- | --- |
+| `vitehub apps list` | `list_apps` |
+| `vitehub apps link <url> [--label <name>] [--kind site]` | `link_app` |
+| `vitehub apps check <id>` | `check_app` |
+| `vitehub apps unlink <id> --delete-hosted-comments` | `unlink_app` |
+
+```bash [Terminal]
+vitehub apps link https://app.example.com --label Docs
+```
+
+```txt [Output]
+Linked Docs (https://app.example.com) as a1b2c3d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d.
+VITEHUB_CONSOLE_KEY_CONSOLE_A1B2C3D4=MCowBQYDK2VwAyEA...
+Set VITEHUB_CONSOLE_KEY_CONSOLE_A1B2C3D4 in the environment of https://app.example.com and enable console: true in its vitehub config. On Node, also set publicUrl: "https://app.example.com" in that config. Deploy it, then run `vitehub apps check a1b2c3d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d --console https://console.vitehub.dev`.
+```
+
+On Node, `vitehub({ console: true, publicUrl: "https://app.example.com" })` sets the app's public origin for signed requests. Set the key, deploy the app, and run the printed `apps check` command. A successful check prints:
+
+```txt [Output]
+The app answers signed requests of https://console.vitehub.dev.
+```
+
+- A supported production `vitehub deploy` can link the app and set the key when `vitehub whoami` shows an owner or admin of the intended Console team. See [Link the app in the Console](#link-the-app-in-the-console). Use `apps link` for an app that you deploy another way.
+- `apps link` of a URL that the team already linked prints the same link and key again, so you can run it on every deploy. Only owners and admins may link.
+- The variable holds the public key of the link. It is not a secret, but set it as a secret on Cloudflare so that a deploy from the dashboard or `wrangler deploy` keeps it.
+- `apps check` exits with `1` if the deployed app does not accept the Console's signed request.
+- `apps unlink` deletes the private key of the link and the hosted comment threads of the app, so it needs `--delete-hosted-comments`.
+
+### `CLI_CONSOLE_REQUEST_FAILED`
+
+The Console refused the request. The message has the Console's code, such as `CONSOLE_PROJECT_FORBIDDEN` for a member who is not an owner or admin, or `CONSOLE_PROJECT_EXISTS` when the team linked the URL as a site. Run `vitehub whoami` to see the team and the role of the key.
 
 ## Pull env values from a Console
 

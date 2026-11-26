@@ -85,6 +85,15 @@ const runtimeEntries = [
   "src/console/runtime/server/definitions.ts",
   "src/console/runtime/server/env.ts",
   "src/console/runtime/server/operation-contributions.ts",
+  "src/console/runtime/server/site-access-operation.ts",
+  "src/agent/console/operations.ts",
+  "src/auth/console/operations.ts",
+  "src/blob/console/operations.ts",
+  "src/content/console/operations.ts",
+  "src/database/console/operations.ts",
+  "src/env/console/operations.ts",
+  "src/logs/console/operations.ts",
+  "src/workspace/console/operations.ts",
   "src/console/runtime/server/sections.ts",
   "src/console/auth-types.ts",
   "src/console/runtime/console-route.ts",
@@ -96,7 +105,7 @@ const runtimeEntries = [
   "src/console/runtime/client/invocation.ts",
   "src/console/runtime/client/invocation-deletion.ts",
   "src/console/runtime/client/request.ts",
-  "src/console/runtime/client/ticket.ts",
+  "src/console/runtime/client/site-link.ts",
   "src/console/runtime/client/blob-media.ts",
   "src/console/runtime/client/content-heads.ts",
   "src/console/runtime/client/documents.ts",
@@ -139,29 +148,28 @@ const runtimeEntries = [
   "src/console/runtime/operation-loader.ts",
   "src/console/runtime/server/development.ts",
   "src/console/runtime/server/runtime.ts",
-  "src/console/runtime/server/agents.get.ts",
-  "src/console/runtime/server/channel-replay.ts",
-  "src/console/runtime/server/database.get.ts",
+  "src/agent/console/agents.get.ts",
+  "src/agent/console/channel-replay.ts",
+  "src/database/console/database.get.ts",
   "src/console/runtime/server/definitions.get.ts",
   "src/console/runtime/server/documents.ts",
-  "src/console/runtime/server/invocation-capabilities.get.ts",
+  "src/agent/console/invocation-capabilities.get.ts",
   "src/console/runtime/server/rpc.ts",
-  "src/console/runtime/server/invocation.get.ts",
-  "src/console/runtime/server/invocation-workspace.get.ts",
-  "src/console/runtime/server/workspace-files.get.ts",
-  "src/console/runtime/server/invocations.get.ts",
-  "src/console/runtime/server/env.get.ts",
-  "src/console/runtime/server/auth.ts",
-  "src/console/runtime/server/tickets.ts",
+  "src/agent/console/invocation.get.ts",
+  "src/agent/console/invocation-workspace.get.ts",
+  "src/workspace/console/workspace-files.get.ts",
+  "src/agent/console/invocations.get.ts",
+  "src/env/console/env.get.ts",
+  "src/auth/console/auth.ts",
+  "src/console/runtime/server/site-actions.ts",
   "src/console/runtime/server/entry.ts",
   "src/console/runtime/server/entry-site-access.ts",
   "src/console/runtime/server/site-entry.ts",
-  "src/console/runtime/server/logs.get.ts",
-  "src/console/runtime/server/search.get.ts",
+  "src/logs/console/logs.get.ts",
   "src/console/runtime/server/sections.get.ts",
   "src/console/runtime/server/setup.ts",
-  "src/console/runtime/server/invocations.usage.ts",
-  "src/console/runtime/server/status.get.ts",
+  "src/agent/console/invocations.usage.ts",
+  "src/agent/console/status.get.ts",
   // The Console segment of the Comments pill. Comments installs it at startup, and it reads the visitor on the first
   // page tools session request.
   "src/console/runtime/server/pill.ts",
@@ -595,7 +603,7 @@ export default defineConfig({
           delete exports["./console/runtime/client/invocation"];
           delete exports["./console/runtime/client/invocation-deletion"];
           delete exports["./console/runtime/client/request"];
-          delete exports["./console/runtime/client/ticket"];
+          delete exports["./console/runtime/client/site-link"];
           delete exports["./console/runtime/client/blob-media"];
           delete exports["./console/runtime/client/content-heads"];
           delete exports["./console/runtime/client/documents"];
@@ -632,43 +640,31 @@ export default defineConfig({
           delete exports["./console/runtime/rpc"];
           delete exports["./console/runtime/sections"];
           delete exports["./console/runtime/skills"];
-          delete exports["./console/runtime/server/agents.get"];
           delete exports["./console/runtime/server/blob"];
-          delete exports["./console/runtime/server/channel-replay"];
           delete exports["./console/runtime/server/database"];
-          delete exports["./console/runtime/server/database.get"];
           delete exports["./console/runtime/server/definitions"];
           delete exports["./console/runtime/server/definitions.get"];
           delete exports["./console/runtime/server/documents"];
-          delete exports["./console/runtime/server/invocation-capabilities.get"];
           delete exports["./console/runtime/server/rpc"];
-          delete exports["./console/runtime/server/invocation.get"];
-          delete exports["./console/runtime/server/invocation-workspace.get"];
-          delete exports["./console/runtime/server/workspace-files.get"];
-          delete exports["./console/runtime/server/invocations.get"];
-          delete exports["./console/runtime/server/env.get"];
-          delete exports["./console/runtime/server/auth"];
-          delete exports["./console/runtime/server/tickets"];
+          delete exports["./console/runtime/server/site-actions"];
           delete exports["./console/runtime/server/site-entry"];
           delete exports["./console/runtime/server/entry"];
           delete exports["./console/runtime/server/entry-site-access"];
           delete exports["./console/runtime/server/env"];
-          delete exports["./console/runtime/server/logs.get"];
           delete exports["./console/runtime/server/access-policy"];
           delete exports["./console/runtime/server/agent-console"];
           delete exports["./console/runtime/operation-loader"];
           delete exports["./console/runtime/server/development"];
           delete exports["./console/runtime/server/operation-contributions"];
+          delete exports["./console/runtime/server/site-access-operation"];
           delete exports["./console/runtime/server/pill"];
           delete exports["./console/runtime/server/runtime"];
-          delete exports["./console/runtime/server/search.get"];
           delete exports["./console/runtime/server/sections.get"];
           delete exports["./console/runtime/server/sections"];
           delete exports["./console/runtime/server/setup"];
           delete exports["./console/runtime/server/site"];
           delete exports["./console/runtime/server/site-visitor"];
-          delete exports["./console/runtime/server/invocations.usage"];
-          delete exports["./console/runtime/server/status.get"];
+          for (const key of Object.keys(exports)) if (/^\.\/[^/]+\/console\//.test(key)) delete exports[key];
           // Generated code imports `src/internal/*` entries by path. They are not public API.
           for (const key of Object.keys(exports)) if (/^\.\/_?internal\//.test(key)) delete exports[key];
           delete exports["./task/operations"];

@@ -180,7 +180,7 @@ function configureNitroCloudflareRequestEnv(nitro: NitroCloudflareKVTarget, kv: 
   const handlers: unknown[] = Array.isArray(nitro.handlers)
     ? nitro.handlers.filter(handler => !(isPlainObject(handler) && handler.handler === KV_CLOUDFLARE_REQUEST_ENV_MIDDLEWARE))
     : []
-  if (hasCloudflareKVStore(kv)) handlers.unshift({ handler: KV_CLOUDFLARE_REQUEST_ENV_MIDDLEWARE, middleware: true })
+  if (hasCloudflareKVStore(kv)) handlers.unshift({ handler: KV_CLOUDFLARE_REQUEST_ENV_MIDDLEWARE, middleware: true, route: "/**" })
   if (handlers.length || Array.isArray(nitro.handlers)) nitro.handlers = handlers
 }
 

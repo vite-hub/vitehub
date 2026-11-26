@@ -280,7 +280,7 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
         nitro.experimental = { ...nitro.experimental, asyncContext: true }
         viteHubConfig.nitro = nitro
         return {
-          optimizeDeps: { exclude: [packageName, "vite-hub/i18n"] },
+          optimizeDeps: { exclude: [packageName, "vite-hub/i18n"], include: [`${packageName} > @lingui/core`] },
         }
       },
     },

@@ -7,7 +7,7 @@ import { expect, it } from "vitest"
 import { resolveConsoleSectionIds } from "../src/console/runtime/sections.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
 
-const consoleRoutes = ["/_vitehub", "/_vitehub/**", "/_vitehub/rpc"]
+const consoleRoutes = ["/_vitehub", "/_vitehub/**", "/_vitehub/rpc", "/_vitehub/site"]
 
 it.each([
   ["no primitives", { env: false }],

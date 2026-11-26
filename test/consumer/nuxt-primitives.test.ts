@@ -11,7 +11,7 @@ import { access } from "./nuxt-primitives/access.ts"
 import { content } from "./nuxt-primitives/content.ts"
 import { jobs } from "./nuxt-primitives/jobs.ts"
 import { ops } from "./nuxt-primitives/ops.ts"
-import { ConfigSource, isRow, modes, type Mode, type PrimitiveRow, type Target } from "./nuxt-primitives/row.ts"
+import { ConfigSource, modes, type Mode, type PrimitiveRow, type Target } from "./nuxt-primitives/row.ts"
 import { storage } from "./nuxt-primitives/storage.ts"
 import {
   availablePort,
@@ -25,17 +25,22 @@ import {
   type PackageManifest,
 } from "./packed-app.ts"
 
-const entries = [...storage, ...jobs, ...agents, ...content, ...access, ...ops]
-const rows = entries.filter(isRow)
+const rows = [...storage, ...jobs, ...agents, ...content, ...access, ...ops]
 const nuxtVersion = process.env.VITEHUB_CONSUMER_NUXT === "4.7" ? "Nuxt 4.7" : "Nuxt 5 nightly"
 
 const featurePackages: Record<string, string> = { rateLimit: "rate-limit", sandboxTask: "sandbox" }
 const notPrimitives: Record<string, string> = {
   cli: "The `vitehub` command, which the Database row runs.",
+  docs: "A Nuxt module of its own, `vite-hub/docs/nuxt`, that `vite-hub/nuxt` does not install. It adds Nuxt UI and owns `/sitemap.xml`, `/mcp`, and the trailing-slash rule of the site, so it cannot share the primitives app. packages/docs/test/nuxt-consumer.test.ts builds it in a Nuxt app.",
   codemods: "Rewrites app source before it moves to ViteHub. It adds nothing to a Nuxt app.",
   presets: "Agent presets built from the other primitives.",
   runtime: "The shared error and request contracts of every primitive.",
   ui: "Vue parts that the other primitives render.",
+}
+
+export const nuxtSupport = {
+  rows,
+  notPrimitives,
 }
 
 async function viteHubFeatureKeys() {
@@ -46,8 +51,8 @@ async function viteHubFeatureKeys() {
   return [...new Set([...featureIds.map(id => featurePackages[id] ?? id), ...owners])].sort()
 }
 
-function nuxtConfig(target: Target, active: PrimitiveRow[]) {
-  const vitehub = Object.assign({ agent: false, host: target }, ...active.map(row => row.vitehub?.(target) ?? {}))
+function nuxtConfig(target: Target, origin: string, active: PrimitiveRow[]) {
+  const vitehub = Object.assign({ agent: false, host: target }, ...active.map(row => row.vitehub?.(target, origin) ?? {}))
   const nitro = target === "cloudflare"
     ? { cloudflare: { deployConfig: true }, preset: "cloudflare_module" }
     : { preset: "node-server" }
@@ -82,8 +87,7 @@ async function nitroWorker(origin: string, timeout: number) {
   }
 }
 
-async function withServer<T>(command: string, args: string[], cwd: string, ready: RegExp | undefined, callback: (origin: string) => Promise<T>, readySamples = 1) {
-  const port = await availablePort()
+async function withServer<T>(command: string, args: string[], cwd: string, port: number, ready: RegExp | undefined, callback: (origin: string) => Promise<T>, readySamples = 1) {
   const child = spawn(command, args.map(arg => arg.replace("{port}", String(port))), {
     cwd,
     detached: true,
@@ -124,7 +128,7 @@ async function withServer<T>(command: string, args: string[], cwd: string, ready
 
 describe("Nuxt primitives", () => {
   it("cover every vite-hub/nuxt feature with a row or a written exemption", async () => {
-    const ids = entries.map(entry => entry.id)
+    const ids = rows.map(row => row.id)
     expect(ids.filter((id, index) => ids.indexOf(id) !== index), "primitives listed twice").toEqual([])
     const missing = (await viteHubFeatureKeys()).filter(key => !ids.includes(key) && !(key in notPrimitives))
     expect(missing, "vite-hub/nuxt features without a row or an exemption in test/consumer/nuxt-primitives/").toEqual([])
@@ -145,14 +149,14 @@ describe("Nuxt primitives", () => {
       await run("pnpm", ["exec", command, ...args], appDir, { ...process.env, CI: "1", NO_COLOR: "1", NUXT_TELEMETRY_DISABLED: "1" })
     }
 
-    async function configure(target: Target, active: PrimitiveRow[]) {
+    async function configure(target: Target, origin: string, active: PrimitiveRow[]) {
       await rm(join(appDir, ".vitehub/data"), { force: true, recursive: true })
       const files: Record<string, string> = Object.assign({}, ...active.map(row => row.files))
       for (const path of rowFiles) {
         if (!Object.hasOwn(files, path)) await rm(join(appDir, path), { force: true })
       }
       rowFiles = Object.keys(files)
-      await writeAppFiles(appDir, { ...files, "nuxt.config.ts": nuxtConfig(target, active) })
+      await writeAppFiles(appDir, { ...files, "nuxt.config.ts": nuxtConfig(target, origin, active) })
     }
 
     beforeAll(async () => {
@@ -163,7 +167,8 @@ describe("Nuxt primitives", () => {
       const packages = new Set(["vite-hub", ...rows.flatMap(row => row.packages)])
       const specs = await packWorkspacePackages(packDir, packages)
       const files: Record<string, string> = {
-        "app/app.vue": "<template><main>Nuxt primitives</main></template>\n",
+        "app/app.vue": "<template><NuxtPage /></template>\n",
+        "app/pages/index.vue": "<template><main>Nuxt primitives</main></template>\n",
         [`server${readyPath}.get.ts`]: `
           import { defineEventHandler } from "nitro/h3"
 
@@ -192,18 +197,20 @@ describe("Nuxt primitives", () => {
       if (root) await rm(root, { force: true, recursive: true })
     }, 300_000)
 
-    async function serve(mode: Mode, callback: (origin: string) => Promise<void>) {
-      if (mode === "node-build") return withServer(process.execPath, [join(appDir, ".output/server/index.mjs")], appDir, undefined, callback)
+    async function serve(mode: Mode, port: number, callback: (origin: string) => Promise<void>) {
+      if (mode === "node-build") return withServer(process.execPath, [join(appDir, ".output/server/index.mjs")], appDir, port, undefined, callback)
       if (mode === "cloudflare-build") {
-        return withServer("pnpm", ["exec", "wrangler", "dev", "--config", ".output/server/wrangler.json", "--persist-to", ".wrangler/state", "--ip", "127.0.0.1", "--port", "{port}", "--local", "--show-interactive-dev-session=false"], appDir, /Ready on/, callback)
+        return withServer("pnpm", ["exec", "wrangler", "dev", "--config", ".output/server/wrangler.json", "--persist-to", ".wrangler/state", "--ip", "127.0.0.1", "--port", "{port}", "--local", "--show-interactive-dev-session=false"], appDir, port, /Ready on/, callback)
       }
-      return withServer("pnpm", ["exec", "nuxt", "dev", "--no-fork", "--host", "127.0.0.1", "--port", "{port}"], appDir, /Ready in|Local:/, callback, 3)
+      return withServer("pnpm", ["exec", "nuxt", "dev", "--no-fork", "--host", "127.0.0.1", "--port", "{port}"], appDir, port, /Ready in|Local:/, callback, 3)
     }
 
     it.each(modes)(`answers each primitive route in %s`, async (mode) => {
       const target: Target = mode.startsWith("cloudflare") ? "cloudflare" : "node"
       const active = rows.filter(row => !row.exempt?.[mode])
-      await configure(target, active)
+      const port = await availablePort()
+      const origin = `http://127.0.0.1:${port}`
+      await configure(target, origin, active)
       if (mode.endsWith("-build")) {
         await rm(join(appDir, ".output"), { force: true, recursive: true })
         await exec("nuxt", ["build"])
@@ -212,15 +219,16 @@ describe("Nuxt primitives", () => {
         await row.prepare?.({
           appDir,
           mode,
+          origin,
           vitehub: args => exec("vitehub", args),
           wrangler: args => exec("wrangler", [...args, "--config", ".output/server/wrangler.json", "--persist-to", ".wrangler/state"]),
         })
       }
       const failures: string[] = []
-      await serve(mode, async (origin) => {
+      await serve(mode, port, async () => {
         for (const row of active) {
           try {
-            await row.probe({ appDir, fetch: (path, init) => fetch(`${origin}${path}`, { ...init, signal: AbortSignal.timeout(60_000) }), mode, target })
+            await row.probe({ appDir, fetch: (path, init) => fetch(`${origin}${path}`, { ...init, signal: AbortSignal.timeout(60_000) }), mode, origin, target })
           }
           catch (error) {
             failures.push(`${row.id}: ${error instanceof Error ? error.message : String(error)}`)

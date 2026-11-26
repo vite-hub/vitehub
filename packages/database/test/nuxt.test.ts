@@ -187,10 +187,12 @@ describe("Database Nuxt integration", () => {
         {
           handler: `${tmp}/vitehub-db-nuxt/.vitehub/nitro/database/request-stats.ts`,
           middleware: true,
+          route: "/**",
         },
         {
           handler: `${tmp}/vitehub-db-nuxt/.vitehub/nitro/database/middleware.ts`,
           middleware: true,
+          route: "/**",
         },
       ],
       rollupConfig: {

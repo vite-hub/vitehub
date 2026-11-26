@@ -10,6 +10,7 @@ import { basename, join } from "pathe"
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { build, readBuildOutput } from "./build-output.ts"
 import { formatFailedChecks, rollbackFor, runDeployChecks, submitIndexNow } from "./deploy/after.ts"
+import { formatDeployConsole, linkDeployedApp, openDeployConsole, readsConsoleKey } from "./deploy/console.ts"
 import { checkoutPushError, formatDeployCheckouts, prepareDeployCheckouts, pushDeployCheckouts } from "./deploy/checkouts.ts"
 import { cloudflareAdapter } from "./deploy/cloudflare.ts"
 import { denoAdapter, denoOrganization } from "./deploy/deno.ts"
@@ -19,7 +20,7 @@ import { netlifyAdapter } from "./deploy/netlify.ts"
 import { provisionForDeploy } from "./deploy/provision.ts"
 import { hasVercelLogin, vercelAdapter } from "./deploy/vercel.ts"
 import { setupExitCodes, type SetupFailure, setupFailure, writeSetupError, writeSetupJson } from "./envelope.ts"
-import { checkDeployEnv } from "./env.ts"
+import { checkDeployEnv, hostEnvs } from "./env.ts"
 import { addSetupLink, ensureViteHubGitignore, hostRequired, readSetupLinks, selectSetupLink, writeSeparateResourcesNote } from "./link.ts"
 import { readSetupProject } from "./project.ts"
 import { setupStatus } from "./status.ts"
@@ -28,6 +29,7 @@ import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cl
 import type { HostCredentials } from "@vite-hub/internal/host-credentials"
 import type { DeployCheckResult, DeployIndexNowOutput, DeployRollback } from "./deploy/after.ts"
 import type { DeployCheckouts, DeployCheckoutsOutput } from "./deploy/checkouts.ts"
+import type { DeployConsole, DeployConsoleOutput } from "./deploy/console.ts"
 import type { DeployAdapter, DeployCommit, DeployContext, DeployHost, DeployResult, DeployRun, HostDeployment } from "./deploy/host.ts"
 import type { DeployEnvOutput } from "./env.ts"
 import type { DeployProvisionOutput } from "./deploy/provision.ts"
@@ -37,7 +39,7 @@ import type { SetupProject } from "./project.ts"
 const deployHosts: readonly DeployHost[] = ["cloudflare", "vercel", "netlify", "deno"]
 const temporaryHosts: readonly DeployHost[] = ["cloudflare", "vercel"]
 
-const usage = "vitehub deploy [--host <host>] [--preview] [--push-env] [--no-build] [--no-provision] [--no-push] [--no-check] [--no-index-now] [--temporary] [--yes] [--json]"
+const usage = "vitehub deploy [--host <host>] [--preview] [--push-env] [--no-build] [--no-provision] [--no-push] [--no-check] [--no-index-now] [--no-console] [--temporary] [--yes] [--json]"
 
 const help = `--host picks a host target of .vitehub/link.json. Without it, deploy uses the default target. The build runs
 with VITEHUB_HOST set to that host, which wins over \`host\` in vitehub(). Each host has its own resources, such as D1,
@@ -63,6 +65,13 @@ the deployed URL. When one does not answer with a 2xx status, deploy exits with 
 production back to the deployment it replaced. --no-check skips the checks. When the host reports no URL, such as a
 Worker whose routes have a wildcard host or a narrower path, deploy skips the checks and IndexNow with a warning. With \`deploy.indexNow\`, a production
 deploy that passed its checks then sends the URLs of /sitemap.xml to IndexNow. --no-index-now skips it.
+
+With \`console: true\` in vitehub() and a \`vitehub login\`, a production deploy links the app in that Console. It
+links the deployed URL, sets the \`VITEHUB_CONSOLE_KEY_<NAME>\` key of the link on the host when the host lacks it,
+checks that the app answers a signed request of the Console, and prints the Console page of the app. A second deploy
+keeps the same link. On Cloudflare, it also re-supplies the key of the Console with each version. Other hosts read a
+new variable on the next deploy, so the first deploy there deploys a second time. Without a login, deploy needs the
+key on the host or in a local value, as for any other env name. --no-console skips the Console.
 `
 
 export interface SetupDeployArgs {
@@ -80,6 +89,8 @@ export interface SetupDeployArgs {
   check: boolean
   /** False with --no-index-now: do not send the sitemap URLs to IndexNow. */
   indexNow: boolean
+  /** False with --no-console: do not link the app in the Console of the saved login. */
+  console: boolean
   temporary: boolean
   yes: boolean
   json: boolean
@@ -107,6 +118,8 @@ export interface SetupDeployOutput {
   rollback?: DeployRollback
   /** The IndexNow submission. Missing when the build has no `deploy.indexNow`, for a preview, and with --no-index-now. */
   indexNow?: DeployIndexNowOutput
+  /** The Console link. Missing without `console: true`, without a `vitehub login`, for a preview, and with --no-console. */
+  console?: DeployConsoleOutput
 }
 
 export function readDeployArgs(args: readonly string[]): SetupDeployArgs {
@@ -119,6 +132,7 @@ export function readDeployArgs(args: readonly string[]): SetupDeployArgs {
         "json": { type: "boolean", default: false },
         "no-build": { type: "boolean", default: false },
         "no-check": { type: "boolean", default: false },
+        "no-console": { type: "boolean", default: false },
         "no-index-now": { type: "boolean", default: false },
         "no-provision": { type: "boolean", default: false },
         "no-push": { type: "boolean", default: false },
@@ -129,7 +143,7 @@ export function readDeployArgs(args: readonly string[]): SetupDeployArgs {
       },
       strict: true,
     })
-    return { build: !values["no-build"], check: !values["no-check"], help: values.help, indexNow: !values["no-index-now"], ...(values.host === undefined ? {} : { host: values.host }), json: values.json, preview: values.preview, pushEnv: values["push-env"], provision: !values["no-provision"], push: !values["no-push"], temporary: values.temporary, yes: values.yes }
+    return { build: !values["no-build"], check: !values["no-check"], console: !values["no-console"], help: values.help, indexNow: !values["no-index-now"], ...(values.host === undefined ? {} : { host: values.host }), json: values.json, preview: values.preview, pushEnv: values["push-env"], provision: !values["no-provision"], push: !values["no-push"], temporary: values.temporary, yes: values.yes }
   }
   catch (error: unknown) {
     throw cliErrorDiagnostics.CLI_R0003({ message: `[vitehub] ${error instanceof Error ? error.message : String(error)} Usage: ${usage}` })
@@ -137,7 +151,7 @@ export function readDeployArgs(args: readonly string[]): SetupDeployArgs {
 }
 
 function rerunCommand(args: SetupDeployArgs, extra: { provision?: boolean, temporary?: boolean } = {}): string {
-  return ["vitehub deploy", ...(args.host ? [`--host ${args.host}`] : []), ...(args.preview ? ["--preview"] : []), ...(args.pushEnv ? ["--push-env"] : []), ...(args.build ? [] : ["--no-build"]), ...(args.provision && extra.provision !== false ? [] : ["--no-provision"]), ...(args.push ? [] : ["--no-push"]), ...(args.check ? [] : ["--no-check"]), ...(args.indexNow ? [] : ["--no-index-now"]), ...(args.temporary || extra.temporary ? ["--temporary"] : []), "--yes", ...(args.json ? ["--json"] : [])].join(" ")
+  return ["vitehub deploy", ...(args.host ? [`--host ${args.host}`] : []), ...(args.preview ? ["--preview"] : []), ...(args.pushEnv ? ["--push-env"] : []), ...(args.build ? [] : ["--no-build"]), ...(args.provision && extra.provision !== false ? [] : ["--no-provision"]), ...(args.push ? [] : ["--no-push"]), ...(args.check ? [] : ["--no-check"]), ...(args.indexNow ? [] : ["--no-index-now"]), ...(args.console ? [] : ["--no-console"]), ...(args.temporary || extra.temporary ? ["--temporary"] : []), "--yes", ...(args.json ? ["--json"] : [])].join(" ")
 }
 
 function supportedHost(host: string): DeployHost {
@@ -232,6 +246,7 @@ function writeDeployed(output: SetupDeployOutput, name: string, context: ViteHub
   if (output.version) context.stdout.write(`Version: ${output.version}\n`)
   if (output.commit) context.stdout.write(`Commit: ${output.commit.sha}${output.commit.dirty ? " (with uncommitted changes)" : ""}\n`)
   for (const check of output.checks ?? []) context.stdout.write(`Checked ${check.path}: ${check.status ?? check.error}\n`)
+  if (output.console) context.stdout.write(formatDeployConsole(output.console))
   if (output.temporary) {
     const window = output.host === "cloudflare" ? "within 60 minutes" : output.temporary.expiresAt ? `before ${output.temporary.expiresAt}` : "soon"
     context.stdout.write(`This is a temporary deploy. Claim it ${window}, or the host deletes it. Do not share the claim link:\n${output.temporary.claimUrl}\n`)
@@ -286,8 +301,12 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
   if (!projectName) throw setupFailure(cliErrorDiagnostics.SETUP_LINK_NAME_REQUIRED(), setupExitCodes.inputNeeded, { missing: [{ field: "project" }], rerun: "vitehub link --project <name>" })
   const secrets = credentials.ok ? [credentials.token] : []
   const run = createDeployRun(context.stderr, secrets)
+  const consoleStep = args.console && !args.temporary && readsConsoleKey(output.env) ? await openDeployConsole(context) : undefined
+  const availableConsole = consoleStep === "unavailable" ? undefined : consoleStep
   const env = await checkDeployEnv({
     context,
+    ...(availableConsole ? { consoleKeys: availableConsole.keys } : {}),
+    deferConsoleKey: !!consoleStep && !args.preview,
     entries: output.env,
     envDir: output.envDir,
     host,
@@ -320,8 +339,11 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
   await env.apply()
   const checkPaths = args.check ? output.deploy.check : []
   const previous = checkPaths.length && !args.preview && !args.temporary ? await previousDeployment(project.root, link, credentials, context, run) : undefined
-  const result = await adapter.deploy()
+  let result = await adapter.deploy()
   if (!link && !args.temporary) await recordLink(project.root, host, result, projectName)
+  const consoleDeploy = availableConsole && !args.preview ? await deployConsole(availableConsole, result, { context, deployContext, host, onHost: env.onHost, projectName }) : undefined
+  if (consoleDeploy) result = consoleDeploy.result
+  const linkedConsole = consoleDeploy?.output
   if (checkPaths.length && !result.url) context.stderr.write(`Deploy checks skipped: ${host} reported no URL to request, such as a workers.dev URL, a custom domain, or a \`<host>/*\` route. The deploy is done.\n`)
   const checks = checkPaths.length && result.url ? await runDeployChecks(result.url, checkPaths, deployContext.fetch) : undefined
 
@@ -335,6 +357,7 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
     env: env.output,
     ...(provisioned ? { provision: provisioned } : {}),
     ...(checks ? { checks } : {}),
+    ...(linkedConsole ? { console: linkedConsole } : {}),
   }
   if (checks?.some(check => !check.ok)) throw checkFailed(deployed, host, previous, projectName, link, result, args.preview)
   if (!args.json) writeDeployed(deployed, projectName, context)
@@ -346,6 +369,40 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
   const final = indexNow ? { ...pushed, indexNow } : pushed
   if (args.json) writeSetupJson(context, final)
   return setupExitCodes.done
+}
+
+async function deployConsole(step: DeployConsole, initial: DeployResult, options: { context: ViteHubCliContext, deployContext: DeployContext, host: DeployHost, onHost: ReadonlySet<string>, projectName: string }) {
+  const { context, deployContext, host } = options
+  const productionUrl = (result: DeployResult) => host === "vercel" ? result.productionUrl : result.url
+  const url = productionUrl(initial)
+  if (!url) {
+    context.stderr.write(`The app was not linked in the Console, because ${host} reported no production URL. Run \`vitehub apps link <url>\` with the production URL of the app.\n`)
+    return
+  }
+  let result = initial
+  const output = await linkDeployedApp({
+    console: step,
+    context,
+    label: options.projectName,
+    onHost: options.onHost,
+    async setKey(name, value) {
+      const link = deployContext.link ?? (await readSetupLinks(deployContext.root)).targets.find(target => target.host === host)
+      if (!link) throw cliErrorDiagnostics.SETUP_ENV_VALUE_UNSUPPORTED({ host, name, reason: "The project has no host target in .vitehub/link.json." })
+      const hostEnv = hostEnvs[host]({ env: context.env, fetch: deployContext.fetch, link, root: deployContext.root, run: deployContext.run, secrets: deployContext.secrets, target: "production" })
+      await hostEnv.setSecret(name, value, { secret: host === "cloudflare" })
+      if (host === "cloudflare") {
+        const { version: _version, ...live } = result
+        result = live
+      }
+      else {
+        context.stderr.write(`Deploying again, so ${host} reads ${name}.\n`)
+        result = await (await hostAdapter(host, { ...deployContext, link, upload: {} })).deploy()
+      }
+      return productionUrl(result)
+    },
+    url,
+  })
+  return { output, result }
 }
 
 type PreviousDeployment = { deployment: HostDeployment | undefined } | { failed: string }
