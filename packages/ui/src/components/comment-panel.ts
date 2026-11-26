@@ -6,7 +6,7 @@ import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { useCommentAttachments } from "../internal/comment-attachments.ts";
 import { rowSlotScope, threadRow } from "../internal/comment-row.ts";
 import { commentThreadKey, useSelectedComment } from "../internal/comment-selection.ts";
-import { commentTitle, deliveryAttributes, repliedSinceResolved } from "../internal/comment-status.ts";
+import { commentTitle, deliveryAttributes } from "../internal/comment-status.ts";
 import { injectComments } from "../internal/comments-context.ts";
 import { CommentComposer, type CommentComposerSubmit } from "./comment-composer.ts";
 import { type CommentAttachmentUrl, CommentThread, type CommentThreadSlots } from "./comment-thread.ts";
@@ -103,7 +103,7 @@ export const CommentPanel = defineComponent({
       state.threads.value.filter((thread) => state.scope.value === "site" || sameSubject(thread.subject, state.subject.value)),
     );
     const rows = computed(() =>
-      scoped.value.filter((thread) => thread.status === status.value || (status.value === "open" && repliedSinceResolved(thread))),
+      scoped.value.filter((thread) => thread.status === status.value),
     );
     const opened = useSelectedComment(state.threads, threadId);
 
@@ -198,9 +198,7 @@ export const CommentPanel = defineComponent({
     const groups = computed(() => {
       const found: Array<{ label: string | undefined; threads: CommentThreadModel[] }> = [];
       for (const thread of rows.value) {
-        const label = props.group
-          ? props.group(thread)
-          : status.value === "open" && thread.status === "resolved" ? "Replied since resolved" : undefined;
+        const label = props.group?.(thread);
         let entry = found.find((group) => group.label === label);
         if (!entry) found.push((entry = { label, threads: [] }));
         entry.threads.push(thread);
