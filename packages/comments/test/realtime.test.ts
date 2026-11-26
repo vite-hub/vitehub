@@ -1,11 +1,18 @@
+import { notifyRealtimeRoom } from "@vite-hub/realtime/server"
 import { describe, expect, it, vi } from "vitest"
 
 import { defineComments } from "../src/index.ts"
-import { commentsRealtime } from "../src/realtime.ts"
-import { commentRoom } from "../src/page.ts"
+import { defineCommentSubject } from "../src/operations-core/define.ts"
+import { installComments } from "../src/install.ts"
+import { commentsChangeNotice, commentsRealtime, notifyCommentsChange } from "../src/realtime.ts"
+import { commentNoticeRoom, commentRoom } from "../src/page.ts"
+import { createCommentsHandler } from "../src/runtime/handler.ts"
+import { ada, anchor, createDatabase } from "./harness.ts"
 
 import { H3Event } from "h3"
 import type { RealtimeAuthorizeContext, RealtimeDefinition } from "@vite-hub/realtime"
+
+vi.mock("@vite-hub/realtime/server", async original => ({ ...await original<typeof import("@vite-hub/realtime/server")>(), notifyRealtimeRoom: vi.fn(async () => undefined) }))
 
 function authorizer(definition: RealtimeDefinition) {
   const { authorize } = definition
@@ -148,5 +155,63 @@ describe("commentsRealtime", () => {
     const context = (target: H3Event): RealtimeAuthorizeContext => ({ definition: "comments", documentId: null, event: target, mode: "read", request: new Request("http://site.test?page=%2F"), user: null })
     expect(await authorizer(definition)(context(request))).toBe(false)
     expect(await authorizer(definition)(context(event()))).toBe(false)
+  })
+})
+
+describe("server writes", () => {
+  it("tell the page room after create, reply, resolve, reopen and delete", async () => {
+    const comments = defineComments({ authorize: () => true })
+    const changed: string[] = []
+    installComments(comments, {
+      database: await createDatabase(),
+      realtime: async () => ({ notifyCommentsChange: async (thread) => { changed.push(thread.subject.id) } }),
+    })
+    const [, thread] = await comments.create({ page: "/pricing", anchor, body: "Fix the title", author: ada })
+    await comments.reply(thread!.id, { body: "On it", author: ada })
+    await comments.resolve(thread!.id, { by: ada })
+    await comments.reopen(thread!.id)
+    await comments.remove(thread!.id)
+    await vi.waitFor(() => expect(changed).toEqual(["/pricing", "/pricing", "/pricing", "/pricing", "/pricing"]))
+  })
+
+  it("notifies both paths displaying the same subject after a context-free write", async () => {
+    const subject = { kind: "drop", id: "abc" }
+    const pages = ["/d/abc", "/preview/abc"]
+    const comments = defineComments({
+      subjects: [defineCommentSubject({ kind: "drop", scope: id => `drop:${id}` })],
+      page: ({ url }) => pages.includes(url.pathname) ? subject : undefined,
+      authorize: ({ subject: target }) => target?.kind === "drop",
+    })
+    const definition = commentsRealtime(comments, {}, "notices")
+    expect(definition).toMatchObject({ awareness: false })
+    const documentId = commentNoticeRoom(subject)
+    for (const page of [...pages, "/other"]) {
+      const context = { definition: "comments-notices", event: event(), request: new Request(`http://site.test?page=${page}`) }
+      const user = await definition.identify!(context)
+      expect(await authorizer(definition)({ ...context, documentId, mode: "read", user: user ?? null })).toBe(pages.includes(page))
+    }
+    installComments(comments, { database: await createDatabase(), realtime: async () => ({ notifyCommentsChange }) })
+    const [error] = await comments.create({ subject, anchor, body: "Fix the title", author: ada })
+    expect(error).toBeUndefined()
+    expect(notifyRealtimeRoom).toHaveBeenCalledWith("comments-notices", documentId, commentsChangeNotice)
+  })
+
+  it("keeps an HTTP write alive for a best-effort notice without Forge", async () => {
+    const comments = defineComments({ identify: () => ada, authorize: () => true })
+    let failDelivery: (error: Error) => void = () => {}
+    const notify = vi.fn(() => new Promise<void>((_resolve, reject) => { failDelivery = reject }))
+    installComments(comments, { database: await createDatabase(), realtime: async () => ({ notifyCommentsChange: notify }) })
+    const handler = createCommentsHandler({ comments, realtime: true })
+    const response = vi.fn()
+    const write = handler.fetch(new Request("http://site.test/_vitehub/comments/threads", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "http://site.test" },
+      body: JSON.stringify({ page: "/pricing", body: "Fix the title", anchor }),
+    })).then(response)
+    await vi.waitFor(() => expect(notify).toHaveBeenCalledOnce())
+    expect(response).not.toHaveBeenCalled()
+    failDelivery(new Error("Realtime unavailable"))
+    await write
+    expect(response).toHaveBeenCalledWith(expect.objectContaining({ ok: true }))
   })
 })

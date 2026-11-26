@@ -10,7 +10,7 @@ import { commentsButton, pageTools, serveComments, startOverlay } from "./overla
 import type { ViteHubSiteVisitor } from "@vite-hub/internal/runtime/page-tools"
 
 vi.mock("@vite-hub/realtime/client", () => ({
-  connectRealtimeRoom: vi.fn(() => ({ states: () => new Map(), people: () => [], onUpdate: vi.fn(), onChange: vi.fn(), notify: vi.fn(), setLocal: vi.fn(), destroy: vi.fn() })),
+  connectRealtimeRoom: vi.fn(() => ({ states: () => new Map(), people: () => [], onUpdate: vi.fn(), onChange: vi.fn(), onNotice: vi.fn(), notify: vi.fn(), setLocal: vi.fn(), destroy: vi.fn() })),
 }))
 
 const project = { id: "app-1", teamId: "team-1", url: "https://app.example.com/portal" }
@@ -45,8 +45,16 @@ async function site(visitor: ViteHubSiteVisitor, openThreads: number, resolvedTh
     const author = { id: "grace", name: "Grace" }
     const [, thread] = await server.comments.create({ subject, anchor, body: `Fix ${index}`, author })
     if (index >= openThreads) {
-      const [error] = await server.comments.resolve(thread!.id, { by: author })
-      expect(error).toBeUndefined()
+      const [resolveError, resolved] = await server.comments.resolve(thread!.id, { by: author })
+      expect(resolveError).toBeUndefined()
+      const now = vi.spyOn(Date, "now").mockReturnValue(resolved!.resolvedAt! + 1)
+      try {
+        const [error] = await server.comments.reply(thread!.id, { body: "Still needs work", author }, { allowResolved: true })
+        expect(error).toBeUndefined()
+      }
+      finally {
+        now.mockRestore()
+      }
     }
     ids.push(thread!.id)
   }
