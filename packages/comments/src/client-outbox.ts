@@ -119,9 +119,13 @@ export interface CommentsOutboxHost {
 
 /**
  * The files of a new comment or reply. With an outbox, `files` may be a promise, such as of a screenshot that renders
- * after Send: the entry shows and saves at once and sends when the promise settles, without files if it rejects.
+ * after Send: the entry shows and saves at once and sends when the promise settles, without files if it rejects. To
+ * keep files the reader already picked through a reload, pass them as `files` and the late ones as `deferredFiles`.
  */
-export type CommentsClientFiles = Omit<CommentFiles, "files"> & { files?: Blob[] | Promise<Blob[]> }
+export type CommentsClientFiles = Omit<CommentFiles, "files"> & (
+  | { files?: Blob[] | Promise<Blob[]>, deferredFiles?: undefined }
+  | { files?: Blob[], deferredFiles: Promise<Blob[]> }
+)
 
 export interface CommentsOutboxEngine extends CommentsOutbox {
   create: (input: CommentCreateInput & CommentsClientFiles) => Promise<CommentThread>
@@ -783,12 +787,12 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
         })
       }
     },
-    async create({ files, requestId, ...input }) {
+    async create({ files, deferredFiles, requestId, ...input }) {
       const entry = { ...fields(requestId, files), kind: "create" as const, input }
       const receipt = () => receipts.get(keyOf(entry)) ?? [...host.threads()].find(thread => matchesCreate(entry, thread))
       const earlier = receipt()
       if (earlier) return earlier
-      const queued = queueEntry(entry, files)
+      const queued = queueEntry(entry, deferredFiles ?? files)
       if (requestId !== undefined) {
         await queued.write
         const confirmed = receipt()
@@ -797,7 +801,7 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
       const saved = queued.local?.duplicate ?? entries.find(draft => draft.id === queued.entry.id) ?? queued.entry
       return localThread(saved.kind === "create" ? saved : entry)
     },
-    async reply({ files, requestId, subject, ...input }) {
+    async reply({ files, deferredFiles, requestId, subject, ...input }) {
       const threadId = realId(input.threadId)
       const parent = entries.find(entry => entry.kind === "create" && entry.id === threadId)
       const cached = serverThread(threadId)
@@ -805,7 +809,7 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
       const entry = { ...fields(requestId, files), kind: "reply" as const, input: { ...input, threadId }, ...(target ? { subject: target } : {}) }
       const earlier = receipts.get(keyOf(entry))
       if (earlier) return serverThread(earlier.id) ?? earlier
-      const queued = queueEntry(entry, files)
+      const queued = queueEntry(entry, deferredFiles ?? files)
       if (requestId !== undefined) await queued.write
       const saved = queued.local?.duplicate ?? queued.local?.entry ?? queued.entry
       const confirmed = receipts.get(keyOf(saved))

@@ -38,7 +38,7 @@ const thread = await comments.create({
 thread.delivery // { status: 'pending', requestId: '6f1c…', files: [Blob] }
 ```
 
-Pass `files` as an array of `Blob` or `File` objects or as a promise for that array. If saving deferred files fails, Retry saves them again before sending. Without Web Locks, the default outbox uses memory, and a custom store gets drafts in send order once their files are ready. This keeps another tab from sending them early. The page warns before unload while any drafts remain only in memory.
+Pass `files` as an array of `Blob` or `File` objects or as a promise for that array. When some files are ready and others render after Send, pass the ready ones as `files` and the rest as `deferredFiles`: a reload before the late ones arrive still sends the ready ones. If saving deferred files fails, Retry saves them again before sending. Without Web Locks, the default outbox uses memory, and a custom store gets drafts in send order once their files are ready. This keeps another tab from sending them early. The page warns before unload while any drafts remain only in memory.
 
 ## What the reader sees
 
