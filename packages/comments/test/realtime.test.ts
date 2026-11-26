@@ -198,8 +198,8 @@ describe("server writes", () => {
 
   it("keeps an HTTP write alive for a best-effort notice without Forge", async () => {
     const comments = defineComments({ identify: () => ada, authorize: () => true })
-    const delivery = Promise.withResolvers<void>()
-    const notify = vi.fn(() => delivery.promise)
+    let failDelivery: (error: Error) => void = () => {}
+    const notify = vi.fn(() => new Promise<void>((_resolve, reject) => { failDelivery = reject }))
     installComments(comments, { database: await createDatabase(), realtime: async () => ({ notifyCommentsChange: notify }) })
     const handler = createCommentsHandler({ comments, realtime: true })
     const response = vi.fn()
@@ -210,7 +210,7 @@ describe("server writes", () => {
     })).then(response)
     await vi.waitFor(() => expect(notify).toHaveBeenCalledOnce())
     expect(response).not.toHaveBeenCalled()
-    delivery.reject(new Error("Realtime unavailable"))
+    failDelivery(new Error("Realtime unavailable"))
     await write
     expect(response).toHaveBeenCalledWith(expect.objectContaining({ ok: true }))
   })
