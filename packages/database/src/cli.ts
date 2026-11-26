@@ -19,7 +19,7 @@ import { resolveConfigValue } from "./config-value.ts"
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 import { resolveLocalSqlitePath } from "./runtime/local-path.ts"
 import { readOldMigrationsLayout } from "./internal/migrations-layout.ts"
-import { addStatementBreakpoints } from "./internal/migration-sql.ts"
+import { addStatementBreakpoints, isNoTransactionMigration, splitSqlStatements } from "./internal/migration-sql.ts"
 
 import type { OldMigrationsLayout } from "./internal/migrations-layout.ts"
 
@@ -887,11 +887,10 @@ async function convertFlatMigrations(
   let snapshot: string
   let names: Record<string, string> | undefined
   try {
-    if (database.dialect !== "sqlite") throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: "Only SQLite and D1 support conversion of hand-written SQL. For Postgres, use a complete Drizzle Kit 0.x journal and snapshots or convert the files manually." })
     if ((await listMigrationFolders(dir)).some(folder => /^\d{14}_/.test(folder) || existsSync(join(dir, folder, "migration.sql")))) {
       throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: "The folder already contains migration folders. Move them out of the old migrations folder before converting it." })
     }
-    moves = await Promise.all(planFlatMigrationFolders(dir).map(async move => ({ ...move, sql: addStatementBreakpoints(await readFile(join(dir, move.file), "utf8")) })))
+    moves = await Promise.all(planFlatMigrationFolders(dir).map(async move => ({ ...move, sql: addStatementBreakpoints(await readFile(join(dir, move.file), "utf8"), database.dialect) })))
     if (!moves.length) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: "There are no flat SQL files to convert." })
     if (database.cloudflare) {
       const recorded = readD1MigrationNames(dir)
@@ -900,7 +899,9 @@ async function convertFlatMigrations(
     if (await readSchemaSnapshot(context, { bin, configFile, projectRoot }) === undefined) {
       throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: "Drizzle Kit could not read the current Database Definitions. See the Drizzle Kit output above." })
     }
-    snapshot = await readReplayedSqliteSnapshot(context, { bin, moves, projectRoot })
+    snapshot = database.dialect === "postgresql"
+      ? await readReplayedPostgresSnapshot(context, { bin, moves, projectRoot })
+      : await readReplayedSqliteSnapshot(context, { bin, moves, projectRoot })
   }
   catch (error) {
     writeFlatConversionError(context, database.name, directory, error)
@@ -959,6 +960,66 @@ async function readReplayedSqliteSnapshot(
     const generated = (await listMigrationFolders(out))[0]
     if (result.exitCode !== 0 || !generated) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: "Drizzle Kit could not write a snapshot of the replayed SQL." })
     return await readFile(join(out, generated, "snapshot.json"), "utf8")
+  }
+  finally {
+    await rm(dir, { force: true, recursive: true })
+  }
+}
+
+/**
+ * Replays Postgres SQL files on a temporary PGlite folder, and returns the snapshot that `drizzle-kit pull` writes for it.
+ * A file that starts with `-- vitehub:no-transaction` runs statement by statement, the others in one transaction each.
+ */
+async function readReplayedPostgresSnapshot(
+  context: ViteHubCliContext,
+  { bin, moves, projectRoot }: { bin: string, moves: readonly { file: string, sql: string }[], projectRoot: string },
+): Promise<string> {
+  let PGlite: typeof import("@electric-sql/pglite").PGlite
+  try {
+    PGlite = (createRequire(join(projectRoot, "package.json"))("@electric-sql/pglite") as typeof import("@electric-sql/pglite")).PGlite
+  }
+  catch (error) {
+    throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ cause: error, problem: "ViteHub replays Postgres SQL on PGlite to write the snapshot, but the project cannot load `@electric-sql/pglite`. Install it, for example with `pnpm add -D @electric-sql/pglite`." })
+  }
+  await mkdir(resolve(projectRoot, ".vitehub/database"), { recursive: true })
+  const dir = await mkdtemp(resolve(projectRoot, ".vitehub/database/migration-replay-"))
+  try {
+    const dataDir = join(dir, "pglite")
+    const database = new PGlite(dataDir)
+    try {
+      for (const { file, sql } of moves) {
+        const parts = sql.split("--> statement-breakpoint").filter(part => splitSqlStatements(part).length)
+        try {
+          if (isNoTransactionMigration(sql)) {
+            for (const statement of parts.flatMap(part => splitSqlStatements(part))) await database.query(statement)
+          }
+          else {
+            await database.transaction(async (tx) => {
+              for (const part of parts) await tx.exec(part)
+            })
+          }
+        }
+        catch (error) {
+          throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ cause: error, problem: `Could not replay ${file}: ${error instanceof Error ? error.message : String(error)}` })
+        }
+      }
+    }
+    finally {
+      await database.close()
+    }
+    const out = join(dir, "out")
+    const result = await context.spawn(process.execPath, [bin, "pull", "--dialect", "postgresql", "--driver", "pglite", "--url", dataDir, "--out", out], {
+      cwd: projectRoot,
+      env: withDrizzleKitErrorExit(context.env ?? process.env),
+      stderr: "inherit",
+      stdout: "pipe",
+    })
+    const generated = (await listMigrationFolders(out))[0]
+    if (result.exitCode !== 0 || !generated) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: "Drizzle Kit could not write a snapshot of the replayed SQL." })
+    const { markGeneratedPostgresNames } = await import("./internal/snapshot-uniques.ts")
+    const snapshot = JSON.parse(await readFile(join(out, generated, "snapshot.json"), "utf8")) as Parameters<typeof markGeneratedPostgresNames>[0]
+    markGeneratedPostgresNames(snapshot)
+    return JSON.stringify(snapshot, null, 2)
   }
   finally {
     await rm(dir, { force: true, recursive: true })

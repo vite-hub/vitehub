@@ -26,7 +26,7 @@ const identifier = String.raw`(?:"(?:[^"]|"")+"|'(?:[^']|'')+'|\x60(?:[^\x60]|\x
 const qualifiedName = String.raw`(?:${identifier}\s*\.\s*)?${identifier}`
 const schemaQualifiedTable = new RegExp(String.raw`^${identifier}\.${identifier}$`)
 
-/** Splits SQL into statements at semicolons outside of quotes and comments. Comments are removed. */
+/** Splits SQL into statements at semicolons outside of quotes, Postgres dollar quotes, and comments. Comments are removed. */
 export function splitSqlStatements(sql: string): string[] {
   return scanSqlStatements(sql).statements
 }
@@ -37,10 +37,17 @@ const statementBreakpoint = "--> statement-breakpoint"
  * Adds Drizzle's `--> statement-breakpoint` between the statements of each part of a migration, such as a hand-written
  * file that Wrangler runs as one script, or a custom migration. Drizzle runs each part with one libSQL `execute()`,
  * which runs only the first statement and drops the rest without an error. A part with one statement stays as it is,
- * so a file that Drizzle Kit wrote keeps its bytes and its hash. The statements of a trigger body stay together.
+ * so a file that Drizzle Kit wrote keeps its bytes and its hash. The statements of a SQLite trigger body stay together.
  */
-export function addStatementBreakpoints(sql: string): string {
-  return sql.split(statementBreakpoint).map(addPartBreakpoints).join(statementBreakpoint)
+export function addStatementBreakpoints(sql: string, dialect: DatabaseDialect = "sqlite"): string {
+  return sql.split(statementBreakpoint).map(part => addPartBreakpoints(part, dialect)).join(statementBreakpoint)
+}
+
+const noTransactionMarker = "-- vitehub:no-transaction"
+
+/** True when the first line that is not blank is `-- vitehub:no-transaction`. Postgres runs such a file outside a transaction. */
+export function isNoTransactionMigration(sql: string): boolean {
+  return sql.trimStart().split("\n", 1)[0]!.trim() === noTransactionMarker
 }
 
 /**
@@ -54,13 +61,13 @@ export function migrationParts(sql: string, dialect: DatabaseDialect): string[] 
     .filter(part => splitSqlStatements(part).length)
 }
 
-function addPartBreakpoints(sql: string): string {
+function addPartBreakpoints(sql: string, dialect: DatabaseDialect): string {
   const { ends, statements } = scanSqlStatements(sql)
   if (statements.length < 2) return sql
   const cuts: number[] = []
   let trigger = false
   for (const [index, statement] of statements.entries()) {
-    if (/^CREATE\s+(?:TEMP(?:ORARY)?\s+)?TRIGGER\b/i.test(statement)) trigger = true
+    if (dialect === "sqlite" && /^CREATE\s+(?:TEMP(?:ORARY)?\s+)?TRIGGER\b/i.test(statement)) trigger = true
     if (trigger && !/^END\s*;$/i.test(statement)) continue
     trigger = false
     if (index < statements.length - 1) cuts.push(ends[index]!)
@@ -107,6 +114,14 @@ function scanSqlStatements(sql: string): { ends: number[], statements: string[] 
       const end = sql.indexOf("*/", index + 2)
       index = end === -1 ? sql.length : end + 1
       current += " "
+      continue
+    }
+    const dollarQuote = char === "$" && !/[\w$]/.test(sql[index - 1] ?? "") ? /^\$(?:[A-Z_a-z]\w*)?\$/.exec(sql.slice(index, index + 64))?.[0] : undefined
+    if (dollarQuote) {
+      const end = sql.indexOf(dollarQuote, index + dollarQuote.length)
+      const stop = end === -1 ? sql.length : end + dollarQuote.length
+      current += sql.slice(index, stop)
+      index = stop - 1
       continue
     }
     if (char === "'" || char === "\"" || char === "`") {

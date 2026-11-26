@@ -64,3 +64,37 @@ export function recordUniqueIndexesAsConstraints(snapshot: SqliteSnapshot, schem
   })
   return replaced
 }
+
+interface PostgresDdlEntity extends SqliteDdlEntity {
+  columnsTo?: unknown[]
+  nameExplicit?: boolean
+  tableTo?: string
+}
+
+function generatedNames(entity: PostgresDdlEntity): string[] {
+  const columns = columnNames(entity)
+  if (!entity.table || !columns) return []
+  const prefix = `${entity.table}_${columns.join("_")}`
+  switch (entity.entityType) {
+    case "pks": return [`${entity.table}_pkey`, `${prefix}_pk`]
+    case "uniques": return [`${prefix}_key`, `${prefix}_unique`]
+    case "indexes": return [`${prefix}_idx`, `${prefix}_index`]
+    case "fks": {
+      const to = `${prefix}_${entity.tableTo}_${(entity.columnsTo ?? []).join("_")}`
+      return [`${prefix}_fkey`, `${to}_fk`, `${to}_fkey`]
+    }
+    default: return []
+  }
+}
+
+/**
+ * `drizzle-kit pull` marks every constraint and index name as explicit. This marks the names that Postgres, Drizzle Kit
+ * 0.x, or Drizzle Kit 1.0 generate as not explicit, as `drizzle-kit up` does for a Drizzle Kit 0.x snapshot. `generate` then keeps these
+ * names when the Definitions do not name the constraint, instead of renaming it. Postgres cuts names to 63 bytes.
+ */
+export function markGeneratedPostgresNames(snapshot: { ddl: PostgresDdlEntity[] }): void {
+  for (const entity of snapshot.ddl) {
+    if (entity.nameExplicit !== true || !entity.name) continue
+    if (generatedNames(entity).some(name => name.slice(0, 63) === entity.name)) entity.nameExplicit = false
+  }
+}
