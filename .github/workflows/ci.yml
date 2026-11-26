@@ -937,6 +937,7 @@ jobs:
           # The GitHub account of onmax. Only it gets the admin role on the demo.
           DOCS_DEMO_VITEHUB_ADMINS: github:22072217
           DOCS_DEMO_VITEHUB_CONNECTIONS_KEY: ${{ secrets.DOCS_DEMO_VITEHUB_CONNECTIONS_KEY }}
+          DOCS_DEMO_VITEHUB_CONSOLE_KEY_CONSOLE_EEA4BC40: pOQOpntfohbDXhBVLmeT00oUY0NsU7mp2ExhzIKeSAQ
           DOCS_DEMO_VITEHUB_CONTENT_KEY: ${{ secrets.DOCS_DEMO_VITEHUB_CONTENT_KEY }}
           DOCS_DEMO_VITEHUB_SECRET: ${{ secrets.DOCS_DEMO_VITEHUB_SECRET }}
         run: |
