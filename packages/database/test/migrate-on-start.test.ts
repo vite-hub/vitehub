@@ -1384,7 +1384,7 @@ describe("migratePostgres", () => {
    * A postgres.js client that records each query and answers the lock, identity, and ledger reads. `ledger` undefined
    * has no table; rows without `name` make a Drizzle Kit 0.x table.
    */
-  function fakeClient({ database = "app", events, fail, ledger, locked = true, role = "app", schemas = ["public"], started = "1794260759.623267" }: { database?: string, events?: string[], fail?: string, ledger?: FakeRow[], locked?: boolean, role?: string, schemas?: string[], started?: string }) {
+  function fakeClient({ busy = 0, database = "app", events, fail, ledger, role = "app", schemas = ["public"], started = "1794260759.623267" }: { busy?: number, database?: string, events?: string[], fail?: string, ledger?: FakeRow[], role?: string, schemas?: string[], started?: string }) {
     const queries: Array<[string, unknown[] | undefined]> = []
     const named = ledger?.every(row => row.name !== undefined)
     const sql: PostgresMigrationSql = {
@@ -1392,7 +1392,7 @@ describe("migratePostgres", () => {
         queries.push([query, parameters])
         events?.push(`${database}: ${query}`)
         if (query === fail) throw new Error("relation \"missing_table\" does not exist")
-        if (query.startsWith("select pg_try_advisory_xact_lock")) return [{ locked }]
+        if (query.startsWith("select pg_try_advisory_xact_lock")) return [{ locked: busy-- <= 0 }]
         if (query.startsWith("select current_database()")) return [{ database, role, schemas, started }]
         if (query.startsWith("select to_regclass(")) return [{ ledger: ledger ? "drizzle.__drizzle_migrations" : null }]
         if (query.startsWith("select column_name")) return ledger ? ["id", "hash", "created_at", ...named ? ["name", "applied_at"] : []].map(column_name => ({ column_name })) : []
@@ -1455,13 +1455,18 @@ describe("migratePostgres", () => {
     expect(queries.map(([query]) => query)).not.toContain("CREATE TABLE a (id int)")
   })
 
-  it("says that it waits when another process holds the lock", async () => {
-    const { client, queries } = fakeClient({ locked: false })
+  it("says that it waits when another process holds the lock, and tries again instead of blocking", async () => {
+    const { client, queries } = fakeClient({ busy: 2 })
     const log: string[] = []
     await migratePostgres([{ client, database: { migrations: [], name: "default" } }], { log: message => log.push(message) })
-    expect(queries[1]).toEqual(["select pg_advisory_xact_lock(hashtext($1))", [postgresMigrationLock]])
-    expect(queries[2]).toEqual(["set local lock_timeout = '5s'", undefined])
-    expect(log[0]).toBe('[vitehub] Database "default": another process is applying migrations. Waiting for it to finish.')
+    expect(queries.slice(0, 4)).toEqual([
+      ["select pg_try_advisory_xact_lock(hashtext($1)) as locked", [postgresMigrationLock]],
+      ["select pg_try_advisory_xact_lock(hashtext($1)) as locked", [postgresMigrationLock]],
+      ["select pg_try_advisory_xact_lock(hashtext($1)) as locked", [postgresMigrationLock]],
+      ["set local lock_timeout = '5s'", undefined],
+    ])
+    expect(queries.map(([query]) => query)).not.toContain("select pg_advisory_xact_lock(hashtext($1))")
+    expect(log).toEqual(['[vitehub] Database "default": another process is applying migrations. Waiting for it to finish.'])
   })
 
   it("names the migration that failed", async () => {

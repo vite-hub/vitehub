@@ -206,8 +206,25 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Run `vitehub database migrate --dry-run` to read the SQL. To keep the data, change the schema or edit the migration. To accept the loss, back up the data and run `vitehub database migrate --allow-data-loss`, or set `database.migrateOnStart: { allowDataLoss: true }` for the next build. To accept it for one start of a built server, such as a container, set `VITEHUB_DATABASE_ALLOW_DATA_LOSS=1`.",
     },
     DATABASE_MIGRATION_FAILED: {
-      why: ({ database, migration, problem }: { database: string, migration: string, problem: string }) => `The migration "${migration}" of the database "${database}" failed: ${problem} The database rolled back every pending migration of this run.`,
-      fix: "Fix the SQL of the migration, or the data that it conflicts with, and apply it again with `vitehub database migrate` or a new server start. The server does not handle requests until the migrations apply.",
+      why: ({ database, kept, migration, problem }: { database: string, kept?: readonly string[], migration: string, needsMarker?: boolean, problem: string }) => `The migration "${migration}" of the database "${database}" failed: ${problem} ${kept
+        ? `The database rolled back this migration.${kept.length ? ` It keeps the migrations that this run applied before it: ${kept.join(", ")}.` : ""}`
+        : "The database rolled back every pending migration of this run."}`,
+      fix: ({ needsMarker }: { needsMarker?: boolean }) => [
+        needsMarker ? "Postgres cannot run this statement in a transaction. Move it to a migration file of its own whose first line is `-- vitehub:no-transaction`, so ViteHub runs that file outside the transaction, one statement at a time. Write its statements with `IF NOT EXISTS`, so the file can run again." : "Fix the SQL of the migration, or the data that it conflicts with.",
+        "Then apply it again with `vitehub database migrate` or a new server start. The server does not handle requests until the migrations apply.",
+      ].join(" "),
+    },
+    DATABASE_MIGRATION_PARTLY_APPLIED: {
+      why: ({ applied, database, invalidIndexes, migration, problem, statement }: { applied: number, database: string, invalidIndexes?: readonly string[], migration: string, problem: string, statement: string }) => [
+        `The migration "${migration}" of the database "${database}" runs outside a transaction (\`-- vitehub:no-transaction\`), and its statement ${applied + 1} failed: ${problem}`,
+        `Statement: ${statement}`,
+        `The ${applied} statement(s) before it stay applied. The migration is not recorded, so the next run starts again at its first statement.`,
+        invalidIndexes === undefined ? "ViteHub could not list the invalid indexes." : invalidIndexes.length ? `Invalid indexes:${fileList(invalidIndexes)}` : "",
+      ].filter(Boolean).join("\n"),
+      fix: ({ invalidIndexes }: { invalidIndexes?: readonly string[] }) => [
+        invalidIndexes?.length !== 0 ? "Drop each invalid index with `DROP INDEX CONCURRENTLY IF EXISTS <name>` in `vitehub database sql`, because `CREATE INDEX CONCURRENTLY IF NOT EXISTS` keeps an invalid index as it is." : "",
+        "Fix the failed statement, or the data that it conflicts with. Write every statement of the file so it can run again, for example with `IF NOT EXISTS`. Then run `vitehub database migrate` or start the server again.",
+      ].filter(Boolean).join(" "),
     },
     DATABASE_MIGRATE_ON_START_UNSUPPORTED: {
       why: ({ database, problem }: { database?: string, problem: string }) => `\`database.migrateOnStart\` and \`ensureMigrations()\` apply migrations only to local SQLite files, Cloudflare D1 over HTTP, and Postgres in a Node server${database ? `, and cannot migrate the database "${database}"` : ""}. ${problem}`,

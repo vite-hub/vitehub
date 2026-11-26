@@ -321,6 +321,47 @@ describe("migrations on start on PGlite", () => {
   })
 })
 
+describe("-- vitehub:no-transaction migrations on PGlite", () => {
+  const migration = (name: string, when: number, statements: string[], noTransaction?: true) => ({ dataLoss: [], hash: name, name, statements, when, ...noTransaction && { noTransaction } })
+  const init = migration("init", 1, ["CREATE TABLE \"notes\" (\"id\" serial PRIMARY KEY, \"title\" text)", "INSERT INTO \"notes\" (\"title\") VALUES ('a'), ('b')"])
+
+  it("runs a marked migration outside the transaction, statement by statement, and records it after its last statement", async () => {
+    const { PGlite } = await import("@electric-sql/pglite")
+    const { drizzle } = await import("drizzle-orm/pglite")
+    const client = new PGlite("memory://")
+    const log = vi.fn()
+    try {
+      await migrateOnStart([{ db: drizzle({ client }), dialect: "postgresql", migrations: [
+        init,
+        migration("index", 2, ["CREATE INDEX CONCURRENTLY IF NOT EXISTS \"notes_title\" ON \"notes\" (\"title\")", "VACUUM \"notes\""], true),
+        migration("body", 3, ["ALTER TABLE \"notes\" ADD COLUMN \"body\" text"]),
+      ], name: "default" }], { log })
+
+      const { rows } = await client.query("select name from drizzle.__drizzle_migrations order by id")
+      expect(rows).toEqual([{ name: "init" }, { name: "index" }, { name: "body" }])
+      await expect(client.query("select indisvalid from pg_index where indexrelid = 'notes_title'::regclass")).resolves.toMatchObject({ rows: [{ indisvalid: true }] })
+      expect(log.mock.calls.map(([message]) => message)).toEqual(["init", "index", "body"].map(name => `[vitehub] Database "default": applied ${name}.`))
+    }
+    finally {
+      await client.close()
+    }
+  })
+
+  it("names the marker when Postgres refuses a statement in the transaction", async () => {
+    const { PGlite } = await import("@electric-sql/pglite")
+    const { drizzle } = await import("drizzle-orm/pglite")
+    const client = new PGlite("memory://")
+    try {
+      await expect(migrateOnStart([{ db: drizzle({ client }), dialect: "postgresql", migrations: [init, migration("index", 2, ["CREATE INDEX CONCURRENTLY \"notes_title\" ON \"notes\" (\"title\")"])], name: "default" }], { log: () => {} }))
+        .rejects.toMatchObject({ code: "DATABASE_MIGRATION_FAILED", fix: expect.stringContaining("first line is `-- vitehub:no-transaction`"), why: expect.stringContaining("cannot run inside a transaction block") })
+      await expect(client.query("select to_regclass('drizzle.__drizzle_migrations') as ledger")).resolves.toMatchObject({ rows: [{ ledger: null }] })
+    }
+    finally {
+      await client.close()
+    }
+  })
+})
+
 describe("a Postgres Database on PGlite in app tests", () => {
   const root = join(import.meta.dirname, ".pglite-test-mode")
 

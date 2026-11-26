@@ -417,7 +417,7 @@ describe.skipIf(!adminUrl)("database.migrateOnStart on Postgres", () => {
     const sql = connect(url)
     await (await buildNodeServer(root, {})).start(url)
 
-    const dropLegacy = { sql: "DROP TABLE \"legacy\";", tag: "20231114221321_drop_legacy", when: seed.when }
+    const dropLegacy = { sql: "SELECT pg_sleep(4);\n--> statement-breakpoint\nDROP TABLE \"legacy\";", tag: "20231114221321_drop_legacy", when: seed.when }
     const migrationsDir = await writeMigrations(root, [init, dropLegacy])
     const server = await buildNodeServer(root, {})
     // The CLI holds the lock while it applies the drop. The server must read the ledger after that commit.
@@ -428,15 +428,11 @@ describe.skipIf(!adminUrl)("database.migrateOnStart on Postgres", () => {
       rootDir: root,
     }) as unknown as ResolvedDBViteConfig)!
     const command = contributor.namespaces[0]!.features.find(feature => feature.name === "migrate")!
-    // A holder stands in for a long migration: it takes the lock first, so the CLI and the server queue behind it.
-    const holder = await holdLock(sql)
     const cliOut = vi.fn()
     const cli = command.run(["--allow-data-loss"], { env: process.env, rootDir: root, spawn: () => Promise.reject(new Error("drizzle-kit must not run")), stderr: { write: cliOut }, stdout: { write: cliOut } } as never)
-    // Postgres queues lock requests in order. Start the server only when the CLI waits, so the CLI applies first.
-    await vi.waitFor(() => expect(cliOut.mock.calls.map(([chunk]) => String(chunk)).join("")).toContain("Waiting for it to finish"), { interval: 50, timeout: 20_000 })
+    await vi.waitFor(async () => expect(await sql`select count(*)::int as count from pg_stat_activity where datname = current_database() and pid <> pg_backend_pid() and query like '%pg_sleep(4)%'`).toEqual([{ count: 1 }]), { interval: 50, timeout: 20_000 })
     const booting = server.startUntil(url, "Waiting for it to finish")
     await booting.seen
-    await holder.release()
     expect(await cli).toBe(0)
     const { code, stderr, stdout } = await booting.exited
     expect({ code, stderr }).toEqual({ code: 0, stderr: "" })
@@ -613,5 +609,125 @@ describe.skipIf(!adminUrl)("database.migrateOnStart on Postgres", () => {
       { client: newYork, database: { migrations: [entry("b0", 2_000, "CREATE TABLE b0 (id int)")], name: "second" } },
     ], { log: message => log.push(message) })
     expect(log).toEqual(['[vitehub] Database "first": applied a0.', '[vitehub] Database "second": applied b0.'])
+  })
+})
+
+describe.skipIf(!adminUrl)("-- vitehub:no-transaction migrations on Postgres", () => {
+  const usersName = { sql: "-- vitehub:no-transaction\nCREATE INDEX CONCURRENTLY IF NOT EXISTS \"users_name\" ON \"users\" (\"name\");\nVACUUM \"users\";\n", tag: "20231114221324_users_name", when: 1_700_000_004_000 }
+  const addPhone = { sql: "ALTER TABLE \"users\" ADD COLUMN \"phone\" text;", tag: "20231114221325_add_phone", when: 1_700_000_005_000 }
+  const entry = (name: string, when: number, statements: string[], noTransaction?: true) => ({ dataLoss: [], hash: `hash-${name}`, name, statements, when, ...noTransaction && { noTransaction } })
+  const advisoryLocks = (sql: postgres.Sql) => sql`select count(*)::int as count from pg_locks where locktype = 'advisory'`
+
+  it("runs a marked file outside the transaction and records it after its last statement, when four servers start together", { timeout: 120_000 }, async () => {
+    const { root } = await createProject([init, seed, usersName, addPhone])
+    const url = await createDatabase()
+    const server = await buildNodeServer(root, {})
+
+    const runs = await Promise.all(Array.from({ length: 4 }, () => server.start(url)))
+    const lines = runs.flatMap(run => run.stdout.trim().split("\n"))
+    for (const tag of [init.tag, seed.tag, usersName.tag, addPhone.tag]) expect(lines.filter(line => line.includes(`applied ${tag}`))).toEqual([`[vitehub] Database "default": applied ${tag}.`])
+    expect(lines.filter(line => line.includes("Waiting for it to finish")).length).toBeGreaterThan(0)
+    for (const run of runs) expect(run.stdout.trim().split("\n").at(-1)).toBe(JSON.stringify([{ id: 7, name: "Ada" }]))
+
+    const sql = connect(url)
+    expect((await readLedger(sql)).map(row => [row.name, row.applied])).toEqual([[init.tag, true], [seed.tag, true], [usersName.tag, true], [addPhone.tag, true]])
+    expect(await sql`select indisvalid from pg_index where indexrelid = 'users_name'::regclass`).toEqual([{ indisvalid: true }])
+    expect(await advisoryLocks(sql)).toEqual([{ count: 0 }])
+  })
+
+  it("a waiting process does not deadlock CREATE INDEX CONCURRENTLY", { timeout: 30_000 }, async () => {
+    const url = await createDatabase()
+    const sql = connect(url)
+    await sql`create table items (id integer)`
+    const holder = await connect(url).reserve()
+    cleanups.push(async () => holder.release())
+    await holder`select pg_advisory_lock(hashtext(${postgresMigrationLock}))`
+    const log: string[] = []
+    const waiting = migratePostgres([{ client: connect(url), database: { migrations: [entry(init.tag, init.when, ["CREATE TABLE \"users\" (\"id\" integer)"])], name: "default" } }], { log: message => log.push(message) })
+    await vi.waitFor(() => expect(log).toContain('[vitehub] Database "default": another process is applying migrations. Waiting for it to finish.'), { interval: 50, timeout: 10_000 })
+
+    // A waiter that blocks in a transaction makes the index build wait for it, and Postgres ends one of them with 40P01.
+    await holder`create index concurrently items_id on items (id)`
+    await holder`select pg_advisory_unlock(hashtext(${postgresMigrationLock}))`
+    await expect(waiting).resolves.toEqual([init.tag])
+    expect(await sql`select indisvalid from pg_index where indexrelid = 'items_id'::regclass`).toEqual([{ indisvalid: true }])
+  })
+
+  it("keeps the statements before a failed one, records nothing, lists the invalid index, and applies on the next run", { timeout: 30_000 }, async () => {
+    const url = await createDatabase()
+    const sql = connect(url)
+    await sql`create table users (id integer primary key, email text)`
+    await sql`insert into users values (1, 'ada@example.com'), (2, 'ada@example.com')`
+    const unique = entry("20231114221321_unique_email", seed.when, [
+      "ALTER TABLE \"users\" ADD COLUMN IF NOT EXISTS \"note\" text;",
+      "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS \"users_email\" ON \"users\" (\"email\");",
+    ], true)
+    const run = () => migratePostgres([{ client: sql, database: { migrations: [unique], name: "default" } }], { log: () => {} })
+
+    await expect(run()).rejects.toMatchObject({
+      code: "DATABASE_MIGRATION_PARTLY_APPLIED",
+      fix: expect.stringContaining("`DROP INDEX CONCURRENTLY IF EXISTS <name>`"),
+      why: expect.stringMatching(/statement 2 failed: could not create unique index "users_email"[\s\S]*Statement: CREATE UNIQUE INDEX CONCURRENTLY[\s\S]*The 1 statement\(s\) before it stay applied[\s\S]*public\.users_email/),
+    })
+    expect(await sql`select column_name from information_schema.columns where table_name = 'users' and column_name = 'note'`).toEqual([{ column_name: "note" }])
+    expect(await readLedger(sql)).toEqual([])
+    expect(await advisoryLocks(sql)).toEqual([{ count: 0 }])
+
+    await sql`delete from users where id = 2`
+    await sql`drop index concurrently if exists users_email`
+    await expect(run()).resolves.toEqual([unique.name])
+    expect(await sql`select indisvalid from pg_index where indexrelid = 'users_email'::regclass`).toEqual([{ indisvalid: true }])
+    expect((await readLedger(sql)).map(row => row.name)).toEqual([unique.name])
+  })
+
+  it("names the marker when Postgres refuses a statement in the transaction, and keeps a marked file applied before a failure", { timeout: 30_000 }, async () => {
+    const url = await createDatabase()
+    const sql = connect(url)
+    await sql`create table items (id integer)`
+    const index = entry("a1_index", 1_000, ["CREATE INDEX CONCURRENTLY IF NOT EXISTS \"items_id\" ON \"items\" (\"id\")"])
+    const migrate = (migrations: Array<ReturnType<typeof entry>>) => migratePostgres([{ client: sql, database: { migrations, name: "default" } }], { log: () => {} })
+
+    await expect(migrate([index])).rejects.toMatchObject({
+      code: "DATABASE_MIGRATION_FAILED",
+      fix: expect.stringContaining("first line is `-- vitehub:no-transaction`"),
+      why: expect.stringContaining("cannot run inside a transaction block"),
+    })
+    expect(await sql`select to_regclass('drizzle.__drizzle_migrations')::text as name`).toEqual([{ name: null }])
+
+    const failed = migrate([{ ...index, noTransaction: true }, entry("a2_broken", 2_000, ["INSERT INTO \"missing_table\" VALUES (1)"])])
+    await expect(failed).rejects.toMatchObject({ code: "DATABASE_MIGRATION_FAILED", why: expect.stringContaining("It keeps the migrations that this run applied before it: a1_index.") })
+    await expect(failed).rejects.toMatchObject({ fix: expect.not.stringContaining("no-transaction") })
+    expect((await readLedger(sql)).map(row => row.name)).toEqual([index.name])
+    expect(await advisoryLocks(sql)).toEqual([{ count: 0 }])
+  })
+
+  it("shows the marked file in `vitehub database migrate --dry-run`, and `vitehub database migrate` applies it", { timeout: 60_000 }, async () => {
+    const { migrationsDir, root } = await createProject([init, usersName])
+    const url = await createDatabase()
+    const contributor = createDbCliContributor(undefined, () => ({
+      databaseNames: ["default"],
+      databases: { default: postgresDatabase(url, migrationsDir) },
+      generatedDrizzleConfigFile: join(root, "drizzle.config.ts"),
+      rootDir: root,
+    }) as unknown as ResolvedDBViteConfig)!
+    const command = contributor.namespaces[0]!.features.find(feature => feature.name === "migrate")!
+    const run = async (args: string[]) => {
+      const out = vi.fn()
+      const err = vi.fn()
+      const exitCode = await command.run(args, { env: process.env, rootDir: root, spawn: () => Promise.reject(new Error("drizzle-kit must not run")), stderr: { write: err }, stdout: { write: out } } as never)
+      return { exitCode, stderr: err.mock.calls.map(([chunk]) => String(chunk)).join(""), stdout: out.mock.calls.map(([chunk]) => String(chunk)).join("") }
+    }
+
+    const dryRun = await run(["--dry-run"])
+    expect(dryRun).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(dryRun.stdout).toContain(`  ${init.tag}\n`)
+    expect(dryRun.stdout).toContain(`  ${usersName.tag} (outside a transaction, one statement at a time)\n`)
+
+    const migrated = await run([])
+    expect(migrated).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(migrated.stdout).toContain(`[vitehub] Database "default": applied ${usersName.tag}.`)
+    const sql = connect(url)
+    expect((await readLedger(sql)).map(row => row.name)).toEqual([init.tag, usersName.tag])
+    expect(await sql`select indisvalid from pg_index where indexrelid = 'users_name'::regclass`).toEqual([{ indisvalid: true }])
   })
 })

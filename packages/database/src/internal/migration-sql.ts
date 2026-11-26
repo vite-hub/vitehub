@@ -54,6 +54,22 @@ export function migrationParts(sql: string, dialect: DatabaseDialect): string[] 
     .filter(part => splitSqlStatements(part).length)
 }
 
+/** The first line of a Postgres migration that runs outside the transaction, statement by statement. */
+export const noTransactionMarker = "-- vitehub:no-transaction"
+
+/** Whether the first non-blank line of `sql` is `noTransactionMarker`. */
+export function hasNoTransactionMarker(sql: string): boolean {
+  return sql.split("\n").find(line => line.trim())?.trim() === noTransactionMarker
+}
+
+/**
+ * The statements of a Postgres migration with `noTransactionMarker`, one by one. Postgres runs a query of several
+ * statements as one transaction, so each one goes alone. Dollar-quoted bodies stay whole.
+ */
+export function noTransactionStatements(sql: string): string[] {
+  return sql.split(statementBreakpoint).flatMap(part => scanSqlStatements(part, { dollarQuotes: true }).statements)
+}
+
 function addPartBreakpoints(sql: string): string {
   const { ends, statements } = scanSqlStatements(sql)
   if (statements.length < 2) return sql
@@ -75,7 +91,7 @@ function addPartBreakpoints(sql: string): string {
 }
 
 /** The statements of `splitSqlStatements()`, and the index after the semicolon that ends each one. */
-function scanSqlStatements(sql: string): { ends: number[], statements: string[] } {
+function scanSqlStatements(sql: string, { dollarQuotes = false } = {}): { ends: number[], statements: string[] } {
   const ends: number[] = []
   const statements: string[] = []
   let current = ""
@@ -83,6 +99,14 @@ function scanSqlStatements(sql: string): { ends: number[], statements: string[] 
   for (let index = 0; index < sql.length; index++) {
     const char = sql[index]!
     const next = sql[index + 1]
+    const tag = dollarQuotes && !quote && char === "$" && !/[\w$]/.test(sql[index - 1] ?? "") ? /^\$(?:[A-Z_a-z]\w*)?\$/.exec(sql.slice(index))?.[0] : undefined
+    if (tag) {
+      const close = sql.indexOf(tag, index + tag.length)
+      const end = close === -1 ? sql.length : close + tag.length
+      current += sql.slice(index, end)
+      index = end - 1
+      continue
+    }
     if (quote) {
       current += char
       if (char === quote) {

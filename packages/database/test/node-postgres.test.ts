@@ -211,6 +211,34 @@ describe.skipIf(!adminUrl)("driver: \"node-postgres\" on Postgres", () => {
     expect(await db.query.notes.findFirst({ where: { id: 2 } })).toEqual({ id: 2, title: "Grace" })
   })
 
+  it("runs a `-- vitehub:no-transaction` migration on one Pool client, names the invalid index of a failed statement, and applies on the next run", { timeout: 30_000 }, async () => {
+    fake.enabled = false
+    const url = await createDatabase()
+    const { createNodePostgresDatabase } = await import("../src/runtime/node-postgres.ts")
+    const { migrateOnStart } = await import("../src/runtime/migrate-on-start.ts")
+    const db = createNodePostgresDatabase({ ...definition, connection: { url } }, { binding: "HYPERDRIVE" })
+    const pool = Reflect.get(db, "$client") as import("pg").Pool
+    cleanups.push(() => pool.end())
+
+    const init = { dataLoss: [], hash: "h1", name: "20260101000000_init", statements: ["CREATE TABLE \"notes\" (\"id\" integer PRIMARY KEY, \"title\" text NOT NULL);", "INSERT INTO \"notes\" VALUES (1, 'Ada'), (2, 'Ada');"], when: 1_767_225_600_000 }
+    const unique = { dataLoss: [], hash: "h2", name: "20260102000000_unique_title", noTransaction: true as const, statements: ["CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS \"notes_title\" ON \"notes\" (\"title\");", "VACUUM \"notes\";"], when: 1_767_312_000_000 }
+    const migrate = () => migrateOnStart([{ db, dialect: "postgresql", migrations: [init, unique], name: "default" }], { log: () => {} })
+
+    await expect(migrate()).rejects.toMatchObject({
+      code: "DATABASE_MIGRATION_PARTLY_APPLIED",
+      why: expect.stringMatching(/statement 1 failed: could not create unique index "notes_title"[\s\S]*Invalid indexes:[\s\S]*public\.notes_title/),
+    })
+    const ledger = async () => (await pool.query("select name from drizzle.__drizzle_migrations order by id")).rows
+    expect(await ledger()).toEqual([{ name: init.name }])
+    expect((await pool.query("select count(*)::int as count from pg_locks where locktype = 'advisory'")).rows).toEqual([{ count: 0 }])
+
+    await pool.query("delete from notes where id = 2")
+    await pool.query("drop index concurrently if exists notes_title")
+    await expect(migrate()).resolves.toBeUndefined()
+    expect(await ledger()).toEqual([{ name: init.name }, { name: unique.name }])
+    expect((await pool.query("select indisvalid from pg_index where indexrelid = 'notes_title'::regclass")).rows).toEqual([{ indisvalid: true }])
+  })
+
   it("applies `vitehub database migrate` with node-postgres when the project has no postgres.js", { timeout: 30_000 }, async () => {
     fake.enabled = false
     const url = await createDatabase()

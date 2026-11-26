@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite"
 
 import { describe, expect, it } from "vitest"
 
-import { addStatementBreakpoints, findDataLoss, splitSqlStatements, withoutNewTableDataLoss } from "../src/internal/migration-sql.ts"
+import { addStatementBreakpoints, findDataLoss, hasNoTransactionMarker, noTransactionStatements, splitSqlStatements, withoutNewTableDataLoss } from "../src/internal/migration-sql.ts"
 
 it("preserves same-line statements in a whole script with existing breakpoints", () => {
   const sql = "CREATE TABLE notes (id INTEGER);\n--> statement-breakpoint\nINSERT INTO notes VALUES (1); INSERT INTO notes VALUES (2);"
@@ -11,6 +11,33 @@ it("preserves same-line statements in a whole script with existing breakpoints",
   using database = new DatabaseSync(":memory:")
   database.exec(rewritten)
   expect(database.prepare("SELECT id FROM notes ORDER BY id").all()).toEqual([{ id: 1 }, { id: 2 }])
+})
+
+describe("-- vitehub:no-transaction", () => {
+  it("reads the marker only on the first non-blank line", () => {
+    expect(hasNoTransactionMarker("\n  -- vitehub:no-transaction  \nCREATE INDEX CONCURRENTLY a ON t (id);")).toBe(true)
+    expect(hasNoTransactionMarker("-- vitehub:no-transaction\r\nVACUUM t;")).toBe(true)
+    expect(hasNoTransactionMarker("CREATE TABLE t (id int);\n-- vitehub:no-transaction")).toBe(false)
+    expect(hasNoTransactionMarker("-- vitehub:no-transactions\nVACUUM t;")).toBe(false)
+  })
+
+  it("splits a marked file into single statements, across breakpoints, and keeps dollar-quoted bodies whole", () => {
+    const sql = [
+      "-- vitehub:no-transaction",
+      "CREATE INDEX CONCURRENTLY IF NOT EXISTS a ON t (id); VACUUM t;",
+      "--> statement-breakpoint",
+      "DO $body$ BEGIN PERFORM 1; RAISE NOTICE 'a;b'; END $body$;",
+      "CREATE FUNCTION f() RETURNS int AS $$ SELECT 1; $$ LANGUAGE sql;",
+      "SELECT 'it''s; fine', price$1 FROM t;",
+    ].join("\n")
+    expect(noTransactionStatements(sql)).toEqual([
+      "CREATE INDEX CONCURRENTLY IF NOT EXISTS a ON t (id);",
+      "VACUUM t;",
+      "DO $body$ BEGIN PERFORM 1; RAISE NOTICE 'a;b'; END $body$;",
+      "CREATE FUNCTION f() RETURNS int AS $$ SELECT 1; $$ LANGUAGE sql;",
+      "SELECT 'it''s; fine', price$1 FROM t;",
+    ])
+  })
 })
 
 function reasons(sql: string | string[], before?: Map<string, string[]>) {

@@ -17,6 +17,8 @@ export interface StartMigration {
   hash: string
   /** The migration folder name, which Drizzle's ledger stores in `name`. */
   name: string
+  /** A Postgres migration whose first line is `-- vitehub:no-transaction`. `statements` has one statement each. */
+  noTransaction?: true
   statements: string[]
   /** The folder timestamp in milliseconds, which Drizzle's ledger stores as `created_at`. */
   when: number
@@ -444,9 +446,17 @@ export interface PostgresMigrationSql {
   unsafe: (query: string, parameters?: Array<number | string>) => PromiseLike<ArrayLike<Record<string, unknown>>>
 }
 
+/** One connection of a client that a run keeps for itself, like postgres.js `reserve()`. */
+export interface PostgresMigrationSession extends PostgresMigrationSql {
+  /** Gives the connection back. With an error, a pool closes it instead. */
+  release: (error?: Error) => void
+}
+
 /** The part of a postgres.js client that migrations use. */
 export interface PostgresMigrationClient extends PostgresMigrationSql {
   begin: <T>(run: (sql: PostgresMigrationSql) => Promise<T>) => PromiseLike<unknown>
+  /** Keeps one connection for a run with a `-- vitehub:no-transaction` migration, which needs a session-level lock. */
+  reserve?: () => PromiseLike<PostgresMigrationSession>
 }
 
 function isPostgresClient(value: unknown): value is PostgresMigrationClient {
@@ -498,6 +508,10 @@ export function toPostgresMigrationClient(pool: NodePostgresPool): PostgresMigra
         client.release(failure)
       }
     },
+    reserve: async () => {
+      const client = await pool.connect()
+      return { ...nodePostgresSql(client), release: error => client.release(error) }
+    },
   }
 }
 
@@ -538,7 +552,7 @@ function pgliteKey(client: object): string {
  * `unsafe()`, a query without parameters uses the simple protocol, so it can hold several statements.
  */
 export function toPgliteMigrationClient(client: PgliteMigrationTarget): PostgresMigrationClient {
-  return { ...pgliteSql(client), begin: run => client.transaction(tx => run(pgliteSql(tx))) }
+  return { ...pgliteSql(client), begin: run => client.transaction(tx => run(pgliteSql(tx))), reserve: async () => ({ ...pgliteSql(client), release: () => {} }) }
 }
 
 /**
@@ -637,19 +651,30 @@ async function planPostgres(sql: PostgresMigrationSql, group: PostgresTarget[], 
   return planByName(databases, { applied: match.applied, hashes: ledgerHashes(rows, match.backfill) }, { allowDataLoss: options.allowDataLoss, dialect: "postgresql", place: "Postgres database" })
 }
 
-/** Runs `run` in a transaction that holds the migration lock of the group's database. */
+const lockPollMs = 500
+
+async function pollPostgresLock(group: PostgresTarget[], log: (message: string) => void, take: () => Promise<boolean>) {
+  for (let waited = false; !await take(); waited = true) {
+    if (!waited) log(`[vitehub] Database "${group[0]!.database.name}": another process is applying migrations. Waiting for it to finish.`)
+    await new Promise(resolve => setTimeout(resolve, lockPollMs))
+  }
+}
+
+/** Runs `run` in a transaction that holds the migration lock. Each try is a short transaction, so a waiter never blocks a `CREATE INDEX CONCURRENTLY`. */
 async function withPostgresLock(group: PostgresTarget[], log: (message: string) => void, run: (sql: PostgresMigrationSql) => Promise<void>) {
-  await group[0]!.client.begin(async (sql) => {
-    const [lock] = Array.from(await sql.unsafe("select pg_try_advisory_xact_lock(hashtext($1)) as locked", [postgresMigrationLock]))
-    if (lock?.locked !== true) {
-      log(`[vitehub] Database "${group[0]!.database.name}": another process is applying migrations. Waiting for it to finish.`)
-      await sql.unsafe("select pg_advisory_xact_lock(hashtext($1))", [postgresMigrationLock])
-    }
-    // Bound DDL lock waits so a queued ALTER cannot stall old instances' reads indefinitely. Advisory waits stay unbounded.
-    await sql.unsafe("set local lock_timeout = '5s'")
-    // postgres.js prints notices, such as "schema already exists, skipping", on stdout by default.
-    await sql.unsafe("set local client_min_messages = warning")
-    await run(sql)
+  await pollPostgresLock(group, log, async () => {
+    let locked = false
+    await group[0]!.client.begin(async (sql) => {
+      const [lock] = Array.from(await sql.unsafe("select pg_try_advisory_xact_lock(hashtext($1)) as locked", [postgresMigrationLock]))
+      locked = lock?.locked === true
+      if (!locked) return
+      // Bound DDL lock waits so a queued ALTER cannot stall old instances' reads indefinitely. Advisory waits stay unbounded.
+      await sql.unsafe("set local lock_timeout = '5s'")
+      // postgres.js prints notices, such as "schema already exists, skipping", on stdout by default.
+      await sql.unsafe("set local client_min_messages = warning")
+      await run(sql)
+    })
+    return locked
   })
 }
 
@@ -660,6 +685,115 @@ async function withPostgresLock(group: PostgresTarget[], log: (message: string) 
 async function withPostgresLocks(groups: PostgresTarget[][], log: (message: string) => void, run: (sqls: PostgresMigrationSql[]) => Promise<void>, held: PostgresMigrationSql[] = []): Promise<void> {
   if (held.length === groups.length) return await run(held)
   await withPostgresLock(groups[held.length]!, log, sql => withPostgresLocks(groups, log, run, [...held, sql]))
+}
+
+async function withPostgresSessionLocks(groups: PostgresTarget[][], log: (message: string) => void, run: (sessions: PostgresMigrationSession[]) => Promise<void>) {
+  const sessions: Array<{ locked: boolean, session: PostgresMigrationSession }> = []
+  try {
+    for (const group of groups) {
+      const { client, database } = group[0]!
+      if (!client.reserve) {
+        throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: database.name, problem: "A pending migration runs outside a transaction (`-- vitehub:no-transaction`), and its client cannot keep one connection for the run. Use postgres.js, node-postgres, or PGlite." })
+      }
+      const held = { locked: false, session: await client.reserve() }
+      sessions.push(held)
+      await pollPostgresLock(group, log, async () => {
+        const [lock] = Array.from(await held.session.unsafe("select pg_try_advisory_lock(hashtext($1)) as locked", [postgresMigrationLock]))
+        return held.locked = lock?.locked === true
+      })
+      await held.session.unsafe("set client_min_messages = warning")
+    }
+    await run(sessions.map(({ session }) => session))
+  }
+  finally {
+    for (const { locked, session } of sessions.reverse()) {
+      let failure: Error | undefined
+      try {
+        if (locked) {
+          await session.unsafe("reset client_min_messages")
+          await session.unsafe("select pg_advisory_unlock(hashtext($1))", [postgresMigrationLock])
+        }
+      }
+      catch (error) {
+        failure = error instanceof Error ? error : new Error(String(error))
+      }
+      session.release(failure)
+    }
+  }
+}
+
+async function inSessionTransaction<T>(session: PostgresMigrationSession, run: () => Promise<T>): Promise<T> {
+  await session.unsafe("begin")
+  try {
+    await session.unsafe("set local lock_timeout = '5s'")
+    const result = await run()
+    await session.unsafe("commit")
+    return result
+  }
+  catch (error) {
+    await Promise.resolve(session.unsafe("rollback")).catch(() => undefined)
+    throw error
+  }
+}
+
+async function readInvalidIndexes(sql: PostgresMigrationSql): Promise<string[] | undefined> {
+  try {
+    const rows = await sql.unsafe("select format('%I.%I', n.nspname, c.relname) as name from pg_index i join pg_class c on c.oid = i.indexrelid join pg_namespace n on n.oid = c.relnamespace where not i.indisvalid order by 1")
+    return Array.from(rows).map(row => String(row.name))
+  }
+  catch {
+    return undefined
+  }
+}
+
+async function runOutsideTransaction(session: PostgresMigrationSession, { migration, name }: PendingEntry) {
+  for (const [index, statement] of migration.statements.entries()) {
+    try {
+      await session.unsafe(statement)
+    }
+    catch (error) {
+      const invalidIndexes = await readInvalidIndexes(session)
+      if (index === 0 && invalidIndexes?.length === 0) throw error
+      throw databaseErrorDiagnostics.DATABASE_MIGRATION_PARTLY_APPLIED({
+        applied: index,
+        cause: error,
+        database: name,
+        invalidIndexes,
+        migration: migration.name,
+        problem: error instanceof Error ? error.message : String(error),
+        statement,
+      })
+    }
+  }
+  await session.unsafe(`insert into ${postgresLedger} ("hash", "created_at", "name") values ($1, $2, $3)`, [migration.hash, migration.when, migration.name])
+}
+
+async function applyPostgresSession(session: PostgresMigrationSession, pending: PendingEntry[], progress: { running?: PendingEntry }, applied: (entry: PendingEntry) => void) {
+  let stretch: PendingEntry[] = []
+  const commitStretch = async () => {
+    const entries = stretch
+    stretch = []
+    if (!entries.length) return
+    await inSessionTransaction(session, async () => {
+      for (const entry of entries) {
+        progress.running = entry
+        for (const statement of entry.migration.statements) await session.unsafe(statement)
+        await session.unsafe(`insert into ${postgresLedger} ("hash", "created_at", "name") values ($1, $2, $3)`, [entry.migration.hash, entry.migration.when, entry.migration.name])
+      }
+    })
+    entries.forEach(applied)
+  }
+  for (const entry of pending) {
+    if (!entry.migration.noTransaction) {
+      stretch.push(entry)
+      continue
+    }
+    await commitStretch()
+    progress.running = entry
+    await runOutsideTransaction(session, entry)
+    applied(entry)
+  }
+  await commitStretch()
 }
 
 export interface MigratePostgresOptions extends MigrateOnStartOptions {
@@ -676,16 +810,23 @@ export interface MigratePostgresOptions extends MigrateOnStartOptions {
  *
  * Returns the names of the applied migrations. A failed statement rolls back the transaction, so the database keeps
  * none of the pending migrations, and it throws `DATABASE_MIGRATION_FAILED`.
+ *
+ * A pending `-- vitehub:no-transaction` migration needs a session: the run then holds a session-level lock on one
+ * connection of each database, and commits each stretch of other migrations, and each marked statement, on its own.
  */
 export async function migratePostgres(targets: PostgresTarget[], options: MigratePostgresOptions = {}): Promise<string[]> {
   const log = options.log ?? (message => console.info(message))
   const groups = await groupPostgresTargets(targets)
   // The transaction callback sets these, so the catch can name the migration that failed.
-  const progress: { applied: PendingEntry[], running?: PendingEntry } = { applied: [] }
+  const progress: { applied: PendingEntry[], running?: PendingEntry, session?: boolean } = { applied: [] }
   try {
     await withPostgresLocks(groups, log, async (sqls) => {
       const plans: PendingEntry[][] = []
       for (const [index, group] of groups.entries()) plans.push(await planPostgres(sqls[index]!, group, options))
+      if (plans.some(pending => pending.some(entry => entry.migration.noTransaction))) {
+        progress.session = true
+        return
+      }
       await options.beforeApply?.()
       for (const [index, pending] of plans.entries()) {
         const sql = sqls[index]!
@@ -698,13 +839,30 @@ export async function migratePostgres(targets: PostgresTarget[], options: Migrat
       }
       progress.running = undefined
     })
+    if (progress.session) {
+      await withPostgresSessionLocks(groups, log, async (sessions) => {
+        const plans: PendingEntry[][] = []
+        for (const [index, group] of groups.entries()) plans.push(await inSessionTransaction(sessions[index]!, () => planPostgres(sessions[index]!, group, options)))
+        await options.beforeApply?.()
+        for (const [index, pending] of plans.entries()) {
+          await applyPostgresSession(sessions[index]!, pending, progress, (entry) => {
+            progress.applied.push(entry)
+            log(`[vitehub] Database "${entry.name}": applied ${entry.migration.name}.`)
+          })
+        }
+        progress.running = undefined
+      })
+      return progress.applied.map(({ migration }) => migration.name)
+    }
   }
   catch (error) {
-    if (!progress.running) throw error
+    if (!progress.running || databaseErrorDiagnostics.DATABASE_MIGRATION_PARTLY_APPLIED.is(error)) throw error
     throw databaseErrorDiagnostics.DATABASE_MIGRATION_FAILED({
       cause: error,
       database: progress.running.name,
+      ...progress.session && { kept: progress.applied.map(({ migration }) => migration.name) },
       migration: progress.running.migration.name,
+      ...!progress.running.migration.noTransaction && Reflect.get(Object(error), "code") === "25001" && { needsMarker: true },
       problem: error instanceof Error ? error.message : String(error),
     })
   }
