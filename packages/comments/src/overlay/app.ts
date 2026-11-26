@@ -161,6 +161,13 @@ function colorOf(id: string): string {
   return colors[Math.abs(hash) % colors.length]!
 }
 
+function withPicture<T extends CommentsClientFiles>(input: T, picture: Promise<File[]>): Omit<T, "files" | "deferredFiles"> & CommentsClientFiles {
+  const { files, deferredFiles, ...rest } = input
+  const after = (first: Promise<Blob[]>) => Promise.all([first, picture]).then(lists => lists.flat())
+  if (files !== undefined && !Array.isArray(files)) return { ...rest, files: after(files) }
+  return { ...rest, ...(files ? { files } : {}), deferredFiles: deferredFiles ? after(deferredFiles) : picture }
+}
+
 /** Follows the host's theme classes, `data-theme`, or `color-scheme`, then the system preference. */
 export function hostIsDark(): boolean {
   const root = document.documentElement
@@ -420,12 +427,10 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       const picture = pictures.get(input.anchor)
       pictures.delete(input.anchor)
       if (picture) picture.sent = true
-      const files = picture ? Promise.all([input.files ?? [], picture.files]).then(([own, taken]) => [...own, ...taken]) : input.files
       const sent: CommentCreateInput & CommentsClientFiles & { context?: CommentContext } = {
-        ...input,
+        ...(picture ? withPicture(input, picture.files) : input),
         context: contexts.get(input.anchor) ?? captureContext(undefined),
         ...(shown === undefined ? {} : { revision: shown }),
-        ...(files ? { files } : {}),
       }
       return create(sent)
     }

@@ -264,6 +264,12 @@ const files = renderScreenshot().then(blob => [blob]);
 await client.create({ subject, anchor, body, files }); // Shows and saves now; sends once `files` settles.
 ```
 
+To keep files the reader already picked when the page reloads before the screenshot arrives, pass them as `files` and the screenshot as `deferredFiles`:
+
+```ts fragment
+await client.create({ subject, anchor, body, files: picked, deferredFiles: renderScreenshot().then(blob => [blob]) });
+```
+
 The draft holds the queue until the files arrive, then goes out with them. If saving the files fails, Retry saves them again. If the promise rejects, the draft goes out without them. If the page reloads first, the next page sends a saved draft without them. Without Web Locks, the default outbox stays in memory. With a custom store and no locks, drafts wait in memory until their files arrive and can be saved in send order.
 
 If a comment write gets no answer, retry it to recover the server copy. A later refusal does not make the draft safe to edit or dismiss. A lost upload or thread lookup answer does not lock the draft on its own.
