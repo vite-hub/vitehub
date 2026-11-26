@@ -205,14 +205,26 @@ export interface HubMigrationsMatch {
  * not list. `files` has the Wrangler names of each migrations folder, from `numberMigrationFolders()`. Returns the
  * problem when a listed migration now has another number, because ViteHub would apply it again.
  */
-export function matchHubMigrations(names: readonly string[], files: readonly NamedMigration[], applied: ReadonlySet<string>): HubMigrationsMatch | { problem: string } {
-  const recorded = matchRecordedNames(names, files)
-  const adopted = [...recorded.applied.keys()].filter(tag => !applied.has(tag))
-  const renumbered = findRenumbered(recorded.unmatched, files, new Set([...applied, ...adopted]))
+export function matchHubMigrations(names: readonly string[], files: readonly (NamedMigration & { database: string })[], applied: ReadonlySet<string>): HubMigrationsMatch | { problem: string } {
+  const adopted = new Set<string>()
+  const unmatched: string[] = []
+  for (const name of names) {
+    const stem = name.replace(/\.sql$/, "")
+    const preserved = files.filter(({ tag }) => tag === stem || /^\d{14}_(\d+_.+)$/.exec(tag)?.[1] === stem)
+    const candidates = preserved.length ? preserved : files.filter(file => file.name === `${stem}.sql`)
+    if (candidates.length > 1) {
+      const folders = candidates.map(({ database, tag }) => `${database}/${tag}`).sort().join(", ")
+      return { problem: `The migrations table ${hubMigrationsTable} lists ${name}, which matches more than one migration: ${folders}. Verify which SQL ran and give the row its exact migration folder name before retrying.` }
+    }
+    const match = candidates[0]
+    if (!match) unmatched.push(name)
+    else if (!applied.has(match.tag)) adopted.add(match.tag)
+  }
+  const renumbered = findRenumbered(unmatched, files, new Set([...applied, ...adopted]))
   if (renumbered) {
     const { moved, name } = renumbered
     const current = moved.name.replace(/\.sql$/, "")
-    return { problem: `The migrations table ${hubMigrationsTable} lists ${name}, but that migration is now ${current} (${moved.tag}), so ViteHub would apply it again. If ${moved.tag} is the migration that NuxtHub applied, rename its row with \`vitehub database sql "UPDATE ${hubMigrationsTable} SET name = '${current}' WHERE name = '${name}'"\`.` }
+    return { problem: `The migrations table ${hubMigrationsTable} lists ${name}, but that migration is now ${current} (${moved.tag}), so ViteHub would apply it again. If ${moved.tag} is the migration that NuxtHub applied, select the affected database and run \`UPDATE ${hubMigrationsTable} SET name = '${moved.tag.replaceAll("'", "''")}' WHERE name = '${name.replaceAll("'", "''")}'\` using a SQL client with the same search_path.` }
   }
-  return { adopted, unmatched: recorded.unmatched }
+  return { adopted: [...adopted], unmatched }
 }

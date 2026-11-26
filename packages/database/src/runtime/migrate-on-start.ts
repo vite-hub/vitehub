@@ -649,9 +649,9 @@ async function readPostgresIdentity(client: PostgresMigrationSql) {
  * Groups the Definitions by the Postgres database that their clients reach, and sorts the groups by that key. Every
  * process then takes the locks of several databases in the same order, so two of them never wait for each other.
  */
-async function groupPostgresTargets(targets: PostgresTarget[]): Promise<PostgresTarget[][]> {
+export async function groupPostgresTargets<T extends Pick<PostgresTarget, "client" | "key"> & { database: { migrationsSchema?: string, name: string } }>(targets: T[]): Promise<T[][]> {
   if (targets.length < 2) return targets.length ? [targets] : []
-  const groups = new Map<string, { session: string, targets: PostgresTarget[] }>()
+  const groups = new Map<string, { session: string, targets: T[] }>()
   for (const target of targets) {
     const { key, session } = target.key === undefined ? await readPostgresIdentity(target.client) : { key: target.key, session: "" }
     const group = groups.get(key)
@@ -670,20 +670,24 @@ async function groupPostgresTargets(targets: PostgresTarget[]): Promise<Postgres
 }
 
 /**
- * Reads the names in NuxtHub's `_hub_migrations`, in the schema search path of the session and in `schema`. It does not
- * look in other schemas, because another app on the same database can have its own `_hub_migrations`.
+ * Reads NuxtHub's `_hub_migrations` when Drizzle's ledger does not list every migration. It reads the table in the first
+ * schema of the session's search path and in `schema`, not in other schemas, because another app on the same database
+ * can have its own `_hub_migrations`.
  */
-export async function readHubMigrationNames(sql: PostgresMigrationSql, schema?: string): Promise<string[]> {
-  const tables = new Set<string>()
-  for (const candidate of [hubMigrationsTable, ...schema === undefined ? [] : [`${quotePostgresName(schema)}.${hubMigrationsTable}`]]) {
-    const [table] = Array.from(await sql.unsafe(`select to_regclass(${sqlString(candidate)})::text as name`))
-    if (typeof table?.name === "string") tables.add(table.name)
-  }
+export async function reconcilePostgresHistory(sql: PostgresMigrationSql, databases: readonly { name: string, tags: string[] }[], applied: ReadonlySet<string>, schema?: string) {
+  if (databases.every(database => database.tags.every(tag => applied.has(tag)))) return { adopted: [], unmatched: [] }
+  const tables = Array.from(await sql.unsafe(
+    `select format('%I.%I', nspname, relname) as name from pg_catalog.pg_class join pg_catalog.pg_namespace on relnamespace = pg_namespace.oid where ${schema === undefined ? "nspname = current_schema()" : "nspname in (current_schema(), $2)"} and relname = $1`,
+    schema === undefined ? [hubMigrationsTable] : [hubMigrationsTable, schema],
+  )).flatMap(row => typeof row.name === "string" ? [row.name] : [])
   const names = new Set<string>()
   for (const table of tables) {
-    for (const row of Array.from(await sql.unsafe(`select name from ${table}`))) if (typeof row.name === "string") names.add(row.name)
+    for (const row of Array.from(await sql.unsafe(`select name from ${table} order by name`))) if (typeof row.name === "string") names.add(row.name)
   }
-  return [...names]
+  const files = databases.flatMap(({ name, tags }) => numberMigrationFolders(tags).map(file => ({ ...file, database: name })))
+  const match = matchHubMigrations([...names].sort(), files, applied)
+  if ("problem" in match) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: databases[0]!.name, problem: match.problem })
+  return match
 }
 
 interface AdoptedEntry {
@@ -736,11 +740,7 @@ async function planPostgres(sql: PostgresMigrationSql, group: PostgresTarget[], 
 }
 
 async function adoptHubMigrations(sql: PostgresMigrationSql, databases: ReadonlyArray<Pick<StartMigrationDatabase, "migrations" | "migrationsSchema" | "name">>, applied: ReadonlySet<string>, ledger: string): Promise<AdoptedEntry[]> {
-  const names = await readHubMigrationNames(sql, databases[0]!.migrationsSchema)
-  if (!names.length) return []
-  const files = databases.flatMap(database => numberMigrationFolders(database.migrations.map(migration => migration.name)))
-  const match = matchHubMigrations(names, files, applied)
-  if ("problem" in match) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: databases[0]!.name, problem: match.problem })
+  const match = await reconcilePostgresHistory(sql, databases.map(({ name, migrations }) => ({ name, tags: migrations.map(migration => migration.name) })), applied, databases[0]!.migrationsSchema)
   const adopted: AdoptedEntry[] = []
   for (const tag of match.adopted) {
     const database = databases.find(database => database.migrations.some(migration => migration.name === tag))!

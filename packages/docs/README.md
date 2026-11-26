@@ -356,6 +356,7 @@ Most changes are options in `nuxt.config.ts`:
 | `start` | None | `{ section, links }`: the section that new readers open first, and site pages listed at its top. |
 | `socials` | `[]` | Community links at the foot of the docs sidebar and in the header of other pages, or in its menu on narrow screens. |
 | `footer` | `[]` | Site pages linked at the end of every docs page, such as About and Privacy. |
+| `builtWith` | `true` | A "Built with ViteHub Docs" line at the end of every docs page. `false` removes it. |
 | `banner` | None | One line above every docs page. |
 | `github` | `false` | `{ repo, branch, dir }`. Adds a GitHub link beside the socials, with the star count when available. |
 | `icons` | Lucide fallbacks | Icon maps of the rail and the sidebar. |

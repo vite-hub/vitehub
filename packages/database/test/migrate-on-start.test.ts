@@ -1416,11 +1416,11 @@ describe("migratePostgres", () => {
       ["select pg_try_advisory_xact_lock(hashtext($1)) as locked", [postgresMigrationLock]],
       ["set local lock_timeout = '5s'", undefined],
       ["set local client_min_messages = warning", undefined],
-["select exists (select 1 from pg_namespace where nspname = $1) as found, case when exists (select 1 from pg_namespace where nspname = $1) then has_schema_privilege($1, 'USAGE') end as can_use, case when exists (select 1 from pg_namespace where nspname = $1) then has_schema_privilege($1, 'CREATE') end as can_create, has_database_privilege(current_database(), 'CREATE') as can_create_schema, current_user as role, current_database() as database", ["drizzle"]],
+      ["select exists (select 1 from pg_namespace where nspname = $1) as found, case when exists (select 1 from pg_namespace where nspname = $1) then has_schema_privilege($1, 'USAGE') end as can_use, case when exists (select 1 from pg_namespace where nspname = $1) then has_schema_privilege($1, 'CREATE') end as can_create, has_database_privilege(current_database(), 'CREATE') as can_create_schema, current_user as role, current_database() as database", ["drizzle"]],
       ["select to_regclass('\"drizzle\".\"__drizzle_migrations\"') as ledger", undefined],
       ["select column_name from information_schema.columns where table_schema = 'drizzle' and table_name = '__drizzle_migrations'", undefined],
       [`select id, hash, created_at, name from ${ledgerTable}`, undefined],
-      ["select to_regclass('_hub_migrations')::text as name", undefined],
+      ["select format('%I.%I', nspname, relname) as name from pg_catalog.pg_class join pg_catalog.pg_namespace on relnamespace = pg_namespace.oid where nspname = current_schema() and relname = $1", ["_hub_migrations"]],
       ["CREATE TABLE a (id int)", undefined],
       [`insert into ${ledgerTable} ("hash", "created_at", "name") values ($1, $2, $3)`, ["hash-0001_older", 1, "0001_older"]],
     ])
