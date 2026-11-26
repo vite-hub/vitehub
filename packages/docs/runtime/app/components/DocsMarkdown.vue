@@ -42,15 +42,19 @@ const resolved = computed(() => ({ ...byKey([blocks, callouts]), ...overrides.va
 
 // HTML is the fallback. An app component still receives the original tag, props, and source children. comark-ui's own
 // component doesn't: the parser drew the block as HTML because that component can't, as with a chart's marks.
-function renderNodes(nodes: ComarkNode[]): ComarkNode[] {
+const unbrokenCodeLength = 24
+const isShortText = (children: ComarkNode[]) => children.length === 1 && typeof children[0] === "string" && children[0].length <= unbrokenCodeLength
+
+function renderNodes(nodes: ComarkNode[], inPre = false): ComarkNode[] {
   return nodes.map((node): ComarkNode => {
     if (typeof node === "string" || node[0] === null) return node
     const [tag, attributes, ...children] = node
     const { block, blockProps } = attributes
     if (tag === "comark-html" && typeof block === "string" && overrides.value[componentKey(block)]) {
-      return [block, (blockProps ?? {}) as ElementNode[1], ...renderNodes(children)]
+      return [block, (blockProps ?? {}) as ElementNode[1], ...renderNodes(children, inPre)]
     }
-    return [tag, attributes, ...renderNodes(children)]
+    if (tag === "code" && !inPre && isShortText(children)) return [tag, { ...attributes, "data-nowrap": "" }, ...children]
+    return [tag, attributes, ...renderNodes(children, inPre || tag === "pre")]
   })
 }
 const nodes = computed(() => renderNodes(props.document.nodes))

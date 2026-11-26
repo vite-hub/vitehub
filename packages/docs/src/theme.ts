@@ -235,9 +235,9 @@ export function docsUi(siteName: string): DocsThemeUi {
         },
       },
       // Inline code wraps with the sentence. As an inline block, a long path pushed the page wider than a phone
-      // and moved the punctuation after it to its own line.
+      // and moved the punctuation after it to its own line. Short code, which DocsMarkdown marks, stays on one line.
       code: {
-        base: "inline box-decoration-clone wrap-break-word rounded-md border-0 bg-muted px-[0.35em] py-[0.1em] font-mono text-[0.8125rem]/[1.6] text-highlighted ring ring-inset ring-default",
+        base: "inline box-decoration-clone wrap-break-word data-nowrap:whitespace-nowrap rounded-md border-0 bg-muted px-[0.35em] py-[0.1em] font-mono text-[0.8125rem]/[1.6] text-highlighted ring ring-inset ring-default",
       },
       pre: {
         slots: {
