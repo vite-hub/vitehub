@@ -20,7 +20,6 @@
   "packages/database/src/internal/migrate-on-start.ts": 5,
   "packages/database/src/internal/migration-journal.ts": 6,
   "packages/database/src/internal/migration-ledger.ts": 6,
-  "packages/database/src/internal/migration-plan.ts": 24,
   "packages/database/src/internal/migration-sql.ts": 28,
   "packages/database/src/internal/nuxt-content.ts": 1,
   "packages/database/src/internal/runtime-config-expression.ts": 3,

@@ -98,12 +98,40 @@ export function toLedgerRow(row: Record<string, unknown>): LedgerRow {
 /** Ledgers that other tools keep by migration name: NuxtHub's, and Wrangler's default. */
 export const nameLedgerTables = ["_hub_migrations", "d1_migrations"] as const
 
+/** NuxtHub's ledger. It lists each applied migration by its file name without `.sql`, such as `0000_init`. */
+export const hubMigrationsTable = nameLedgerTables[0]
+
+const folderTag = /^\d{14}_(.+)$/
+
+function migrationNumber(name: string): number {
+  const number = Number.parseInt(name.split("_")[0]!, 10)
+  return Number.isFinite(number) ? number : -1
+}
+
+/**
+ * Gives each migration folder its Wrangler file name. A folder that `recorded` lists keeps that name. Another folder
+ * gets the next number, `NNNN_<name>.sql`, after the recorded names and the `flat` file names. Without `recorded`, the
+ * numbers follow the folder order from 0000, as Drizzle Kit 0.x numbered the same migrations.
+ */
+export function numberMigrationFolders(folders: readonly string[], recorded: Readonly<Record<string, string>> = {}, flat: readonly string[] = []): NamedMigration[] {
+  let next = Math.max(-1, ...Object.values(recorded).map(migrationNumber), ...flat.map(migrationNumber)) + 1
+  if (!Object.keys(recorded).length) next = 0
+  return [...folders].sort((a, b) => a.localeCompare(b)).map(tag => ({
+    name: recorded[tag] ?? `${String(next++).padStart(4, "0")}_${folderTag.exec(tag)?.[1] ?? tag}.sql`,
+    tag,
+  }))
+}
+
 /** A migration with the Wrangler file name that `listD1Migrations()` gives it. */
 export interface NamedMigration {
   /** The Wrangler file name, such as `0000_init.sql`. */
   name: string
   /** The Drizzle Kit folder, or the flat file name without `.sql`. */
   tag: string
+}
+
+function nuxtHubMigrationName(file: string): string {
+  return file.replace(/\.sql$/, "").replace(/\.postgresql$/, "")
 }
 
 /**
@@ -167,4 +195,44 @@ export function matchRenamedRows(rows: readonly LedgerRow[], migrations: readonl
     if (match) renamed.set(match.tag, row.name)
   }
   return renamed
+}
+
+export interface HubMigrationsMatch {
+  /** Tags of the migrations that only `_hub_migrations` lists. */
+  adopted: string[]
+  /** Names in `_hub_migrations` that match no migration. They do not block, because the files can be gone. */
+  unmatched: string[]
+}
+
+/**
+ * Matches the names of NuxtHub's `_hub_migrations` to the migrations of a Postgres database that Drizzle's ledger does
+ * not list. `files` has the Wrangler names of each migrations folder, from `numberMigrationFolders()`. Returns the
+ * problem when a listed migration now has another number, because ViteHub would apply it again.
+ */
+export function matchHubMigrations(names: readonly string[], files: readonly (NamedMigration & { database: string })[], applied: ReadonlySet<string>): HubMigrationsMatch | { problem: string } {
+  const adopted = new Set<string>()
+  const unmatched: string[] = []
+  for (const name of names) {
+    const stem = name.replace(/\.sql$/, "")
+    const exact = files.filter(({ tag }) => tag === stem)
+    const preserved = exact.length ? exact : files.filter(({ tag }) => {
+      const kept = folderTag.exec(tag)?.[1]
+      return kept !== undefined && nuxtHubMigrationName(kept) === stem
+    })
+    const candidates = preserved.length ? preserved : files.filter(file => file.name === `${stem}.sql`)
+    if (candidates.length > 1) {
+      const folders = candidates.map(({ database, tag }) => `${database}/${tag}`).sort().join(", ")
+      return { problem: `The migrations table ${hubMigrationsTable} lists ${name}, which matches more than one migration: ${folders}. Verify which SQL ran and give the row its exact migration folder name before retrying.` }
+    }
+    const match = candidates[0]
+    if (!match) unmatched.push(name)
+    else if (!applied.has(match.tag)) adopted.add(match.tag)
+  }
+  const renumbered = findRenumbered(unmatched, files, new Set([...applied, ...adopted]))
+  if (renumbered) {
+    const { moved, name } = renumbered
+    const current = moved.name.replace(/\.sql$/, "")
+    return { problem: `The migrations table ${hubMigrationsTable} lists ${name}, but that migration is now ${current} (${moved.tag}), so ViteHub would apply it again. If ${moved.tag} is the migration that NuxtHub applied, select the affected database and run \`UPDATE ${hubMigrationsTable} SET name = '${moved.tag.replaceAll("'", "''")}' WHERE name = '${name.replaceAll("'", "''")}'\` using a SQL client with the same search_path.` }
+  }
+  return { adopted: [...adopted], unmatched }
 }

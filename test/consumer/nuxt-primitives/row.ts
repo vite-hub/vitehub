@@ -5,6 +5,10 @@ export const modes = ["node-build", "node-dev", "cloudflare-build", "cloudflare-
 export type Mode = (typeof modes)[number]
 export type Target = "node" | "cloudflare"
 
+export function nitroWorkerUnavailable(mode: Mode, response: Response): boolean {
+  return mode.endsWith("-dev") && response.status === 503 && response.statusText === "Dev server is unavailable" && response.headers.get("refresh") === "3"
+}
+
 export interface ProbeContext {
   appDir: string
   mode: Mode

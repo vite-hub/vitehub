@@ -2,7 +2,7 @@ import { createRequire } from "node:module"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { expectJson, type PrimitiveRow } from "./row.ts"
+import { expectJson, nitroWorkerUnavailable, type PrimitiveRow } from "./row.ts"
 
 async function eventually(check: () => Promise<void>, timeout = 60_000) {
   const deadline = Date.now() + timeout
@@ -212,8 +212,7 @@ export const jobs: PrimitiveRow[] = [
             if (tab.status() !== "connected") throw new Error(`The Realtime room is ${tab.status()}.`)
           }, Math.max(0, deadline - Date.now()))
           const response = await fetch(`/api/primitives/realtime?room=${room}`, { method: "POST" })
-          const workerReloading = mode.endsWith("-dev") && response.status === 503 && response.statusText === "Dev server is unavailable"
-          if (!workerReloading || Date.now() >= deadline) {
+          if (!nitroWorkerUnavailable(mode, response) || Date.now() >= deadline) {
             await expectJson(response, { answer: { asked: { question: "title" }, title: `tab ${room}` } })
             return
           }
