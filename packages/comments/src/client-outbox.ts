@@ -626,6 +626,7 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
           lastOrder = Math.max(lastOrder, previous)
           local.entry = { ...local.entry, order }
           group = [local, ...[...unsaved.values()].filter(other => other.parked && other.entry.kind === "reply" && other.entry.input.threadId === id)]
+          for (const member of group) member.write ??= write
           const keys = new Map([...drafts.values()].map(draft => [keyOf(draft), draft]))
           for (const member of group) {
             if (member.entry.kind === "reply") member.entry = { ...member.entry, input: { ...member.entry.input, threadId: realId(member.entry.input.threadId) } }
@@ -654,13 +655,13 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
         return
       }
       finally {
-        if (local.write === write) local.write = undefined
+        for (const member of group) if (member.write === write) member.write = undefined
       }
       for (const member of group) Object.assign(member, { saved: true, parked: false })
       await changed().catch(() => undefined)
       kick()
     }
-    const write = run()
+    const write = Promise.resolve().then(run)
     local.write = write
     return write
   }

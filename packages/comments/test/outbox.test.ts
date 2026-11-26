@@ -753,6 +753,46 @@ describe("the comments outbox", () => {
     expect(await server.creates[0]!.files![0]!.text()).toBe("pixels")
   })
 
+  it("checkpoints a parked reply's files after its parent's retry captures the batch", async () => {
+    const memory = createMemoryOutboxStore()
+    const captured = gate()
+    const commit = gate()
+    let refuse = true
+    const store: CommentsOutboxStore = {
+      ...memory,
+      async update(account, change) {
+        return memory.update(account, (drafts) => {
+          const result = change(drafts)
+          if (refuse && drafts.size === 1) throw new DOMException("Full", "QuotaExceededError")
+          return result
+        }).then(async (result) => {
+          if ((await memory.list(account)).length === 2) {
+            captured.open()
+            await commit.promise
+          }
+          return result
+        })
+      },
+    }
+    const browser = createBrowser()
+    browser.online = false
+    const { client, server } = setup({ browser, store })
+    const parent = await client.create({ subject, anchor, body: "Parent" })
+    await vi.waitFor(() => expect(client.outbox.failures).toHaveLength(1))
+    const files = deferred<Blob[]>()
+    await client.reply({ threadId: parent.id, requestId: "reply", body: "With picture", files: files.promise })
+    refuse = false
+    const retry = client.outbox.retry(parent.id)
+    await captured.promise
+    files.resolve([new Blob(["pixels"])])
+    await settle()
+    commit.open()
+    await retry
+    browser.online = true
+    await vi.waitFor(() => expect(server.replies).toHaveLength(1))
+    expect(await server.replies[0]!.files?.[0]?.text()).toBe("pixels")
+  })
+
   it.each(["create", "reply"] as const)("keeps one tab's %s calls in order when another tab's write lands first", async (kind) => {
     const { store, plan } = createSerialStore()
     const browser = createBrowser()
