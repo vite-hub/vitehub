@@ -633,7 +633,7 @@ describe("framework package contract", () => {
     );
     expect(consoleSessionCss).toContain("padding: 0.75rem 0 1.5rem;");
     expect(consolePage).not.toContain("/api/health");
-    expect(existsSync(`${packageRoot}/dist/console/runtime/server/status.get.js`)).toBe(true);
+    expect(existsSync(`${packageRoot}/dist/agent/console/status.get.js`)).toBe(true);
     expect(consolePage).toContain("agentInvocationTitle");
     expect(consoleSessionNavbar).toContain("<UDashboardNavbar");
     expect(consoleSessionNavbar).toContain('class="md:hidden"');
@@ -802,7 +802,7 @@ describe("framework package contract", () => {
       if (!Array.isArray(handlers)) {
         throw new TypeError("Expected the distributed Console Nitro configuration.");
       }
-      expect(handlers.map((registration) => Reflect.get(Object(registration), "route"))).toEqual(["/_vitehub/**", "/_vitehub", "/_vitehub/rpc"]);
+      expect(handlers.map((registration) => Reflect.get(Object(registration), "route"))).toEqual(["/_vitehub/**", "/_vitehub", "/_vitehub/rpc", "/_vitehub/site"]);
       for (const registration of handlers) {
         const handler = Reflect.get(Object(registration), "handler");
         if (String(handler) !== handler) throw new TypeError("Expected a Console handler path.");

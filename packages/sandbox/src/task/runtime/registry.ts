@@ -13,8 +13,8 @@ function createSandboxTaskDefinition<THandler extends (...args: any[]) => any>(
   if (input instanceof Object && Object.hasOwn(input, 'run'))
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_C0014({ message: `[vitehub] \`${functionName}({ run })\` was renamed. Pass the Sandbox handler as \`handler\`: \`${functionName}({ handler })\`.` })
   const validated = validateDefinitionOptions<SandboxTaskDefinitionInput>(functionName, input, {
-    allowedKeys: ['handler', 'timeout', 'env', 'project'],
-    invalidKeysMessage: 'supports only portable Sandbox options (handler, timeout, env, project)',
+    allowedKeys: ['handler', 'timeout', 'env', 'transfer', 'project'],
+    invalidKeysMessage: 'supports only portable Sandbox options (handler, timeout, env, transfer, project)',
   })
   if (!validated)
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0072({ message: `[vitehub] \`${functionName}()\` requires an options object.` })

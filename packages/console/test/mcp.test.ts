@@ -219,11 +219,11 @@ describe("ViteHub MCP at /mcp/account", () => {
 
   it("lists the docs tools and the account tools to a signed-in member", async () => {
     const { body } = await rpc(accountServer, "/mcp/account", "tools/list", undefined, tokens.bob)
-    expect(body!.result.tools.map(tool => tool.name).sort()).toEqual(["check_app", "get-page", "link_app", "list-pages", "list_apps", "list_operations", "read_operation", "run_operation", "unlink_app"])
+    expect(body!.result.tools.map(tool => tool.name).sort()).toEqual(["check_app", "get-page", "link_app", "list-pages", "list_apps", "list_operations", "read_operation", "run_operation", "unlink_app", "whoami"])
     const annotations = Object.fromEntries(body!.result.tools.map(tool => [tool.name, tool.annotations]))
     expect(annotations.read_operation).toMatchObject({ destructiveHint: false, readOnlyHint: true })
     expect(annotations.run_operation).toMatchObject({ destructiveHint: true, readOnlyHint: false })
-    for (const name of ["check_app", "get-page", "list-pages", "list_apps", "list_operations"]) expect(annotations[name]).toMatchObject({ destructiveHint: false, readOnlyHint: true })
+    for (const name of ["check_app", "get-page", "list-pages", "list_apps", "list_operations", "whoami"]) expect(annotations[name]).toMatchObject({ destructiveHint: false, readOnlyHint: true })
     const { body: apps } = await call("list_apps", {}, tokens.bob)
     expect(apps!.result.structuredContent).toEqual({ apps: [], team: { id: teamId, name: "Acme", role: "member" } })
   })
@@ -233,9 +233,10 @@ describe("ViteHub MCP at /mcp/account", () => {
     expect(denied.body!.result).toMatchObject({ content: [{ text: "CONSOLE_PROJECT_FORBIDDEN: Only owners and admins of the team link projects." }], isError: true })
 
     const { body } = await call("link_app", { label: "Probe", url: appUrl }, tokens.ada)
-    const linked = body!.result.structuredContent as { app: { id: string, keyVariable: string, publicKey: string }, variable: string }
+    const linked = body!.result.structuredContent as { app: { id: string, keyVariable: string, publicKey: string }, next: string, variable: string }
     expect(linked.variable).toBe(`${linked.app.keyVariable}=${linked.app.publicKey}`)
     expect(linked.variable).toMatch(/^VITEHUB_CONSOLE_KEY_CONSOLE_[0-9A-F]{8}=[\w-]{43}$/)
+    expect(linked.next).toContain("owner or admin of the same team in this Console")
 
     const kept = await call("unlink_app", { id: linked.app.id }, tokens.bob)
     expect(kept.body!.result).toMatchObject({ content: [{ text: "CONSOLE_PROJECT_FORBIDDEN: Only owners and admins of the team unlink projects." }], isError: true })
@@ -333,5 +334,6 @@ describe("ViteHub MCP at /mcp/account", () => {
     await db.insert(authSqliteSchema.member).values({ createdAt: now, id: "m-bob-own", organizationId: "team-own", role: "owner", userId: bob!.id })
     await db.update(authSqliteSchema.session).set({ activeOrganizationId: "team-own", updatedAt: new Date(Date.now() + 1000) }).where(eq(authSqliteSchema.session.userId, bob!.id))
     expect((await call("list_apps", {}, tokens.bob)).body!.result.structuredContent).toMatchObject({ team: { id: "team-own", role: "owner" } })
+    expect((await call("whoami", {}, tokens.bob)).body!.result.structuredContent).toMatchObject({ projectIds: null, roles: ["owner"], team: { id: "team-own", name: "Bob's" }, user: { email: "bob@example.com", id: bob!.id } })
   })
 })

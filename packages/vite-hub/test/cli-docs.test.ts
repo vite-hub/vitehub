@@ -25,7 +25,7 @@ import { describe, expect, it } from "vitest";
 import { createMigrateCliNamespace } from "../src/migrate-cli.ts";
 import { createSandboxCliNamespace } from "../src/sandbox-cli.ts";
 import { viteHubTypesPlugin } from "../src/internal/types.ts";
-import { consoleOperations } from "../src/console/runtime/server/operations.ts";
+import { loadConsoleOperations } from "../src/console/operation-modules.ts";
 import { taskOperations } from "../src/task/operations.ts";
 import { viteHubTaskPlugin } from "../src/task/vite.ts";
 import { viteHubCachePlugin } from "../src/cache/vite.ts";
@@ -86,7 +86,6 @@ describe("CLI documentation contract", () => {
       { vitehub: { cli: agent } },
       { vitehub: { cli: database } },
       { vitehub: { cli: createContentCliContributor() } },
-      // `hubCms()` contributes this only for an app with server/content.ts.
       { vitehub: { cli: createCmsCliContributor() } },
       hubEnv(),
       hubI18n({ locales: ["en", "es"] }),
@@ -99,12 +98,9 @@ describe("CLI documentation contract", () => {
       workspacePlugin,
       viteHubTaskPlugin(),
       viteHubDurabilityPlugin(),
-      // `vitehub({ cache })` adds this plugin.
       viteHubCachePlugin(),
-      // The task plugin contributes these only for an app that has tasks.
       { vitehub: { operations: [{ export: "taskOperations", load: async () => taskOperations, module: ownModule(import.meta.url, "task/operations") }] } },
-      // The Console plugin contributes every Console operation; the reference documents the Database ones and `agent usage`.
-      { vitehub: { operations: [{ export: "consoleOperations", load: async () => consoleOperations.filter((operation) => operation.name.startsWith("databases.") || operation.name === "invocations.usage"), module: "vite-hub/console/server" }] } },
+      { vitehub: { operations: [{ export: "consoleOperations", load: async () => (await loadConsoleOperations()).filter((operation) => operation.name.startsWith("databases.") || operation.name === "invocations.usage"), module: "vite-hub/console/server" }] } },
       typesPlugin,
       hubBundle(),
     ];
@@ -129,7 +125,6 @@ describe("CLI documentation contract", () => {
           stdout: namespaceHelp,
         }),
       ).resolves.toBe(0);
-      // A namespace that is one command, such as `vitehub pull`, prints the command's usage.
       if (!namespaceHelp.output().includes("Available features:")) {
         singleCommands.push(namespace);
         continue;
@@ -140,7 +135,7 @@ describe("CLI documentation contract", () => {
     }
 
     const projectCommands = helpNames(rootHelp.output().split("Available namespaces:\n", 1)[0]!, "Project:");
-    expect(projectCommands).toEqual(["init", "add", "remove", "update", "catalog", "status", "link", "unlink", "deploy", "deployments", "login", "logout", "whoami", "drain"]);
+    expect(projectCommands).toEqual(["init", "add", "remove", "update", "catalog", "status", "link", "unlink", "deploy", "deployments", "login", "logout", "whoami", "apps", "drain"]);
     expect(documentedProjectCommands()).toEqual([...projectCommands].sort());
     expect(documentedNamespaces()).toEqual([...namespaces].sort());
     expect(documentedCommands()).toEqual(commands.sort());

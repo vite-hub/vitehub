@@ -9,8 +9,8 @@ import {
   invocationUsage,
   parseConsoleUsageStatus,
   parseConsoleUsageWindow,
-} from "../../packages/vite-hub/src/console/runtime/server/usage.ts"
-import { consoleSearchExcerpt } from "../../packages/vite-hub/src/console/runtime/server/search.ts"
+} from "../../packages/vite-hub/src/agent/console/usage.ts"
+import { consoleSearchExcerpt } from "../../packages/vite-hub/src/agent/console/search.ts"
 import { createEmail } from "../../packages/email/src/client.ts"
 import { readEmailOutboxConsoleRecords } from "../../packages/email/src/runtime/console.ts"
 import { createEmailDevOutboxDriver } from "../../packages/email/src/runtime/outbox.ts"

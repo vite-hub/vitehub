@@ -1,12 +1,13 @@
 import { defineAgent } from "@vite-hub/agent"
 import { runAgentInvocationsCli } from "@vite-hub/agent/cli"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
-import { afterAll, describe, expect, it, vi } from "vitest"
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
 import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
+import { installViteHubConsoleOperations } from "./support/console-operations.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 import { signedConsoleAccess } from "./support/console-signature.ts"
 import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
@@ -53,6 +54,10 @@ async function cli(args: string[], fetch: typeof globalThis.fetch, env: NodeJS.P
   const exitCode = await runAgentInvocationsCli([...args, "--url", "https://agent.example.com"], { env, stderr, stdout }, { fetch })
   return { exitCode, stderr: stderr.output(), stdout: stdout.output() }
 }
+
+beforeEach(async () => {
+  await installViteHubConsoleOperations()
+})
 
 describe("vitehub agent invocations against the Console RPC handler", () => {
   it("lists, shows, and cancels a running Invocation with a signing key", async () => {

@@ -7,7 +7,7 @@ import { blobError } from "../../blob/src/errors.ts"
 import { setBlobRuntimeConfig, setBlobRuntimeStorage } from "../../blob/src/runtime/state.ts"
 import { installConsoleBlob } from "../src/console/runtime/server/blob.ts"
 import type { BlobStorage } from "../../blob/src/types.ts"
-import { consoleInputMessage, storeConsoleInputMessage, withConsoleInputMessage } from "../src/console/runtime/server/attachments.ts"
+import { consoleInputMessage, storeConsoleInputMessage, withConsoleInputMessage } from "../src/agent/console/attachments.ts"
 
 const dirs: string[] = []
 afterEach(async () => {

@@ -12,6 +12,7 @@ import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { build, readBuildOutput } from "./build-output.ts"
 import { decryptEnvValues, envKeysFile, isEncryptedEnvValue } from "./env-encrypted.ts"
 import { cloudflareEnv, wranglerVarNames } from "./deploy/cloudflare.ts"
+import { consoleKeyPrefix } from "./deploy/console.ts"
 import { denoEnv } from "./deploy/deno.ts"
 import { githubEnv, isGitHubSecretName, resolveGitHubRepository, resolveGitHubToken } from "./deploy/github.ts"
 import { createDeployRun } from "./deploy/host.ts"
@@ -33,7 +34,7 @@ const defaultStage = "production"
 
 const tokenNames = ["CLOUDFLARE_API_TOKEN", "VERCEL_TOKEN", "NETLIFY_AUTH_TOKEN", "DENO_DEPLOY_TOKEN"]
 
-const hostEnvs: Record<DeployHost, (context: HostEnvContext) => HostEnv> = {
+export const hostEnvs: Record<DeployHost, (context: HostEnvContext) => HostEnv> = {
   cloudflare: cloudflareEnv,
   deno: denoEnv,
   netlify: netlifyEnv,
@@ -80,9 +81,10 @@ export interface EnvDiffOutput {
 
 /**
  * Where a pushed value came from: the shell, one of the stage env files relative to the project root, such as
- * `.env.production` or `config/.env.production` with `envDir: "config"`, or `vitehub deploy`, which generated it.
+ * `.env.production` or `config/.env.production` with `envDir: "config"`, `vitehub deploy`, which generated it, or the
+ * Console of the saved login, which has the public key of each app that it links.
  */
-export type EnvValueSource = "process" | "generated" | `${string}.env${string}`
+export type EnvValueSource = "process" | "generated" | "console" | `${string}.env${string}`
 
 /** What `vitehub env push --json` prints, after `schemaVersion: 1`. Never a value. */
 export interface EnvPushOutput {
@@ -514,7 +516,7 @@ function addRedactions(planned: readonly PlannedValue[], secrets: string[]): voi
 }
 
 function sourceLabel(source: EnvValueSource): string {
-  return source === "process" ? "the shell" : source === "generated" ? "a generated value" : source
+  return source === "process" ? "the shell" : source === "generated" ? "a generated value" : source === "console" ? "the Console" : source
 }
 
 function writePush(output: EnvPushOutput, context: ViteHubCliContext): void {
@@ -590,6 +592,12 @@ export interface DeployEnvOptions {
   secrets: string[]
   /** The build output. On Cloudflare, the plain vars of its Wrangler config count as set. */
   outputDir: string
+  /**
+   * The `VITEHUB_CONSOLE_KEY_<NAME>` public keys of the Console of the saved login, by name. A key counts as a local
+   * value only when the host already has its name, so a deploy never sets the key of another app.
+   */
+  consoleKeys?: Readonly<Record<string, string>>
+  deferConsoleKey?: boolean
 }
 
 export interface DeployEnvPlan {
@@ -598,6 +606,8 @@ export interface DeployEnvPlan {
   upload: Record<string, string>
   /** Sets the values on the host. Deploy calls it just before the host deploy. Does nothing on Cloudflare. */
   apply: () => Promise<void>
+  /** The names that the host has after the deploy. */
+  onHost: ReadonlySet<string>
 }
 
 async function confirmGenerate(label: string): Promise<boolean> {
@@ -625,12 +635,15 @@ export async function checkDeployEnv(options: DeployEnvOptions): Promise<DeployE
   const { context, entries, host, link } = options
   const stage = options.preview ? "preview" : defaultStage
   const output: DeployEnvOutput = { checked: entryNames(entries), missing: [], pushed: [], stage }
-  if (!entries.length) return { apply: async () => {}, output, upload: {} }
+  if (!entries.length) return { apply: async () => {}, onHost: new Set(), output, upload: {} }
 
   const target: HostEnvTarget = options.preview && host !== "cloudflare" ? "preview" : "production"
   const hostEnv = link ? hostEnvs[host]({ env: context.env, fetch: context.fetch ?? globalThis.fetch, link, root: options.root, run: options.run, secrets: options.secrets, target }) : undefined
   const onHost = new Set(hostEnv ? await hostEnv.listSecretNames() : [])
   const values = await readLocalEnvValues(options.root, options.envDir, stage, context.env)
+  for (const [name, value] of Object.entries(host === "cloudflare" ? options.consoleKeys ?? {} : {})) {
+    if (onHost.has(name) && !values.has(name)) values.set(name, { encrypted: false, files: [], source: "console", value })
+  }
   const configVars = await configVarNames(host, options.outputDir)
   const stored = planPush(entries, values, [], options.pushEnv || host === "cloudflare" ? configVars : onHost).planned
   if (host === "cloudflare") {
@@ -640,7 +653,7 @@ export async function checkDeployEnv(options: DeployEnvOptions): Promise<DeployE
     }
     const unavailable = [...onHost].filter(name => !values.has(name))
     if (unavailable.length) {
-      throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_ENV_STAGE_UNSAFE({ names: unavailable.join(", "), stage }), setupExitCodes.inputNeeded)
+      throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_ENV_STAGE_UNSAFE({ console: unavailable.some(name => name.startsWith(consoleKeyPrefix)), names: unavailable.join(", "), stage }), setupExitCodes.inputNeeded)
     }
     for (const item of stored) if (onHost.has(item.name)) item.secret = true
   }
@@ -654,11 +667,11 @@ export async function checkDeployEnv(options: DeployEnvOptions): Promise<DeployE
   }
   addRedactions(stored, options.secrets)
 
-  const missing = unset()
+  const missing = unset().filter(entry => !options.deferConsoleKey || entry.prefix !== consoleKeyPrefix)
   const required = missing.filter(isRequired)
   if (required.length) {
     const names = required.map(entry => entryLabel(diffEntry(entry))).join(", ")
-    throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_ENV_MISSING({ firstDeploy: !link, host, names, stage }), setupExitCodes.inputNeeded, {
+    throw setupFailure(cliErrorDiagnostics.SETUP_DEPLOY_ENV_MISSING({ console: required.some(entry => entry.prefix === consoleKeyPrefix), firstDeploy: !link, host, names, stage }), setupExitCodes.inputNeeded, {
       data: { env: { ...output, missing: missing.map(diffEntry) } },
       missing: required.map(entry => ({ field: entry.names[0] ?? `${entry.prefix}*` })),
     })
@@ -677,11 +690,13 @@ export async function checkDeployEnv(options: DeployEnvOptions): Promise<DeployE
       ? `Generated ${item.name} and set it on ${host}.\n`
       : `Setting ${item.name} on ${host}${host === "cloudflare" ? " with the new version" : ""} from ${sourceLabel(item.source)}${item.encrypted ? ", decrypted" : ""}${onHost.has(item.name) ? ", replaced" : ""}.\n`)
   }
-  if (host === "cloudflare" || !hostEnv) return { apply: async () => {}, output, upload: host === "cloudflare" ? Object.fromEntries(planned.map(item => [item.name, item.value])) : {} }
+  const deployedNames = new Set([...onHost, ...configVars, ...output.pushed])
+  if (host === "cloudflare" || !hostEnv) return { apply: async () => {}, onHost: deployedNames, output, upload: host === "cloudflare" ? Object.fromEntries(planned.map(item => [item.name, item.value])) : {} }
   return {
     apply: async () => {
       for (const item of planned) await hostEnv.setSecret(item.name, item.value, { secret: item.secret })
     },
+    onHost: deployedNames,
     output,
     upload: {},
   }

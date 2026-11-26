@@ -2,11 +2,18 @@ import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
 import { syncTables } from "../../../packages/sync/src/database.ts"
-import { expectJson, type PrimitiveEntry } from "./row.ts"
+import { expectJson, type PrepareContext, type PrimitiveRow } from "./row.ts"
 
 const placeholderD1Id = "00000000-0000-0000-0000-000000000000"
 const placeholderKVId = "00000000000000000000000000000000"
 const syncTablesSql = syncTables.map(statement => `${statement};`).join("\n--> statement-breakpoint\n")
+
+export async function migrateDatabase({ mode, appDir, vitehub, wrangler }: PrepareContext) {
+  if (mode === "node-build") return
+  if (mode !== "cloudflare-build") return vitehub(["database", "migrate"])
+  const config = JSON.parse(await readFile(join(appDir, ".output/server/wrangler.json"), "utf8")) as { d1_databases?: { binding: string }[] }
+  for (const { binding } of config.d1_databases ?? []) await wrangler(["d1", "migrations", "apply", binding, "--local"])
+}
 
 interface SyncPull {
   account: string
@@ -32,7 +39,7 @@ function expectEqual(actual: unknown, expected: unknown, what: string) {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(`${what}: ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`)
 }
 
-export const storage: PrimitiveEntry[] = [
+export const storage: PrimitiveRow[] = [
   {
     id: "kv",
     packages: ["@vite-hub/kv"],
@@ -112,12 +119,7 @@ export const storage: PrimitiveEntry[] = [
         })
       `,
     },
-    async prepare({ mode, appDir, vitehub, wrangler }) {
-      if (mode === "node-build") return
-      if (mode !== "cloudflare-build") return vitehub(["database", "migrate"])
-      const config = JSON.parse(await readFile(join(appDir, ".output/server/wrangler.json"), "utf8")) as { d1_databases?: { binding: string }[] }
-      for (const { binding } of config.d1_databases ?? []) await wrangler(["d1", "migrations", "apply", binding, "--local"])
-    },
+    prepare: migrateDatabase,
     async probe({ fetch, mode }) {
       const title = `${mode}-${crypto.randomUUID()}`
       await expectJson(await fetch(`/api/primitives/database?title=${title}`, { method: "POST" }), { inserted: true })

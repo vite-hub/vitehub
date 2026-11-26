@@ -14,6 +14,7 @@ import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 
 import type { AgentRunContext } from "@vite-hub/agent"
+import { installViteHubConsoleOperations } from "./support/console-operations.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 import { signedConsoleAccess } from "./support/console-signature.ts"
 import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
@@ -67,6 +68,10 @@ async function replay(input: unknown, headers: Record<string, string> = {}, sign
   })))
   return { body: Object(await operationRpcResponseResult(response)), status: response.status }
 }
+
+beforeEach(async () => {
+  await installViteHubConsoleOperations()
+})
 
 describe("Console Channel replay operation", () => {
   let root: string

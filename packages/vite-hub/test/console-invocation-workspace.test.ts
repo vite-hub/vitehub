@@ -4,8 +4,8 @@ vi.mock("@vite-hub/agent/server", () => ({ agentHostWorkspaceRoute: "/_vitehub/a
 vi.mock("../src/console/runtime/server/invocations.ts", () => ({ getConsoleInvocations: () => ({ get: mocks.get }) }))
 vi.mock("../src/console/runtime/server/agents.ts", () => ({ getConsoleAgentDefinition: mocks.definition }))
 vi.mock("@vite-hub/workspace/files", () => ({ useWorkspaceFiles: mocks.useWorkspaceFiles }))
-import handlerRoute from "../src/console/runtime/server/invocation-workspace.get.ts"
-import filesHandlerRoute from "../src/console/runtime/server/workspace-files.get.ts"
+import handlerRoute from "../src/agent/console/invocation-workspace.get.ts"
+import filesHandlerRoute from "../src/workspace/console/workspace-files.get.ts"
 import { allowed } from "./support/console-access.ts"
 import { consoleEvent } from "./console-event.ts"
 const handler = allowed(handlerRoute)

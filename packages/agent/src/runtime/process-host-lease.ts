@@ -32,6 +32,7 @@ export interface AgentProcessHostLeaseOptions {
 export interface AgentProcessHostLease {
   /** `holder` while this server runs the host, else `standby`. */
   role(): "holder" | "standby"
+  starting(): boolean
   /** The owner of the Lease, when the last check saw one. */
   holder(): string | undefined
   stop(): Promise<void>
@@ -191,6 +192,7 @@ export function startAgentProcessHostLease(options: AgentProcessHostLeaseOptions
 
   return {
     role: () => acceptsLocal() ? "holder" : "standby",
+    starting: () => !stopped && term?.startup !== undefined && owns(term) && !term.running,
     holder: () => acceptsLocal() ? owner : peer,
     stop() {
       stopped = true

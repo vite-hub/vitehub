@@ -43,7 +43,7 @@ import { importOptionalOwner, isPackageInstalled, requireOptionalOwner, startPac
 import { nuxtImageProviderDependency } from "./internal/nuxt-image.ts"
 import { hasSyncDirectory, ownerModules } from "./internal/owner-modules.ts"
 import { discoverConsoleBuildCatalog, type ConsoleBuildCatalog } from "./console/build.ts"
-import { writeConsoleAppModule, type ConsoleAccessBuild } from "./console/app-module.ts"
+import { consoleAppModuleHasDocumentEditors, resolveConsoleRuntimeCapabilityImports, writeConsoleAppModule, type ConsoleAccessBuild, type ConsoleAppModuleOptions } from "./console/app-module.ts"
 import { installConsoleProjectName, installConsoleSections } from "./console/runtime/server/sections.ts"
 import { consoleOperationFeatures } from "./console/operation-features.ts"
 import { resolveConsoleProjectName } from "./console/project.ts"
@@ -309,10 +309,10 @@ function normalizeGeneratedNitroPlugins(config: Record<string, unknown>, root: s
  * Put these plugins before Nitro's own resolvers, so they see generated and cache imports first. Each one goes first, so
  * in a build the Forge and Drizzle checks can see imports before Nitro resolves them.
  */
-function installNitroBuildPlugins(config: Record<string, unknown>, generatedRoots: string[], dev = false, sections: readonly string[] = [], build = false): void {
+function installNitroBuildPlugins(config: Record<string, unknown>, generatedRoots: string[], dev = false, sections: readonly string[] = [], build = false, documents?: () => boolean | undefined, development?: boolean): void {
   const rollupConfig = (config.rollupConfig ??= {}) as Record<string, unknown>
   const plugins = (rollupConfig.plugins ??= []) as Array<{ name?: string }>
-  for (const plugin of [nitroCacheBypass(), nitroViteHubH3(generatedRoots), nitroOptionalPeers(config), consoleOperationFeatures(sections), ...dev ? [nitroCloudflareWorkersDev] : [], ...build ? [forgeBuildCheckPlugin(), withPrintedDiagnostics(drizzleBuildCheckPlugin())] : []]) {
+  for (const plugin of [nitroCacheBypass(), nitroViteHubH3(generatedRoots), nitroOptionalPeers(config), consoleOperationFeatures(sections, documents, development), ...dev ? [nitroCloudflareWorkersDev] : [], ...build ? [forgeBuildCheckPlugin(), withPrintedDiagnostics(drizzleBuildCheckPlugin())] : []]) {
     if (!plugins.some(candidate => candidate.name === plugin.name)) plugins.unshift(plugin)
   }
 }
@@ -712,11 +712,19 @@ function linkedViteHubPackageRoots(projectRoot: string): string[] {
   return links.filter(existsSync).map(link => realpathSync(link)).filter(root => !root.split(sep).includes("node_modules"))
 }
 
-/** Add packages that Nitro must bundle, unless Nitro already bundles every package. */
-function addNoExternals(config: Record<string, unknown>, entries: string[]): void {
+const viteHubPackages = /(?:^|[\\/]node_modules[\\/])(?:vite-hub|@vite-hub[\\/][^\\/]+)(?:[\\/](?!(?:.*[\\/])?node_modules[\\/])|$)/
+const viteHubPackageStrings = /^(?:vite-hub|@vite-hub\/[^/]*)$/
+
+/**
+ * Nitro reads a string entry as an unanchored path pattern, so `"vite-hub"` (which Nuxt also adds from `build.transpile`)
+ * matches a project folder such as `~/vite-hub-shop`. Nitro then bundles every dependency of that app, and native packages
+ * such as libSQL fail to load. Replace those strings with a pattern for the installed ViteHub packages only.
+ */
+function addNoExternals(config: Record<string, unknown>, entries: Array<string | RegExp>): void {
   if (config.noExternals === true) return
   const current: unknown[] = Array.isArray(config.noExternals) ? config.noExternals : []
-  config.noExternals = [...new Set([...current, ...entries])]
+  const kept = current.filter(entry => typeof entry !== "string" || !viteHubPackageStrings.test(entry))
+  config.noExternals = [...new Set([...kept, viteHubPackages, ...entries])]
 }
 
 async function applyNitroConfig(
@@ -1083,8 +1091,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     i18n: options.i18n ? "vite-hub/i18n/server" : false,
     // The `page()` Capability reaches the page through Realtime.
     realtime: options.realtime ? "vite-hub/realtime/agent" : false,
-    // Email and KV capabilities exist only when the app installed their packages.
-    ...ownerModules.emailVite ? { email: "vite-hub/email" } : {},
+    // The Email capability exists only when the app configures Email, and KV only when the app installed its package.
+    ...ownerModules.emailVite && options.email ? { email: "vite-hub/email" } : {},
     ...ownerModules.kvVite ? { kv: "vite-hub/kv" } : {},
   } satisfies Record<string, false | string>
   const consoleInvocationRootState: ConsoleInvocationRootState = {}
@@ -1131,21 +1139,26 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
   const consoleSiteAccess = resolveConsoleSiteAccess(options.comments, { projectRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) })
   // Module setup and the `nitro:config` hook write the same Console app module. Only the file and the catalog differ.
-  const writeNuxtConsoleApp = (file: string, catalog: ConsoleBuildCatalog) => writeConsoleAppModule({
-    file,
-    projectRoot,
-    name: options.name,
-    sections: consoleSections,
-    catalog,
-    blobStores: consoleBlobStores,
-    invoke: consoleInvokeEnabled,
-    active: () => !consoleInvocationRootState.closed,
-    access: consoleAccess,
-    runtimeCapabilityImports,
-    development: nuxt.options.dev === true,
-    target: { host: { name: plan.host, preset: nitroPreset }, framework: { name: "nuxt", version: nuxt._version } },
-    site: consoleSiteAccess,
-  })
+  let consoleDocumentEditors: boolean | undefined
+  const writeNuxtConsoleApp = (file: string, catalog: ConsoleBuildCatalog) => {
+    const appModule: ConsoleAppModuleOptions = {
+      file,
+      projectRoot,
+      name: options.name,
+      sections: consoleSections,
+      catalog,
+      blobStores: consoleBlobStores,
+      invoke: consoleInvokeEnabled,
+      active: () => !consoleInvocationRootState.closed,
+      access: consoleAccess,
+      runtimeCapabilityImports: resolveConsoleRuntimeCapabilityImports(runtimeCapabilityImports, replayPlugins),
+      development: nuxt.options.dev === true,
+      target: { host: { name: plan.host, preset: nitroPreset }, framework: { name: "nuxt", version: nuxt._version } },
+      site: consoleSiteAccess,
+    }
+    consoleDocumentEditors = consoleAppModuleHasDocumentEditors(appModule)
+    return writeConsoleAppModule(appModule)
+  }
   const viteConfig = nuxt.options.vite as UserConfig & {
     [VITEHUB_GENERATED_ROOT]?: string
     [VITEHUB_NITRO_CONFIG_CONTEXT]?: true
@@ -1543,7 +1556,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     Object.assign(config, mergeGeneratedSourceNitroConfig(config, generatedSourceHandlers))
     // Facade exports, owner runtimes, and generated `.vitehub` modules must resolve generated aliases and virtual modules
     // inside Nitro. Node, which loads external modules, cannot read those aliases.
-    addNoExternals(config, ["vite-hub", "@vite-hub/", join(projectRoot, ".vitehub"), h3RuntimeRoot, ...linkedViteHubPackageRoots(projectRoot)])
+    addNoExternals(config, [join(projectRoot, ".vitehub"), h3RuntimeRoot, ...linkedViteHubPackageRoots(projectRoot)])
     if (incomingNoExternals === false && Array.isArray(config.noExternals)) nitro3ExternalLists.set(config, config.noExternals)
     else nitro3ExternalLists.delete(config)
     // When Nuxt builds Nitro in a Vite environment, the ViteHub plugins already run there.
@@ -1556,7 +1569,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       await installNitroViteImports(config, rootDir)
     }
     normalizeGeneratedNitroPlugins(config, projectRoot)
-    installNitroBuildPlugins(config, [join(projectRoot, ".vitehub"), join(nuxt.options.buildDir, "vitehub")], nuxt.options.dev === true && plan.host === "cloudflare", consoleSections, !nuxt.options.dev)
+    installNitroBuildPlugins(config, [join(projectRoot, ".vitehub"), join(nuxt.options.buildDir, "vitehub")], nuxt.options.dev === true && plan.host === "cloudflare", consoleSections, !nuxt.options.dev, () => nuxt.options.dev ? consoleDocumentEditorSectionIds.length > 0 : consoleDocumentEditors, nuxt.options.dev === true)
     if (nuxt.options.dev && plan.host === "cloudflare") {
       await writeCloudflareDevShims(nuxt.options.buildDir, (config.alias ??= {}) as Record<string, string>)
     }

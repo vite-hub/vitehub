@@ -489,7 +489,7 @@ describe("hubWorkspace", () => {
     ) => Promise<{ nitro?: { handlers?: Array<{ route?: string }> } }>
     const served = await config({ nitro: {}, root }, { command: "serve", mode: "development" })
     // Only the middleware that drops the staged writes of a failed request.
-    expect(served.nitro?.handlers ?? []).toEqual([{ handler: ownModule(import.meta.url, "runtime/request"), middleware: true }])
+    expect(served.nitro?.handlers ?? []).toEqual([{ handler: ownModule(import.meta.url, "runtime/request"), middleware: true, route: "/**" }])
   })
 
   it("streams Workspace Dev command progress from the Vite endpoint", async () => {
