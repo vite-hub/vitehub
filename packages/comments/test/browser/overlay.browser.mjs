@@ -1,7 +1,3 @@
-// Mounts the comments overlay from its sources in headless Chromium, next to a page with text and a site menu, and
-// checks what a person does on that page. The real Comments API answers from memory. happy-dom computes no CSS and
-// has no layout, so these checks need a real browser.
-// Run: pnpm --filter @vite-hub/comments test:browser
 import assert from "node:assert/strict"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { test } from "node:test"
@@ -12,13 +8,11 @@ import { createServer } from "vite"
 import { overlayAliases, standaloneUI } from "../../overlay.aliases.ts"
 
 const port = Number(process.env.COMMENTS_BROWSER_PORT ?? 4797)
-/** A folder for screenshots of the flows, for pull request evidence. */
 const evidence = process.env.COMMENTS_BROWSER_EVIDENCE
 const builtOverlay = new URL("../../dist/overlay/", import.meta.url)
 const harness = fileURLToPath(new URL("../harness.ts", import.meta.url))
 const handlerFile = fileURLToPath(new URL("../../src/runtime/handler.ts", import.meta.url))
 
-/** Serves `/_vitehub/comments/**` from the real handler, with one signed-in person. */
 function commentsApi() {
   let comments
   const files = new Map()
@@ -44,7 +38,6 @@ function commentsApi() {
       })
     },
     threads: async () => (await comments.list())[1],
-    /** The threads once `ready` holds for them: a new comment shows at once and goes out after. */
     async stored(ready) {
       for (let tries = 0; tries < 100; tries++) {
         const threads = (await comments.list())[1]
@@ -57,7 +50,6 @@ function commentsApi() {
   }
 }
 
-/** The bytes of the picture that went with the comment `body`, once the comment reaches the server. */
 async function sentPicture(api, body) {
   const thread = (await api.stored(threads => threads.some(item => item.messages[0].body === body))).find(item => item.messages[0].body === body)
   const [key] = thread.messages[0].attachments
@@ -78,7 +70,6 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
   const server = await createServer({
     configFile: false,
     logLevel: "warn",
-    // Pre-bundling found on the first load reloads the page in the middle of a test.
     optimizeDeps: { noDiscovery: true },
     plugins: [standaloneUI(), api],
     resolve: { alias: overlayAliases, dedupe: ["vue"] },
@@ -86,7 +77,6 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     server: { host: "127.0.0.1", port, strictPort: true },
   })
   await server.listen()
-  // Register each cleanup before the next step can fail, so a failed launch does not keep the server open.
   t.after(() => server.close())
   const browser = await chromium.launch()
   t.after(() => browser.close())
@@ -94,7 +84,6 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
   const errors = []
   page.on("pageerror", error => errors.push(error.message))
   await page.goto(`http://127.0.0.1:${port}/`)
-  // Until the session answers, the pill shows a busy "Comments" button. The comment layer mounts with the listeners.
   await page.locator("vitehub-comments [data-slot='comment-layer']").waitFor({ state: "attached" })
   const composer = page.locator("vitehub-comments textarea[aria-label='Comment']")
 
@@ -133,7 +122,6 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
 
   await t.test("selected text gets a Comment bar, and the comment keeps the quote highlighted", async () => {
     const box = await page.locator("#first").boundingBox()
-    // Only text inside the <strong>, so the pin has to find the paragraph's gutter.
     const strong = await page.locator("#first strong").boundingBox()
     await drag(page, { x: box.x + 2, y: box.y + 10 }, { x: strong.x + strong.width * 0.8, y: box.y + 10 })
     assert.match(await page.evaluate(() => getSelection().toString()), /^Most of you/)
@@ -143,7 +131,6 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     await composer.waitFor({ timeout: 5000 })
     assert.equal((await highlights(page))["vh-comment-draft"], 1)
     await composer.fill("Say which airport")
-    // The bubble takes ViteHub's theme, as Drop does: no focus ring around it, a neutral send button, and Geist first.
     const bubble = await page.locator("vitehub-comments [data-draft='true'] > [data-slot='comment-layer-popover']").evaluate((element) => {
       const send = [...element.querySelectorAll("button")].at(-1)
       const [red, green, blue] = getComputedStyle(send).backgroundColor.match(/\d+/g).map(Number)
@@ -168,7 +155,6 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
 
   await t.test("a scroll does not repaint the highlights, and a change to the page does", async () => {
     const frames = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
-    // Away from the pins, so no hover changes while the page moves.
     await page.mouse.move(5, 5)
     await page.evaluate(() => {
       document.body.style.paddingBottom = "2000px"
@@ -177,7 +163,6 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
       CSS.highlights.set = (...args) => { window.highlightPaints++; return set(...args) }
     })
     try {
-      // The padding is a change to the page too. Count from after it.
       await frames()
       await page.evaluate(() => { window.highlightPaints = 0 })
       for (const y of [40, 80, 120, 0]) {
@@ -199,7 +184,6 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     if (!await page.evaluate(() => document.documentElement.classList.contains("vitehub-comment-mode"))) await page.keyboard.press("c")
     await page.locator("vitehub-tool").getByRole("button", { name: "Whole page" }).waitFor({ timeout: 5000 })
     try {
-      // Avatars and dividers do not fill the row's height, so they show it first when the alignment is lost.
       const centers = await page.evaluate(() => [...document.querySelector("vitehub-tool").shadowRoot.querySelectorAll(".toolbar button, .toolbar .divider, .toolbar .people")]
         .map(item => { const box = item.getBoundingClientRect(); return [item.className || item.textContent, box.top + box.height / 2] }))
       assert.ok(centers.some(([name]) => name === "divider"), "comment mode shows its dividers")
@@ -230,13 +214,11 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
   await t.test("an area is a soft grey line, and its thread opens in Drop's small card behind a round face", async () => {
     await page.keyboard.press("Escape")
     await page.mouse.move(5, 5)
-    // Once no thread is open or hovered, its area is a 1px line with no fill.
     await page.waitForFunction(() => {
       const area = document.querySelector("vitehub-comment-areas").shadowRoot.querySelector("[data-slot='comment-mark-area']")
       const style = getComputedStyle(area)
       return area.dataset.status === "open" && style.borderTopWidth === "1px" && style.backgroundColor === "rgba(0, 0, 0, 0)"
     }, undefined, { timeout: 5000 })
-    // The line is a soft neutral tint of the ink, not the comment blue, so a page with many areas stays calm.
     const [red, green, blue, alpha] = await page.evaluate(() => {
       const color = getComputedStyle(document.querySelector("vitehub-comment-areas").shadowRoot.querySelector("[data-slot='comment-mark-area']")).borderTopColor
       const context = Object.assign(document.createElement("canvas"), { width: 1, height: 1 }).getContext("2d")
@@ -252,7 +234,6 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     const thread = page.locator("vitehub-comments [data-slot='comment-layer-popover'] [data-slot='comment-thread']")
     await thread.waitFor({ timeout: 5000 })
     assert.equal(await thread.getAttribute("data-size"), "sm")
-    // Drop's card: 340px, and the one small corner is the one nearest the pin. offsetWidth ignores the pop-in scale.
     const card = await thread.evaluate((element) => {
       const style = getComputedStyle(element.parentElement)
       return { corners: [style.borderTopLeftRadius, style.borderTopRightRadius, style.borderBottomRightRadius, style.borderBottomLeftRadius].sort(), width: element.parentElement.offsetWidth }
@@ -315,12 +296,10 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
       await page.evaluate(size => { document.documentElement.style.fontSize = `${size}px` }, rootSize)
       for (const width of [375, 390]) {
         await page.setViewportSize({ width, height: 720 })
-        // Include a spot with too little room on either side, plus the middle and right edge.
         for (const [x, y] of [[100, 30], [180, 150], [200, 30], [width - 10, 30], [180, 600]]) {
           await page.mouse.click(x, y)
           await composer.waitFor({ timeout: 5000 })
           const bubble = page.locator("vitehub-comments [data-draft='true'] > [data-slot='comment-layer-popover']")
-          // The bubble comes out of its pin with the appear effect of the motion layer. Wait until it rests.
           await bubble.evaluate(card => new Promise((resolve) => {
             const check = () => (card.style.translate || card.style.clipPath || card.style.opacity ? requestAnimationFrame(check) : resolve())
             check()
@@ -388,7 +367,6 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     assert.equal(boxes.length, 2)
     assert.ok(Math.abs(boxes[0].y - boxes[1].y) >= 28, JSON.stringify(boxes))
     assert.ok(boxes.every(box => box.hit), JSON.stringify(boxes))
-    // At the bottom of the screen the stack grows upward, so no pin goes off screen.
     const height = Math.ceil(Math.max(...boxes.map(box => box.y))) + 20
     await page.setViewportSize({ width: 1024, height })
     await page.waitForTimeout(200)
@@ -403,19 +381,16 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     await page.keyboard.press("b")
     const layer = page.locator("vitehub-marker .layer")
     await layer.waitFor({ timeout: 5000 })
-    // The page under the layer takes no click while highlighting.
     assert.equal(await page.evaluate(() => document.elementFromPoint(300, 200)?.localName), "vitehub-marker")
     const line = await page.evaluate(() => {
       const box = document.querySelector("#second").getBoundingClientRect()
       return { left: box.left + 4, right: box.left + 300, y: box.top + 14 }
     })
-    // A stroke can start on an earlier comment's area or pin.
     assert.equal(await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.localName, { x: line.left, y: line.y }), "vitehub-marker")
     await drag(page, { x: line.left, y: line.y }, { x: line.right, y: line.y })
     if (evidence) await page.screenshot({ path: `${evidence}/highlight-drawing.png` })
     await page.locator("vitehub-tool button", { hasText: "Done" }).click()
     await composer.waitFor({ timeout: 10000 })
-    // The strokes stay where they were drawn while the comment is written, and the page takes clicks again.
     assert.equal(await layer.evaluate(element => element.hasAttribute("data-frozen")), true)
     await composer.fill("This flight is wrong")
     if (evidence) await page.screenshot({ path: `${evidence}/highlight-comment.png` })
@@ -428,14 +403,12 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     const file = api.files.get(key)
     assert.equal(file.type, "image/webp")
     if (evidence) await writeFile(`${evidence}/highlight-picture.webp`, file.data)
-    // The picture is the screen, with the pink ink on the highlighted line and the page's white elsewhere.
     const picture = await page.evaluate(async ({ bytes, at }) => {
       const bitmap = await createImageBitmap(new Blob([new Uint8Array(bytes)], { type: "image/webp" }))
       const canvas = new OffscreenCanvas(bitmap.width, bitmap.height)
       const context = canvas.getContext("2d")
       context.drawImage(bitmap, 0, 0)
       const row = (y, from, to) => context.getImageData(from, y, to - from, 1).data
-      // Pink ink multiplied over the white page, between the letters: much more red than green.
       const pink = (data) => {
         let count = 0
         for (let index = 0; index < data.length; index += 4) if (data[index] > 220 && data[index] - data[index + 1] > 30 && data[index + 2] > 180) count++
@@ -462,17 +435,13 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
         const box = document.querySelector("#second").getBoundingClientRect()
         return { left: box.left + 4, right: box.left + 300, y: box.top + 14 }
       })
-      // The marker, pink, over a line of text.
       await drag(tips, { x: line.left, y: line.y }, { x: line.right, y: line.y })
-      // The pen, blue, under the text. P picks it.
       await tips.keyboard.press("p")
       await pick("Blue ink")
       await drag(tips, { x: 220, y: 470 }, { x: 420, y: 470 })
-      // An arrow, green.
       await pick("Arrow")
       await pick("Green ink")
       await drag(tips, { x: 460, y: 600 }, { x: 620, y: 480 })
-      // A label, amber: a click places it, Enter puts it down.
       await tips.keyboard.press("t")
       await pick("Amber ink")
       await tips.mouse.click(660, 560)
@@ -494,7 +463,6 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
       if (evidence) await tips.screenshot({ path: `${evidence}/tips-comment.png` })
       await box.press("Enter")
       const bytes = await sentPicture(api, "Each tip, in its color")
-      // The picture: each tip's ink where it was drawn, in its color.
       const counts = await tips.evaluate(async ({ bytes, at }) => {
         const blob = new Blob([new Uint8Array(bytes)], { type: "image/webp" })
         const bitmap = await createImageBitmap(blob)
@@ -515,7 +483,6 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
           green: count(500, 500, 100, 90, (r, g, b) => g > 120 && r < 60 && b < 110),
           amber: count(655, 548, 20, 24, (r, g, b) => r > 220 && g > 130 && g < 180 && b < 60),
           dark: count(660, 548, 70, 24, (r, g, b) => r < 40 && g < 40 && b < 40),
-          // Nothing drawn in the blank band between the text and the pen.
           blank: count(220, 420, 400, 20, (r, g, b) => !(r > 240 && g > 240 && b > 240)),
         }
       }, { bytes, at: { left: Math.round(line.left), right: Math.round(line.right), y: Math.round(line.y) } })
@@ -525,7 +492,6 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
       assert.ok(counts.blue > 150, `${counts.blue} blue pixels on the pen's line`)
       assert.ok(counts.green > 100, `${counts.green} green pixels on the arrow`)
       assert.ok(counts.amber > 100, `${counts.amber} amber pixels in the label`)
-      // Amber is light, so the label's words are near-black.
       assert.ok(counts.dark > 20, `${counts.dark} dark pixels of the label's words`)
       assert.equal(counts.blank, 0)
     }
@@ -558,7 +524,6 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
       await box.fill("The header stays on top")
       await box.press("Enter")
       const bytes = await sentPicture(api, "The header stays on top")
-      // The picture: the header stays at the top, and the site's fixed Menu button at the bottom left.
       const colors = await scrolled.evaluate(async (bytes) => {
         const bitmap = await createImageBitmap(new Blob([new Uint8Array(bytes)], { type: "image/webp" }))
         const canvas = new OffscreenCanvas(bitmap.width, bitmap.height)
@@ -590,13 +555,10 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
       })
       const button = touch.locator("vitehub-comments [data-slot='comment-selection-bar-action']")
       await button.waitFor({ timeout: 5000 })
-      // No hover color on a touch screen, where a tap would leave it on.
       await button.hover()
       assert.equal(await button.evaluate(element => getComputedStyle(element).backgroundColor), "rgba(0, 0, 0, 0)")
-      // Under reduced motion a press does not scale the button.
       await touch.emulateMedia({ reducedMotion: "reduce" })
       assert.doesNotMatch(await button.evaluate(element => getComputedStyle(element).transitionProperty), /scale/)
-      // A tap on a phone can clear the selection before the click lands, as a press outside the selected text does.
       await touch.evaluate(() => addEventListener("pointerdown", () => getSelection().removeAllRanges(), { capture: true }))
       await button.tap()
       await touch.locator("vitehub-comments textarea[aria-label='Comment']").waitFor({ timeout: 5000 })
@@ -613,7 +575,6 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
       await touch.goto(`http://127.0.0.1:${port}/`)
       await touch.locator("vitehub-comments [data-slot='comment-layer']").waitFor({ state: "attached" })
       const end = await touch.evaluate(() => {
-        // Moves the paragraph down until its text ends at 700px, 20px above the bottom edge.
         const second = document.querySelector("#second")
         const range = document.createRange()
         range.selectNodeContents(second)
@@ -625,7 +586,6 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
       assert.ok(Math.abs(end - 700) < 2, `selection ends at ${end}`)
       const button = touch.locator("vitehub-comments [data-slot='comment-selection-bar-action']")
       await button.waitFor({ timeout: 5000 })
-      // The bar rises from the text with the appear effect of the motion layer. Measure it where it rests.
       await touch.locator("vitehub-comments [data-slot='comment-selection-bar']").evaluate(bar => new Promise((resolve) => {
         const check = () => (bar.style.translate || bar.style.clipPath || bar.style.opacity ? requestAnimationFrame(check) : resolve())
         check()
@@ -633,9 +593,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
       const box = await touch.locator("vitehub-comments [data-slot='comment-selection-bar']").boundingBox()
       assert.ok(box.y >= 0 && box.y + box.height <= 720, `bar from ${box.y} to ${box.y + box.height}`)
       const start = await touch.evaluate(() => getSelection().getRangeAt(0).getBoundingClientRect().top)
-      // The system's text menu opens just above the selection, so the bar leaves it 64px.
       assert.ok(start - (box.y + box.height) >= 63, `bar ends at ${box.y + box.height}, text starts at ${start}`)
-      // The stand-in pill has the type of the real one, so screenshots show the toolbar as people see it.
       const cdp = await touch.context().newCDPSession(touch)
       await cdp.send("DOM.getDocument", { depth: -1, pierce: true })
       await cdp.send("CSS.enable")
@@ -663,7 +621,6 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     try {
       await large.goto(`http://127.0.0.1:${port}/`)
       await large.locator("vitehub-comments [data-slot='comment-layer']").waitFor({ state: "attached" })
-      // Text near the top left corner, so the bar has to go under it and stay inside the left edge.
       await large.evaluate(() => {
         document.documentElement.style.fontSize = "24px"
         const first = document.querySelector("#first")
@@ -709,20 +666,16 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     const box = await page.locator("#second").boundingBox()
     await page.mouse.click(box.x + box.width - 40, box.y + 8)
     await composer.waitFor({ timeout: 5000 })
-    // Writing a comment does not bring the others back.
     assert.equal(await items.count(), 0)
     await composer.fill("Only this one shows")
     await composer.press("Enter")
     await page.mouse.move(5, 5)
-    // The item is a zero-size anchor, so wait for its pin. From then on the page records each change of the pins, as
-    // the pop-out lasts 180ms and a screenshot can take longer.
     await items.first().locator("[data-slot='comment-pin']").waitFor({ timeout: 5000 })
     await page.evaluate(() => {
       const root = document.querySelector("vitehub-comments").shadowRoot
       const start = performance.now()
       const log = window.pinLog = []
       const record = () => {
-        // The leave effect of the motion layer folds an inert copy of a leaving pin away. The copy is not a pin.
         const pins = [...root.querySelectorAll("[data-slot='comment-layer-item']:not([data-draft], [data-motion=none])")].filter(item => item.querySelector("[data-slot='comment-pin']"))
         const copy = root.querySelector("[data-slot='comment-layer-item'][data-motion=none]")
         const entry = { at: performance.now() - start, count: pins.length, leaving: pins.some(item => item.dataset.leaving === "true"), hidden: pins.some(item => item.style.opacity === "0"), copy: Boolean(copy) }
@@ -743,7 +696,6 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     assert.ok(leave, `the pin popped out: ${JSON.stringify(log)}`)
     assert.ok(leave.at >= 1800 && leave.at < 3000, `the new comment showed for ${leave.at}ms`)
     assert.ok(leave.hidden && leave.copy, `the pin hid and a copy of it folded away: ${JSON.stringify(leave)}`)
-    // The page keeps the hidden pin for commentLeaveMs, while its copy folds away.
     const gone = log.find(entry => entry.at > leave.at && entry.count === 0).at - leave.at
     assert.ok(gone >= 120 && gone < 500, `the pin went after ${gone}ms`)
     assert.ok(log.every(entry => entry.count <= 1), "no other pin showed")
@@ -816,7 +768,6 @@ test("the built overlay loads its chunks from its own folder", { timeout: 60_000
   const browser = await chromium.launch()
   t.after(() => browser.close())
   const context = await browser.newContext()
-  // A routed origin: the page is at the root and the built overlay at the asset path of the Comments routes.
   const origin = "http://localhost:4799"
   const assets = "/_vitehub/comments/assets/"
   const scripts = []
@@ -848,7 +799,6 @@ test("the built overlay loads its chunks from its own folder", { timeout: 60_000
       const body = await readFile(new URL(path.slice(assets.length), builtOverlay)).catch(() => undefined)
       return body ? route.fulfill({ contentType: "text/javascript", body }) : route.fulfill({ status: 404 })
     }
-    // Presence is on, so the overlay imports the Realtime client chunk after the session answers.
     if (path === "/_vitehub/comments/session") {
       return route.fulfill({ json: { data: { user: { id: "u1", name: "Maxi" }, can: { read: true, comment: true, resolve: true }, realtime: true, content: false }, people: [] } })
     }
@@ -858,7 +808,6 @@ test("the built overlay loads its chunks from its own folder", { timeout: 60_000
   const page = await context.newPage()
   const errors = []
   page.on("pageerror", error => errors.push(error.message))
-  // The Realtime client opens the room's socket once its chunk has loaded, after the preload links went out.
   const socket = page.waitForEvent("websocket", { timeout: 15_000 })
   await page.goto(`${origin}/`)
   assert.match((await socket).url(), /\/_vitehub\/realtime\/comments\//)

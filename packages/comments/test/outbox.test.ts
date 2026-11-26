@@ -160,9 +160,18 @@ function createSerialStore() {
   return { store, plan }
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((pass, fail) => {
+    resolve = pass
+    reject = fail
+  })
+  return { promise, resolve, reject }
+}
+
 function gate() {
-  let open!: () => void
-  const promise = new Promise<void>(resolve => open = resolve)
+  const { promise, resolve: open } = deferred<void>()
   return { promise, open }
 }
 
@@ -640,6 +649,101 @@ describe("the comments outbox", () => {
     await first
     await vi.waitFor(() => expect(client.outbox.entries).toHaveLength(0))
     expect(server.creates.map(input => input.body)).toEqual(["First", "Second"])
+  })
+
+  it("sends the next saved draft when the earlier write fails late", async () => {
+    const { store, plan } = createSlowStore()
+    const { server, client } = setup({ store })
+    await vi.waitFor(() => expect(client.status).toBe("ready"))
+    const write = deferred<void>()
+    plan.push(write.promise)
+    await client.create({ subject, anchor, body: "First" })
+    await client.create({ subject, anchor, body: "Second" })
+    await settle()
+    expect(server.creates).toHaveLength(0)
+    write.reject(new DOMException("Full", "QuotaExceededError"))
+    await vi.waitFor(() => expect(server.creates.map(input => input.body)).toEqual(["Second"]))
+    expect(client.outbox.failures.map(entry => entry.input.body)).toEqual(["First"])
+  })
+
+  it("does not restore a cleared draft when its delayed save finishes", async () => {
+    const { store, plan } = createSlowStore()
+    const { server, client } = setup({ store })
+    await vi.waitFor(() => expect(client.status).toBe("ready"))
+    const write = gate()
+    plan.push(write.promise)
+    await client.create({ subject, anchor, body: "Discard this" })
+    await client.outbox.clear()
+    write.open()
+    await settle()
+    expect(await store.list(ana.id)).toEqual([])
+    expect(server.creates).toHaveLength(0)
+  })
+
+  it("warns before unload after an offline draft is saved in memory", async () => {
+    const page = new EventTarget()
+    vi.stubGlobal("addEventListener", page.addEventListener.bind(page))
+    vi.stubGlobal("removeEventListener", page.removeEventListener.bind(page))
+    const { browser, client, store } = setup()
+    browser.online = false
+    await client.create({ subject, anchor, body: "Only in memory" })
+    await vi.waitFor(async () => expect(await store.list(ana.id)).toHaveLength(1))
+    expect(page.dispatchEvent(new Event("beforeunload", { cancelable: true }))).toBe(false)
+    await client.outbox.clear()
+    expect(page.dispatchEvent(new Event("beforeunload", { cancelable: true }))).toBe(true)
+  })
+
+  it("resolves only after the previous reply reaches the server", async () => {
+    const { server, client } = setup()
+    const thread = await server.memory.create({ subject, anchor, body: "Open" })
+    await client.refresh()
+    const write = gate()
+    server.plan.push(write.promise)
+    await client.reply({ threadId: thread.id, body: "Before Resolve" })
+    await vi.waitFor(() => expect(server.replies).toHaveLength(1))
+    const resolved = client.resolve({ threadId: thread.id })
+    await settle()
+    expect((await server.memory.get({ threadId: thread.id }))?.status).toBe("open")
+    write.open()
+    expect(await resolved).toMatchObject({ status: "resolved", messages: [{ body: "Open" }, { body: "Before Resolve" }] })
+  })
+
+  it("returns the first draft on a replay before the other client's snapshot loads", async () => {
+    const { browser, client, store, server } = setup()
+    browser.online = false
+    const first = await client.create({ subject, anchor, requestId: "one", body: "First body" })
+    const other = setup({ browser, store, server }).client
+    const replay = other.create({ subject, anchor, requestId: "one", body: "Other body" })
+    const provisional = other.outbox.entries[0]?.id
+    expect(provisional).toBeDefined()
+    const reply = other.reply({ threadId: provisional!, requestId: "two", body: "A reply" })
+    expect(await replay).toMatchObject({ id: first.id, messages: [{ body: "First body" }] })
+    await reply
+    await vi.waitFor(async () => expect(await store.list(ana.id)).toMatchObject([
+      { id: first.id, input: { body: "First body" } },
+      { input: { threadId: first.id, body: "A reply" } },
+    ]))
+    const third = setup({ browser, store, server }).client
+    expect(await third.reply({ threadId: first.id, requestId: "two", body: "Ignore this replay" })).toMatchObject({
+      id: first.id,
+      messages: [{ body: "First body" }, { body: "A reply" }],
+    })
+  })
+
+  it("retains deferred bytes when their checkpoint fails and sends them on retry", async () => {
+    const { store, plan } = createSlowStore()
+    const { server, client } = setup({ store })
+    await vi.waitFor(() => expect(client.status).toBe("ready"))
+    const files = deferred<Blob[]>()
+    const draft = await client.create({ subject, anchor, body: "With picture", files: files.promise })
+    await settle()
+    plan.push(new DOMException("Full", "QuotaExceededError"))
+    files.resolve([new Blob(["pixels"])])
+    await vi.waitFor(() => expect(client.outbox.failures).toHaveLength(1))
+    expect(server.creates).toHaveLength(0)
+    await client.outbox.retry(draft.id)
+    await vi.waitFor(() => expect(server.creates).toHaveLength(1))
+    expect(await server.creates[0]!.files![0]!.text()).toBe("pixels")
   })
 
   it.each(["create", "reply"] as const)("keeps one tab's %s calls in order when another tab's write lands first", async (kind) => {

@@ -11,7 +11,7 @@ import { anchorRange, createCommentsClient } from "../client.ts"
 import { commentsAgentPrompt } from "../agent-prompt.ts"
 import { createCommentSend } from "../client-send.ts"
 import { commentRoom, commentsApiRoute, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "../page.ts"
-import { api, createOverlaySendTransport, createOverlayTransport, readGuest, saveGuest } from "./api.ts"
+import { api, createOverlaySendTransport, createOverlayTransport, overlayOutboxNamespace, readGuest, saveGuest } from "./api.ts"
 import { captureContext } from "./context.ts"
 import { createInlineEdit } from "./edit.ts"
 import { captureMarked, markerBox, markerColors, markerTips, startMarker } from "./marker.ts"
@@ -400,6 +400,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
    * the comments of that person only: a guest who gives a name gets a new client.
    */
   function createClient(user: CommentUser | undefined) {
+    const namespace = overlayOutboxNamespace()
     const next = createCommentsClient({
       transport: {
         ...transport,
@@ -409,7 +410,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
           return () => listeners.delete(listener)
         },
       },
-      ...(user ? { user, outbox: { account: user.id } } : {}),
+      user,
+      ...(user && namespace !== undefined ? { outbox: { account: user.id, namespace } } : {}),
     })
     // The outbox may send a saved copy later, so a new thread takes the page context and the version shown at Send.
     const create = next.create
@@ -447,12 +449,15 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     showToast(copied ? { text: "Prompt copied. Paste it in your agent.", kind: "info" } : { text: "Could not copy the prompt. Allow clipboard access and try again.", kind: "error" })
   }
   /** How a comment that has not reached the server is doing, with Retry when the server refused it. */
-  const delivery = ({ delivery: { status, error }, retry }: CommentStatusSlotScope): VNode[] => status === "failed"
-    ? [
-        h("span", { class: "delivery", "data-failed": "true" }, error ? `Not sent. ${error.why}` : "Not sent."),
-        ...(retry ? [h(UButton, { color: "neutral", label: "Retry", onClick: () => void retry(), size: "xs", variant: "ghost" })] : []),
-      ]
-    : [h("span", { class: "delivery" }, error ? `Waiting to send. ${error.why}` : "Sending…")]
+  const delivery = ({ delivery: { status, error }, retry }: CommentStatusSlotScope): VNode[] => {
+    const failed = status === "failed"
+    const held = error?.status === 401 || error?.status === 402
+    const label = failed ? "Not sent." : error ? "Waiting to send." : "Sending…"
+    return [
+      h("span", { class: "delivery", "data-failed": failed ? "true" : undefined }, error ? `${label} ${error.why}` : label),
+      ...(retry && (failed || held) ? [h(UButton, { color: "neutral", label: "Retry", onClick: () => void retry(), size: "xs", variant: "ghost" })] : []),
+    ]
+  }
 
   const edit = createInlineEdit({
     page: () => page.value,

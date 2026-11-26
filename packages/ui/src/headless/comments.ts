@@ -229,7 +229,6 @@ export const draftPositionKey = "draft";
 const uiSelector = "[data-comments-ui]";
 const draftComposerSelector = "[data-draft] [data-slot='comment-composer']";
 
-// The comment UI may sit in a shadow root, so an element is also in it when its shadow host is.
 function defaultIgnore(element: Element): boolean {
   for (let node: Element | null = element; node; ) {
     if (node.closest(uiSelector)) return true;
@@ -239,7 +238,6 @@ function defaultIgnore(element: Element): boolean {
   return false;
 }
 
-// Events from a shadow root are retargeted to its host, so the real element is the first one of the composed path.
 const elementsOf = (event: Event): Element[] => event.composedPath().filter((node): node is Element => node instanceof Element);
 
 function sameSubject(a: CommentSubject, b: CommentSubject): boolean {
@@ -255,7 +253,6 @@ function samePosition(a: AnchorPosition | undefined, b: AnchorPosition | undefin
 const editableSelector = "input, textarea, select, [contenteditable]:not([contenteditable='false']), [role='textbox'], [role='combobox'], [role='searchbox']";
 const isEditable = (path: readonly Element[]): boolean => path.some(element => element.matches(editableSelector));
 
-/** Whether there are files to send. A promise, such as of a screenshot, counts: it settles after Send. */
 const someFiles = (files: Blob[] | Promise<Blob[]> | undefined): files is Blob[] | Promise<Blob[]> => files !== undefined && (!Array.isArray(files) || files.length > 0);
 
 function describeError(error: unknown): string {
@@ -331,7 +328,6 @@ export function useComments(options: UseCommentsOptions): CommentsState {
   watch(visibility, value => seen.set(value), { flush: "sync" });
   watch(openId, id => seen.open(id), { flush: "sync" });
   watch(hoverId, id => seen.hover(id), { flush: "sync" });
-  // Open panels and active flashes keep their marks even when a filter would hide them.
   const marked = computed(() => {
     void seenChanges.value;
     const ids = new Set(pageThreads.value.map(thread => thread.id));
@@ -364,7 +360,6 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     if (!same) positions.value = next;
   }
 
-  // Without a draft, the composer of one that was just sent or closed is on its way out of the DOM, and holds nothing.
   const hasText = (): boolean => (draft.value?.body.trim().length ?? 0) > 0 || hasDirtyComposer(uiRoot(), draft.value ? undefined : draftComposerSelector);
   const block = (escape = false): void => {
     blocked.value++;
@@ -377,15 +372,12 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     if (selection && !selection.isCollapsed && selection.rangeCount > 0) {
       const container = selection.getRangeAt(0).commonAncestorContainer;
       const element = container instanceof Element ? container : container.parentElement;
-      // A selection that the page removed since, such as after a router swapped the body, has nothing to anchor to.
       if (element?.isConnected && !ignore(element)) {
         const rect = selection.getRangeAt(0).getBoundingClientRect();
         try {
           startDraft(selection, { point: { x: rect.left, y: rect.top } });
           selection.removeAllRanges();
-        } catch {
-          // Comment mode stays on, and a click drops the pin.
-        }
+        } catch {}
       }
     }
   }
@@ -418,7 +410,6 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     const anchor = createAnchor(target, { root: root(), ignore, ...anchorOptions });
     let point = anchorOptions.point ?? { x: 0, y: 0 };
     if (target === "page") {
-      // A comment on the whole page has no spot, so its composer opens near the top.
       point = { x: Math.max(16, window.innerWidth / 2 - 180), y: 96 };
     } else if ("nodeType" in target) {
       const box = target.getBoundingClientRect();
@@ -449,14 +440,12 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     };
     current.error = undefined;
     if (client.outbox) {
-      // The outbox shows the comment at once and keeps it until it is sent, so the draft closes now and the next one can start.
       draft.value = null;
       try {
         const thread = await client.create(input);
         flash(thread.id);
         return thread;
       } catch (error) {
-        // Nothing was queued. The text comes back, unless another draft took its place.
         current.error = describeError(error);
         if (!draft.value) draft.value = current;
         return undefined;
@@ -476,7 +465,6 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     }
   }
 
-  // The element may not be on the page yet, for example while a route renders. Try for a few seconds, then give up.
   let revealTimer: ReturnType<typeof setTimeout> | undefined;
   function reveal(id: string): void {
     clearTimeout(revealTimer);
@@ -512,7 +500,6 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     const base = options.subjectUrl?.(thread.subject) ?? (thread.subject.kind === "page" ? thread.subject.id : location.href);
     const url = new URL(base, location.origin);
     url.searchParams.set(param, String(thread.n));
-    // URL normalization can produce a pathname that reparses as a protocol-relative link.
     const pathname = url.pathname.startsWith("//") ? `/%2F${url.pathname.slice(2)}` : url.pathname;
     return `${pathname}${url.search}${url.hash}`;
   }
@@ -526,7 +513,6 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     if (!Number.isInteger(n) || n < 1) return;
     const thread = threads.value.find(entry => entry.n === n && onPage(entry));
     if (!thread) return;
-    // A deep link shows its thread, even a resolved one that a filter hides.
     if (thread.status === "resolved") filters.resolved = true;
     filters.mine = false;
     open(thread, { scroll: true });
@@ -542,14 +528,11 @@ export function useComments(options: UseCommentsOptions): CommentsState {
       return;
     }
     if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || isEditable(path)) return;
-    // The keyboard way to drop a pin: in comment mode, Enter on the focused element comments on it.
     if (event.key === "Enter" && active.value && origin && !path.some(ignore) && origin !== document.body && origin !== document.documentElement) {
       event.preventDefault();
       try {
         startDraft(origin);
-      } catch {
-        // Nothing of the page to comment on.
-      }
+      } catch {}
       return;
     }
     if (hotkey === false || event.key.toLowerCase() !== hotkey) return;
@@ -559,7 +542,6 @@ export function useComments(options: UseCommentsOptions): CommentsState {
 
   function start(): () => void {
     const stops: Array<() => void> = [];
-    // Set before `client.start()`: a new query makes an answer that is still on its way stale.
     client.query = scope.value === "page" ? { subject: subject.value } : {};
     stops.push(client.onChange(() => {
       status.value = client.status;
@@ -582,7 +564,6 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     };
     window.addEventListener("scroll", schedule, { capture: true, passive: true });
     window.addEventListener("resize", schedule);
-    // Images and fonts that load later move the page.
     window.addEventListener("load", schedule, { capture: true });
     document.fonts?.addEventListener("loadingdone", schedule);
     const onPopstate = (): void => {
@@ -590,9 +571,7 @@ export function useComments(options: UseCommentsOptions): CommentsState {
       applyDeepLink();
     };
     window.addEventListener("popstate", onPopstate);
-    // Hosts with History API routing can supply a reactive location without synthesizing browser events.
     stops.push(watch(() => options.location?.().search, onPopstate));
-    // The comment UI changes the DOM too, and measuring after that would never settle. Only changes that move things count.
     const observer = new MutationObserver(records => {
       if (records.every(record => record.target instanceof Element && defaultIgnore(record.target))) return;
       schedule();
@@ -606,11 +585,9 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     stops.push(watch(root, value => {
       observer.disconnect();
       observer.observe(document.documentElement, observeOptions);
-      // Shadow mutations do not cross the host. Keep watching the outer layout as well.
       if (value !== document) observer.observe(value, observeOptions);
       schedule();
     }, { immediate: true, flush: "post" }));
-    // A box that resizes without a DOM change, such as one that follows its container, moves its pins.
     const resizes = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(schedule);
     const watched = new Set<Element>();
     const follow = (): void => {
@@ -649,7 +626,6 @@ export function useComments(options: UseCommentsOptions): CommentsState {
       { flush: "post" },
     ));
     stops.push(watch(() => status.value === "ready", ready => ready && applyDeepLink(), { immediate: true }));
-    // By value: a parent that re-renders with a new `{ kind, id }` object for the same page must not reset the draft.
     stops.push(watch(() => `${subject.value.kind}\u0000${subject.value.id}\u0000${scope.value}`, () => {
       client.query = scope.value === "page" ? { subject: subject.value } : {};
       cancelDraft();

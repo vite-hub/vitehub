@@ -259,12 +259,12 @@ A reply takes a `requestId` too. A second reply with the same `requestId` in the
 
 With an outbox, `files` may be a promise, such as of a screenshot that renders after Send:
 
-```ts
+```ts fragment
 const files = renderScreenshot().then(blob => [blob]);
 await client.create({ subject, anchor, body, files }); // Shows and saves now; sends once `files` settles.
 ```
 
-The draft holds the queue until the files arrive, then goes out with them. If the promise rejects, it goes out without them. If the page reloads first, the next page sends it without them.
+The draft holds the queue until the files arrive, then goes out with them. If saving the files fails, Retry saves them again. If the promise rejects, the draft goes out without them. If the page reloads first, the next page sends a saved draft without them. Without Web Locks, the default outbox stays in memory so another tab cannot send the draft while the files are still arriving.
 
 If a comment write gets no answer, retry it to recover the server copy. A later refusal does not make the draft safe to edit or dismiss. A lost upload or thread lookup answer does not lock the draft on its own.
 

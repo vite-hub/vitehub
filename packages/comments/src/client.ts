@@ -83,11 +83,11 @@ export interface CommentsClient {
   refresh: () => Promise<readonly CommentThread[]>
   get: (input: CommentGetInput) => Promise<CommentThread | null>
   /**
-   * With an outbox, shows the comment and returns the waiting thread at once, with a local `id` and `delivery`, while
-   * the outbox saves it. `files` may be a promise, which the outbox waits for before it sends.
+   * With an outbox, shows the comment at once. With no supplied `requestId`, returns the waiting thread before the save.
+   * With a supplied `requestId`, waits for the save to check for a replay. `files` may be a promise.
    */
   create: (input: CommentCreateInput & CommentsClientFiles) => Promise<CommentThread>
-  /** With an outbox, shows the reply and returns a thread view with it at once. `files` may be a promise, as for `create`. */
+  /** With an outbox, shows the reply at once. `requestId` and `files` work as they do for `create`. */
   reply: (input: CommentReplyInput & CommentsClientFiles) => Promise<CommentThread>
   edit: (input: CommentEditInput) => Promise<CommentThread>
   delete: (input: CommentDeleteInput) => Promise<CommentThread | null>
@@ -329,7 +329,11 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
         return next
       })
     },
-    resolve: input => mutate(input.threadId, async () => upsert(await transport.resolve(input))),
+    resolve: input => mutate(input.threadId, async () => {
+      const threadId = outbox ? await outbox.beforeResolve(input.threadId) : input.threadId
+      if (threadId === undefined) throw new Error("Send, retry, or dismiss the pending replies before resolving this thread.")
+      return upsert(await transport.resolve({ ...input, threadId }))
+    }),
     reopen: input => mutate(input.threadId, async () => upsert(await transport.reopen(input))),
     users: input => transport.users(input),
     outbox,

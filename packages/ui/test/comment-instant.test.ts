@@ -37,7 +37,6 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-/** A browser with no network, so the outbox never sends: the comments stay pending. */
 const offline: CommentsOutboxEnvironment = {
   listen: () => () => undefined,
   isVisible: () => true,
@@ -54,7 +53,6 @@ const offline: CommentsOutboxEnvironment = {
   random: () => 0,
 };
 
-/** A store whose writes wait until the test settles them, as a slow or full disk. */
 function heldStore() {
   const memory = createMemoryOutboxStore();
   const puts: Array<{ release: () => void; reject: (cause: Error) => void }> = [];
@@ -97,7 +95,6 @@ function target(name: string) {
   return element;
 }
 
-/** Types the comment and presses Send. Returns before Vue renders again. */
 async function write(wrapper: VueWrapper, text: string) {
   await wrapper.get("[data-draft=true] textarea").setValue(text);
   wrapper.get("[data-draft=true] form").element.dispatchEvent(new Event("submit", { cancelable: true }));
@@ -113,7 +110,6 @@ describe("instant comments in the layer", () => {
     state().startDraft(target("first"), { point: { x: 40, y: 40 } });
     await nextTick();
     await write(wrapper, "The first one");
-    // Send closes the draft before anything is saved, and the next comment can start in the same moment.
     expect(state().draft.value).toBeNull();
     state().startDraft(target("second"), { point: { x: 400, y: 400 } });
     expect(state().draft.value).toMatchObject({ body: "", busy: false });

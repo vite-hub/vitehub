@@ -58,6 +58,10 @@ export type ApiResult<T> = [CommentsApiError, undefined] | [undefined, T]
 const guestKey = "vitehub-comments-guest"
 const route = commentsApiRoute(import.meta.url)
 
+export function overlayOutboxNamespace(): string | undefined {
+  return backend ? undefined : new URL(route, location.href).href
+}
+
 /** The guest name and id this browser chose, when the site lets guests comment. */
 export function readGuest(): { id: string, name: string } | undefined {
   try {
