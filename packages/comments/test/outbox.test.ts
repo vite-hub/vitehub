@@ -586,6 +586,20 @@ describe("the comments outbox", () => {
     expect(server.creates.map(input => input.body)).toEqual(["Right away"])
   })
 
+  it("sends nothing when the store saves a comment after the client stopped", async () => {
+    const { store, plan } = createSlowStore()
+    const { server, client, stop } = setup({ store })
+    await vi.waitFor(() => expect(client.status).toBe("ready"))
+    const write = gate()
+    plan.push(write.promise)
+    await client.create({ subject, anchor, body: "Saved after the page left" })
+    stop()
+    write.open()
+    await settle()
+    expect(server.creates).toHaveLength(0)
+    expect(await store.list(ana.id)).toMatchObject([{ input: { body: "Saved after the page left" } }])
+  })
+
   it("keeps the order of the calls when the first write is slower", async () => {
     const { store, plan } = createSlowStore()
     const { server, client } = setup({ store })

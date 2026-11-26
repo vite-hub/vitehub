@@ -324,6 +324,7 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
   // The run of `kick` that leads or waits for the lock. Its `giveUp` stops it.
   let leading: { giveUp: () => void } | undefined
   let again = false
+  let stopped = false
   let cancelWait: (() => void) | undefined
 
   const post = (message: CommentsOutboxMessage): void => environment.post(message)
@@ -561,6 +562,7 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
 
   /** Sends what waits, in the tab that holds the lock. */
   function kick(): void {
+    if (stopped) return
     if (leading) {
       again = true
       return
@@ -783,6 +785,7 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
       await changed()
     },
     start() {
+      stopped = false
       const stops = [
         environment.listen((event) => {
           if (event !== "online" && event !== "visible") return
@@ -806,6 +809,7 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
       kick()
       return () => {
         for (const stop of stops.splice(0)) stop()
+        stopped = true
         cancelWait?.()
         cancelWait = undefined
         leading?.giveUp()
