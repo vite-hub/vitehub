@@ -17,6 +17,8 @@ export interface HostedProject {
   id: string
   /** The origin of the Console. */
   console: string
+  /** The GitHub repository of the site, `owner/name`, from `data-vitehub-repo` on the script tag. */
+  repository?: string
 }
 
 interface Answers {
@@ -38,7 +40,8 @@ function backendOf(frame: Promise<EmbedFrame>, project: HostedProject): Comments
     async session(page) {
       try {
         // SAFETY: the frame answers `session` with the session that it built for this page.
-        return [undefined, (await (await frame).call("session", page)).value as CommentsSession]
+        const value = (await (await frame).call("session", page)).value as CommentsSession
+        return [undefined, project.repository ? { ...value, repository: project.repository } : value]
       }
       catch (error) {
         return [apiError(error), undefined]
