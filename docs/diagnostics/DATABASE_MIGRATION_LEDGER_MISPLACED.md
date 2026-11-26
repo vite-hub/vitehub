@@ -17,6 +17,6 @@ For a recorded migration, verify that this database applied it, because another 
 
 The fix prints no row for an unverified migration, because `drizzle` does not show that its exact SQL ran. A hash or a name alone can only stop a migration, never mark one applied. If the folder is new, change its SQL text, for example with a SQL comment. If it ran on this database, insert its row into the table in `migrationsSchema` by hand.
 
-When the table in `migrationsSchema` is empty, you can remove `migrationsSchema` instead to keep the table in `drizzle`. When it lists migrations, keep `migrationsSchema`. The table in `drizzle` may not list those migrations, so without `migrationsSchema` ViteHub would apply them again. The fix offers the removal only for an empty table.
+An empty table in `migrationsSchema` does not prove that the table in `drizzle` is safe to use. Only remove `migrationsSchema` if you have verified that `drizzle` lists all migrations this app has applied and does not mistake another app's migrations for yours. If the chosen ledger already lists migrations or the guard cannot verify a match, keep `migrationsSchema` and verify your history before recording any row.
 
 See [Keep the migrations table in a schema](/docs/database/configure#keep-the-migrations-table-in-a-schema).
