@@ -1001,14 +1001,13 @@ async function readReplayedPostgresSnapshot(
     const database = new PGlite(dataDir)
     try {
       for (const { file, sql } of moves) {
-        const parts = sql.split("--> statement-breakpoint").filter(part => splitSqlStatements(part).length)
         try {
           if (isNoTransactionMigration(sql)) {
-            for (const statement of parts.flatMap(part => splitSqlStatements(part))) await database.query(statement)
+            for (const statement of splitSqlStatements(sql, "postgresql")) await database.query(statement)
           }
           else {
             await database.transaction(async (tx) => {
-              for (const part of parts) await tx.exec(part)
+              await tx.exec(sql)
             })
           }
         }
@@ -1030,7 +1029,7 @@ async function readReplayedPostgresSnapshot(
     const generated = (await listMigrationFolders(out))[0]
     if (result.exitCode !== 0 || !generated) throw databaseErrorDiagnostics.DATABASE_MIGRATION_CONVERSION_FAILED({ problem: "Drizzle Kit could not write a snapshot of the replayed SQL." })
     const { markGeneratedPostgresNames } = await import("./internal/snapshot-uniques.ts")
-    const snapshot = JSON.parse(await readFile(join(out, generated, "snapshot.json"), "utf8")) as Parameters<typeof markGeneratedPostgresNames>[0]
+    const snapshot: unknown = JSON.parse(await readFile(join(out, generated, "snapshot.json"), "utf8"))
     markGeneratedPostgresNames(snapshot)
     return JSON.stringify(snapshot, null, 2)
   }

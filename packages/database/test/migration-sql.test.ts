@@ -16,9 +16,15 @@ it("preserves same-line statements in a whole script with existing breakpoints",
 it("keeps a Postgres dollar-quoted body in one statement", () => {
   const fn = "CREATE FUNCTION f() RETURNS integer LANGUAGE plpgsql AS $body$ BEGIN PERFORM 'a;b'; RETURN 1; END; $body$;"
   const trigger = "CREATE TRIGGER t BEFORE UPDATE ON notes FOR EACH ROW EXECUTE FUNCTION f();"
-  expect(splitSqlStatements(`${fn}\n${trigger}\nSELECT $$;$$;`)).toEqual([fn, trigger, "SELECT $$;$$;"])
+  expect(splitSqlStatements(`${fn}\n${trigger}\nSELECT $$;$$;`, "postgresql")).toEqual([fn, trigger, "SELECT $$;$$;"])
   expect(addStatementBreakpoints(`${trigger}\n${fn}`, "postgresql").split("--> statement-breakpoint")).toHaveLength(2)
-  expect(splitSqlStatements("SELECT $1; SELECT 2;")).toEqual(["SELECT $1;", "SELECT 2;"])
+  expect(splitSqlStatements("SELECT $1; SELECT 2;", "postgresql")).toEqual(["SELECT $1;", "SELECT 2;"])
+})
+
+it("does not mistake dollar signs in SQLite identifiers for quotes", () => {
+  const sql = "CREATE TABLE café$archive$ (id INTEGER); CREATE TABLE notes (id INTEGER);"
+  expect(addStatementBreakpoints(sql)).toContain(";\n--> statement-breakpoint\n CREATE TABLE notes")
+  expect(splitSqlStatements(sql)).toHaveLength(2)
 })
 
 it("reads -- vitehub:no-transaction only on the first line that is not blank", () => {

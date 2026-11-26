@@ -370,11 +370,12 @@ describe("vitehub database up", () => {
     const project = await createProject()
     const migrationsDir = project.database.migrationsDir
     await mkdir(migrationsDir)
-    await writeFile(join(migrationsDir, "0000_init.sql"), "CREATE TABLE notes (id integer PRIMARY KEY NOT NULL);")
+    await writeFile(join(migrationsDir, "0000_init.sql"), "CREATE TABLE café$archive$ (id INTEGER); CREATE TABLE notes (id integer PRIMARY KEY NOT NULL);")
     await writeFile(join(project.rootDir, "schema.ts"), "export const schema = {}\n")
     await expect(project.run("up")).resolves.toMatchObject({ exitCode: 0 })
     await expect(project.run("migrate")).resolves.toMatchObject({ exitCode: 0 })
     await expect(project.columns()).resolves.toEqual(["id"])
+    await expect(rows(project.rootDir, "SELECT name FROM sqlite_schema WHERE name = 'café$archive$'")).resolves.toEqual([["café$archive$"]])
   }, 120_000)
 
   async function createFlatPostgresProject() {
@@ -417,6 +418,14 @@ describe("vitehub database up", () => {
 
   it("converts flat Postgres files, as NuxtHub writes them, then migrates them on PGlite", async () => {
     const project = await createFlatPostgresProject()
+    const tag = `$${"long".repeat(20)}$`
+    await writeFile(join(project.migrationsDir, "0002_touch_posts.sql"), [
+      project.files["0002_touch_posts.sql"].replaceAll("$$", tag),
+      String.raw`CREATE TABLE messages (body text DEFAULT E'it\'s; ready', marker text DEFAULT '--> statement-breakpoint');`,
+      "/* outer /* nested */ ; remains in comment */",
+      "CREATE FUNCTION answer() RETURNS integer LANGUAGE SQL BEGIN ATOMIC SELECT CASE WHEN true THEN 42 END; END;",
+      "",
+    ].join("\n"))
 
     const converted = await project.run("up")
     expect(converted).toMatchObject({ exitCode: 0, stderr: "" })
@@ -427,21 +436,27 @@ describe("vitehub database up", () => {
     await expect(readFile(join(project.migrationsDir, tags[0]!, "migration.sql"), "utf8")).resolves.toBe(project.files["0000_init.sql"])
     await expect(readFile(join(project.migrationsDir, tags[1]!, "migration.sql"), "utf8")).resolves.toMatch(/NOT NULL\);\n--> statement-breakpoint\n\nALTER TABLE "posts" ADD CONSTRAINT/)
     const touch = await readFile(join(project.migrationsDir, tags[2]!, "migration.sql"), "utf8")
-    expect(touch.split("--> statement-breakpoint")).toHaveLength(2)
-    expect(touch).toContain("RETURN NEW; END; $$;")
+    expect(touch.split("\n--> statement-breakpoint\n")).toHaveLength(4)
+    expect(touch).toContain(`RETURN NEW; END; ${tag};`)
     expect(existsSync(join(project.migrationsDir, tags[1]!, "snapshot.json"))).toBe(false)
     const snapshot = JSON.parse(await readFile(join(project.migrationsDir, tags[2]!, "snapshot.json"), "utf8")) as { dialect: string, ddl: { entityType: string, name: string }[] }
     expect(snapshot.dialect).toBe("postgres")
-    expect(snapshot.ddl.filter(entity => entity.entityType === "tables").map(entity => entity.name).sort()).toEqual(["posts", "sessions", "users"])
+    expect(snapshot.ddl.filter(entity => entity.entityType === "tables").map(entity => entity.name).sort()).toEqual(["messages", "posts", "sessions", "users"])
     await expect(readdir(join(project.rootDir, ".vitehub/database"))).resolves.toEqual([])
 
     await expect(project.run("migrate")).resolves.toMatchObject({ exitCode: 0, stderr: "" })
     await expect(pgliteRows(project.rootDir, "insert into users (email) values ('a@b.c') returning id")).resolves.toEqual([{ id: 1 }])
+    await expect(pgliteRows(project.rootDir, "insert into messages default values returning body, marker, answer() as answer")).resolves.toEqual([{ answer: 42, body: "it's; ready", marker: "--> statement-breakpoint" }])
     await expect(pgliteRows(project.rootDir, "select name from drizzle.__drizzle_migrations order by id")).resolves.toEqual(tags.map(name => ({ name })))
   }, 120_000)
 
   it("generates no migration after converting flat Postgres files when the Definition matches them", async () => {
     const project = await createFlatPostgresProject()
+    const table = "customer_account_notification_preferences"
+    const column = "customer_account_notification_destination"
+    await writeFile(join(project.migrationsDir, "0003_preferences.sql"), `CREATE TABLE ${table} (${column} text UNIQUE); CREATE INDEX ON ${table} (${column});`)
+    const schemaFile = join(project.rootDir, "schema.ts")
+    await writeFile(schemaFile, `${await readFile(schemaFile, "utf8")}\nimport { index } from 'drizzle-orm/pg-core'\nexport const preferences = pgTable('${table}', { destination: text('${column}').unique() }, t => [index().on(t.destination)])\n`)
     await expect(project.run("up")).resolves.toMatchObject({ exitCode: 0, stderr: "" })
     const tags = await migrationTags(project.migrationsDir)
 
