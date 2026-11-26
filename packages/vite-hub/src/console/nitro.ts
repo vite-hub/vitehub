@@ -51,12 +51,11 @@ function isConsoleRouteGuard(value: unknown): boolean {
 }
 
 /**
- * Add the lazy Console routes of the app. The ViteHub Console and the CLI `POST` signed
- * calls to `/_vitehub/rpc`, and a browser `GET`s it with a one-time ticket that an operation made, such as for
- * impersonation or Content preview. A browser that opens `/_vitehub` or `/_vitehub/<page>` goes to the page of the app
- * with the pill, or, in an app without Comments, to that page of the app in the ViteHub Console. See
- * `server/site-entry.ts`. With `siteAccess`, in an app with Comments, `/_vitehub/site` signs the browser in with a Site
- * access token of the Console. See `server/site.ts`.
+ * Add the Console route of the app: lazy handlers under `<base>/_vitehub`. The ViteHub Console and the CLI `POST` signed
+ * calls to `/_vitehub/rpc`. A browser that opens `/_vitehub` or `/_vitehub/<page>` goes to the page of the app with the
+ * pill, or, in an app without Comments, to that page of the app in the ViteHub Console. See `server/site-entry.ts`.
+ * `/_vitehub/site` takes the tokens of the Console: impersonation and Content preview in every app, and with
+ * `siteAccess`, in an app with Comments, Site access. See `server/site.ts`.
  */
 export function addConsoleRpcHandler(
   nitro: { handlers?: Array<{ handler: string; route?: string }>; modules?: unknown[]; plugins?: string[]; routes?: Record<string, unknown> },
@@ -75,7 +74,7 @@ export function addConsoleRpcHandler(
   const retainedHandlers = handlers.filter(candidate => !entries.includes(candidate.handler) || !suffixes.some(suffix => candidate.route?.endsWith(suffix)))
   handlers.splice(0, handlers.length, ...retainedHandlers)
 
-  const routes = (options.siteAccess ? suffixes : suffixes.slice(0, -1)).map(path => mountPath(base, path))
+  const routes = suffixes.map(path => mountPath(base, path))
   const taken = (path: string) => routes.includes(withoutTrailingSlashes(path))
   const conflict = retainedHandlers.find(candidate => candidate.route !== undefined && taken(candidate.route))
   if (conflict) {

@@ -105,14 +105,14 @@ export async function readD1LedgerOf(query: D1Query, migrationsTable: string, fi
 }
 
 /**
- * Applies the pending migrations like `wrangler d1 migrations apply --remote`. Each file and its ledger row go in one
- * request, so D1 rolls back both when the file fails. When a file fails because another process applied it first, the
- * ledger lists it, and this goes on with the next file.
+ * Applies the pending migrations like `wrangler d1 migrations apply --remote`. Each batch of files and their ledger rows
+ * go in one request, so D1 rolls back all of them when one fails. When a batch fails because another process applied it
+ * first, the ledger lists each of its files, and this goes on with the next batch.
  */
 export async function applyD1MigrationFiles(
   query: D1Query,
   ledger: D1Ledger,
-  files: ReadonlyArray<{ name: string, sql: () => string }>,
+  batches: ReadonlyArray<ReadonlyArray<{ name: string, sql: () => string }>>,
   onApplied: (name: string) => void,
   onAdopted: (migration: AdoptedMigration) => void,
 ): Promise<void> {
@@ -126,16 +126,18 @@ export async function applyD1MigrationFiles(
     ].join("\n"), undefined, "write")
     for (const migration of ledger.adopted) onAdopted(migration)
   }
-  for (const file of files) {
-    if (ledger.applied.has(file.name)) continue
+  for (const batch of batches) {
+    const pending = batch.filter(file => !ledger.applied.has(file.name))
+    if (!pending.length) continue
     try {
-      await query(`${normalizeSqlLineEndings(file.sql())}\n;\n${insert(file.name)}`, undefined, "write")
+      await query(pending.map(file => `${normalizeSqlLineEndings(file.sql())}\n;\n${insert(file.name)}`).join("\n"), undefined, "write")
     }
     catch (error) {
-      if ((await query(`SELECT name FROM ${table} WHERE name = ?`, [file.name])).length) continue
+      const listed = new Set((await query(`SELECT name FROM ${table}`)).map(row => String(readRowValue(row, "name", 0))))
+      if (pending.every(file => listed.has(file.name))) continue
       throw error
     }
-    onApplied(file.name)
+    for (const file of pending) onApplied(file.name)
   }
 }
 

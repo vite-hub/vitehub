@@ -11,6 +11,7 @@ import { consoleBuildOf } from "./build-info.ts"
 import { resolveConsoleProjectName } from "./project.ts"
 import { describeConsoleContributedSections, describeConsoleDocumentEditors, describeConsoleRuntimeReaders } from "./contributions.ts"
 import { withConsoleDocumentEditorSections } from "./build.ts"
+import { consoleOperationModules } from "./operation-modules.ts"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 import { requireOptionalOwner } from "../internal/optional-owners.ts"
 import { generatedModules } from "../internal/generated-modules.ts"
@@ -60,7 +61,22 @@ const consoleRuntimeCapabilityImports: readonly ConsoleRuntimeCapabilityImport[]
   { exportName: "kv", name: "kv" },
 ]
 
-/** The Agent capabilities of a Console invocation. They load with the first invocation, not when the server starts. */
+export function resolveConsoleRuntimeCapabilityImports(
+  imports: Record<string, false | string> | undefined,
+  plugins: readonly { name: string }[] | undefined,
+): Record<string, false | string> | undefined {
+  if (!plugins) return imports
+  return {
+    ...imports,
+    ...(!imports?.email && plugins.some(plugin => plugin.name === "@vite-hub/email/vite") ? { email: "vite-hub/email" } : {}),
+    ...(!imports?.realtime && plugins.some(plugin => plugin.name === "@vite-hub/realtime/vite") ? { realtime: "vite-hub/realtime/agent" } : {}),
+  }
+}
+
+function renderPickedImport(module: string, bindings: string): string {
+  return `import(${JSON.stringify(module)}).then(({ ${bindings} }) => ({ ${bindings} }))`
+}
+
 function renderConsoleRuntimeCapabilities(imports: Record<string, false | string> | undefined): string | undefined {
   if (!imports) return undefined
   const capabilities = consoleRuntimeCapabilityImports.flatMap(({ exportName, name }) => {
@@ -71,7 +87,7 @@ function renderConsoleRuntimeCapabilities(imports: Record<string, false | string
   })
   if (!capabilities.length) return undefined
   const bindings = capabilities.map(({ alias, exportName }) => `{ ${exportName}: ${alias} }`).join(", ")
-  const modules = capabilities.map(({ module }) => `import(${JSON.stringify(module)})`).join(", ")
+  const modules = capabilities.map(({ exportName, module }) => renderPickedImport(module, exportName)).join(", ")
   return `capabilities: async () => { const [${bindings}] = await Promise.all([${modules}]); return { ${capabilities.map(({ alias, name }) => `${name}: ${alias}`).join(", ")} } }`
 }
 
@@ -98,6 +114,8 @@ export interface ConsoleAppModuleOptions {
   /** The `name` option of `vitehub()`. `project.get` reports it, or the `package.json` name without it. */
   name?: string
   sections: readonly ConsoleSectionId[]
+  /** The sections whose operations the app serves, when they differ from `sections`, such as the development RPC without Console options. */
+  operationSections?: readonly ConsoleSectionId[]
   /** Visible navigation, when it differs from the sections whose operations need runtime state. */
   navigationSections?: readonly ConsoleSectionId[]
   /** The discovered Agents, Schedules, operations, and section content. */
@@ -116,11 +134,24 @@ export interface ConsoleAppModuleOptions {
   site?: boolean
 }
 
+type ConsoleAppModuleSectionOptions = Pick<ConsoleAppModuleOptions, "access" | "catalog" | "sections" | "site">
+
+function consoleAppModuleSections({ access, catalog, sections, site = false }: ConsoleAppModuleSectionOptions): ConsoleSectionId[] {
+  return withConsoleDocumentEditorSections(site ? [...sections, "site"] : sections, catalog)
+    .filter(section => !access?.hiddenSections?.includes(section))
+}
+
+/** Whether the generated Console app module registers a document editor, which turns on `import.meta.viteHubConsoleDocuments`. */
+export function consoleAppModuleHasDocumentEditors(options: ConsoleAppModuleSectionOptions): boolean {
+  return describeConsoleDocumentEditors(consoleAppModuleSections(options), options.catalog.documents ?? {}).length > 0
+}
+
 function renderConsoleAppModule(
   {
     projectRoot,
     name,
     sections: configuredSections,
+    operationSections = configuredSections,
     navigationSections,
     catalog,
     blobStores,
@@ -135,8 +166,7 @@ function renderConsoleAppModule(
   const agents = catalog.agents
   const accessCode = renderConsoleAccess(access)
   const operations = catalog.operations ?? []
-  const sections = withConsoleDocumentEditorSections(site ? [...configuredSections, "site"] : configuredSections, catalog)
-    .filter(section => !access?.hiddenSections?.includes(section))
+  const sections = consoleAppModuleSections({ access, catalog, sections: configuredSections, site })
   const documentEditors = describeConsoleDocumentEditors(sections, catalog.documents ?? {})
   const runtimeCapabilities = renderConsoleRuntimeCapabilities(runtimeCapabilityImports)
   const agentSkills = agents.map(agent => requireOptionalOwner(ownerModules.agentVite, "agent").readColocatedAgentSkills(agent.handler))
@@ -156,7 +186,6 @@ function renderConsoleAppModule(
     .map(schedule => ` [${JSON.stringify(schedule.name)}]: () => import(${JSON.stringify(pathToFileURL(schedule.handler).href)}),`)
     .join("")
     .replace(/,$/, " ")
-  // An override also adds a section that no owner registers, such as Forms.
   const registered = new Map(describeConsoleContributedSections(sections).map(section => [section.id, section]))
   const contributedSections = sections.flatMap((id) => {
     const section = catalog.sectionOverrides?.[id] ?? registered.get(id)
@@ -164,16 +193,19 @@ function renderConsoleAppModule(
   })
   const runtimeReaders = describeConsoleRuntimeReaders(sections).filter(reader => catalog.sectionOverrides?.[reader.section]?.view.kind !== "operation-view")
   const definitionsEnabled = databaseEnabled || contributedSections.length > 0
+  const ownOperations = consoleOperationModules
+    .filter(entry => entry.enabled({ documents: documentEditors.length > 0, sections: operationSections, site: sections.includes("site") }))
+    .map((entry, index) => ({ binding: `vitehubConsoleOwnOperations${index}`, entry }))
+  const agentRealtime = ownOperations.some(({ entry }) => entry.module === generatedModules.consoleAgentOperations) ? runtimeCapabilityImports?.realtime : undefined
   const runtimeImports = [
     { bindings: "installConsoleOperations", module: generatedModules.consoleOperations },
+    ...ownOperations.map(({ binding, entry }) => ({ bindings: `${entry.export}: ${binding}${agentRealtime && entry.module === generatedModules.consoleAgentOperations ? ", installConsoleAgentRealtime" : ""}`, module: entry.module })),
     ...operations.map((operation, index) => ({ bindings: `${operation.export}: vitehubConsoleOperations${index}`, module: operation.module })),
     ...(blobEnabled ? [{ bindings: "installConsoleBlob", module: generatedModules.consoleBlob }, { bindings: "blob: vitehubConsoleBlob", module: "vite-hub/blob" }] : []),
     ...(definitionsEnabled ? [{ bindings: `installConsoleDefinitions${schedulesEnabled ? ", installConsoleSchedules" : ""}`, module: generatedModules.consoleDefinitions }] : []),
     ...(definitionsEnabled ? runtimeReaders.map((reader, index) => ({ bindings: `${reader.export}: vitehubConsoleRuntimeReader${index}`, module: reader.module })) : []),
     ...(databaseEnabled ? [{ bindings: "installConsoleDatabase", module: generatedModules.consoleDatabase }, { bindings: "databases: vitehubConsoleDatabases", module: "@vite-hub/database/runtime/registry" }] : []),
     ...(sections.includes("env") ? [{ bindings: "describeServerEnv", module: "#vitehub/env/description" }, { bindings: "installConsoleEnv", module: generatedModules.consoleEnv }] : []),
-    // Agent Definitions import the Agent runtime, so they load with the Console runtime and not when the server starts.
-    // `defineAgent()` of vite-hub/agent resolves the app-wide journal by itself, and the Agent registry names discovered Agents.
     ...(agentsEnabled ? [{ bindings: "installConsoleAgentDefinitions", module: "vite-hub/console/server" }] : []),
     ...(agentsEnabled && agentSkills.some(Boolean) ? [{ bindings: "agentWithColocatedSkills", module: requireOptionalOwner(ownerModules.agentVite, "agent").agentRuntimeModule("runtime/workflow") }] : []),
   ]
@@ -181,7 +213,8 @@ function renderConsoleAppModule(
   const runtimeInstall = [
     ...(blobEnabled ? [`installConsoleBlob(${JSON.stringify(projectRoot)}, vitehubConsoleBlob, ${JSON.stringify(blobStores)})`] : []),
     ...(sections.includes("env") ? [`installConsoleEnv(${JSON.stringify(projectRoot)}, describeServerEnv())`] : []),
-    `installConsoleOperations([${operations.map((operation, index) => `{ operations: vitehubConsoleOperations${index}, plugin: ${JSON.stringify(operation.plugin)} }`).join(", ")}], { invoke: ${invoke}, site: ${sections.includes("site")} })`,
+    ...(agentRealtime ? [`installConsoleAgentRealtime(() => import(${JSON.stringify(agentRealtime)}))`] : []),
+    `installConsoleOperations([${[...ownOperations.map(({ binding }) => `{ operations: ${binding}, plugin: "vite-hub" }`), ...operations.map((operation, index) => `{ operations: vitehubConsoleOperations${index}, plugin: ${JSON.stringify(operation.plugin)} }`)].join(", ")}], { invoke: ${invoke} })`,
     ...(definitionsEnabled ? [`installConsoleDefinitions(${JSON.stringify(projectRoot)}, ${JSON.stringify(catalog.content)}, ${JSON.stringify(contributedSections)}${runtimeReaders.length ? `, { ${runtimeReaders.map((reader, index) => `${JSON.stringify(reader.section)}: vitehubConsoleRuntimeReader${index}`).join(", ")} }` : ""})`] : []),
     ...(schedulesEnabled ? [`installConsoleSchedules(${JSON.stringify(projectRoot)}, {${runnableSchedules}})`] : []),
     ...(databaseEnabled ? [`installConsoleDatabase(${JSON.stringify(projectRoot)}, vitehubConsoleDatabases, ${JSON.stringify(catalog.content.databases?.kind === "definition-catalog" ? catalog.content.databases.definitions.map(definition => definition.name) : [])})`] : []),
@@ -197,19 +230,15 @@ function renderConsoleAppModule(
     `installConsoleDevelopment(${JSON.stringify(projectRoot)}, ${JSON.stringify(development)}${development && sections.includes("setup") ? `, ${JSON.stringify(setupDevRoute)}` : ""})`,
     ...accessCode.install,
     `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)}${navigationSections ? `, ${JSON.stringify(navigationSections)}` : ""})`,
-    // The first Console request or agent tool that needs the operations loads them, with every primitive they import.
     `installConsoleRuntime(async () => {`,
-    `  const [${[...runtimeImports.map(entry => `{ ${entry.bindings} }`), ...agentModules.map(entry => entry.binding)].join(", ")}] = await Promise.all([${[...runtimeImports, ...agentModules].map(entry => `import(${JSON.stringify(entry.module)})`).join(", ")}])`,
+    `  const [${[...runtimeImports.map(entry => `{ ${entry.bindings} }`), ...agentModules.map(entry => entry.binding)].join(", ")}] = await Promise.all([${[...runtimeImports.map(entry => renderPickedImport(entry.module, entry.bindings)), ...agentModules.map(entry => `import(${JSON.stringify(entry.module)})`)].join(", ")}])`,
     "  return () => {",
     ...runtimeInstall.map(line => `    ${line}`),
     "  }",
     "})",
     `installConsoleProjectName(${JSON.stringify(projectRoot)}, ${JSON.stringify(resolveConsoleProjectName(projectRoot, name))})`,
-    // `project.get` names the installed `vite-hub`, also a pkg.pr.new preview, whose version the app's server output lacks.
     `installConsoleVersion(${JSON.stringify(readViteHubVersion())})`,
-    // A production build records its time and commit for `project.get`. A development server has no build to name.
     ...(build ? [`installConsoleBuild(${JSON.stringify(build)})`] : []),
-    // The application module loads on the first document request, so the Console does not start Content at boot.
     ...(documentEditors.length
       ? [`installConsoleDocuments(${JSON.stringify(projectRoot)}, { ${documentEditors.map((editor, index) => `${JSON.stringify(editor.section)}: { actions: vitehubConsoleDocumentActions${index}, load: () => import(${JSON.stringify(pathToFileURL(editor.entry).href)}) }`).join(", ")} })`]
       : []),

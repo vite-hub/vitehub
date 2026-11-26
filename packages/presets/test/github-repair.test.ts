@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, expect, it, vi } from "vitest";
 import { commitGitHubPullRequestWorkspace, prepareGitHubRepairBase } from "../src/github/repair.ts";
+import { findGitHubHeadReverts } from "../src/github/base-reverts.ts";
 import { assertGitHubDependenciesCurrent } from "../src/github/install.ts";
 import { validateGitHubInstallInputs } from "../src/github/install-inputs.ts";
 
@@ -55,7 +56,6 @@ it.each(["link", "portal"])("commits after a successful refresh with ignored bui
   await mkdir(join(root, "packages/local/dist"));
   await writeFile(join(root, "packages/local/dist/index.js"), "export const value = 1;\n");
   await writeFile(join(root, "packages/local/dist/cli.js"), "#!/usr/bin/env node\nconsole.log('cli');\n");
-  // A successful host refresh records the installed working-tree inputs.
   await writeFile(join(root, ".git/vitehub-install.json"), JSON.stringify({ status: "installed", fingerprint: await validateGitHubInstallInputs(root) }));
   await writeFile(join(root, "file.txt"), "repair\n");
   const head = await commitGitHubPullRequestWorkspace(root, { message: "repair", paths: ["file.txt"] }, { expectedHead, verifyDependencies: true });
@@ -337,6 +337,140 @@ it("commits a base override with its reason in the merge commit", async () => {
   const baseOverrides = [{ path: "file.txt", reason: "This PR replaces landed with added." }];
   const head = await commitGitHubPullRequestWorkspace(root, { message: "merge base", paths: ["file.txt"], baseOverrides }, { expectedHead });
   expect(await git(root, "log", "-1", "--format=%B", head)).toBe("merge base\n\nKeeps this PR's version over base changes:\n- file.txt: This PR replaces landed with added.");
+});
+
+it("rejects a base merge that takes the base's copy of a line the PR changed", async () => {
+  const { root, expectedHead } = await conflictingMerge("timeout-minutes: 15\n", "timeout-minutes: 25\n", "timeout-minutes: 45\n");
+  await writeFile(join(root, "file.txt"), "timeout-minutes: 25\n");
+  await expect(commitGitHubPullRequestWorkspace(root, { message: "merge base", paths: ["file.txt"] }, { expectedHead }))
+    .rejects.toMatchObject({ code: "PRESETS_REPAIR_PR_REVERTED", message: expect.stringContaining('file.txt: drops 1 line(s) of this PR such as "timeout-minutes: 45"') });
+
+  const prOverrides = [{ path: "file.txt", reason: "The base raised the timeout for every job." }];
+  const head = await commitGitHubPullRequestWorkspace(root, { message: "merge base", paths: ["file.txt"], prOverrides }, { expectedHead });
+  expect(await git(root, "log", "-1", "--format=%B", head)).toBe("merge base\n\nKeeps the base version over this PR's changes:\n- file.txt: The base raised the timeout for every job.");
+});
+
+it("rejects a base merge that brings back lines the PR removed", async () => {
+  const { root, expectedHead } = await conflictingMerge("callLegacyHelper()\nconst value = 1\n", "callLegacyHelper()\nconst value = 2\n", "const value = 3\n");
+  await writeFile(join(root, "file.txt"), "callLegacyHelper()\nconst value = 2\nconst value = 3\n");
+  await expect(commitGitHubPullRequestWorkspace(root, { message: "merge base", paths: ["file.txt"] }, { expectedHead }))
+    .rejects.toMatchObject({ code: "PRESETS_REPAIR_PR_REVERTED", message: expect.stringContaining('restores 1 line(s) this PR removed, such as "callLegacyHelper()"') });
+  await writeFile(join(root, "file.txt"), "const value = 2\nconst value = 3\n");
+  await expect(commitGitHubPullRequestWorkspace(root, { message: "merge base", paths: ["file.txt"] }, { expectedHead })).resolves.toMatch(/^[a-f\d]{40}$/);
+});
+
+it("finds the PR's lines in a file that the base renamed, and skips files the host resolved", async () => {
+  const { root } = await fixture();
+  const commit = async (message: string) => {
+    await git(root, "add", ".");
+    await git(root, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", message);
+    return await git(root, "rev-parse", "HEAD");
+  };
+  const lines = Array.from({ length: 8 }, (_, index) => `export const value${index} = ${index}\n`).join("");
+  await writeFile(join(root, "file.txt"), lines);
+  await writeFile(join(root, "package.json"), '{ "version": "1.0.0" }\n');
+  await commit("origin");
+  await git(root, "checkout", "-b", "main");
+  await git(root, "mv", "file.txt", "moved.txt");
+  await writeFile(join(root, "package.json"), '{ "version": "1.2.0" }\n');
+  const base = await commit("base rename");
+  await git(root, "checkout", "repair");
+  await writeFile(join(root, "file.txt"), `${lines}export const added = 9\n`);
+  await writeFile(join(root, "package.json"), '{ "version": "1.1.0" }\n');
+  const expectedHead = await commit("PR change");
+  await prepareGitHubRepairBase(root, { expectedHead, base });
+  await writeFile(join(root, "package.json"), '{ "version": "1.2.0" }\n');
+  await git(root, "add", "package.json");
+  const read = (...args: string[]) => exec("git", args, { cwd: root }).then(result => result.stdout);
+  expect(await findGitHubHeadReverts(read, { head: expectedHead, base })).toEqual([{ path: "package.json", dropped: ['{ "version": "1.1.0" }'], restored: [] }]);
+  expect(await findGitHubHeadReverts(read, { head: expectedHead, base, skip: ["package.json"] })).toEqual([]);
+  await writeFile(join(root, "moved.txt"), lines);
+  await git(root, "add", "moved.txt");
+  expect(await findGitHubHeadReverts(read, { head: expectedHead, base, skip: ["package.json"] })).toEqual([{ path: "file.txt", dropped: ["export const added = 9"], restored: [] }]);
+});
+
+it.each(["base", "repair"])("follows a rename on %s before comparing PR changes", async renamedBy => {
+  const { root } = await fixture();
+  const commit = async (message: string) => {
+    await git(root, "add", "-A");
+    await git(root, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", message);
+    return await git(root, "rev-parse", "HEAD");
+  };
+  const content = "first original line\nsecond original line\nthird original line\nfourth original line\n";
+  await writeFile(join(root, "file.txt"), content);
+  await commit("origin");
+  await git(root, "checkout", "-b", "main");
+  if (renamedBy === "base") await git(root, "mv", "file.txt", "moved.txt");
+  else await writeFile(join(root, "file.txt"), content.replace("first original line\n", ""));
+  const base = await commit("base change");
+  await git(root, "checkout", "repair");
+  if (renamedBy === "base") await rm(join(root, "file.txt"));
+  else await git(root, "mv", "file.txt", "moved.txt");
+  const expectedHead = await commit("PR change");
+  await prepareGitHubRepairBase(root, { expectedHead, base });
+  const input = { message: "merge base", paths: ["moved.txt"] };
+  if (renamedBy === "base") {
+    await expect(commitGitHubPullRequestWorkspace(root, input, { expectedHead })).rejects.toMatchObject({ code: "PRESETS_REPAIR_PR_REVERTED" });
+    await commitGitHubPullRequestWorkspace(root, { ...input, prOverrides: [{ path: "file.txt", reason: "Keep the file that the base moved." }] }, { expectedHead });
+    expect(await git(root, "show", "HEAD:moved.txt")).toBe(content.trim());
+  } else {
+    await commitGitHubPullRequestWorkspace(root, input, { expectedHead });
+    expect(await git(root, "show", "HEAD:moved.txt")).toBe(content.replace("first original line\n", "").trim());
+  }
+});
+
+it("accepts a file-to-directory resolution with a PR override", async () => {
+  const { root } = await fixture();
+  await git(root, "checkout", "-b", "main");
+  await rm(join(root, "file.txt"));
+  await mkdir(join(root, "file.txt"));
+  await writeFile(join(root, "file.txt", "setting"), "base setting\n");
+  await git(root, "add", "-A");
+  await git(root, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "base directory");
+  const base = await git(root, "rev-parse", "HEAD");
+  await git(root, "checkout", "repair");
+  await writeFile(join(root, "file.txt"), "PR setting\n");
+  await git(root, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-am", "PR change");
+  const expectedHead = await git(root, "rev-parse", "HEAD");
+  const conflicts = await prepareGitHubRepairBase(root, { expectedHead, base });
+  expect(conflicts?.remaining).toEqual(["file.txt~HEAD"]);
+  await rm(join(root, "file.txt~HEAD"));
+  const input = { message: "merge base", paths: ["file.txt~HEAD"] };
+  await expect(commitGitHubPullRequestWorkspace(root, input, { expectedHead })).rejects.toMatchObject({ code: "PRESETS_REPAIR_PR_REVERTED" });
+  await commitGitHubPullRequestWorkspace(root, {
+    ...input, paths: ["file.txt/setting"], prOverrides: [{ path: "file.txt", reason: "Settings now live in a directory." }],
+  }, { expectedHead });
+  expect(await git(root, "show", "HEAD:file.txt/setting")).toBe("base setting");
+});
+
+it("checks worker edits to host resolutions on every attempt", async () => {
+  const { root } = await fixture();
+  const commit = async (message: string, manifest: object, text: string) => {
+    await writeFile(join(root, "package.json"), JSON.stringify(manifest, null, 2));
+    await writeFile(join(root, "file.txt"), text);
+    await git(root, "add", "-A");
+    await git(root, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", message);
+    return await git(root, "rev-parse", "HEAD");
+  };
+  await commit("origin", { version: "1.0.0", description: "old" }, "original line\n");
+  await git(root, "checkout", "-b", "main");
+  const base = await commit("base change", { version: "1.0.0", description: "base" }, "base line\n");
+  await git(root, "checkout", "repair");
+  const expectedHead = await commit("PR change", { version: "2.0.0", description: "old" }, "PR line\n");
+  const conflicts = await prepareGitHubRepairBase(root, { expectedHead, base });
+  expect(conflicts?.resolved).toEqual([{ path: "package.json", rule: "package-json" }]);
+  const resolvedManifest = await readFile(join(root, "package.json"), "utf8");
+  await writeFile(join(root, "package.json"), await git(root, "show", `${base}:package.json`));
+  await writeFile(join(root, "file.txt"), "base line\nPR line\n");
+  const input = { message: "merge base", paths: ["file.txt", "package.json"] };
+  for (const paths of [input.paths, ["file.txt"]]) {
+    await expect(commitGitHubPullRequestWorkspace(root, { ...input, paths }, { expectedHead })).rejects.toMatchObject({
+      code: "PRESETS_REPAIR_PR_REVERTED", message: expect.stringContaining("package.json:"),
+    });
+  }
+  await writeFile(join(root, "package.json"), resolvedManifest);
+  await commitGitHubPullRequestWorkspace(root, input, { expectedHead });
+  expect(await git(root, "show", "HEAD:package.json")).toBe(resolvedManifest.trim());
 });
 
 it.each([false, true])("rejects dependency inputs changed between validation and staging, deletedAfterStaging=%s", async deletedAfterStaging => {

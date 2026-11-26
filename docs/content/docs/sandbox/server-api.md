@@ -43,6 +43,6 @@ export default defineEventHandler(async () => {
 | `signal` | `AbortSignal` | Cancel the run. Keeps your abort reason and stops provider work that can stop. |
 | `sandboxId` | `string` | Cloudflare only. Reuse a named Sandbox instead of a new one per run. |
 
-Payloads, context, and results are JSON. Nested `Blob` and `Uint8Array` values travel as files in the Sandbox, so you do not convert them to base64. Node.js `Buffer` values stay `Buffer`.
+Payloads, context, and results are JSON. Nested `Blob` and `Uint8Array` values travel as files in the Sandbox, so you do not convert them to base64. Node.js `Buffer` values stay `Buffer`. Each run has limits on the size and depth of these values, see [Transfer limits](/docs/sandbox/configure#transfer-limits).
 
 Failures, including timeouts and cleanup failures, return [`SANDBOX_TASK_RUN_FAILED`](/docs/sandbox/diagnostics/sandbox_task_run_failed). `error.data.code` names the failure, such as `SANDBOX_TASK_TIMEOUT`, and `error.cause` has its message and details. `toResponse(error)` answers with the status of the failure, such as 504 for a timeout, and leaves out the stack and process output. See [Error responses](/docs/sandbox/limits-and-errors#error-responses).

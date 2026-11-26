@@ -1,7 +1,7 @@
 /**
  * The Auth management operations of the Console. Each read and each action of the Auth section is one operation on the
- * Console RPC. Impersonation sets the app session cookie, so its operations return a one-time link that the browser
- * opens on the app origin.
+ * Console RPC. Impersonation sets the app session cookie, so its operations only check the call. The Console then signs
+ * an `impersonate` Site access token that the browser opens on the app origin.
  */
 export const authConsoleReadOperations = {
   activity: "auth.activity",
@@ -26,7 +26,7 @@ export const authConsoleActionOperations = {
   unban: "auth.unban",
 } as const
 
-/** The operations that return a one-time link to start or stop impersonation in the browser. */
+/** The operations that check a start or a stop of impersonation before the Console signs its token. */
 export const authConsoleImpersonationOperations = {
   start: "auth.impersonate",
   stop: "auth.stop-impersonating",

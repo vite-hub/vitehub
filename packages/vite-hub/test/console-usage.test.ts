@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server";
 import type { AgentInvocationRecord } from "@vite-hub/agent";
 
-import { createUsageSummary, invocationUsage } from "../src/console/runtime/server/usage.ts";
+import { createUsageSummary, invocationUsage } from "../src/agent/console/usage.ts";
 
 function invocationRecordFromUsageRecord(usageRecord: Record<string, unknown>) {
   return {

@@ -9,7 +9,6 @@ import { hubAgent } from '../src/vite.ts'
 import { discoverStandaloneChannels, standaloneChannelWebhookAliases } from '../src/vite/standalone-channels.ts'
 
 const roots: string[] = []
-// A string `secret` of a Channel names the server variable that holds the secret.
 beforeEach(() => {
   vi.stubEnv('HOOKS_SECRET', 'secret')
 })
@@ -63,7 +62,6 @@ export default defineChannel({
 })
 `
 
-// A helper that looks like a Channel. In a folder with an index module, it is not one.
 const label = `import { defineChannel } from '@vite-hub/channels'
 import { webhook } from '@vite-hub/channels/adapters'
 export const label = () => 'from helper'
@@ -373,7 +371,7 @@ export default makeAgent({ channels: ['hooks'] as const, runtime: false, driver:
     const plugin = hubAgent({ runtime: hosting === 'deno' ? 'deno' : undefined })
     const configure = plugin.config
     if (typeof configure !== 'function') throw new Error('Expected config hook')
-    expect(() => configure.call({} as never, { root }, { command: 'build', mode: 'production' })).not.toThrow()
+    await configure.call({} as never, { root }, { command: 'build', mode: 'production' })
   })
 
   it('still rejects the inbound Channel that no Agent lists', async () => {
@@ -389,6 +387,6 @@ export default defineAgent({ channels: ['claimed'], runtime: false, driver: { ru
     const plugin = hubAgent({ runtime: hosting === 'deno' ? 'deno' : undefined })
     const configure = plugin.config
     if (typeof configure !== 'function') throw new Error('Expected config hook')
-    expect(() => configure.call({} as never, { root }, { command: 'build', mode: 'production' })).toThrow(/unclaimed\.ts.*require a Nitro host/)
+    await expect(configure.call({} as never, { root }, { command: 'build', mode: 'production' })).rejects.toThrow(/unclaimed\.ts.*require a Nitro host/)
   })
 })

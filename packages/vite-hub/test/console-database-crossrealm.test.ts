@@ -2,7 +2,7 @@ import { runInNewContext } from "node:vm"
 import { afterEach, describe, expect, it } from "vitest"
 import { integer, sqliteTable } from "drizzle-orm/sqlite-core"
 import { consoleState } from "../src/console/internal.ts"
-import { browseConsoleDatabase } from "../src/console/runtime/server/database.get.ts"
+import { browseConsoleDatabase } from "../src/database/console/database.get.ts"
 import { installConsoleDatabase } from "../src/console/runtime/server/database.ts"
 
 import type { RuntimeDatabaseEntry } from "@vite-hub/database"

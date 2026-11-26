@@ -108,7 +108,7 @@ describe.each(["local", "open"] as const)("every Console route of a %s developme
   it("refuses a remote client with CONSOLE_LOOPBACK_ONLY before the route runs", { timeout: 30_000 }, async () => {
     const routes = await registeredConsoleRoutes()
     // A route that this list does not name must be classified here, so no Console route skips the rule.
-    expect(routes.map(entry => [entry.route, sourceFile(entry.handler)])).toEqual(["/_vitehub/**", "/_vitehub", "/_vitehub/rpc"].map(path => [path, "entry.ts"]))
+    expect(routes.map(entry => [entry.route, sourceFile(entry.handler)])).toEqual(["/_vitehub/**", "/_vitehub", "/_vitehub/rpc", "/_vitehub/site"].map(path => [path, "entry.ts"]))
     for (const peer of [
       // A dev worker behind the front process's proxy sees no address. The front process gave it a key, and no evidence.
       { key: true, remoteAddress: undefined },

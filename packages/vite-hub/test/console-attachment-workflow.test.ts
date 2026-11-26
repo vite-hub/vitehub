@@ -9,7 +9,7 @@ import { setBlobRuntimeConfig, setBlobRuntimeStorage } from "../../blob/src/runt
 import { resetOpenWorkflowRuntime, setOpenWorkflowImporter } from "@vite-hub/workflow/runtime/openworkflow"
 import { resetWorkflowRuntime, runWithWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "@vite-hub/workflow/runtime/state"
 import { installConsoleBlob } from "../src/console/runtime/server/blob.ts"
-import { storeConsoleInputMessage, withConsoleInputMessage } from "../src/console/runtime/server/attachments.ts"
+import { storeConsoleInputMessage, withConsoleInputMessage } from "../src/agent/console/attachments.ts"
 
 const dirs: string[] = []
 afterEach(async () => {

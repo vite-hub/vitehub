@@ -602,18 +602,16 @@ describe("agent Vite plugin", () => {
   it("ignores generated ViteHub files in the Vite dev watcher", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent()
-    // SAFETY: The plugin under test produced this hook, so the test invokes its documented callable shape.
-    const config = plugin.config as (config: { define?: Record<string, string>; root?: string; server?: { watch?: { ignored?: string | string[] } | null } }) => { define?: Record<string, string>; server?: { watch?: { ignored?: string[] } | null } }
+    const config = (input: UserConfig) => resolveAgentViteConfig(plugin, { ...input })
+    const watchIgnored = async (input: UserConfig) => (await config(input)).server?.watch?.ignored
 
-    const watchIgnored = (input: { server?: { watch?: { ignored?: string[] } | null } }) => mergeConfig(input, config(input)).server?.watch?.ignored
-
-    expect(watchIgnored({})).toEqual(["**/.vitehub/**"])
-    expect(watchIgnored({ server: { watch: { ignored: ["**/node_modules/**"] } } })).toEqual(["**/node_modules/**", "**/.vitehub/**"])
-    expect(watchIgnored({ server: { watch: { ignored: ["**/.vitehub/**"] } } })).toEqual(["**/.vitehub/**"])
+    await expect(watchIgnored({})).resolves.toEqual(["**/.vitehub/**"])
+    await expect(watchIgnored({ server: { watch: { ignored: ["**/node_modules/**"] } } })).resolves.toEqual(["**/node_modules/**", "**/.vitehub/**"])
+    await expect(watchIgnored({ server: { watch: { ignored: ["**/.vitehub/**"] } } })).resolves.toEqual(["**/.vitehub/**"])
     const disabledWatcher = { server: { watch: null } }
-    expect(mergeConfig(disabledWatcher, config(disabledWatcher)).server?.watch).toBeNull()
-    expect(config({ root: "/repo/apps/web" }).define?.__VITEHUB_AGENT_APP_ROOT__).toBe(JSON.stringify("/repo/apps/web"))
-    expect(config({ define: { __VITEHUB_AGENT_APP_ROOT__: "configured" }, root: "/repo/apps/web" }).define?.__VITEHUB_AGENT_APP_ROOT__).toBe("configured")
+    expect((await config(disabledWatcher)).server?.watch).toBeNull()
+    expect((await config({ root: "/repo/apps/web" })).define?.__VITEHUB_AGENT_APP_ROOT__).toBe(JSON.stringify("/repo/apps/web"))
+    expect((await config({ define: { __VITEHUB_AGENT_APP_ROOT__: "configured" }, root: "/repo/apps/web" })).define?.__VITEHUB_AGENT_APP_ROOT__).toBe("configured")
   })
 
   it.each([{ noExternal: undefined }, { noExternal: "existing" }, { noExternal: [] }, { noExternal: ["existing"] }, { noExternal: ["existing", "@vite-hub/agent"] }, { noExternal: true }])("merges server noExternal %j", async ({ noExternal }) => {
@@ -1862,15 +1860,10 @@ describe("agent Vite plugin", () => {
   it.each(["/", "/:page", "/**"])("rejects a readiness route that shadows the configured Nitro endpoint %s", async route => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent({ preparation: { route: "/", workspace: "docs" } })
-    expect(() => {
-      if (typeof plugin.config === "function") {
-        // SAFETY: The fixture supplies the Nitro fields read by the config hook.
-        return plugin.config.call({} as never, {
-          root: hostedAgentRoot,
-          nitro: { handlers: [{ route: "/**", handler: "/app/middleware.ts", middleware: true }, { route, handler: "/app/index.ts" }] },
-        } as never, { command: "build", mode: "production" })
-      }
-    }).toThrow("readiness route conflicts")
+    await expect(resolveAgentViteConfig(plugin, {
+      root: hostedAgentRoot,
+      nitro: { handlers: [{ route: "/**", handler: "/app/middleware.ts", middleware: true }, { route, handler: "/app/index.ts" }] },
+    })).rejects.toThrow("readiness route conflicts")
   })
 
   it("registers webhook aliases on the native handler", async () => {
@@ -1892,8 +1885,8 @@ describe("agent Vite plugin", () => {
     if (typeof configHook !== "function") throw new Error("Expected an Agent config hook")
     // SAFETY: This fixture supplies the private Nitro config context read by the hook.
     const config = { [VITEHUB_NITRO_CONFIG_CONTEXT]: true, root: hostedAgentRoot } as never
-    expect(() => configHook.call({} as never, config, { command: "serve", mode: "development" })).toThrow(`${kind === "inspection" ? "development invocation" : kind} route conflicts`)
-    expect(() => configHook.call({} as never, config, { command: "build", mode: "production" })).not.toThrow()
+    await expect(configHook.call({} as never, config, { command: "serve", mode: "development" })).rejects.toThrow(`${kind === "inspection" ? "development invocation" : kind} route conflicts`)
+    await expect(configHook.call({} as never, config, { command: "build", mode: "production" })).resolves.toBeDefined()
   })
 
   it.each([
@@ -1909,8 +1902,8 @@ describe("agent Vite plugin", () => {
     if (typeof configHook !== "function") throw new Error("Expected an Agent config hook")
     // SAFETY: This fixture supplies the private Nitro context and configured handlers read by the hook.
     const config = { [VITEHUB_NITRO_CONFIG_CONTEXT]: true, root: hostedAgentRoot, nitro: { handlers } } as never
-    expect(() => configHook.call({} as never, config, { command: "serve", mode: "development" })).toThrow("development invocation route conflicts")
-    expect(() => configHook.call({} as never, config, { command: "build", mode: "production" })).not.toThrow()
+    await expect(configHook.call({} as never, config, { command: "serve", mode: "development" })).rejects.toThrow("development invocation route conflicts")
+    await expect(configHook.call({} as never, config, { command: "build", mode: "production" })).resolves.toBeDefined()
   })
 
   it("registers the development invocation route next to the Console page and an application fallback", async () => {
@@ -2005,7 +1998,7 @@ describe("agent Vite plugin", () => {
     const middleware = { route: "/**", handler: "/app/middleware.ts", middleware: true }
     // SAFETY: This fixture supplies the private Nitro context and configured middleware read by the hook.
     const config = { [VITEHUB_NITRO_CONFIG_CONTEXT]: true, root: hostedAgentRoot, nitro: { handlers: [middleware] } } as never
-    configHook.call({} as never, config, { command: "serve", mode: "development" })
+    await configHook.call({} as never, config, { command: "serve", mode: "development" })
     expect(config).toMatchObject({ nitro: { handlers: expect.arrayContaining([
       middleware,
       expect.objectContaining({ route: "/_vitehub/agent/invocations/dev", handler: expect.stringContaining("invocations-dev-handler.ts") }),
@@ -2019,9 +2012,7 @@ describe("agent Vite plugin", () => {
   ])("rejects unsupported or conflicting webhook aliases: %j", async ({ runtime, nitro, message }) => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent({ ...(runtime ? { runtime: "deno" as const } : {}), routes: { aliases: { "/api/github/webhook": { agent: "support", webhook: "github" } } } })
-    expect(() => {
-      if (typeof plugin.config === "function") return plugin.config.call({} as never, { root: hostedAgentRoot, nitro } as never, { command: "build", mode: "production" })
-    }).toThrow(message)
+    await expect(resolveAgentViteConfig(plugin, { root: hostedAgentRoot, nitro })).rejects.toThrow(message)
   })
 
   it("registers configured Discord Gateway routes with Nitro", async () => {

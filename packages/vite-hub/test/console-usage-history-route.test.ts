@@ -1,14 +1,19 @@
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts";
-import { expect, it } from "vitest";
+import { beforeEach, expect, it } from "vitest";
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server";
 import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts";
-import { readConsoleUsage as usageHandlerRoute } from "../src/console/runtime/server/invocations.usage.ts";
+import { readConsoleUsage as usageHandlerRoute } from "../src/agent/console/invocations.usage.ts";
+import { installViteHubConsoleOperations } from "./support/console-operations.ts";
 import { allowed } from "./support/console-access.ts";
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts";
 import { consoleEvent } from "./console-event.ts";
 import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
 const usageHandler = allowed(usageHandlerRoute);
+
+beforeEach(async () => {
+  await installViteHubConsoleOperations();
+});
 
 it("validates session history filters and answers each filter apart", async () => {
   const store = createMemoryAgentInvocationStore();

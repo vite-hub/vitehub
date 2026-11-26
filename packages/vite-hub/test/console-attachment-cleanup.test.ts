@@ -2,7 +2,7 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, expect, it } from "vitest"
-import { consoleAttachmentCleanupPrefix, consoleAttachmentPrefix, consoleAttachmentQuarantinePrefix, isConsoleAttachmentPendingCleanup, retryConsoleAttachmentCleanup, rollbackConsoleAttachments } from "../src/console/runtime/server/attachment-cleanup.ts"
+import { consoleAttachmentCleanupPrefix, consoleAttachmentPrefix, consoleAttachmentQuarantinePrefix, isConsoleAttachmentPendingCleanup, retryConsoleAttachmentCleanup, rollbackConsoleAttachments } from "../src/agent/console/attachment-cleanup.ts"
 import type { BlobObject, BlobStorage } from "@vite-hub/blob"
 
 const dirs: string[] = []

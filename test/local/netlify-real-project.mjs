@@ -224,8 +224,10 @@ async function assertNetlifyFunctionOutput() {
   const functionFile = join(appDir, ".netlify", "v1", "functions", "vitehub-agent.mjs")
   assert(existsSync(functionFile), "missing .netlify/v1/functions/vitehub-agent.mjs")
   const source = await readFile(functionFile, "utf8")
+  const directConfig = /^export const config = \{/m
+  const aliasedConfig = /^const (vitehubNetlifyFunctionConfig\d*) = \{[\s\S]*?^\}\nexport \{ \1 as config \}$/m
+  assert(directConfig.test(source) || aliasedConfig.test(source), "Netlify function output missing a static config export")
   for (const expected of [
-    "export const config = {",
     "\"name\": \"vitehub-agent\"",
     "\"nodeBundler\": \"esbuild\"",
     "\"/_vitehub/agents/:agent/chat\"",
@@ -237,7 +239,6 @@ async function assertNetlifyFunctionOutput() {
     assert(source.includes(expected), `Netlify function output missing ${expected}`)
   }
   assert(!source.includes("from \"@/"), "Netlify function output left the Vite alias unresolved")
-  assert(!source.includes("function config("), "Netlify function output used dynamic function config")
 }
 
 async function postChat(port) {

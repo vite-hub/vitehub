@@ -33,13 +33,13 @@ vi.mock("../src/console/runtime/server/agents.ts", () => ({
   getConsoleAgentCapabilities: () => ({ blob: { kind: "blob" } }),
   consoleAgentInvokerProfiles: () => [{ id: "default" }],
 }))
-vi.mock("../src/console/runtime/server/attachments.ts", () => ({
+vi.mock("../src/agent/console/attachments.ts", () => ({
   consoleAttachmentRequestBytes: 14 * 1024 * 1024,
   withConsoleInputMessage: mocks.store,
   consoleInputMessage: mocks.input,
 }))
 
-import handlerRoute from "../src/console/runtime/server/agent-invocations.post.ts"
+import handlerRoute from "../src/agent/console/agent-invocations.post.ts"
 import { consoleEvent } from "./console-event.ts"
 import { signedConsoleAccess } from "./support/console-signature.ts"
 

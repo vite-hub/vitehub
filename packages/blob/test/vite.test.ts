@@ -325,7 +325,7 @@ describe("hubBlob", () => {
     config(userConfig, { command: "build" })
     expect(userConfig).toHaveProperty("nitro.plugins", [generatedPlugin])
     expect(userConfig).toHaveProperty("nitro.handlers", [
-      { handler: generatedMiddleware, middleware: true },
+      { handler: generatedMiddleware, middleware: true, route: "/**" },
       { handler: generatedServeHandler, route: "/_vitehub/blob/**" },
     ])
 
@@ -356,7 +356,7 @@ describe("hubBlob", () => {
       expect(root).not.toBe(process.cwd())
       expect(resolvedConfig).toHaveProperty("nitro.plugins", [resolvedPlugin])
       expect(resolvedConfig).toHaveProperty("nitro.handlers", [
-        { handler: resolvedMiddleware, middleware: true },
+        { handler: resolvedMiddleware, middleware: true, route: "/**" },
         { handler: resolvedServeHandler, route: "/_vitehub/blob/**" },
       ])
     }
@@ -640,6 +640,7 @@ describe("hubBlob", () => {
     expect(userConfig).toHaveProperty("nitro.handlers", [{
       handler: resolve(root, ".vitehub/nitro/blob/middleware.ts"),
       middleware: true,
+      route: "/**",
     }])
 
     const resolved = {
@@ -895,7 +896,7 @@ describe("hubBlob", () => {
       expect(middleware).toContain("const env = getRequestCloudflareEnv(event)")
       expect(middleware).toContain("if (env) setActiveCloudflareEnv(env)")
       expect(value).toHaveProperty("nitro.handlers", expect.arrayContaining([
-        expect.objectContaining({ handler: resolve(root, ".vitehub/nitro/blob/middleware.ts"), middleware: true }),
+        expect.objectContaining({ handler: resolve(root, ".vitehub/nitro/blob/middleware.ts"), middleware: true, route: "/**" }),
       ]))
     }
     finally {
