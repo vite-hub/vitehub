@@ -1,11 +1,16 @@
+import { notifyRealtimeRoom } from "@vite-hub/realtime/server"
 import { describe, expect, it, vi } from "vitest"
 
 import { defineComments } from "../src/index.ts"
-import { commentsRealtime } from "../src/realtime.ts"
+import { installComments } from "../src/install.ts"
+import { commentsChangeNotice, commentsRealtime, notifyCommentsChange } from "../src/realtime.ts"
 import { commentRoom } from "../src/page.ts"
+import { ada, anchor, createDatabase } from "./harness.ts"
 
 import { H3Event } from "h3"
 import type { RealtimeAuthorizeContext, RealtimeDefinition } from "@vite-hub/realtime"
+
+vi.mock("@vite-hub/realtime/server", async original => ({ ...await original<typeof import("@vite-hub/realtime/server")>(), notifyRealtimeRoom: vi.fn(async () => undefined) }))
 
 function authorizer(definition: RealtimeDefinition) {
   const { authorize } = definition
@@ -148,5 +153,27 @@ describe("commentsRealtime", () => {
     const context = (target: H3Event): RealtimeAuthorizeContext => ({ definition: "comments", documentId: null, event: target, mode: "read", request: new Request("http://site.test?page=%2F"), user: null })
     expect(await authorizer(definition)(context(request))).toBe(false)
     expect(await authorizer(definition)(context(event()))).toBe(false)
+  })
+})
+
+describe("server writes", () => {
+  it("tell the page room after create, reply, resolve, reopen and delete", async () => {
+    const comments = defineComments({ authorize: () => true })
+    const changed: string[] = []
+    installComments(comments, {
+      database: await createDatabase(),
+      realtime: async () => ({ notifyCommentsChange: async (thread) => { changed.push(thread.subject.id) } }),
+    })
+    const [, thread] = await comments.create({ page: "/pricing", anchor, body: "Fix the title", author: ada })
+    await comments.reply(thread!.id, { body: "On it", author: ada })
+    await comments.resolve(thread!.id, { by: ada })
+    await comments.reopen(thread!.id)
+    await comments.remove(thread!.id)
+    await vi.waitFor(() => expect(changed).toEqual(["/pricing", "/pricing", "/pricing", "/pricing", "/pricing"]))
+  })
+
+  it("notify the Realtime room of the thread's page", async () => {
+    await notifyCommentsChange({ subject: { kind: "page", id: "/pricing/" } })
+    expect(notifyRealtimeRoom).toHaveBeenCalledWith("comments", commentRoom("/pricing"), commentsChangeNotice)
   })
 })

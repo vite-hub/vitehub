@@ -2,7 +2,7 @@ import { clientRateLimitIssue } from "@vite-hub/internal/runtime/client-rate-lim
 
 import { markCommentsDefinition } from "./operations-core/define.ts"
 import { commentsErrorDiagnostics } from "./operations-core/errors.ts"
-import { can, createThread, earlierReply, earlierThread, editMessage, replyToThread, scopeOf, suggest } from "./operations-core/service.ts"
+import { can, createThread, earlierReply, earlierThread, editMessage, replyToThread, scopeOf, suggest, threadChanged } from "./operations-core/service.ts"
 import { commentsErrors } from "./errors.ts"
 import { commentSendOf, pendingKey, runtimeOf, runtimes } from "./installed.ts"
 import { normalizeCommentPage } from "./page.ts"
@@ -224,7 +224,7 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
       if (!await current.store.getById(threadId)) return notFound(threadId)
       const thread = await current.store.setStatus(threadId, "resolved", by, Date.now(), actor).catch(gone)
       if (!thread) return notFound(threadId)
-      current.forge?.changed(threadId)
+      threadChanged(current, thread)
       return [undefined, thread]
     },
     async reopen(threadId) {
@@ -233,16 +233,17 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
       if (!await current.store.getById(threadId)) return notFound(threadId)
       const thread = await current.store.setStatus(threadId, "open", { id: "" }, Date.now()).catch(gone)
       if (!thread) return notFound(threadId)
-      current.forge?.changed(threadId)
+      threadChanged(current, thread)
       await current.reopened?.(thread)
       return [undefined, thread]
     },
     async remove(threadId) {
       const current = await runtime()
       if (!current) return notInstalled()
-      if (!await current.store.getById(threadId)) return notFound(threadId)
+      const found = await current.store.getById(threadId)
+      if (!found) return notFound(threadId)
       await current.store.deleteThread(threadId)
-      current.forge?.changed(threadId)
+      threadChanged(current, found)
       return [undefined, undefined]
     },
     async removeMessage(messageId) {
@@ -252,7 +253,7 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
       if (!thread) return notFound(messageId)
       if (thread.messages[0]?.id === messageId) await current.store.deleteThread(thread.id)
       else await current.store.deleteMessage(thread.id, messageId, Date.now()).catch(gone)
-      current.forge?.changed(thread.id)
+      threadChanged(current, thread)
       return [undefined, undefined]
     },
     async edit(messageId, input) {

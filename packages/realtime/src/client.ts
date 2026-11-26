@@ -78,6 +78,11 @@ export interface RealtimeRoom {
    * replaces the last. Needs a Definition with `requests: true`. Returns a function that removes it.
    */
   onRequest(handler: RealtimeRequestHandler): () => void
+  /**
+   * Runs for each `notifyRealtimeRoom()` call to this room, with the body the server sent. Use it to load data again
+   * that the server changed. Returns a function that removes it.
+   */
+  onNotice(listener: (body: unknown) => void): () => void
   destroy(): void
 }
 
@@ -90,6 +95,7 @@ export interface RealtimeRoom {
 export function connectRealtimeRoom(definition: string, documentId: string, options: RealtimeRoomOptions = {}): RealtimeRoom {
   const updateListeners = new Set<() => void>()
   const changeListeners = new Set<(change: RealtimeWorkspaceChange) => void>()
+  const noticeListeners = new Set<(body: unknown) => void>()
   const pendingChanges: RealtimeWorkspaceChange[] = []
   let requestHandler: RealtimeRequestHandler | undefined
   let currentStatus: RealtimeRoomStatus = "connecting"
@@ -132,6 +138,9 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
       // SAFETY: y-websocket passes the lib0 decoder positioned after the message type.
       const frame = decodeRealtimeRequestFramePayload(decoder as decoding.Decoder)
       if (frame?.kind === "request") void answer(current, frame.id, frame.body)
+      if (frame?.kind === "notice") {
+        for (const listener of noticeListeners) listener(frame.body)
+      }
     }
     current.awareness.off("update", current._awarenessUpdateHandler)
     current.awareness.on("update", ({ added, removed, updated }: { added: number[], removed: number[], updated: number[] }) => {
@@ -244,6 +253,10 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
         if (requestHandler === handler) requestHandler = undefined
       }
     },
+    onNotice(listener) {
+      noticeListeners.add(listener)
+      return () => noticeListeners.delete(listener)
+    },
     destroy() {
       destroyed = true
       provider.destroy()
@@ -252,6 +265,7 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
       changes?.doc.destroy()
       updateListeners.clear()
       changeListeners.clear()
+      noticeListeners.clear()
       requestHandler = undefined
     },
   }

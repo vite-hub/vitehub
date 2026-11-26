@@ -411,7 +411,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const next = createCommentsClient({
       transport: {
         ...transport,
-        // Realtime tells this page when someone else changed its threads, and polling covers the server API.
         subscribe(listener) {
           listeners.add(listener)
           return () => listeners.delete(listener)
@@ -440,6 +439,11 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   watch(() => me.value?.id, () => (client.value = createClient(me.value)))
   const refresh = () => {
     for (const listener of listeners) listener({ type: "reconnected" })
+  }
+  let roomRefresh: ReturnType<typeof setTimeout> | undefined
+  const refreshFromRoom = () => {
+    clearTimeout(roomRefresh)
+    roomRefresh = setTimeout(refresh, 100)
   }
   const send = computed(() => {
     const path = page.value
@@ -613,12 +617,14 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         if (changes.get(id) !== state.commentsChange) changed = true
       }
       changes = next
-      if (changed) refresh()
+      if (changed) refreshFromRoom()
     })
+    joined.onNotice(refreshFromRoom)
     room = joined
   }
   function leaveRoom() {
     joins++
+    clearTimeout(roomRefresh)
     room?.destroy()
     room = undefined
   }

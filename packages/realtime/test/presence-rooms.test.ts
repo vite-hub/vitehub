@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import * as Y from "yjs"
 
 import type { RealtimePresenceDefinition } from "../src/types.ts"
-import { refreshRealtimeDocument } from "../src/server.ts"
+import { notifyRealtimeRoom, refreshRealtimeDocument } from "../src/server.ts"
 import { FakeSql, appendParagraph, createClientAwareness, createMemoryBusNetwork, createTestServer, presence, settle } from "./harness.ts"
 
 function presenceDefinition(): RealtimePresenceDefinition & { authorize: ReturnType<typeof vi.fn> } {
@@ -73,5 +73,56 @@ describe("rooms of a definition without a document", () => {
     onA.close()
     await settle()
     expect(presence(onB).has(onA.doc.clientID)).toBe(false)
+  })
+
+  it("sends a server notice to every browser in the room, and to no other room", async () => {
+    const server = createTestServer(presenceDefinition())
+    const ada = await server.connect("drops/abc")
+    const grace = await server.connect("drops/abc")
+    const elsewhere = await server.connect("drops/other")
+    await settle()
+
+    await notifyRealtimeRoom("docs", "drops/abc", { type: "threads" })
+
+    expect(ada.notices).toEqual([{ type: "threads" }])
+    expect(grace.notices).toEqual([{ type: "threads" }])
+    expect(elsewhere.notices).toEqual([])
+    expect(ada.closed).toBeUndefined()
+  })
+
+  it("sends a server notice to browsers on other instances", async () => {
+    const network = createMemoryBusNetwork()
+    const a = createTestServer(presenceDefinition(), { handler: { bus: () => network.bus() } })
+    const b = createTestServer(presenceDefinition(), { handler: { bus: () => network.bus() } })
+    const onA = await a.connect("drops/abc")
+    const onB = await b.connect("drops/abc")
+    await settle()
+
+    await notifyRealtimeRoom("docs", "drops/abc", "changed")
+    await settle()
+
+    expect(onA.notices).toContain("changed")
+    expect(onB.notices).toContain("changed")
+  })
+
+  it("sends a server notice through the Durable Object", async () => {
+    const sql = new FakeSql()
+    const server = createTestServer(presenceDefinition(), { durable: sql })
+    const page = await server.connect("drops/abc")
+    await settle()
+    const durableObjects = {
+      idFromName: (name: string) => name,
+      get: () => ({
+        fetch: (request: Request) => {
+          const inside = new Request(request.url.replace("https://vitehub.internal", "https://example.com"), request) as Request & { runtime?: unknown }
+          inside.runtime = { cloudflare: { env: {}, context: { storage: { sql: sql.carrier } } } }
+          return server.handler.fetch(inside)
+        },
+      }),
+    }
+
+    await notifyRealtimeRoom("docs", "drops/abc", { type: "threads" }, { durableObjects })
+
+    expect(page.notices).toEqual([{ type: "threads" }])
   })
 })

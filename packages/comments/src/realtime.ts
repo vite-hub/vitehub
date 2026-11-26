@@ -1,11 +1,13 @@
+import { notifyRealtimeRoom } from "@vite-hub/realtime/server"
+
 import { text } from "./identity.ts"
-import { commentRoom, normalizeCommentPage } from "./page.ts"
+import { commentRoom, commentThreadPage, commentsRealtimeDefinition, normalizeCommentPage } from "./page.ts"
 import { resolveCommentsIdentity, resolveCommentsPage } from "./runtime/session.ts"
 
 import type { RealtimeDefinition, RealtimeUser } from "@vite-hub/realtime"
 import type { Comments } from "./index.ts"
 import type { CommentsIdentity, CommentsSessionOptions } from "./runtime/session.ts"
-import type { CommentsUser } from "./types.ts"
+import type { CommentThread, CommentsUser } from "./types.ts"
 
 function toRealtimeUser(user: CommentsUser): RealtimeUser {
   const result: RealtimeUser = { id: user.id }
@@ -49,4 +51,13 @@ export function commentsRealtime(comments: Comments, options: CommentsSessionOpt
     },
     document: false,
   }
+}
+
+/** The notice that tells the open pages of a thread to load their threads again. */
+export const commentsChangeNotice = { type: "comments" } as const
+
+/** Tells the browsers on the page of a thread that it changed, so they load their threads again. It never throws. */
+export async function notifyCommentsChange(thread: Pick<CommentThread, "context" | "subject">): Promise<void> {
+  const page = commentThreadPage(thread)
+  if (page) await notifyRealtimeRoom(commentsRealtimeDefinition, commentRoom(page), commentsChangeNotice)
 }

@@ -121,7 +121,7 @@ Comments normalizes `page` before storing or comparing: it drops the query and h
 
 `COMMENTS_NOT_INSTALLED` means the method ran before the server installed Comments, such as at import time. See [Limits and errors](/docs/comments/limits-and-errors).
 
-Open pages see server-side changes on tab focus, or within 30 seconds while visible.
+When the host has Realtime, open pages read their threads again as soon as a server-side change is written. Without Realtime, they see the change on tab focus, or within 30 seconds while visible.
 
 ## Types
 

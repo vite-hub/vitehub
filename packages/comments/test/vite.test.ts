@@ -120,6 +120,7 @@ describe("hubComments", () => {
     expect(handler).toContain("content: contentModule.default ? { runtime: contentModule.default, parseField: parseContentField } : undefined")
     expect(handler).toContain("realtime: false")
     expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain("session: commentsAuthSession")
+    expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).not.toContain("realtime: () => import(")
   })
 
   it("carries the preview's pull request into the generated live handler", async () => {
@@ -416,6 +417,7 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
     expect(await readFile(join(directory, "comments.mjs"), "utf8")).toContain("export default commentsRealtime(comments, { session: undefined, githubLogin })")
     await configure(plugin, root)
     expect(await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")).toContain("realtime: true")
+    expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain("realtime: () => import(\"@vite-hub/comments/realtime\")")
   })
 
   it("tells the overlay to show no faces with `overlay: { presence: false }`, and keeps the page tool", async () => {
