@@ -1000,11 +1000,16 @@ async function hasLinearSnapshotHistory(dir: string): Promise<boolean> {
 }
 
 async function checkPgliteMigrationHistory(database: ResolvedDrizzleDatabaseConfig, projectRoot: string, context: ViteHubCliContext): Promise<boolean> {
+  function fail(problem: string) {
+    context.stderr.write(`${formatRuntimeDiagnosticError(databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: database.name, problem }))}\n`)
+    return false
+  }
+
   try {
     const dir = resolve(projectRoot, database.migrationsDir)
     if (await hasLinearSnapshotHistory(dir)) return true
     const bin = resolveDrizzleKitBin([projectRoot, context.rootDir])
-    if (!bin) throw new Error("The migration snapshots do not form a single chain. Install a supported drizzle-kit to check the history before migrating.")
+    if (!bin) return fail("The migration snapshots do not form a single chain. Install a supported drizzle-kit to check the history before migrating.")
     const result = await context.spawn(process.execPath, [bin, "check", "--dialect", "postgresql", "--out", toConfigPath(projectRoot, dir)], {
       cwd: projectRoot,
       env: withDrizzleKitErrorExit(context.env ?? process.env),
@@ -1012,12 +1017,10 @@ async function checkPgliteMigrationHistory(database: ResolvedDrizzleDatabaseConf
       stdout: "inherit",
     })
     if (result.exitCode === 0) return true
-    throw new Error(`drizzle-kit check failed (exit code ${result.exitCode ?? 1}). See the drizzle-kit output above.`)
+    return fail(`drizzle-kit check failed (exit code ${result.exitCode ?? 1}). See the drizzle-kit output above.`)
   }
   catch (error) {
-    const problem = error instanceof Error ? error.message : String(error)
-    context.stderr.write(`${formatRuntimeDiagnosticError(databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: database.name, problem }))}\n`)
-    return false
+    return fail(error instanceof Error ? error.message : String(error))
   }
 }
 
