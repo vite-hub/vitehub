@@ -134,6 +134,7 @@ the same behavior.
 | `vite-hub/markdown-template` | Portable Markdown rendering from template strings. See [Markdown templates](/docs/markdown-template). |
 | `vite-hub/markdown-template/file` | Filesystem Markdown rendering from explicit file paths or `file:` URLs. |
 | `vite-hub/mcp` | `defineMcpTool()`, `defineMcpPrompt()`, and `defineMcpResource()` for the tools, prompts, and resources of the app's MCP server in `server/mcp/tools/`, `server/mcp/prompts/`, and `server/mcp/resources/`, and `defineMcpHooks()` for `server/mcp.ts`. Requires `@vite-hub/mcp`. See [MCP server](/docs/mcp). |
+| `vite-hub/mcp/eval` | `runMcpEval()` to score a model's tool use against a remote MCP server. Requires `@vite-hub/mcp`, `@ai-sdk/mcp`, and `ai`. See [MCP tool-use evals](/docs/mcp/evals). |
 | `vite-hub/operations` | `defineOperation()` and its types. See [Operations](/docs/console/operations). |
 | `vite-hub/queue` | Queue Definitions and dispatch helpers. |
 | `vite-hub/rate-limit` | Rate Limit handles declared in your source, and direct Rate Limiters. |
