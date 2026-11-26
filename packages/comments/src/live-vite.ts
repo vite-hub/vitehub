@@ -18,7 +18,7 @@ import { commentsDeploymentEnv } from "./deployment-env.ts"
 import { commentsConsoleSection } from "./console.ts"
 import { findCommentsEntry, findContentEntry } from "./entry.ts"
 import { commentsErrorDiagnostics } from "./operations-core/errors.ts"
-import { commentsRealtimeDefinition, commentsRoute, mountedCommentsRoute } from "./page.ts"
+import { commentsNoticeDefinition, commentsRealtimeDefinition, commentsRoute, mountedCommentsRoute } from "./page.ts"
 import { commentSendsTableNames, commentsTableNames } from "./table-names.ts"
 
 import type { DatabaseContributionContext, DatabaseContributionEntry } from "@vite-hub/database/vite"
@@ -648,18 +648,22 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         if (!definition) return
         realtime = true
         const file = join(context.directory, "comments.mjs")
+        const notices = join(context.directory, "comments-notices.mjs")
         const { repository } = await readCommentsBuild(context.projectRoot)
         const session = sessionWithGitHubLines(options, imports, repository, appBase)
         await mkdir(context.directory, { recursive: true })
-        await writeFile(file, [
+        const importsAndDefinition = [
           `import { commentsRealtime } from ${JSON.stringify(imports.realtime)}`,
           ...definitionLines(definition, imports.runtime),
           ...session.imports,
           "",
-          `export default commentsRealtime(comments, { session: ${session.value}${session.githubLogin ? ", githubLogin" : ""} })`,
-          "",
-        ].join("\n"))
-        return { definitions: [{ handler: file, name: commentsRealtimeDefinition }] }
+        ]
+        const sessionOptions = `{ session: ${session.value}${session.githubLogin ? ", githubLogin" : ""} }`
+        await Promise.all([
+          writeFile(file, [...importsAndDefinition, `export default commentsRealtime(comments, ${sessionOptions})`, ""].join("\n")),
+          writeFile(notices, [...importsAndDefinition, `export default commentsRealtime(comments, ${sessionOptions}, "notices")`, ""].join("\n")),
+        ])
+        return { definitions: [{ handler: file, name: commentsRealtimeDefinition }, { handler: notices, name: commentsNoticeDefinition }] }
       },
     },
     vitehub: {

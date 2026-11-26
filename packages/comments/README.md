@@ -126,7 +126,7 @@ A Console team member who opens the app through Site access gets **Copy prompt**
 
 - Threads live only in the Database. Presence rooms hold no document, and connections are read-only. The server binds each person's presence to the user that `identify` or the Auth session resolves.
 - Pins anchor to the Content field first, then a CSS path checked against the element text, then the text alone, then the page point. A pin whose element is gone shows dashed.
-- A thread change tells the open tabs of the page through the Realtime events room, and they read the threads again. This includes changes from the server API and the MCP: the server sends a notice to the page room after each write. Pages without Realtime read the threads again on focus and every 30 seconds.
+- After a thread changes, the server sends a Realtime notice to tabs displaying its subject, including different pages that show the same subject. Each tab reads the threads again through the Comments API. Cursors and presence stay on the current page. Pages without Realtime read the threads again on focus and every 30 seconds.
 - Without a Realtime driver, such as on Vercel, comments work without presence or cursors.
 - Write routes compare `Origin` with the request origin, and honour `X-Forwarded-Proto` and `X-Forwarded-Host` from a proxy that ends TLS.
 - Page context stores only the URL origin and pathname, validated against the request origin and thread page. Query parameters, URL credentials, and fragments are discarded. Nuxt component files come from its resolved component registry.

@@ -224,7 +224,7 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
       if (!await current.store.getById(threadId)) return notFound(threadId)
       const thread = await current.store.setStatus(threadId, "resolved", by, Date.now(), actor).catch(gone)
       if (!thread) return notFound(threadId)
-      threadChanged(current, thread)
+      await threadChanged(current, thread)
       return [undefined, thread]
     },
     async reopen(threadId) {
@@ -233,7 +233,7 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
       if (!await current.store.getById(threadId)) return notFound(threadId)
       const thread = await current.store.setStatus(threadId, "open", { id: "" }, Date.now()).catch(gone)
       if (!thread) return notFound(threadId)
-      threadChanged(current, thread)
+      await threadChanged(current, thread)
       await current.reopened?.(thread)
       return [undefined, thread]
     },
@@ -243,7 +243,7 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
       const found = await current.store.getById(threadId)
       if (!found) return notFound(threadId)
       await current.store.deleteThread(threadId)
-      threadChanged(current, found)
+      await threadChanged(current, found)
       return [undefined, undefined]
     },
     async removeMessage(messageId) {
@@ -253,7 +253,7 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
       if (!thread) return notFound(messageId)
       if (thread.messages[0]?.id === messageId) await current.store.deleteThread(thread.id)
       else await current.store.deleteMessage(thread.id, messageId, Date.now()).catch(gone)
-      threadChanged(current, thread)
+      await threadChanged(current, thread)
       return [undefined, undefined]
     },
     async edit(messageId, input) {

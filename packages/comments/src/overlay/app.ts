@@ -10,7 +10,7 @@ import { createAnchor, fieldAttribute, fieldElementOf, selectorOf } from "../anc
 import { anchorRange, createCommentsClient } from "../client.ts"
 import { commentsAgentPrompt } from "../agent-prompt.ts"
 import { createCommentSend } from "../client-send.ts"
-import { commentRoom, commentsApiRoute, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "../page.ts"
+import { commentNoticeRoom, commentRoom, commentsApiRoute, commentsNoticeDefinition, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "../page.ts"
 import { api, createOverlaySendTransport, createOverlayTransport, overlayOutboxNamespace, readGuest, saveGuest } from "./api.ts"
 import { captureContext } from "./context.ts"
 import { createInlineEdit } from "./edit.ts"
@@ -338,6 +338,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   /** The eye of the pill. Writing or opening a comment does not change it. */
   const hidden = ref(readVisibility() === "hidden")
   let room: RealtimeRoom | undefined
+  let noticeRoom: RealtimeRoom | undefined
   // Counts the joins, so a join whose Realtime client loads after a newer join or `destroy()` drops itself.
   let joins = 0
   let pageWindow: ReturnType<ViteHubPageToolContext["createWindow"]> | undefined
@@ -603,6 +604,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const realtime = await import("@vite-hub/realtime/client").catch(() => undefined)
     if (!realtime || join !== joins || !host.isConnected || context?.signal.aborted) return
     room?.destroy()
+    noticeRoom?.destroy()
     const identity = account() ?? (guest.value ? { id: `guest:${guest.value.id}`, name: `${guest.value.name} (guest)` } : undefined)
     const baseURL = commentsApiRoute(import.meta.url).slice(0, -commentsRoute.length)
     const joined = realtime.connectRealtimeRoom(commentsRealtimeDefinition, commentRoom(page.value), { identity, baseURL, params: { page: page.value } })
@@ -619,7 +621,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       changes = next
       if (changed) refreshFromRoom()
     })
-    joined.onNotice(refreshFromRoom)
+    noticeRoom = realtime.connectRealtimeRoom(commentsNoticeDefinition, commentNoticeRoom(subject.value), { baseURL, params: { page: page.value } })
+    noticeRoom.onNotice(refreshFromRoom)
     room = joined
   }
   function leaveRoom() {
@@ -627,6 +630,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     clearTimeout(roomRefresh)
     room?.destroy()
     room = undefined
+    noticeRoom?.destroy()
+    noticeRoom = undefined
   }
 
   function showPanel() {
