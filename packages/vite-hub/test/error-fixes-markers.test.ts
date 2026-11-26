@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest"
 
 import { parseConsoleWorkflowPayload } from "../src/console/runtime/client/workflow.ts"
-import { isConsoleAttachmentPendingCleanup } from "../src/console/runtime/server/attachment-cleanup.ts"
+import { isConsoleAttachmentPendingCleanup } from "../src/agent/console/attachment-cleanup.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access-policy.ts"
-import { usageQueryWindow } from "../src/console/runtime/server/usage.ts"
+import { usageQueryWindow } from "../src/agent/console/usage.ts"
 import { viteHubErrorDiagnostics } from "../src/error-diagnostics.ts"
 
 import type { BlobStorage } from "@vite-hub/blob"

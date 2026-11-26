@@ -47,7 +47,6 @@ import { isRemoteProject } from "../client/project";
 import { consoleLiveDefinition, consoleLiveLabel, consoleLiveUnavailable, consoleTabSession, useConsoleDocumentPresence } from "../client/presence";
 import { clearConsoleLocalDraft, consolePreviewUrl, consolePreviewWidth, consolePublishPreviewUrl, readConsoleLocalDraft, writeConsoleLocalDraft } from "../client/preview";
 import { useConsoleToast } from "../client/toast";
-import { openConsoleTicket } from "../client/ticket";
 import ConsoleDocumentDiff from "./console-document-diff.vue";
 import ConsoleDocumentHistory from "./console-document-history.vue";
 import ConsoleDocumentPreview from "./console-document-preview.vue";
@@ -1804,14 +1803,14 @@ function onTitleKeydown(event: KeyboardEvent): void {
 const previewUrl = computed(() => (props.locale || remote ? undefined : consolePreviewUrl(base.value?.url, window.location.origin)));
 const openingPreview = ref(false);
 /**
- * A Console on another origin cannot frame the page. It opens the page with its saved draft in a new tab, with a
- * one-time link that the app redeems. Edits that are not saved yet do not show there.
+ * A Console on another origin cannot frame the page. It opens the page with its saved draft in a new tab, through the
+ * app's `/_vitehub/site` with a `preview` token. Edits that are not saved yet do not show there.
  */
 async function openPreviewTab(): Promise<void> {
   if (!props.documentId || openingPreview.value) return;
   openingPreview.value = true;
   try {
-    await openConsoleTicket(() => props.client.previewLink(props.collection.name, props.documentId!));
+    await props.client.openPreview(props.collection.name, props.documentId!);
   }
   catch (error) {
     toast.error(consoleErrorMessage(error, "The Console could not open the preview."));

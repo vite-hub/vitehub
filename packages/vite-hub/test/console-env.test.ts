@@ -9,7 +9,7 @@ import { consoleStateKey } from "../src/console/internal.ts"
 import { writeConsoleAppModule } from "../src/console/app-module.ts"
 import { installConsoleEnv } from "../src/console/runtime/server/env.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
-import envHandlerRoute from "../src/console/runtime/server/env.get.ts"
+import envHandlerRoute from "../src/env/console/env.get.ts"
 import { allowed } from "./support/console-access.ts"
 import { consoleEvent } from "./console-event.ts"
 

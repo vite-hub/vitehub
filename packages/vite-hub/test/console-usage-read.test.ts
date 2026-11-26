@@ -3,7 +3,7 @@ import { createLibsqlAgentInvocationStore } from "@vite-hub/agent/invocations";
 import { defineAgentInvocations } from "@vite-hub/agent/server";
 import { agentUsagePeriod, readAgentUsage } from "@vite-hub/agent/usage";
 import { afterEach, describe, expect, it } from "vitest";
-import { createUsageSummary } from "../src/console/runtime/server/usage.ts";
+import { createUsageSummary } from "../src/agent/console/usage.ts";
 import type { AgentInvocationRecord, AgentInvocations } from "@vite-hub/agent";
 import type { AgentUsagePeriod, AgentUsageQuery } from "@vite-hub/agent/usage";
 import type { Client } from "@libsql/client";

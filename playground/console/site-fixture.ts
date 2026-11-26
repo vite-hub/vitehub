@@ -1,7 +1,9 @@
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { Plugin } from "vite"
 
+import { readSiteTokenTarget, siteActionOperation } from "../../packages/internal/src/site-token.ts"
 import type { SiteGrant, SiteInvite, SiteSession } from "../../packages/vite-hub/src/console/runtime/client/site-access.ts"
+import { authFixture } from "./auth-fixture.ts"
 
 const hour = 3_600_000
 const day = 24 * hour
@@ -24,7 +26,7 @@ let invites: SiteInvite[] = [
   { id: "invite-leo", name: "Leo (QA)", grants: ["comments-read", "comments-write", "comments-resolve"], path: "/", expiresAt: new Date(now + 5 * day).toISOString(), createdBy: maxi },
 ]
 let next = 0
-const route = /^\/api\/projects\/[^/]*\/site(?:\/(codes|invites|sessions)(?:\/([^/]+))?)?$/
+const route = /^\/api\/projects\/[^/]*\/site(?:\/(codes|invites|sessions|open)(?:\/([^/]+))?)?$/
 
 function link(origin: string, minutes: number): { url: string, expiresAt: string } {
   return { url: `${origin}/go/playground${String(next++).padStart(8, "0")}`, expiresAt: new Date(Date.now() + minutes * 60_000).toISOString() }
@@ -47,6 +49,16 @@ async function readJson(request: IncomingMessage): Promise<Record<string, unknow
 async function answer(request: IncomingMessage, origin: string, collection: string | undefined, id: string | undefined): Promise<[number, unknown]> {
   if (request.method === "GET" && !collection) return [200, { sessions, invites, grants }]
   if (request.method === "POST" && collection === "codes" && !id) return [200, link(origin, 10)]
+  if (request.method === "POST" && collection === "open" && !id) {
+    if (request.headers["content-type"]?.split(";")[0] !== "application/json") return [415, { message: "Send a JSON request." }]
+    if (request.headers["sec-fetch-site"] && request.headers["sec-fetch-site"] !== "same-origin") return [403, { message: "Start the action from the playground." }]
+    const { kind, target: value } = await readJson(request)
+    const target = readSiteTokenTarget(value)
+    const action = kind === "impersonate" && target ? siteActionOperation(kind, target) : undefined
+    if (!target || !action) return [400, { message: "Start or stop an impersonation." }]
+    authFixture({ ...action.input, action: target.action === "start" ? "impersonate" : "stopImpersonating" }, process.env.VITEHUB_PLAYGROUND_AUTH_EVENTS !== "off")
+    return [201, { url: "/", expiresAt: new Date(Date.now() + 60_000).toISOString() }]
+  }
   if (request.method === "POST" && collection === "invites" && !id) {
     const input = await readJson(request)
     const days = Number(input.expiresInDays ?? 7)

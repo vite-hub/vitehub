@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { usageCursor, usageQueryWindow } from "../src/console/runtime/server/usage.ts"
+import { usageCursor, usageQueryWindow } from "../src/agent/console/usage.ts"
 
 describe("Console usage cursors", () => {
   it("rejects non-URL-safe encodings while accepting generated cursors", () => {

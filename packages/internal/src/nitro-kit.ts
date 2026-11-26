@@ -25,7 +25,7 @@ export interface NitroServerHandler {
 
 /**
  * The route meta of a ViteHub handler that Auth access routes leave alone, such as the Console RPC. The handler takes
- * only its own signed requests and one-time links, so app access rules do not apply to it.
+ * only its own signed requests and signed Site access tokens, so app access rules do not apply to it.
  */
 export const ownAccessHandlerMeta: Readonly<{ vitehubAuthAccess: "handler" }> = Object.freeze({ vitehubAuthAccess: "handler" })
 

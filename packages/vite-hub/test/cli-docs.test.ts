@@ -25,7 +25,7 @@ import { describe, expect, it } from "vitest";
 import { createMigrateCliNamespace } from "../src/migrate-cli.ts";
 import { createSandboxCliNamespace } from "../src/sandbox-cli.ts";
 import { viteHubTypesPlugin } from "../src/internal/types.ts";
-import { consoleOperations } from "../src/console/runtime/server/operations.ts";
+import { loadConsoleOperations } from "../src/console/operation-modules.ts";
 import { taskOperations } from "../src/task/operations.ts";
 import { viteHubTaskPlugin } from "../src/task/vite.ts";
 import { viteHubCachePlugin } from "../src/cache/vite.ts";
@@ -100,7 +100,7 @@ describe("CLI documentation contract", () => {
       viteHubDurabilityPlugin(),
       viteHubCachePlugin(),
       { vitehub: { operations: [{ export: "taskOperations", load: async () => taskOperations, module: ownModule(import.meta.url, "task/operations") }] } },
-      { vitehub: { operations: [{ export: "consoleOperations", load: async () => consoleOperations.filter((operation) => operation.name.startsWith("databases.") || operation.name === "invocations.usage"), module: "vite-hub/console/server" }] } },
+      { vitehub: { operations: [{ export: "consoleOperations", load: async () => (await loadConsoleOperations()).filter((operation) => operation.name.startsWith("databases.") || operation.name === "invocations.usage"), module: "vite-hub/console/server" }] } },
       typesPlugin,
       hubBundle(),
     ];

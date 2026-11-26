@@ -10,7 +10,7 @@ import { installAgentInvocations } from "@vite-hub/agent/invocations/app"
 import { getAgentInvocationsDatabase } from "@vite-hub/agent/invocations/drizzle"
 import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
 import { getConsoleInvocations, installConsoleInvocations, readConsoleJournalUsage } from "../src/console/runtime/server/invocations.ts"
-import { usageQueryWindow } from "../src/console/runtime/server/usage.ts"
+import { usageQueryWindow } from "../src/agent/console/usage.ts"
 
 import type { AgentInvocationD1Database, AgentInvocationD1Statement } from "@vite-hub/agent/invocations"
 import type { DefaultAgentInvocationsD1 } from "@vite-hub/agent/internal/default-invocations"
