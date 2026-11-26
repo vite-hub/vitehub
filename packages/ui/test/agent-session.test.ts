@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 import { flushPromises, mount } from "@vue/test-utils";
 import { afterEach, expect, it, vi } from "vitest";
-import { AgentSession } from "../src/agent-session.ts";
+import { Comment, h } from "vue";
+import { AgentSession, AgentSessionTimeline } from "../src/agent-session.ts";
 
 const surfaces = [
   { id: "workspace", label: "Workspace", icon: "i-lucide-files" },
@@ -98,5 +99,28 @@ it("keeps uncontrolled user changes in stored layout", async () => {
   expect(wrapper.find("[data-slot='agent-session-panel']").exists()).toBe(true);
   expect(wrapper.attributes("data-maximized")).toBe("");
   expect(wrapper.get("[role='tab'][aria-selected='true']").text()).toBe("Workspace");
+  wrapper.unmount();
+});
+
+it("renders an open work row through the detail slot and keeps the text when the slot renders nothing", async () => {
+  const entries = [
+    { id: "edit", kind: "edit" as const, label: "Edit app.vue", detail: "@@ -1 +1 @@\n-a\n+b" },
+    { id: "run", kind: "command" as const, label: "pnpm test", detail: "1 passed" },
+  ];
+  const wrapper = mount(AgentSessionTimeline, {
+    props: { items: [{ type: "work", id: "work", entries, defaultOpen: true }] },
+    slots: {
+      "work-detail": ({ entry }: { entry: { kind: string; detail?: string } }) =>
+        entry.kind === "edit" ? h("div", { class: "diff" }, entry.detail) : h(Comment),
+    },
+    global: { stubs: { UIcon: true } },
+  });
+  const lines = wrapper.findAll("[data-slot='agent-session-work-row'] button");
+  await lines[0]!.trigger("click");
+  await lines[1]!.trigger("click");
+  const details = wrapper.findAll("[data-slot='agent-session-work-detail']");
+  expect(details[0]!.find(".diff").text()).toContain("+b");
+  expect(details[1]!.element.tagName).toBe("PRE");
+  expect(details[1]!.text()).toBe("1 passed");
   wrapper.unmount();
 });

@@ -44,9 +44,9 @@ The default slot scrolls with the timeline. Put a timeline that owns its scrolli
 
 Use `v-model:surface`, `v-model:panel-open`, and `v-model:maximized` to connect the view to a router. Controlled values take priority over saved layout values. Without these props, the layout owns its state. `storageKey` retains the panel width, open tabs, selected surface, panel state, and details card state in local storage. Surface shortcuts work while the empty panel has focus. The component instance exposes `openSurface(id)`, `closeSurface(id)`, and `togglePanel()`.
 
-`AgentSessionTimeline` accepts `AgentSessionItem[]`: user and assistant turns have `id`, `type`, and `text`; work turns have `entries`; dividers have `label`. Override a turn with an `item-user`, `item-assistant`, `item-work`, or `item-divider` slot, each receiving `{ item }`.
+`AgentSessionTimeline` accepts `AgentSessionItem[]`: user and assistant turns have `id`, `type`, and `text`; work turns have `entries`; dividers have `label`. Override a turn with an `item-user`, `item-assistant`, `item-work`, or `item-divider` slot, each receiving `{ item }`. The `work-detail` slot receives `{ entry }` and renders an open work row, for example an edit as a diff. Rows open only when the entry has `detail`. When the slot renders nothing for an entry, the row shows `detail` as plain text.
 
-`AgentSessionWorkGroup` folds `AgentSessionWorkEntry[]` behind a summary. Entries have `id`, `kind`, and `label`, with optional `preview`, `detail`, `status`, and `trailing`. Kinds are `command`, `edit`, `read`, `search`, `web`, `mcp`, `skill`, `thinking`, `plan`, and `tool`; status is `running`, `error`, or `done`.
+`AgentSessionWorkGroup` folds `AgentSessionWorkEntry[]` behind a summary. Entries have `id`, `kind`, and `label`, with optional `preview`, `detail`, `status`, and `trailing`. Kinds are `command`, `edit`, `read`, `search`, `web`, `mcp`, `skill`, `thinking`, `plan`, and `tool`; status is `running`, `error`, or `done`. Its `detail` slot works like the timeline's `work-detail` slot.
 
 ## Accessibility
 

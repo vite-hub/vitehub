@@ -3,6 +3,7 @@
 // whose toggle stays in the top right corner whether the panel is open or closed.
 import { Tabs, TabsList, TabsPanel, TabsTab } from "@ui-sdk/vue/tabs";
 import {
+  Comment,
   computed,
   defineComponent,
   h,
@@ -12,6 +13,7 @@ import {
   useId,
   watch,
   type PropType,
+  type SlotsType,
   type VNode,
 } from "vue";
 import { useUIComponent } from "../internal/nuxt-ui.ts";
@@ -602,7 +604,21 @@ export const AgentSessionDetailsRow = defineComponent({
   },
 });
 
-function workRow(entry: AgentSessionWorkEntry, open: boolean, onToggle: () => void): VNode {
+/** The scope of the `detail` slot of `AgentSessionWorkGroup` and the `work-detail` slot of `AgentSessionTimeline`. */
+export interface AgentSessionWorkDetailScope {
+  entry: AgentSessionWorkEntry;
+}
+
+type WorkDetailSlot = (scope: AgentSessionWorkDetailScope) => VNode[];
+
+function workDetail(entry: AgentSessionWorkEntry, slot: WorkDetailSlot | undefined): VNode {
+  const custom = slot?.({ entry })?.filter((node) => node.type !== Comment);
+  return custom?.length
+    ? h("div", { class: "vh-agent-session__work-detail-custom", "data-slot": "agent-session-work-detail" }, custom)
+    : h("pre", { class: "vh-agent-session__work-detail", "data-slot": "agent-session-work-detail" }, entry.detail);
+}
+
+function workRow(entry: AgentSessionWorkEntry, open: boolean, onToggle: () => void, detailSlot?: WorkDetailSlot): VNode {
   const expandable = Boolean(entry.detail);
   const line = [
     h("span", { class: "vh-agent-session__work-icon", "data-status": entry.status }, [
@@ -624,7 +640,7 @@ function workRow(entry: AgentSessionWorkEntry, open: boolean, onToggle: () => vo
     expandable
       ? h("button", { type: "button", class: "vh-agent-session__work-line", "aria-expanded": open ? "true" : "false", onClick: onToggle }, line)
       : h("div", { class: "vh-agent-session__work-line" }, line),
-    expandable && open ? h("pre", { class: "vh-agent-session__work-detail" }, entry.detail) : null,
+    expandable && open ? workDetail(entry, detailSlot) : null,
   ]);
 }
 
@@ -636,7 +652,8 @@ export const AgentSessionWorkGroup = defineComponent({
     entries: { required: true, type: Array as PropType<AgentSessionWorkEntry[]> },
     defaultOpen: { default: false, type: Boolean },
   },
-  setup(props) {
+  slots: Object as SlotsType<{ detail?: WorkDetailSlot }>,
+  setup(props, { slots }) {
     const open = ref(props.defaultOpen);
     const openRows = ref(new Set<string>());
     const toggleRow = (id: string) => {
@@ -662,7 +679,7 @@ export const AgentSessionWorkGroup = defineComponent({
         ]),
         open.value
           ? h("div", { class: "vh-agent-session__work-list" }, props.entries.map((entry) =>
-              workRow(entry, openRows.value.has(entry.id), () => toggleRow(entry.id))))
+              workRow(entry, openRows.value.has(entry.id), () => toggleRow(entry.id), slots.detail)))
           : null,
       ]);
     };
@@ -705,10 +722,16 @@ export const AgentSessionTimeline = defineComponent({
   props: {
     items: { required: true, type: Array as PropType<AgentSessionItem[]> },
   },
+  slots: Object as SlotsType<{
+    [Type in AgentSessionItem["type"] as `item-${Type}`]?: (scope: { item: Extract<AgentSessionItem, { type: Type }> }) => VNode[];
+  } & {
+    "work-detail"?: WorkDetailSlot;
+  }>,
   setup(props, { slots }) {
     return () =>
       h("div", { class: "vh-agent-session__timeline", "data-slot": "agent-session-timeline" }, props.items.map((item) => {
-        const custom = slots[`item-${item.type}`]?.({ item });
+        const itemSlot = slots[`item-${item.type}`] as ((scope: { item: AgentSessionItem }) => VNode[]) | undefined;
+        const custom = itemSlot?.({ item });
         if (custom) return h("div", { key: item.id, class: "vh-agent-session__item" }, custom);
         if (item.type === "user") return h(UserMessage, { key: item.id, text: item.text });
         if (item.type === "assistant") {
@@ -724,7 +747,7 @@ export const AgentSessionTimeline = defineComponent({
           label: item.label,
           entries: item.entries,
           defaultOpen: item.defaultOpen,
-        });
+        }, slots["work-detail"] ? { detail: slots["work-detail"] } : undefined);
       }));
   },
 });
