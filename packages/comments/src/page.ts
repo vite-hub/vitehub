@@ -56,3 +56,14 @@ export function commentRoom(page: string): string {
 export function commentNoticeRoom(subject: CommentSubject): string {
   return `subjects/${encodeURIComponent(JSON.stringify([subject.kind, subject.id]))}`
 }
+
+/** The notice that tells the open pages of a thread to load their threads again. */
+export const commentsChangeNotice = { type: "comments" } as const
+
+/** Name of the Realtime Definition of the Console that holds the notice rooms of Hosted Comments sites. */
+export const hostedCommentsNoticeDefinition = "hosted-comments"
+
+/** The notice room of one subject of a Hosted Comments project. Each project has its own rooms. */
+export function hostedCommentNoticeRoom(projectId: string, subject: CommentSubject): string {
+  return `projects/${encodeURIComponent(projectId)}/${commentNoticeRoom(subject)}`
+}

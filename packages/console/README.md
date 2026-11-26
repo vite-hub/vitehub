@@ -201,6 +201,8 @@ Other paths answer with the Console page, built by `pnpm --filter vite-hub build
 | Cloudflare Workers | D1 | Cannot reach private addresses. The build sets `global_fetch_strictly_public`, without which a Worker that fetches another Worker on the same zone gets error 1042. |
 | Vercel | Hosted libSQL, such as Turso from the Vercel Marketplace | Request bodies stop at 4.5 MB, so Blob and Media uploads above that fail through the Console. Cannot reach private addresses. |
 
+Pages with Hosted Comments show a change to a thread at once, through Realtime. On Node the rooms are in the server process. On Cloudflare the build adds a Durable Object to `wrangler.json`, with the migration tag `vitehub-realtime-v1`. Vercel has no Realtime, so these pages load their threads again on tab focus and every 30 seconds while visible.
+
 ### VPS with Docker
 
 Build on Linux with glibc and Node.js 24, matching the CPU architecture (x64 or arm64) of the `node:24-slim` image on the server. The output contains the build machine's native libSQL module. Output built on macOS, Windows, or Linux with musl (such as Alpine) is incompatible with this image.

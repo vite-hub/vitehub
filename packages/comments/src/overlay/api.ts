@@ -107,6 +107,8 @@ export interface CommentsOverlayBackend {
   namespace: string
   session: (page: string) => Promise<ApiResult<CommentsSession>>
   transport: (onAnswer: (answer: CommentsRestAnswer<unknown>) => void) => RestTransport
+  /** Runs `listener` each time the threads changed elsewhere, such as through the Console. Returns a function that stops it. */
+  changes?: (listener: () => void) => () => void
 }
 
 let backend: CommentsOverlayBackend | undefined
@@ -114,6 +116,11 @@ let backend: CommentsOverlayBackend | undefined
 /** Sends the session and thread requests of the overlay to `next`. Call it before the overlay starts. */
 export function useCommentsOverlayBackend(next: CommentsOverlayBackend): void {
   backend = next
+}
+
+/** Runs `listener` each time the backend says that the threads changed. Returns a function that stops it. */
+export function onOverlayBackendChange(listener: () => void): () => void {
+  return backend?.changes?.(listener) ?? (() => undefined)
 }
 
 const post = (body: unknown): RequestInit => ({ method: "POST", body: JSON.stringify(body) })

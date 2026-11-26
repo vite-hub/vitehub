@@ -1,5 +1,5 @@
 import { text } from "./identity.ts"
-import { commentNoticeRoom, commentRoom, commentsNoticeDefinition, normalizeCommentPage } from "./page.ts"
+import { commentNoticeRoom, commentRoom, commentsChangeNotice, commentsNoticeDefinition, normalizeCommentPage } from "./page.ts"
 import { resolveCommentsIdentity, resolveCommentsPage } from "./runtime/session.ts"
 
 import type { RealtimeDefinition, RealtimeUser } from "@vite-hub/realtime"
@@ -53,8 +53,7 @@ export function commentsRealtime(comments: Comments, options: CommentsSessionOpt
   }
 }
 
-/** The notice that tells the open pages of a thread to load their threads again. */
-export const commentsChangeNotice = { type: "comments" } as const
+export { commentsChangeNotice }
 
 /** Tells the browsers on the page of a thread that it changed, so they load their threads again. It never throws. */
 export async function notifyCommentsChange(thread: Pick<CommentThread, "subject">): Promise<void> {

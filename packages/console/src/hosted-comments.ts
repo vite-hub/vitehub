@@ -4,7 +4,8 @@ import { readBoundedHttpBody } from "@vite-hub/internal/http-request"
 import { siteAccessRoles } from "@vite-hub/internal/site-token"
 import { commentsRoleAllows, defineComments } from "vite-hub/comments"
 import { createCommentsHandler } from "vite-hub/comments/runtime"
-import { installComments } from "vite-hub/comments/server"
+import { commentsChangeNotice, hostedCommentNoticeRoom, hostedCommentsNoticeDefinition, installComments } from "vite-hub/comments/server"
+import { isRealtimeAvailable, notifyRealtimeRoom } from "vite-hub/realtime/server"
 
 import { consoleErrorDiagnostics } from "./error-diagnostics.ts"
 import { renderHostedCommentsSignIn } from "./hosted-comments-page.ts"
@@ -23,6 +24,7 @@ import { consoleSiteGrants, createConsoleSiteStore, siteMember, sitePassCookie, 
 import type { Diagnostic } from "nostics"
 import type { CommentAction, CommentsUser, CommentSubject } from "vite-hub/comments"
 import type { CommentsDatabase } from "vite-hub/comments/server"
+import type { RealtimePresenceDefinition } from "vite-hub/realtime"
 import type { HostedCommentsHolder, HostedCommentsSessionRow } from "./hosted-comments-session.ts"
 import type { ConsoleDatabase, ConsoleProject } from "./projects.ts"
 import type { ConsoleSiteGrantRow } from "./site-access.ts"
@@ -85,8 +87,15 @@ function hostedComments(db: ConsoleDatabase, project: Pick<ConsoleProject, "id" 
   })
   // SAFETY: the Console Database is a Drizzle SQLite Database: libSQL, D1, or the Database of a ViteHub app.
   const database = db as unknown as CommentsDatabase
-  installComments(comments, { database, tables: consoleHostedCommentTables, tenant: { tenant: project.id } })
-  const handler = createCommentsHandler({ comments, realtime: false, attachments: false })
+  installComments(comments, {
+    database,
+    tables: consoleHostedCommentTables,
+    tenant: { tenant: project.id },
+    realtime: async () => ({
+      notifyCommentsChange: thread => notifyRealtimeRoom(hostedCommentsNoticeDefinition, hostedCommentNoticeRoom(project.id, thread.subject), commentsChangeNotice),
+    }),
+  })
+  const handler = createCommentsHandler({ comments, realtime: isRealtimeAvailable(), attachments: false })
   projects.set(cacheKey, handler)
   return handler
 }
@@ -296,4 +305,39 @@ export async function handleHostedCommentsApi(request: Request, options: { db: C
   const headers = new Headers(response.headers)
   for (const [name, value] of Object.entries(noStore)) headers.set(name, value)
   return new Response(response.body, { headers, status: response.status, statusText: response.statusText })
+}
+
+function roomProjectId(documentId: string | null): string | undefined {
+  const match = documentId === null ? null : /^projects\/([^/]+)\/subjects\/[^/]+$/.exec(documentId)
+  if (!match) return undefined
+  try {
+    return decodeURIComponent(match[1]!)
+  }
+  catch {
+    return undefined
+  }
+}
+
+/**
+ * The Realtime Definition of the notice rooms of Hosted Comments sites: one room for each page of a site, named by
+ * `hostedCommentNoticeRoom()`. The embed frame joins with its token in `?token=`. Only a token of the project of the room,
+ * whose holder may read comments, joins it. The rooms hold no document and no presence: only the server sends to them,
+ * after each change of a thread.
+ */
+export function hostedCommentsRealtime(database: () => ConsoleDatabase, options: { now?: () => number } = {}): RealtimePresenceDefinition {
+  return {
+    document: false,
+    awareness: false,
+    async authorize({ documentId, mode, request }) {
+      const projectId = roomProjectId(documentId)
+      const token = new URL(request.url).searchParams.get("token")
+      if (mode !== "read" || !projectId || !isHostedCommentsSecret(token)) return false
+      const db = database()
+      const now = options.now?.() ?? Date.now()
+      const project = await projectOf(db, projectId)
+      const session = project && await hostedCommentsSession(db, { projectId: project.id, token, now })
+      const person = project && session && await holderPerson(db, project, session, now)
+      return person !== undefined && commentsRoleAllows(userOf(person), "read")
+    },
+  }
 }
