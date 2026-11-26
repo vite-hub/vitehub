@@ -116,11 +116,9 @@ On a preview, `forge: { provider: "github" }` posts each thread to the pull requ
 
 A failure in `onComment`, `onMention`, or the pull request sync never fails the comment. With the evlog Nitro module registered, Comments logs it with `comments: { hook, step?, thread, code }`: a failed `onComment` on the wide event of the request, the others as their own evlog events. Without evlog, they go to the console. See [Limits and errors](https://vitehub.dev/docs/comments/limits-and-errors#see-hook-and-sync-failures-in-logs).
 
-## Send to an agent
+## Hand comments to an agent
 
-Each open thread has **Open in T3 Code** and **Copy**, and the list of open threads has **Open in T3 Code** and **Copy open**. Both give a prompt with the page URL, the text and replies of each thread, the element, and the URLs of its files, for every person who may read the comments. For a Console team member whose MCP access may read the threads, the prompt also names the linked app, its team, and the steps of the ViteHub MCP. It includes resolution steps only with Console MCP write access. `/session` supplies `agent: { mcp, project, resolve }`, and `repository`, the GitHub `owner/name` that the T3 Code link opens: `forge.repository`, else the repository of the build. A Hosted Comments script tag gives it with `data-vitehub-repo`. For one click without a paste, use `send`:
-
-`defineComments({ send: true })` adds **Send N** to the comment pill: one click hands the open threads of the page that wait for an answer to the person's own agent, such as a T3 Code thread. The first press copies a setup prompt; the agent creates a T3 webhook task and pairs it with the one-use code, and the pill asks once to allow it. Each send is a signed `POST` with the thread ids and a read token for 24 hours, through the member endpoints of `@vite-hub/webhooks`. `send: { grant: false }` leaves the token out, for an app that reads through its own MCP server, and `payload` adds fields, and `prompt` changes the setup prompt. Each member has their own count, and Allow sends only the threads the member saw. The `comments_get_send` MCP tool reads a send, and `comments.listSends(user)` and `comments.readSend(user, id)` read sends on the server. Reopening a thread can restore a done inbox send or let the member send it to a webhook agent again. Send needs a ViteHub app with a SQLite Database. See [Send comments to your agent](https://vitehub.dev/docs/comments/send).
+Each open thread has **Open in T3 Code** and **Copy**, and the list of open threads has **Open in T3 Code** and **Copy open**. Both give a prompt with the page URL, the text and replies of each thread, the element, and the URLs of its files, for every person who may read the comments. For a Console team member whose MCP access may read the threads, the prompt also names the linked app, its team, and the steps of the ViteHub MCP. It includes resolution steps only with Console MCP write access. `/session` supplies `agent: { mcp, project, resolve }`, and `repository`, the GitHub `owner/name` that the T3 Code link opens: `forge.repository`, else the repository of the build. A Hosted Comments script tag gives it with `data-vitehub-repo`.
 
 ## Deployment and security boundaries
 
@@ -138,7 +136,7 @@ Each open thread has **Open in T3 Code** and **Copy**, and the list of open thre
 | Import | Purpose |
 | --- | --- |
 | `@vite-hub/comments` | `defineComments()` and types. `installComments()` is in `@vite-hub/comments/server`. |
-| `@vite-hub/comments/client` | Framework-free client, transport types, `createAnchor()`, `resolveAnchor()`, `commentsAgentPrompt()`, the text of **Copy**, `commentsT3CodeLink()`, the link of **Open in T3 Code**, and `createCommentSend()`, the state of the Send segment that hands a member's waiting comments to their agent. |
+| `@vite-hub/comments/client` | Framework-free client, transport types, `createAnchor()`, `resolveAnchor()`, `commentsAgentPrompt()`, the text of **Copy**, and `commentsT3CodeLink()`, the link of **Open in T3 Code**. |
 | `@vite-hub/comments/testing` | In-memory client transport for tests and examples. |
 | `@vite-hub/comments/anchor` | DOM anchoring: `createAnchor()`, `placeAnchor()`, `selectorOf()`, `labelOf()`. |
 | `@vite-hub/comments/database` | `commentsSchema`, the Drizzle tables, and `commentsTables`, the statements that create them. |
@@ -316,10 +314,6 @@ const client = createCommentsClient({ transport, user: ana });
 ```
 
 `transport.as(user)` gives another person on the same store, and `transport.reconnect()` sends `reconnected` to the listeners.
-
-### Send
-
-`createCommentSend(transport)` is the state of the **Send** segment of a comment pill, without a framework. Its states are `idle`, `pairing`, `confirm`, `sending`, `sent`, `working`, `failed`, and `limited`. `send.state` holds the state and its data, and `send.onChange()` reports each change. The transport has `status()`, `startPairing()`, `pollPairing(code)`, `allow(code, selection)`, `cancel(code)`, `send()`, and an optional `subscribe()`. `CommentSend` of `@vite-hub/ui` renders it. `createCommentSendTransport({ page })` is the transport over the Send routes of `send: true`. See [Send to an agent](https://vitehub.dev/docs/ui/comments#send-to-an-agent).
 
 ## Errors
 

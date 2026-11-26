@@ -880,8 +880,6 @@ In the ViteHub MCP (https://console.vitehub.dev/mcp/account), use list_apps to v
 When the fix is live, use run_operation with the app id, operation "comments.resolve", and input { threadId, reply }. In the reply, say what you changed.
 ```
 
-To hand the comments over without a paste, turn on [Send](/docs/comments/send): it posts them to your Agent's thread through a signed webhook.
-
 Your own MCP server can register the same tools. `commentsMcpTools(comments)` from `vite-hub/comments/runtime` returns them, each with a JSON Schema and a `call(input, { user })` function. Pass the answer of a call to `mcpToolResult()` from the same import to get the MCP result. `comments_get_thread` sends the images attached to the thread as `image` blocks, so the Agent sees the screenshots, up to 4 MB in one answer.
 
 ::warning

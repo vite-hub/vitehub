@@ -1,4 +1,4 @@
-import { CommentLayer, CommentPanel, CommentSelectionBar, CommentSend } from "@vite-hub/ui/comments"
+import { CommentLayer, CommentPanel, CommentSelectionBar } from "@vite-hub/ui/comments"
 import { useComments } from "@vite-hub/ui/headless"
 import { createMotionList, installMotion, rollNumber } from "@vite-hub/ui/motion"
 import { registerStandaloneUI, UButton, UIcon } from "@vite-hub/ui/standalone/nuxt-ui"
@@ -9,9 +9,8 @@ import { computed, createApp, defineComponent, h, nextTick, onBeforeUnmount, onM
 import { createAnchor, fieldAttribute, fieldElementOf, selectorOf } from "../anchor.ts"
 import { anchorRange, createCommentsClient } from "../client.ts"
 import { commentsAgentPrompt, commentsT3CodeLink } from "../agent-prompt.ts"
-import { createCommentSend } from "../client-send.ts"
 import { commentRoom, commentsApiRoute, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "../page.ts"
-import { api, createOverlaySendTransport, createOverlayTransport, overlayOutboxNamespace, readGuest, saveGuest } from "./api.ts"
+import { api, createOverlayTransport, overlayOutboxNamespace, readGuest, saveGuest } from "./api.ts"
 import { captureContext } from "./context.ts"
 import { createInlineEdit } from "./edit.ts"
 import { captureMarked, markerBox, markerColors, markerTips, startMarker } from "./marker.ts"
@@ -446,10 +445,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     clearTimeout(roomRefresh)
     roomRefresh = setTimeout(refresh, 100)
   }
-  const send = computed(() => {
-    const path = page.value
-    return session?.send ? createCommentSend(createOverlaySendTransport(() => path)) : undefined
-  })
   const fileUrls = (key: string) => {
     const url = transport.attachmentUrl(key)
     return url ? [new URL(url, location.href).href] : []
@@ -866,7 +861,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       onMounted(moveCursors)
       onUpdated(moveCursors)
       onBeforeUnmount(() => cursorList?.motion.destroy())
-      if (session?.send) watch(() => state.threads.value, () => void send.value?.refresh().catch(() => undefined))
       // The list's Open and Resolved switch also shows resolved pins, as Show resolved did.
       watch(panelStatus, (status) => {
         state.filters.resolved = status === "resolved"
@@ -1060,7 +1054,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
             type: "button",
           }, visibility.value === "hidden" ? eyeOffIcon() : eyeIcon())
         : null,
-      send.value && canComment.value ? h(CommentSend, { client: send.value, key: `send:${page.value}` }) : null,
       commenting
         ? h("div", { class: "actions", role: "group", "aria-label": "Comment actions" }, [
             h("span", { class: "divider", "aria-hidden": "true" }),

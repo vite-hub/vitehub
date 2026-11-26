@@ -93,8 +93,6 @@ export interface CommentsRuntime {
   rateLimit?: SharedRateLimit
   /** Work that runs after the answer, such as `onMention`. `flush()` of the server API waits for it. */
   background?: (task: Promise<unknown>) => void
-  /** Runs after someone opens a thread again. With Send, it puts back the sends that carried the thread. */
-  reopened?: (thread: CommentThread) => Promise<unknown>
   /** Tells the open pages of a thread that it changed, such as through a Realtime notice to its page room. */
   changed?: (thread: CommentThread) => void
 }

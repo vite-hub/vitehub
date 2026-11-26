@@ -19,11 +19,28 @@ export default defineWebhook({
 })
 ```
 
-The webhook has no `debounce`, so the receiver gets each event. A debounce keeps only the last body of the window. Use it when the receiver needs the last state, as in [Comments to a T3 Code thread](/docs/webhooks/t3-code-thread), not when each event matters.
+The webhook has no `debounce`, so the receiver gets each event. A debounce keeps only the last body of the window. Use it when the receiver needs the last state, not when each event matters.
 
 ## Comments: a new comment
 
-See [Comments to a T3 Code thread](/docs/webhooks/t3-code-thread). `onComment` gets `{ thread, message, mentions }`.
+`onComment` runs for each new thread and each reply. It gets `{ thread, message, mentions }`:
+
+```ts [server/comments.ts]
+import { defineComments } from 'vite-hub/comments'
+import { sendWebhook } from 'vite-hub/webhooks'
+
+export const comments = defineComments({
+  onComment: async ({ thread, message }) => {
+    const [error] = await sendWebhook('team', {
+      thread: { id: thread.id, n: thread.n, page: thread.subject.id },
+      message: { author: message.author.name ?? message.author.id, body: message.body },
+    }, { event: 'comments.comment' })
+    if (error) console.error(error)
+  },
+})
+```
+
+A failed send never fails the comment.
 
 ## Forms: a submit
 

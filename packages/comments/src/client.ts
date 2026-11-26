@@ -32,23 +32,6 @@ export type {
 export { commentsErrorDiagnostics } from "./client-errors.ts"
 export { createIndexedDBOutboxStore, createMemoryOutboxStore } from "./client-outbox.ts"
 export type { CommentsClientFiles, CommentsOutbox, CommentsOutboxEntry, CommentsOutboxEnvironment, CommentsOutboxMessage, CommentsOutboxOptions, CommentsOutboxStore } from "./client-outbox.ts"
-export { createCommentSend } from "./client-send.ts"
-export type {
-  CommentSendAgent,
-  CommentSendClient,
-  CommentSendCopy,
-  CommentSendEvent,
-  CommentSendLogo,
-  CommentSendOptions,
-  CommentSendPairing,
-  CommentSendPairingCheck,
-  CommentSendResult,
-  CommentSendState,
-  CommentSendStatus,
-  CommentSendTransport,
-} from "./client-send.ts"
-export { createCommentSendTransport } from "./send-transport.ts"
-export type { CommentSendTransportOptions } from "./send-transport.ts"
 export { foldName } from "./fold-name.ts"
 export { replyMessageId } from "./reply-id.ts"
 export { commentAttachmentUrl, createCommentsRestRequest, createRestTransport } from "./rest-transport.ts"

@@ -1221,7 +1221,7 @@ It does not report `wrangler d1 migrations apply --local`, which has no ViteHub 
 
 **Change ViteHub feature tables through the feature.** Rule `vitehub/no-owned-table-writes`.
 
-Server code calls `insert()`, `update()`, or `delete()` on a table that a ViteHub feature exports, such as `commentSends` from `vite-hub/comments/database` or `webhookEndpoints` from `vite-hub/webhooks/database`. SQL that changes a `vitehub_*` table counts too, including a schema-qualified name and a Drizzle `sql` template that interpolates a feature table. Text in SQL strings and comments does not count. The write skips the checks of the feature, such as permissions and counters, and breaks when ViteHub changes the table.
+Server code calls `insert()`, `update()`, or `delete()` on a table that a ViteHub feature exports, such as `commentThreads` from `vite-hub/comments/database` or `webhookEndpoints` from `vite-hub/webhooks/database`. SQL that changes a `vitehub_*` table counts too, including a schema-qualified name and a Drizzle `sql` template that interpolates a feature table. Text in SQL strings and comments does not count. The write skips the checks of the feature, such as permissions and counters, and breaks when ViteHub changes the table.
 
 ```ts [server/api/send/endpoint.delete.ts] fragment
 // Invalid

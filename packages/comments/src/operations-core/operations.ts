@@ -394,7 +394,6 @@ export const commentActions = {
     await allow(who, "resolve", { thread: found })
     const next = await who.runtime.store.setStatus(found.id, status, author(who), Date.now(), status === "resolved" ? who.actor : undefined)
     threadChanged(who.runtime, next)
-    if (status === "open") await who.runtime.reopened?.(next)
     return next
   },
 

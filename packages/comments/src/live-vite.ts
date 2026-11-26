@@ -19,7 +19,7 @@ import { commentsConsoleSection } from "./console.ts"
 import { findCommentsEntry, findContentEntry } from "./entry.ts"
 import { commentsErrorDiagnostics } from "./operations-core/errors.ts"
 import { commentsRealtimeDefinition, commentsRoute, mountedCommentsRoute } from "./page.ts"
-import { commentSendsTableNames, commentsTableNames } from "./table-names.ts"
+import { commentsTableNames } from "./table-names.ts"
 
 import type { DatabaseContributionContext, DatabaseContributionEntry } from "@vite-hub/database/vite"
 import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
@@ -53,8 +53,6 @@ export interface CommentsImports {
   blob: string
   /** Exports `checkRateLimit`, which counts guest writes when Rate Limit counts in a shared KV store. */
   rateLimit: string
-  /** `@vite-hub/webhooks`: the member endpoints that `defineComments({ send })` delivers to. */
-  webhooks: string
 }
 
 /** Options of `comments()`, for apps that use Comments without `vite-hub`. */
@@ -157,8 +155,6 @@ export type CommentsVitePlugin = Plugin & {
   }
   vitehub: ViteHubInspectionPluginMetadata & {
     databases: (context: DatabaseContributionContext) => Promise<DatabaseContributionEntry[]>
-    /** Turns on the member endpoints of Webhooks while `defineComments({ send })` is on. */
-    webhooks: (context: { root?: string, projectRoot?: string, serverDirs?: readonly string[] }) => Promise<{ memberEndpoints: true, reason: string } | undefined>
   }
 }
 
@@ -172,7 +168,6 @@ const defaultImports: CommentsImports = {
   connect: "@vite-hub/comments/runtime/connect",
   blob: "@vite-hub/blob",
   rateLimit: "@vite-hub/rate-limit",
-  webhooks: "@vite-hub/webhooks",
 }
 
 type DefinitionProperties = ReturnType<typeof objectProperties>
@@ -264,18 +259,6 @@ export async function readCommentsDatabase(file: string): Promise<string | undef
   if (found === undefined) return
   if (found === null || (found.value !== undefined && typeof found.value !== "string")) throw commentsErrorDiagnostics.COMMENTS_B0004({ file })
   return typeof found.value === "string" ? found.value : undefined
-}
-
-/**
- * Whether `defineComments({ send })` turns Send on, read without running the file: Send is on unless `send` is missing
- * or `false`. A value known only at runtime counts as on, so the build adds the tables and the member endpoints.
- */
-export async function readCommentsSend(file: string): Promise<boolean> {
-  const properties = await readDefinitionProperties(file)
-  if (!properties) return true
-  const found = lastProperty(properties, "send")
-  if (found === undefined) return properties.some(property => property.key === undefined)
-  return found === null || (found.value !== false && found.value !== undefined && found.value !== null)
 }
 
 /** A directory of prebuilt browser scripts in this package. */
@@ -419,7 +402,7 @@ export function renderCommentsHandler(input: { definition: string, content?: str
   ].join("\n")
 }
 
-export function renderCommentsPlugin(input: { definition: string, database?: string, session?: CommentsVitePluginOptions, imports: CommentsImports, standalone?: StandaloneDatabase, development?: boolean, build?: CommentBuild, base?: string, send?: boolean, realtime?: boolean }): string {
+export function renderCommentsPlugin(input: { definition: string, database?: string, session?: CommentsVitePluginOptions, imports: CommentsImports, standalone?: StandaloneDatabase, development?: boolean, build?: CommentBuild, base?: string, realtime?: boolean }): string {
   const session = sessionWithGitHubLines(input.session ?? {}, input.imports, input.build?.repository, input.base)
   const postgres = input.session?.dialect === "postgresql"
   const overlay = input.session?.overlay === false ? "false" : JSON.stringify(`${commentsRoute}/assets/overlay.js?v=${version}`)
@@ -471,7 +454,6 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
       ...(input.session?.blob ? ["attachments: blob"] : []),
       ...(input.session?.rateLimit ? ["rateLimit: checkRateLimit"] : []),
       ...(postgres ? ["dialect: \"postgresql\"", "tables: { commentCounters: schema.vitehubCommentCounters, commentMessages: schema.vitehubCommentMessages, commentThreads: schema.vitehubCommentThreads, commentForge: schema.vitehubCommentForge }"] : []),
-      ...(input.send ? [`webhooks: () => import(${JSON.stringify(input.imports.webhooks)})`] : []),
       ...(realtime ? [realtime] : []),
       `development: ${input.development === true}`,
       `overlay: ${overlay}`,
@@ -690,7 +672,6 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         if (!definition && !options.enabled) return []
         const database = options.database ?? (definition ? await readCommentsDatabase(definition) : undefined)
         const postgres = options.dialect === "postgresql"
-        const send = !postgres && definition !== undefined && await readCommentsSend(definition)
         return [{
           ...(database ? { database } : {}),
           definition: postgres ? { export: "commentsPostgresSchema", module: `${imports.database}/postgres` } : { export: "commentsSchema", module: imports.database },
@@ -698,22 +679,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
           tables: commentsTableNames,
           name: "comments",
           reason: definition ? "Stores the comment threads of `server/comments.ts`." : "Stores the comment threads of `vitehub({ comments })`.",
-        }, ...send
-          ? [{
-              ...(database ? { database } : {}),
-              definition: { export: "commentSendsSchema", module: imports.database },
-              dialect: "sqlite" as const,
-              tables: commentSendsTableNames,
-              name: "comment-sends",
-              reason: "Keeps the sends and setup codes of `defineComments({ send })`.",
-            }]
-          : []]
-      },
-      async webhooks(context) {
-        if (options.standalone) return undefined
-        const root = projectRoot ?? context.projectRoot ?? context.root ?? process.cwd()
-        const definition = findCommentsEntry(root, serverDirs ?? context.serverDirs?.slice())
-        return definition && await readCommentsSend(definition) ? { memberEndpoints: true, reason: "Send hands each member's waiting comments to their own agent." } : undefined
+        }]
       },
     },
     // `vitehub()` adds this plugin after Realtime, so Realtime's contribution says whether presence runs.
@@ -741,7 +707,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         const pageToolsRoute = join(directory, "page-tools-route.mjs")
         componentsFile = join(directory, "components.mjs")
         const build = await readCommentsBuild(projectRoot)
-        const pluginInput = { definition, database: options.database ?? await readCommentsDatabase(definition), session: options, imports, build, base, development, realtime, send: !options.standalone && await readCommentsSend(definition) }
+        const pluginInput = { definition, database: options.database ?? await readCommentsDatabase(definition), session: options, imports, build, base, development, realtime }
         await Promise.all([
           writeFile(handler, renderCommentsHandler({ definition, content: findContentEntry(projectRoot, serverDirs), session: options, realtime, imports, build, base })),
           writeComponents(),

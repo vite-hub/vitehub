@@ -15,7 +15,7 @@ A **member endpoint** is a receiver that belongs to one member of the app, such 
 | How it is sent | Through the Queue, with an optional debounce | In the request, with a 10 second timeout |
 | Needs | `queue` and `database` | `database` |
 
-A ViteHub feature that sends to members turns member endpoints on, such as Send in Comments. You do not add a file.
+A package that sends to members turns member endpoints on from its Vite plugin, with `vitehub.webhooks`. You do not add a file.
 
 ## Connect a member
 

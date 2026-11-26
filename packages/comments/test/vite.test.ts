@@ -10,8 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { resolveConfig } from "vite"
 
 import { commentRoom, commentsApiRoute } from "../src/page.ts"
-import { commentSendsTableNames } from "../src/table-names.ts"
-import { comments, componentNames, githubRepository, hubComments, readCommentsBuild, readCommentsComponents, readCommentsDatabase, readCommentsSend } from "../src/vite.ts"
+import { comments, componentNames, githubRepository, hubComments, readCommentsBuild, readCommentsComponents, readCommentsDatabase } from "../src/vite.ts"
 
 import type { ConfigEnv, Plugin, UserConfig } from "vite"
 import type { NitroConfig } from "nitro/types"
@@ -378,28 +377,14 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
     await expect(configure(hubComments(), root)).rejects.toMatchObject({ code: "COMMENTS_B0004" })
   })
 
-  it.each([
-    ["export const comments = defineComments({ send: true })", true],
-    ["export const comments = defineComments({ send: { grant: false } })", true],
-    ["export const comments = defineComments({ send: process.env.SEND === \"1\" })", true],
-    ["export const comments = defineComments({ send: false })", false],
-    ["export const comments = defineComments({ send: undefined })", false],
-    ["const options = { send: true }; export const comments = defineComments(options)", true],
-    ["const options = { send: true }; export const comments = defineComments({ ...options })", true],
-    ["export default defineComments({ send: false }); export const comments = defineComments({ send: true })", true],
-    ["const other = defineComments({ send: true }); export default other; export const comments = defineComments()", false],
-    ["const helper = { send: true }; export const comments = defineComments()", false],
-  ])("turns Send on from `send` of the exported definition: %s", async (source, send) => {
-    const root = await project({ "server/comments.ts": source })
-    expect(await readCommentsSend(join(root, "server/comments.ts"))).toBe(send)
-    const plugin = hubComments({ imports: { webhooks: "vite-hub/webhooks" } })
+  it("adds only the comment tables and no Webhooks, also when a definition still sets `send`", async () => {
+    const root = await project({ "server/comments.ts": "export const comments = defineComments({ send: true })" })
+    const plugin = hubComments()
     await configure(plugin, root)
     const contributions = await plugin.vitehub.databases({ root, rootDir: root, projectRoot: root })
-    expect(contributions.map(contribution => contribution.name)).toEqual(send ? ["comments", "comment-sends"] : ["comments"])
-    if (send) expect(contributions[1]).toMatchObject({ definition: { export: "commentSendsSchema", module: "@vite-hub/comments/database" }, dialect: "sqlite", tables: commentSendsTableNames })
-    expect(await plugin.vitehub.webhooks({ root, projectRoot: root })).toEqual(send ? { memberEndpoints: true, reason: expect.stringContaining("agent") } : undefined)
-    const generated = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
-    expect(generated.includes("webhooks: () => import(\"vite-hub/webhooks\")")).toBe(send)
+    expect(contributions.map(contribution => contribution.name)).toEqual(["comments"])
+    expect(plugin.vitehub).not.toHaveProperty("webhooks")
+    expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).not.toContain("webhooks")
   })
 
   it("reads `database: undefined` as the default Database", async () => {
