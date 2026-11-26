@@ -37,8 +37,14 @@ export interface ContentPagesOptions extends ContentSitemapOptions {
   limit?: number
 }
 
-/** `list-pages` returns at most this many pages per call. */
+/** `content.pages()` returns at most this many pages per call. */
 export const contentPagesLimit = 1_000
+
+/** `list-pages` without a `query` returns at most this many pages per call, so a call that an agent did not need stays small. */
+export const contentPageListLimit = 100
+
+/** `list-pages` with a `query` returns at most this many pages per call, best match first. */
+export const contentPageMatchesLimit = 20
 
 /** `get-page` cuts a Markdown copy after this many characters. */
 export const contentPageCharacters = 200_000
@@ -46,7 +52,6 @@ export const contentPageCharacters = 200_000
 /** The path of a routed page, such as `/blog/hello`. */
 export function contentPagePath(loc: string, site?: string): string {
   const path = new URL(loc, "http://localhost").pathname
-  // A site mounted below a path, such as `https://example.com/docs`, keeps the path out of page paths.
   const base = site ? new URL(site).pathname.replace(/\/+$/, "") : ""
   return base && (path === base || path.startsWith(`${base}/`)) ? path.slice(base.length) || "/" : path
 }
@@ -55,21 +60,27 @@ export function contentPagePath(loc: string, site?: string): string {
  * The page path that a `get-page` argument names: a path or an absolute URL, with or without a trailing slash or `.md`,
  * in any case. Query and hash are ignored.
  */
-export function contentPageKey(path: string): string {
-  let pathname = /^https?:\/\//i.test(path) ? new URL(path).pathname : path.split(/[?#]/, 1)[0]!
+export function contentPageKey(path: string, site?: string): string {
+  const url = /^https?:\/\//i.test(path) ? new URL(path) : undefined
+  let pathname = url?.pathname ?? path.split(/[?#]/, 1)[0]!
+  if (url && site && url.origin === new URL(site).origin) pathname = contentPagePath(url.href, site)
   if (!pathname.startsWith("/")) pathname = `/${pathname}`
   if (pathname.endsWith(".md")) pathname = pathname === "/index.md" ? "/" : pathname.slice(0, -3)
+  return (decodePath(pathname).replace(/\/+$/, "") || "/").toLowerCase()
+}
+
+function decodePath(path: string): string {
   try {
-    pathname = decodeURI(pathname)
+    return decodeURI(path)
   }
-  catch {}
-  return (pathname.replace(/\/+$/, "") || "/").toLowerCase()
+  catch {
+    return path
+  }
 }
 
 /** The summary of a routed page. A page without a title shows its path. */
 export function contentPageSummary(page: ContentRoutedPage, site: string): ContentPageSummary {
   const path = contentPagePath(page.loc, site)
-  // Keys in the order of the `@vite-hub/docs` MCP server, so `list-pages` gives the same JSON.
   return { title: page.title ?? path, path, ...page.description ? { description: page.description } : {}, url: new URL(page.loc, site).href }
 }
 
@@ -80,12 +91,45 @@ export interface ContentMcpRuntime extends ContentReadAccess {
   page(path: string, options?: ContentSitemapOptions): Promise<ContentPageMarkdown | null>
 }
 
-/** A tool result in the shape that the `@vite-hub/docs` MCP server gives: JSON with two-space indent. */
+const pageCatalogs = new WeakMap<ContentMcpRuntime, (site: string) => Promise<ContentPageSummary[]>>()
+
+export function registerContentPageCatalog(content: ContentMcpRuntime, catalog: (site: string) => Promise<ContentPageSummary[]>): void {
+  pageCatalogs.set(content, catalog)
+}
+
 function json(value: unknown): McpToolResult {
   return { content: [{ type: "text", text: JSON.stringify(value, null, 2) }], isError: false }
 }
 
 const readOnly = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+
+const contentPageQueryCharacters = 200
+
+function queryWords(query: string): string[] {
+  const words = query.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean)
+  return [...new Set(words.map(word => word.length > 3 && word.endsWith("s") ? word.slice(0, -1) : word))]
+}
+
+async function allPages(content: ContentMcpRuntime, site: string): Promise<ContentPageSummary[]> {
+  const catalog = pageCatalogs.get(content)
+  if (catalog) return catalog(site)
+  const pages: ContentPageSummary[] = []
+  for (;;) {
+    const batch = await content.pages({ site, offset: pages.length })
+    pages.push(...batch)
+    if (batch.length < contentPagesLimit) return pages
+  }
+}
+
+function matchingPages(pages: ContentPageSummary[], words: string[]): ContentPageSummary[] {
+  const texts = pages.map(page => ({ head: `${page.title} ${decodePath(page.path)}`.toLowerCase(), description: page.description?.toLowerCase() ?? "" }))
+  const weights = words.map(word => Math.log(1 + pages.length / Math.max(1, texts.filter(text => text.head.includes(word) || text.description.includes(word)).length)))
+  return pages
+    .map((page, index) => ({ page, index, score: words.reduce((score, word, wordIndex) => score + (texts[index]!.head.includes(word) ? 2 : texts[index]!.description.includes(word) ? 1 : 0) * weights[wordIndex]!, 0) }))
+    .filter(match => match.score > 0)
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map(match => match.page)
+}
 
 /** The read-only page MCP server of `defineContent({ seo: { mcp } })` for one site origin. */
 export function contentMcpServer(content: ContentMcpRuntime, site: string): McpServer {
@@ -93,32 +137,47 @@ export function contentMcpServer(content: ContentMcpRuntime, site: string): McpS
   const name = options.name ?? new URL(site).host
   const listPages: McpTool = {
     name: "list-pages",
-    description: `Lists every published page with its title, path, description, and URL. It returns at most ${contentPagesLimit} pages; pass offset to read the next ones.
+    description: `Finds published pages of ${name} by their title, path, and description, and returns each page's title, path, description, and URL. Use it only for questions about ${name}.
 
-Use it to find pages about a topic when you do not know the exact path. Then read a page with get-page.`,
+Pass query, a few words such as "rate limit" or an error code, to get the ${contentPageMatchesLimit} best matches first. Without query it lists the pages in site order, ${contentPageListLimit} per call. Pass offset to read the next pages. Then read a page with get-page. When you already know the path or URL of a page, call get-page directly.`,
     annotations: readOnly,
-    inputSchema: { type: "object", properties: { offset: { type: "integer", minimum: 0, description: "Pages to skip, for the pages after the first call. Defaults to 0." } }, additionalProperties: false },
-    validate: ({ offset }) => offset === undefined || (Number.isSafeInteger(offset) && Number(offset) >= 0) ? undefined : "offset must be a whole number of 0 or more.",
-    handler: async ({ offset }) => json(await content.pages({ site, offset: Number(offset ?? 0) })),
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", maxLength: contentPageQueryCharacters, description: "Words to look for, such as \"rate limit\" or an error code. The best matches come first." },
+        offset: { type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER, description: "Pages to skip, for the pages after the first call. Defaults to 0." },
+      },
+      additionalProperties: false,
+    },
+    validate: ({ query, offset }) => {
+      if (query !== undefined && (typeof query !== "string" || query.length > contentPageQueryCharacters)) return `query must be text of at most ${contentPageQueryCharacters} characters.`
+      return offset === undefined || (Number.isSafeInteger(offset) && Number(offset) >= 0) ? undefined : "offset must be a whole number of 0 or more."
+    },
+    handler: async ({ query, offset }) => {
+      const skip = Number(offset ?? 0)
+      if (typeof query !== "string") return json(await content.pages({ site, offset: skip, limit: contentPageListLimit }))
+      const words = queryWords(query)
+      if (!words.length) return json([])
+      return json(matchingPages(await allPages(content, site), words).slice(skip, skip + contentPageMatchesLimit))
+    },
   }
   const getPage: McpTool = {
     name: "get-page",
     description: `Reads one page as Markdown, with its title, description, and URL.
 
-Use a path from list-pages or from a link, such as /blog/hello.`,
+Use a path from list-pages or from a link, such as /blog/hello, or the full URL of the page.`,
     annotations: readOnly,
     inputSchema: { type: "object", properties: { path: { type: "string", description: "Page path from list-pages, such as /blog/hello" } }, required: ["path"], additionalProperties: false },
     validate: ({ path }) => String(path) === path && path.trim() ? undefined : "path must be a page path from list-pages, such as /blog/hello.",
     handler: async ({ path }) => {
       const page = await content.page(String(path), { site })
-      // The same text as the `@vite-hub/docs` MCP server, where an H3 404 becomes `[404] <message>`.
       if (!page) return { content: [{ type: "text", text: `[404] No page at ${String(path)}` }], isError: true }
       return json({ title: page.title, path: page.path, ...page.description ? { description: page.description } : {}, content: page.content, url: page.url })
     },
   }
   return {
     serverInfo: { name, title: name, version: "1.0.0" },
-    instructions: `Read-only access to the published pages of ${name}. Call list-pages to find a page, then get-page to read it as Markdown.`,
+    instructions: `Read-only access to the published pages of ${name}. Use these tools only when the task is about ${name} or what its pages cover, and answer other questions without them. When you know the path or URL of a page, call get-page with it. Otherwise call list-pages with a query, then get-page.`,
     tools: [listPages, getPage],
   }
 }
