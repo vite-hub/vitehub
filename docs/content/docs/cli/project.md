@@ -711,7 +711,7 @@ On Node, `vitehub({ console: true, publicUrl: "https://app.example.com" })` sets
 The app answers signed requests of https://console.vitehub.dev.
 ```
 
-- `vitehub deploy` runs `apps link` and sets the key for you after a `vitehub login`. See [Link the app in the Console](#link-the-app-in-the-console). Use `apps link` for an app that you deploy another way.
+- A supported production `vitehub deploy` can link the app and set the key when `vitehub whoami` shows an owner or admin of the intended Console team. See [Link the app in the Console](#link-the-app-in-the-console). Use `apps link` for an app that you deploy another way.
 - `apps link` of a URL that the team already linked prints the same link and key again, so you can run it on every deploy. Only owners and admins may link.
 - The variable holds the public key of the link. It is not a secret, but set it as a secret on Cloudflare so that a deploy from the dashboard or `wrangler deploy` keeps it.
 - `apps check` exits with `1` if the deployed app does not accept the Console's signed request.

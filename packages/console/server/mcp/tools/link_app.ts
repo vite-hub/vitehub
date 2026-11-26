@@ -29,7 +29,7 @@ export default defineMcpTool({
     return {
       app: project,
       variable: `${project.keyVariable}=${project.publicKey}`,
-      next: `Set ${project.keyVariable} in the environment of ${project.url}, with console: true in its vitehub config. Deploy it, then call check_app with id ${project.id}.`,
+      next: `Set ${project.keyVariable} in the environment of ${project.url}, with console: true in its vitehub config. Deploy it, then call check_app with id ${project.id}. A supported production \`vitehub deploy\` without --no-console can set the key for you. Use \`vitehub whoami\` to check that the CLI is signed in as an owner or admin of the same team in this Console, then verify that deploy reports this app link as linked.`,
     }
   },
 })
