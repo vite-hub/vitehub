@@ -5,7 +5,7 @@ import { projectOperation } from "../../utils/mcp.ts"
 
 export default defineMcpTool({
   title: "List operations",
-  description: "Read what a linked app runs: its name, its vite-hub version, its Console sections, and each operation that MCP clients may use in it, with its kind (read, write, or destructive), its description, and the JSON Schema of its input. Read the description before you call an operation: it says which fields to send and what to do after. Run an operation that reads with read_operation, and one that changes data with run_operation.",
+  description: "List the linked app's operations available to MCP, with their kinds, descriptions, and input JSON Schemas. Use read_operation for reads and dry runs (including content.publish with dryRun: true), run_operation for comments.reply and comments.resolve, and run_destructive_operation with confirm: true after user approval for all other changes, even if their kind is write.",
   input: z.object({ id: z.string().describe("The app id from list_apps") }),
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   handler: async ({ id }, { caller }) => {

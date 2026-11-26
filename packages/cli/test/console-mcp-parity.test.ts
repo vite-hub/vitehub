@@ -13,6 +13,7 @@ const cliOf: Record<string, string[] | { none: string }> = {
   "list_apps": ["apps", "list"],
   "list_operations": { none: "`vitehub project get --url <app>` lists operation names for the direct CLI caller, not MCP schemas or access." },
   "read_operation": { none: "Use the operation's CLI command with `--url <app>` and a separate app signing key, if the command exists." },
+  "run_destructive_operation": { none: "Use the operation's CLI command with `--url <app>` and a separate app signing key, if the command exists. For a destructive change, answer the prompt or pass `--yes`." },
   "run_operation": { none: "Use the operation's CLI command with `--url <app>` and a separate app signing key, if the command exists." },
   "unlink_app": ["apps", "unlink"],
   "whoami": ["whoami"],
