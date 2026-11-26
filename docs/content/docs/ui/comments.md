@@ -341,8 +341,10 @@ In read-only threads and previews, the slot receives the delivery state but no a
 | `CommentComposer` | `mention-item` | `{ person, active }` | Each person of the mention menu. |
 | `CommentComposer` | `mention-empty` | `{ query, failed }` | The line of the mention menu when it has no one to show. |
 | `CommentLayer` | `status` | `{ message, delivery, retry, dismiss, edit }` | Passed on to each thread and hover card. |
+| `CommentLayer` | `actions` | `{ thread }` | Passed on to each thread that opens from its pin. |
 | `CommentPanel`, `CommentList` | `row`, `preview` | `{ thread, text }` | One list row, or its text. `text` is the default row text. |
 | `CommentPanel` | `group-header` | `{ group, threads }` | A row group heading. See `group`. |
+| `CommentPanel` | `list-actions` | | At the end of the list's top row, beside Open and Resolved. |
 
 `CommentThread` passes `body`, `attachments`, `status`, `extra`, `mention-item`, and `mention-empty` to its messages and reply box. `CommentPanel` passes every slot to its thread, and `extra`, `mention-item`, and `mention-empty` to its page box.
 

@@ -380,6 +380,7 @@ export const CommentLayer = defineComponent({
     };
 
     const statusSlot = () => (slots.status ? { status: slots.status } : undefined);
+    const threadSlots = () => ({ ...statusSlot(), ...(slots.actions ? { actions: slots.actions } : {}) });
     const threadView = (thread: CommentThreadModel) =>
       h(CommentThread, {
         accept: props.accept,
@@ -404,7 +405,7 @@ export const CommentLayer = defineComponent({
         },
         thread,
         user: user.value,
-      }, statusSlot());
+      }, threadSlots());
 
     const marginLayout = (spots: Map<string, ResolvedAnchor>, draftY?: number) => {
       type Entry = { key: string; y: number; thread?: CommentThreadModel; active: boolean };
