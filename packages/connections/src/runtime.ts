@@ -13,6 +13,7 @@ import type { UseChatGPTCredential } from "./internal/agent-credential.ts"
 import { createRequestScheduler } from "./requests.ts"
 import { providerAccount } from "./account.ts"
 import { createConnectionTransport, isMcpEndpoint } from "./transport.ts"
+import type { StartProviderAttempt } from "./transport.ts"
 import { isApiKeyProvider } from "./api-key.ts"
 import { isConnectionError, isEnvBridgeError } from "./errors.ts"
 import { connectionsErrorDiagnostics } from "./error-diagnostics.ts"
@@ -699,11 +700,15 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     return key === undefined ? undefined : { connections, key }
   }
 
-  async function dispatch(context: CallContext, providerRequest: ProviderRequest, init: SendInit, token: { accessToken: string, tokenType: string }): Promise<Response> {
-    if (providerRequest.write && context.providerExecution) {
-      context.providerExecution.dispatched = true
-      context.providerExecution.rejected = false
+  async function dispatch(context: CallContext, providerRequest: ProviderRequest, init: SendInit, token: { accessToken: string, tokenType: string }, startAttempt?: StartProviderAttempt): Promise<Response> {
+    const execution = providerRequest.write ? context.providerExecution : undefined
+    const markDispatched = () => {
+      if (execution) {
+        execution.dispatched = true
+        execution.rejected = false
+      }
     }
+    if (!startAttempt) markDispatched()
     const response = await context.transport.send(providerRequest.url, token, {
       body: providerRequest.body,
       json: providerRequest.json,
@@ -711,9 +716,12 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       method: providerRequest.method,
       redirect: init.redirect,
       signal: init.signal,
-    })
-    if (providerRequest.write && context.providerExecution) {
-      context.providerExecution.rejected = response.status >= 400 && response.status < 500 && response.status !== 408
+    }, startAttempt && ((start, signal) => startAttempt(() => {
+      markDispatched()
+      return start()
+    }, signal)))
+    if (execution) {
+      execution.rejected = response.status >= 400 && response.status < 500 && response.status !== 408
     }
     return response
   }
@@ -725,17 +733,27 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
   }
 
   async function sendWithFallback(context: CallContext, providerRequest: ProviderRequest, init: SendInit, fallback: { connections?: ConnectionStore, key: string }): Promise<Response> {
-    if (fallback.connections?.refreshLeases) {
+    const connections = fallback.connections
+    const leases = connections?.refreshLeases
+    const startAttempt: StartProviderAttempt | undefined = connections && leases ? async (start, signal) => {
+      signal?.throwIfAborted()
       const owner = await claimMutationLease(context.name)
+      const release = () => leases.release(context.name, owner).catch(() => undefined)
+      let pending: Promise<Response>
       try {
-        if (await fallback.connections.state.get(context.name) !== undefined) {
+        if (await connections.state.get(context.name) !== undefined) {
           throw connectionsErrorDiagnostics.CONNECTIONS_NEEDS_RECONNECT({ connection: context.name })
         }
+        signal?.throwIfAborted()
+        pending = start()
       }
-      finally {
-        await fallback.connections.refreshLeases.release(context.name, owner).catch(() => undefined)
+      catch (error) {
+        await release()
+        throw error
       }
-    }
+      const [response] = await Promise.all([pending, release()])
+      return response
+    } : undefined
     const operationId = crypto.randomUUID()
     const record = async (outcome: EnvActivity["outcome"]) => {
       await fallback.connections?.access.append({
@@ -755,7 +773,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     await record("started")
     let response: Response
     try {
-      response = await checkResponse(providerRequest, await dispatch(context, providerRequest, init, { accessToken: fallback.key, tokenType: "api-key" }))
+      response = await checkResponse(providerRequest, await dispatch(context, providerRequest, init, { accessToken: fallback.key, tokenType: "api-key" }, startAttempt))
     }
     catch (error) {
       await record("failed").catch(() => undefined)
