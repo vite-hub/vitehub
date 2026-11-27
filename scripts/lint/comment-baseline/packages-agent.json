@@ -276,7 +276,6 @@
   "packages/agent/test/cli.test.ts": 2,
   "packages/agent/test/colocated-agent-instructions.test.ts": 2,
   "packages/agent/test/config.test.ts": 2,
-  "packages/agent/test/configured-source-root.test.ts": 2,
   "packages/agent/test/console-artifact-publication.test.ts": 2,
   "packages/agent/test/content-capability.test.ts": 29,
   "packages/agent/test/conversations-cli.test.ts": 2,
