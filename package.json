@@ -17,6 +17,7 @@
     "@types/node": "catalog:tooling",
     "@types/semver": "^7.8.0",
     "@vercel/blob": "catalog:storage",
+    "@vercel/functions": "catalog:vercel",
     "@vercel/queue": "catalog:vercel",
     "@vercel/sandbox": "catalog:sandbox",
     "@vite-hub/agent": "workspace:*",
@@ -36,6 +37,7 @@
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
+    "@workflow/builders": "catalog:workflow",
     "drizzle-orm": "catalog:database",
     "h3": "catalog:unjs",
     "knip": "catalog:tooling",
@@ -53,6 +55,7 @@
     "vite-hub": "workspace:*",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
+    "workflow": "catalog:workflow",
     "wrangler": "catalog:"
   },
   "devEngines": {

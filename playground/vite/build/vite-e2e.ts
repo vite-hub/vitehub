@@ -30,7 +30,7 @@ import { discoverViteWorkspaceDefinitions } from "../../../packages/workspace/sr
 import { configureCloudflareArtifacts } from "../../../packages/workspace/src/integrations/cloudflare.ts"
 import { normalizeWorkflowOptions } from "../../../packages/workflow/src/config.ts"
 import { discoverWorkflowDefinitions } from "../../../packages/workflow/src/discovery.ts"
-import { createWorkflowRegistryContents } from "../../../packages/workflow/src/internal/vite-build.ts"
+import { buildVercelNativeWorkflowOutput, createVercelWorkflowTransformPlugin, createWorkflowRegistryContents, writeVercelNativeWorkflowFiles } from "../../../packages/workflow/src/internal/vite-build.ts"
 import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName } from "../../../packages/workflow/src/integrations/cloudflare.ts"
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { copyClientOutput, hasStaticIndex } from "@vite-hub/internal/build/client-output"
@@ -47,7 +47,7 @@ import type { ResolvedKVModuleOptions } from "../../../packages/kv/src/types.ts"
 import type { ResolvedQueueOptions } from "../../../packages/queue/src/types.ts"
 import type { AgentSandboxTaskConfig } from "../../../packages/sandbox/src/task/module-types.ts"
 import type { ResolvedWorkspaceModuleOptions } from "../../../packages/workspace/src/core/types.ts"
-import type { ResolvedWorkflowOptions } from "../../../packages/workflow/src/types.ts"
+import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions } from "../../../packages/workflow/src/types.ts"
 import type { Plugin } from "vite"
 
 const currentDir = dirname(fileURLToPath(import.meta.url))
@@ -115,8 +115,9 @@ interface GeneratedFeatureArtifacts {
   scheduleRegistryFile?: string
   sandboxTaskConfig?: false | AgentSandboxTaskConfig
   workflowBindings: Array<{ binding: string, class_name: string, name: string }>
-  workflowDefinitions: Array<{ name: string, handler: string }>
+  workflowDefinitions: DiscoveredWorkflowDefinition[]
   workflowRegistryFile?: string
+  workflowVercelNativeFiles: Record<string, string>
   workspaceRegistryFile?: string
 }
 
@@ -733,9 +734,12 @@ export async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
   }
 
   let workflowRegistryFile: string | undefined
+  const workflowVercelNativeFiles = workflowDefinitions.length && resolveHostedProvider(options.hosting) === "vercel"
+    ? await writeVercelNativeWorkflowFiles(generatedDir, workflowDefinitions)
+    : {}
   if (workflowDefinitions.length) {
     workflowRegistryFile = resolve(generatedDir, "workflow-registry.mjs")
-    runtimeWrites.push(writeFile(workflowRegistryFile, createWorkflowRegistryContents(workflowRegistryFile, workflowDefinitions), "utf8"))
+    runtimeWrites.push(writeFile(workflowRegistryFile, createWorkflowRegistryContents(workflowRegistryFile, workflowDefinitions, {}, workflowVercelNativeFiles), "utf8"))
   }
 
   if (options.db) {
@@ -892,6 +896,7 @@ export async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     workflowBindings: createCloudflareWorkflowBindings(workflowDefinitions, options.workflow) || [],
     workflowDefinitions,
     workflowRegistryFile,
+    workflowVercelNativeFiles,
     workspaceRegistryFile,
   } satisfies GeneratedFeatureArtifacts
 }
@@ -1066,6 +1071,7 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
   const resolveApp = resolve(packagesDir, "internal/src/runtime/app.ts")
   const workspaceDriver = options.workspace && options.workspace.store.driver
   const preloadVercelQueue = options.queue && options.queue.driver === "vercel"
+  const nativeWorkflow = Object.keys(artifacts.workflowVercelNativeFiles).length > 0
   const workspaceRuntimeState = artifacts.alias["@vite-hub/workspace/runtime"] || resolve(workspacePackageDir, "src/runtime/state.ts")
 
   const imports = [
@@ -1083,6 +1089,13 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
   ]
   if (preloadVercelQueue) {
     imports.push(`import * as __vitehubVercelQueue from ${JSON.stringify(createImportPath(file, resolvePackageDependency(queuePackageDir, "@vercel/queue")))}`)
+  }
+  if (nativeWorkflow) {
+    imports.push(
+      `import { setVercelWorkflowRuntimeModules } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/runtime/vercel.ts")))}`,
+      `import * as workflowApi from "workflow/api"`,
+      `import * as workflowRuntime from "workflow/runtime"`,
+    )
   }
 
   if (workspaceDriver === "vercel") {
@@ -1114,6 +1127,7 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
     `setQueueRuntimeRegistry(${artifacts.queueRegistryFile ? "queueRegistry" : "undefined"})`,
     "setWorkflowRuntimeConfig(workflowConfig)",
     `setWorkflowRuntimeRegistry(${artifacts.workflowRegistryFile ? "workflowRegistry" : "undefined"})`,
+    nativeWorkflow ? "setVercelWorkflowRuntimeModules(workflowApi, workflowRuntime)" : "",
     "setBlobRuntimeConfig(blobConfig)",
     "setSandboxTaskRuntimeConfig(sandboxTaskConfig)",
     `setSandboxTaskRuntimeRegistry(${artifacts.alias["#vitehub-sandbox-task-registry"] ? "sandboxTaskRegistry" : "undefined"})`,
@@ -1376,6 +1390,11 @@ async function writeVercelOutput(options: ViteE2EComposerOptions, artifacts: Gen
   const functionsRoot = resolve(outputRoot, "functions")
   const sourceEntry = resolve(artifacts.generatedDir, "vercel-entry.mjs")
   const staticIndex = hasStaticIndex(clientDir)
+  const nativeWorkflowFiles = Object.values(artifacts.workflowVercelNativeFiles)
+  const nativeWorkflowIds = new Set(nativeWorkflowFiles.map(file => file.replaceAll("\\", "/")))
+  const workflowTransformPlugin = nativeWorkflowIds.size
+    ? await createVercelWorkflowTransformPlugin(options.rootDir, options.rootDir, id => nativeWorkflowIds.has(id))
+    : undefined
 
   await writeFile(sourceEntry, renderVercelEntry(sourceEntry, options, artifacts), "utf8")
   await rm(outputRoot, { force: true, recursive: true })
@@ -1396,12 +1415,10 @@ async function writeVercelOutput(options: ViteE2EComposerOptions, artifacts: Gen
       "files-sdk/s3",
       "isomorphic-git",
       "isomorphic-git/http/web",
-      "workflow",
-      "workflow/api",
-      "workflow/runtime",
     ],
     format: "esm",
     platform: "node",
+    plugins: workflowTransformPlugin ? [workflowTransformPlugin] : [],
   })
 
   // SAFETY: This extends the owned Vercel config with its supported optional cron entries.
@@ -1418,6 +1435,10 @@ async function writeVercelOutput(options: ViteE2EComposerOptions, artifacts: Gen
     writeFile(resolve(outputRoot, "config.json"), `${JSON.stringify(vercelConfig, null, 2)}\n`, "utf8"),
     staticIndex ? copyClientOutput(clientDir, resolve(outputRoot, "static")) : Promise.resolve(),
   ])
+
+  if (nativeWorkflowFiles.length) {
+    await buildVercelNativeWorkflowOutput(options.rootDir, artifacts.workflowDefinitions, {}, nativeWorkflowFiles)
+  }
 
   const scheduleRegistryFile = artifacts.scheduleRegistryFile
   if (artifacts.scheduleDefinitions.length && scheduleRegistryFile) {
