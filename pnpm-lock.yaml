@@ -377,11 +377,11 @@ catalogs:
       specifier: 0.5.1
       version: 0.5.1
     comark-ui:
-      specifier: ^0.12.2
-      version: 0.12.2
+      specifier: ^0.14.3
+      version: 0.14.3
     comark-zoom:
-      specifier: ^0.12.2
-      version: 0.12.2
+      specifier: ^0.14.3
+      version: 0.14.3
   nuxt:
     '@nuxt/ui':
       specifier: ^4.13.0
@@ -902,7 +902,7 @@ importers:
         version: 0.9.2(katex@0.19.1)(shiki@4.6.0)
       comark-ui:
         specifier: catalog:markdown-ui
-        version: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/extension-image@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0)))(@tiptap/extension-list@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0))(@tiptap/extension-table@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)(@tiptap/starter-kit@3.35.0)(@tiptap/vue-3@3.35.0(@floating-ui/dom@1.8.0)(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)(vue@3.5.46(typescript@6.0.3)))(@types/markdown-it@14.2.0)(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(katex@0.19.1)(markdown-it@15.0.3)(react@19.2.6)(shiki@4.6.0)(vue@3.5.46(typescript@6.0.3))
+        version: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/extension-image@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0)))(@tiptap/extension-list@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0))(@tiptap/extension-table@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)(@tiptap/starter-kit@3.35.0)(@tiptap/vue-3@3.35.0(@floating-ui/dom@1.8.0)(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)(vue@3.5.46(typescript@6.0.3)))(@types/markdown-it@14.2.0)(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(katex@0.19.1)(markdown-it@15.0.3)(react@19.2.6)(shiki@4.6.0)(vue@3.5.46(typescript@6.0.3))
       drizzle-orm:
         specifier: catalog:database
         version: 1.0.0-rc.6(@cloudflare/workers-types@5.20261123.1)(@electric-sql/pglite@0.5.17)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(better-sqlite3@12.9.0)(bun-types@1.4.5)(effect@4.1.2)(pg@8.23.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7)
@@ -1773,7 +1773,7 @@ importers:
         version: 0.9.2(katex@0.19.1)(shiki@4.6.0)
       comark-ui:
         specifier: catalog:markdown-ui
-        version: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/extension-image@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0)))(@tiptap/extension-list@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0))(@tiptap/extension-table@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)(@tiptap/starter-kit@3.35.0)(@tiptap/vue-3@3.35.0(@floating-ui/dom@1.8.0)(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)(vue@3.5.46(typescript@6.0.3)))(@types/markdown-it@14.2.0)(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(katex@0.19.1)(markdown-it@15.0.3)(react@19.2.6)(shiki@4.6.0)(vue@3.5.46(typescript@6.0.3))
+        version: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/extension-image@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0)))(@tiptap/extension-list@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0))(@tiptap/extension-table@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)(@tiptap/starter-kit@3.35.0)(@tiptap/vue-3@3.35.0(@floating-ui/dom@1.8.0)(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)(vue@3.5.46(typescript@6.0.3)))(@types/markdown-it@14.2.0)(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(katex@0.19.1)(markdown-it@15.0.3)(react@19.2.6)(shiki@4.6.0)(vue@3.5.46(typescript@6.0.3))
       drizzle-orm:
         specifier: catalog:database
         version: 1.0.0-rc.6(@cloudflare/workers-types@5.20261123.1)(@electric-sql/pglite@0.5.17)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(better-sqlite3@12.9.0)(bun-types@1.4.5)(effect@4.1.2)(pg@8.23.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7)
@@ -2190,7 +2190,7 @@ importers:
         version: 0.9.2(katex@0.19.1)(shiki@4.6.0)
       comark-ui:
         specifier: catalog:markdown-ui
-        version: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/extension-image@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0)))(@tiptap/extension-list@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0))(@tiptap/extension-table@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)(@tiptap/starter-kit@3.35.0)(@tiptap/vue-3@3.35.0(@floating-ui/dom@1.8.0)(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)(vue@3.5.46(typescript@6.0.3)))(@types/markdown-it@14.2.0)(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(katex@0.19.1)(markdown-it@15.0.3)(react@19.2.6)(shiki@4.6.0)(vue@3.5.46(typescript@6.0.3))
+        version: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/extension-image@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0)))(@tiptap/extension-list@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0))(@tiptap/extension-table@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)(@tiptap/starter-kit@3.35.0)(@tiptap/vue-3@3.35.0(@floating-ui/dom@1.8.0)(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)(vue@3.5.46(typescript@6.0.3)))(@types/markdown-it@14.2.0)(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(katex@0.19.1)(markdown-it@15.0.3)(react@19.3.1)(shiki@4.6.0)(vue@3.5.46(typescript@6.0.3))
       drizzle-orm:
         specifier: catalog:database
         version: 1.0.0-rc.6(@cloudflare/workers-types@5.20261123.1)(@electric-sql/pglite@0.5.17)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@types/pg@8.23.1)(better-sqlite3@12.9.0)(bun-types@1.4.5)(effect@4.1.2)(pg@8.23.1)(postgres@3.4.9)(sql.js@1.14.2)(valibot@1.5.0(typescript@6.0.3))(zod@4.6.7)
@@ -2366,7 +2366,7 @@ importers:
         version: 0.5.1(forges@0.3.1)(katex@0.19.1)(shiki@4.6.0)(unstorage@1.17.6(@azure/identity@4.14.1(supports-color@8.1.1))(@azure/storage-blob@12.34.0(supports-color@8.1.1))(@netlify/blobs@11.1.9(patch_hash=e68b68d12280a77f02150a25bb8e8334464a16b0427da4485beec88a63c971cd)(supports-color@8.1.1))(@upstash/redis@1.41.0)(@vercel/blob@2.9.0(patch_hash=00ab85652158f2da130632664fea9807e71fff9322464e69772fbc838c7ef0d2))(@vercel/functions@3.11.3(@aws-sdk/credential-provider-web-identity@3.972.91)(ws@8.23.0))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1(supports-color@8.1.1))(uploadthing@7.7.4(express@5.2.1(supports-color@8.1.1))(fastify@5.12.5)(h3@2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.2))(tailwindcss@4.3.5)))
       comark-zoom:
         specifier: catalog:markdown-ui
-        version: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+        version: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
       defu:
         specifier: catalog:unjs
         version: 6.1.7
@@ -2439,7 +2439,7 @@ importers:
         version: 0.9.2(katex@0.19.1)(shiki@4.6.0)
       comark-ui:
         specifier: catalog:markdown-ui
-        version: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/extension-image@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0)))(@tiptap/extension-list@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0))(@tiptap/extension-table@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)(@tiptap/starter-kit@3.35.0)(@tiptap/vue-3@3.35.0(@floating-ui/dom@1.8.0)(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)(vue@3.5.46(typescript@6.0.3)))(@types/markdown-it@14.2.0)(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(katex@0.19.1)(markdown-it@15.0.3)(react@19.2.6)(shiki@4.6.0)(vue@3.5.46(typescript@6.0.3))
+        version: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/extension-image@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0)))(@tiptap/extension-list@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0))(@tiptap/extension-table@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)(@tiptap/starter-kit@3.35.0)(@tiptap/vue-3@3.35.0(@floating-ui/dom@1.8.0)(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)(vue@3.5.46(typescript@6.0.3)))(@types/markdown-it@14.2.0)(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(katex@0.19.1)(markdown-it@15.0.3)(react@19.2.6)(shiki@4.6.0)(vue@3.5.46(typescript@6.0.3))
       h3:
         specifier: catalog:unjs
         version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.2)
@@ -4116,7 +4116,7 @@ importers:
         version: 7.0.179(zod@4.6.7)
       comark-ui:
         specifier: catalog:markdown-ui
-        version: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/extension-image@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0)))(@tiptap/extension-list@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0))(@tiptap/extension-table@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)(@tiptap/starter-kit@3.35.0)(@tiptap/vue-3@3.35.0(@floating-ui/dom@1.8.0)(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)(vue@3.5.46(typescript@6.0.3)))(@types/markdown-it@14.2.0)(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(katex@0.19.1)(markdown-it@15.0.3)(react@19.2.6)(shiki@4.6.0)(vue@3.5.46(typescript@6.0.3))
+        version: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/extension-image@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0)))(@tiptap/extension-list@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0))(@tiptap/extension-table@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)(@tiptap/starter-kit@3.35.0)(@tiptap/vue-3@3.35.0(@floating-ui/dom@1.8.0)(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)(vue@3.5.46(typescript@6.0.3)))(@types/markdown-it@14.2.0)(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(katex@0.19.1)(markdown-it@15.0.3)(react@19.2.6)(shiki@4.6.0)(vue@3.5.46(typescript@6.0.3))
       happy-dom:
         specifier: 21.0.4
         version: 21.0.4
@@ -4999,7 +4999,7 @@ importers:
         version: 0.9.2(katex@0.19.1)(shiki@4.6.0)
       comark-ui:
         specifier: catalog:markdown-ui
-        version: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/extension-image@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0)))(@tiptap/extension-list@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0))(@tiptap/extension-table@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)(@tiptap/starter-kit@3.35.0)(@tiptap/vue-3@3.35.0(@floating-ui/dom@1.8.0)(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)(vue@3.5.46(typescript@6.0.3)))(@types/markdown-it@14.2.0)(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(katex@0.19.1)(markdown-it@15.0.3)(react@19.2.6)(shiki@4.6.0)(vue@3.5.46(typescript@6.0.3))
+        version: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/extension-image@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0)))(@tiptap/extension-list@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0))(@tiptap/extension-table@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)(@tiptap/starter-kit@3.35.0)(@tiptap/vue-3@3.35.0(@floating-ui/dom@1.8.0)(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)(vue@3.5.46(typescript@6.0.3)))(@types/markdown-it@14.2.0)(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(katex@0.19.1)(markdown-it@15.0.3)(react@19.2.6)(shiki@4.6.0)(vue@3.5.46(typescript@6.0.3))
       nuxt:
         specifier: npm:nuxt-nightly@5.0.0-2611222336-0ed8910
         version: nuxt-nightly@5.0.0-2611222336-0ed8910(9bc55771b633bf4a2b0b875a797c7c9a)
@@ -5825,8 +5825,16 @@ packages:
     resolution: {integrity: sha512-iHTrHA8MtVuLl2TfZySmcKv1qO2PoyC9Z7pfSDozEuV5vtY3/wcOPKJXlqJ5Oq2Cx5DDGQGAMVx6HZfRRoVEbQ==}
     engines: {node: '>= 20.12.0'}
 
+  '@clack/core@1.6.0':
+    resolution: {integrity: sha512-4GZynIB2IIe431odxesswvWTCP6orvqd6e2b07b3VFWBQRqUqIHc/EPIZwFoKS692QBp+ooPuXKaJV8g4kXuYA==}
+    engines: {node: '>= 20.12.0'}
+
   '@clack/prompts@1.8.1':
     resolution: {integrity: sha512-dlT1m5e/0yUL0kRNcQn7yGLVThkgbB0Ga/1AmfDDC/8ik6AIiSf2QLQO2zPYvefsHP0aFgxO93cVLCCfDp7kzQ==}
+    engines: {node: '>= 20.12.0'}
+
+  '@clack/prompts@1.9.0':
+    resolution: {integrity: sha512-tEj8X2No2A1c9NDnZECxiiJ8TP3vmFlN9tLlLeSaMqVW4tUmVG2R4qpv/eP4zymWxnymYLkLcIYVV0VcWj3RCQ==}
     engines: {node: '>= 20.12.0'}
 
   '@cloudflare/kv-asset-handler@0.4.2':
@@ -7505,8 +7513,8 @@ packages:
     resolution: {integrity: sha512-oGB+UxlgWcgQkgwo8GcEGwemoTFt3FIO9ababBmaGwXIoBKZ+GTy0pP185beGg7Llih/NSHSV2XAs1lnznocSg==}
     engines: {node: '>= 8'}
 
-  '@nuxt/cli-nightly@4.1.0-2611220959-0626111':
-    resolution: {integrity: sha512-nDYgm6QMHlfQ7dnqHD5/2WFOB8DVzsUxyo9thhsI6PxA7uwju5oniRRfDKoTQoYt4qtl2D3A3WtC/RQL7gkXbA==}
+  '@nuxt/cli-nightly@4.1.0-2611250955-3e3cd15':
+    resolution: {integrity: sha512-wlsIbuyJV8+k/6qqeaY19GlDBWLHWUyYi/jXO22+af+KurozhQTO2VB3u3Sp7HKCyLrDnYWaKrcmwxTENmBH1w==}
     engines: {node: ^22.21.0 || ^24.11.0 || >=26.0.0}
     hasBin: true
     peerDependencies:
@@ -12350,8 +12358,8 @@ packages:
   colortranslator@5.0.0:
     resolution: {integrity: sha512-Z3UPUKasUVDFCDYAjP2fmlVRf1jFHJv1izAmPjiOa0OCIw1W7iC8PZ2GsoDa8uZv+mKyWopxxStT9q05+27h7w==}
 
-  comark-annotate@0.12.2:
-    resolution: {integrity: sha512-MQiWinIGorgHqcnxq+BvBKG63Ig9K/UdgcL6NjmGTQde4WK3VkC2oFk6jT+Z2ZEbFlP9XTYcqXJ1biqYYT4AMg==}
+  comark-annotate@0.14.3:
+    resolution: {integrity: sha512-D+u+nq8ovb+UgDIIJ96JUxYfBQzr2YE0FChwq2An1HoIdUD37VoTmHnTqaPtHFHMHmqINE8LuzvFGWMSJyaoJg==}
     engines: {node: '>=22.12.0'}
     hasBin: true
     peerDependencies:
@@ -12362,8 +12370,8 @@ packages:
       '@napi-rs/canvas':
         optional: true
 
-  comark-badge@0.12.2:
-    resolution: {integrity: sha512-wwqD4U2Vo6RrCpvqWa45PTZFtZpIKfTzNB5z+wA+oiTaCvPKidPKHGTqYC2vBAmETFr6rg+7POG/S122yNKSDg==}
+  comark-badge@0.14.3:
+    resolution: {integrity: sha512-KeeW5i9uk5JjHruFVs6oMo2kDX4Qw8OTAT4HTHXFKI5NamYed9K4aKwKmb/YZ/yf88lHhK6PjVqv6MVYmgkbWg==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/html': ^0.9.0
@@ -12381,8 +12389,8 @@ packages:
       vue:
         optional: true
 
-  comark-bundle@0.12.2:
-    resolution: {integrity: sha512-c50OQZmtX+OHJT6Tt1BJ16wyet8EwG+PkvRkMDtr/j+FXMZKuM5HQ8R8dVehodm7ZEuW5HCQHP4HuUxU80UYeg==}
+  comark-bundle@0.14.3:
+    resolution: {integrity: sha512-7xhEhTBd1udkzoNLcwV7Dko/lLhUk2N+ywuUhgboVg2sdswWFGlOf7tFDtgA6vnUSIxeF9JIJV7qyrg6ancI8w==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/html': ^0.9.0
@@ -12400,8 +12408,8 @@ packages:
       vue:
         optional: true
 
-  comark-cards@0.12.2:
-    resolution: {integrity: sha512-q5qRnkbR/UjkLajkJc/+mQV0bMDZgsyKqgRTrnMptKZ9m5SzPkl3DD/EeGXcWVwgASPJer9px/l7rNjlpfjJ5w==}
+  comark-cards@0.14.3:
+    resolution: {integrity: sha512-rYUL213VfgDZ45MnRR4nBFZR6gYo13e1/W9z9D2IP78zl+FDIxfsk2Cpmo3Cg9I0TcfnYj4EArQdHlUF5wOjJg==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/html': ^0.9.0
@@ -12419,8 +12427,8 @@ packages:
       vue:
         optional: true
 
-  comark-carousel@0.12.2:
-    resolution: {integrity: sha512-VppAH0WOGVXIolNVxFSvaxx1imT1J/gZbKmCUVBZSJJ7eNYSFQNA0gutEmcKG/0XDWtQx4CbkILaGz7gmjNpXA==}
+  comark-carousel@0.14.3:
+    resolution: {integrity: sha512-wWz4RR1682IS/j6OSD2D3cuTvASBZl1g5FTwgKr13/LHN+ySIW2ymG4qsmE5ahydQ9sszboROeVg/Ed+DV4IRA==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/html': ^0.9.0
@@ -12438,8 +12446,8 @@ packages:
       vue:
         optional: true
 
-  comark-cast@0.12.2:
-    resolution: {integrity: sha512-wd9N4YiirARsvrJbuiCYCk6TP3fOL/zaufPlags1inkbK1rQkU3L6lgPB2ciJhKs7nvxK6PQfSJ474wf57vYOw==}
+  comark-cast@0.14.3:
+    resolution: {integrity: sha512-zhhD2i6LPn5yyIzHA+dlvRp8b0HB1WxG5a86RICoMK5Y2zf4VuERz+uPeyffrGl6eORs8q5rdJ9/mA5dVj3e9g==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/html': ^0.9.0
@@ -12457,8 +12465,8 @@ packages:
       vue:
         optional: true
 
-  comark-charts@0.12.2:
-    resolution: {integrity: sha512-+Oi7nLgVHtFWT/NO1SWRCk1TY2MTPmXheq6iJHurn0CqGIJqlbQYfcS4Ri1I7syoxcDDziBKoJKlO2pzImQV+g==}
+  comark-charts@0.14.3:
+    resolution: {integrity: sha512-OkeDVIYQTMGOPIhT0kOF/wPhybUg7oxTr+HXPHa6Y4ZIGcGczlcvthVjS0oHnJfKEDMlqIEvWdAqoHDFtwPf/w==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/html': ^0.9.0
@@ -12500,8 +12508,8 @@ packages:
       vue:
         optional: true
 
-  comark-chips@0.12.2:
-    resolution: {integrity: sha512-wuHz+k8cA/6InBpJEq8xPWqLuqVuTqCnHrMZ66lauV6gOKeIbdAlM/k5gkUyCbT+N6INd3Em8XGA7o1e/0wRPA==}
+  comark-chips@0.14.3:
+    resolution: {integrity: sha512-tWZx9H3p1HiYM53FsdUhRjVdGK9eitWv5luHF9OX00Gzo8Bo17UtIzgryVfDDgGnbUp4AYMGDYKNDLgtwLGyJw==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/html': ^0.9.0
@@ -12519,14 +12527,14 @@ packages:
       vue:
         optional: true
 
-  comark-cjk@0.12.2:
-    resolution: {integrity: sha512-o7T8vf7I9X4sgEZIAKjqCtBrOqK4wmevhJ6Hv6GW+wLEAcTKrARUwyqdj692rTqMVeYmshQ7PnomjZzlgV70Lg==}
+  comark-cjk@0.14.3:
+    resolution: {integrity: sha512-jFoHFjvt2wrpCDjw2EsdtlbHIvUR0SWhRdYj6R3O80bb0Nj9lKtGRVaJTSfh/skNIq4KDeM3pWoFsP8lSr0lhg==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       comark: ^0.9.0
 
-  comark-code-notes@0.12.2:
-    resolution: {integrity: sha512-Z0C1++auU4YVZq65saibLKK5KFPDHK3JDm59Zmb3wzB8fe0LjpE+c6sRC4Cs2umMJHTva6XPKD9XhIxd45dk8A==}
+  comark-code-notes@0.14.3:
+    resolution: {integrity: sha512-WWpAWGDMlkYO3AjyF8tdWH0n9sBlkVFQaljWZWsmqpWq+WdTdtnnQOs2figAU92iAEH7nbUxKgZtd6JKTygMoQ==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/html': ^0.9.0
@@ -12544,8 +12552,8 @@ packages:
       vue:
         optional: true
 
-  comark-code@0.12.2:
-    resolution: {integrity: sha512-Vd16lJlM8gQFQvTl2NEe/6uq28u10ergVzyhfU82cArPJ7CatSHoce4OkSzvORKz8Q8/gXWi4/AgAgEQuvWHiw==}
+  comark-code@0.14.3:
+    resolution: {integrity: sha512-d73ZV6Jn21b/6+Zc0Fl1xd98tMSU6mf5UWCFqC1lEt+aDUjd8dTC63ujTLLMYOJPHIriepWWDDfqc5ylDTNPEw==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/html': ^0.9.0
@@ -12563,8 +12571,8 @@ packages:
       vue:
         optional: true
 
-  comark-colors@0.12.2:
-    resolution: {integrity: sha512-xD7GF9O3LgxftcyxaicTguq5dsZpACBCDvKPqSyDeIcblRKnFg5O96n6RJNcMAJCLXdhxn5guTxUYVDLJagXQw==}
+  comark-colors@0.14.3:
+    resolution: {integrity: sha512-7bKkM30rPSkxWz0w7Hkie12NcJheM3OW2vLRXxNlP8e52W8CoWDN/TzoGh14rMKhre7MBfKHZ22RJ1oL3oSqJQ==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/html': ^0.9.0
@@ -12582,8 +12590,8 @@ packages:
       vue:
         optional: true
 
-  comark-comments@0.12.2:
-    resolution: {integrity: sha512-rLjvXyE34omWEa6v/3xIWWiD6dmqAu1yoaK4tUKVkS8kP/eiwNgisdwCUVvFUPupfcyrFn2ccBBxDpsYTip43A==}
+  comark-comments@0.14.3:
+    resolution: {integrity: sha512-V1g3DXIYx+pASiyBx6hU0nKO7nkrncPtWRHWi4qKG0xav8ZOJxQw3zx1MC0ZV/AudtrJccq2cTg6DdYvKP3zQA==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/html': ^0.9.0
@@ -12604,39 +12612,20 @@ packages:
       unstorage:
         optional: true
 
-  comark-critic@0.12.2:
-    resolution: {integrity: sha512-q2cAuJFfmTEJrSSld3ATEjGqNdPLm/Fkdl115/B9WXnlvbNrn1l+Q/bmKJJrfGbbUj7/mEV7Iv2TfRsg8RfOjQ==}
+  comark-critic@0.14.3:
+    resolution: {integrity: sha512-jxBpLyWBD8AYNgP4aJumEXsjnIYOA65hmr/w7pe/oY3i2pwdNSoN3o2+ro5CRpKjhO6Htu0Wsi9XNU6d5OMloA==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       comark: ^0.9.0
 
-  comark-deflist@0.12.2:
-    resolution: {integrity: sha512-oxPUaFAnWil4peAcNxOlwR5m2Cb21AUYrdXR+6y/5E9xiX0fVX0APhDuSxGNf0Lg197o8iFGGtaVTy+T7F8L/g==}
+  comark-deflist@0.14.3:
+    resolution: {integrity: sha512-1C6wuQwGs6H0QcOXce1RhiahErmJj36/SUDZ4fsnJE/vn0QMC5lARKjfs8aeweQ7iv4rz4O7Q9a67oiTyUdy1A==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       comark: ^0.9.0
 
-  comark-details@0.12.2:
-    resolution: {integrity: sha512-2R6Sbcm5NHmVMTjjTcRsG/yM1ZsWnocgnaXN9AN6SZv2zoP8GX/s4zof4No7eQ3gIEMrTQDvRVPprdn0dh1sIg==}
-    engines: {node: '>=22.12.0'}
-    peerDependencies:
-      '@comark/html': ^0.9.0
-      comark: ^0.9.0
-      react: '>=18'
-      svelte: '>=5'
-      vue: 3.5.46
-    peerDependenciesMeta:
-      '@comark/html':
-        optional: true
-      react:
-        optional: true
-      svelte:
-        optional: true
-      vue:
-        optional: true
-
-  comark-diagrams@0.12.2:
-    resolution: {integrity: sha512-foyOp1/8k/kosx73aRZgRSaAL0MZzeaUqhT9DtWnZ4I1I3g7xs0Q93XI3b5QfLBRBHe4xQk0LL6MHNNqAhEPkA==}
+  comark-details@0.14.3:
+    resolution: {integrity: sha512-WL95dmk0HnXuubw4UJ7Ye0FDdBA2htc4Q13X+r5DnxRj4LfzU4cUsGycebQn/ZRuPfD/WnjPkJy60rsQEYfBiQ==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/html': ^0.9.0
@@ -12654,18 +12643,8 @@ packages:
       vue:
         optional: true
 
-  comark-diff@0.12.2:
-    resolution: {integrity: sha512-vbSB6cExJgeG0xctoHFMWZfu11wJF9TR8ZHCC/fN0H5EjWKCo2zwugU4JNtGzvpYIddlLZRks2miJLLmldDUoQ==}
-    engines: {node: '>=22.12.0'}
-    peerDependencies:
-      '@comark/html': ^0.9.0
-      comark: ^0.9.0
-    peerDependenciesMeta:
-      '@comark/html':
-        optional: true
-
-  comark-embed@0.12.2:
-    resolution: {integrity: sha512-irQN0RmtgMlkDZu+fkzP9cpyOu07BsVtXOtt8W+h1ZzcitTftIMrTFI+BrlDZggr44+CPY3xs0iK0+BkVQpeRw==}
+  comark-diagrams@0.14.3:
+    resolution: {integrity: sha512-BKZyjzAEnJE5GL3qTd8jgqPNhCDkUr5mgcXH6ASaWmbqO3r6/fn7U+Kx82RYUZsnHU34ybnghnFMozsJnFZg7A==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/html': ^0.9.0
@@ -12683,8 +12662,18 @@ packages:
       vue:
         optional: true
 
-  comark-fields@0.12.2:
-    resolution: {integrity: sha512-u4Tqc8D/oT5pml1IIG6dzVoaSZGreZ8HQ4KC2a0330JORs8VBCljigfDMs7a8T2kkKiGfJAmzsQPujrC0U3+MA==}
+  comark-diff@0.14.3:
+    resolution: {integrity: sha512-Ns25+kgsDgdrBDjXzulI8JYBJOcH7BVDsekvqXru4F/43O3GrhYf/vHuy2j0fiEGydOwJ0760jSD+KjzEAFSPw==}
+    engines: {node: '>=22.12.0'}
+    peerDependencies:
+      '@comark/html': ^0.9.0
+      comark: ^0.9.0
+    peerDependenciesMeta:
+      '@comark/html':
+        optional: true
+
+  comark-embed@0.14.3:
+    resolution: {integrity: sha512-q0yRYTJBmaES6HVyxyO6hSQ/XkMEMTUm8OM8sSJJIzmlrNBYdqd/sm2MEhZaDYWMsNdqU3p3pfkd3cDg1iX+bg==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/html': ^0.9.0
@@ -12702,14 +12691,8 @@ packages:
       vue:
         optional: true
 
-  comark-figure@0.12.2:
-    resolution: {integrity: sha512-23WR1zaXzdTvDbTHIcUDPy47iPXa5qQrYeSWe4LmXKjJobFujKlr7DvSWwSM5BpxnmeCRd6bAZVUuZr3AO0XXQ==}
-    engines: {node: '>=22.12.0'}
-    peerDependencies:
-      comark: ^0.9.0
-
-  comark-file-tree@0.12.2:
-    resolution: {integrity: sha512-0QcQwRAMbVX9ubLWlUjcstvPfbVDoVN1Vb2Z2Lm+12EI7a1kDs9mZP9rf/UfdMmcLPy9vPfB3xpqWtZ9L0iKow==}
+  comark-fields@0.14.3:
+    resolution: {integrity: sha512-ceepNWpiV7ARBL/mZdi6ZmK89DWYnEApkz2ylGr9CV1J2xiCmmdlXeahkgTUtSNElpTdIlumiPQBi8rWW8/7vg==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/html': ^0.9.0
@@ -12727,33 +12710,14 @@ packages:
       vue:
         optional: true
 
-  comark-footnotes@0.12.2:
-    resolution: {integrity: sha512-b4DRjSjbQOHw2JeoH0EIC2z9fwNc9Q0OF22Q/rH6k3PmoqHTcl/ZlIYaTyFWXmGYono/lXl1QPnCzLozt2hdhQ==}
+  comark-figure@0.14.3:
+    resolution: {integrity: sha512-7X0P8txU+IXSQ50oXtxHh4a20bZ0Eed+rvKzVrgyXAP7zRho9EdnAoI/mVZviiE0kE/Xq/xk3si0XrOoGnRhBg==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       comark: ^0.9.0
 
-  comark-git-graph@0.12.2:
-    resolution: {integrity: sha512-t/3Ez7mBg1DCg10Iagyh0LRLMD6wF5G1N9S5DTt1UWsezHP6Xty/pP4A4WJZyg48LuleG8bu3Pg5pMAGjy55zw==}
-    engines: {node: '>=22.12.0'}
-    peerDependencies:
-      '@comark/html': ^0.9.0
-      comark: ^0.9.0
-      react: '>=18'
-      svelte: '>=5'
-      vue: 3.5.46
-    peerDependenciesMeta:
-      '@comark/html':
-        optional: true
-      react:
-        optional: true
-      svelte:
-        optional: true
-      vue:
-        optional: true
-
-  comark-github@0.12.2:
-    resolution: {integrity: sha512-W9Lko0XmmkYLUhdjq8aOGyUkwuC237DVgHzcXTsjmjPlw/MZ7aKka5G435s1rCC90NO4O2vLKUzX18yLw/Wzng==}
+  comark-file-tree@0.14.3:
+    resolution: {integrity: sha512-hV5CBJAKAIx/C0dBjBU4JqYgM63xvrXuJRIIqwqGGNywEc1lxrzJpXVh8d5Lvj8kNKpUS9vQO2s8F/WBmrutyQ==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/html': ^0.9.0
@@ -12771,8 +12735,14 @@ packages:
       vue:
         optional: true
 
-  comark-icon@0.12.2:
-    resolution: {integrity: sha512-GpQHXkfz4YWKHF+0uDAuKL9KzM/+JIpnA8FDypV79qRNi5ae8yUZ0RKfFt6bNJGbmBVcGs86az1XssNbABDm4Q==}
+  comark-footnotes@0.14.3:
+    resolution: {integrity: sha512-0r3SBDnbXGM1Jjy4kjz+Q0Vs6Je7w0emX3nq/BN8+DDLemgn/eWaJbTKmhnzXY5n4JLscq5sAhCPZxEuGsHoBg==}
+    engines: {node: '>=22.12.0'}
+    peerDependencies:
+      comark: ^0.9.0
+
+  comark-git-graph@0.14.3:
+    resolution: {integrity: sha512-Q6Xdofdd/cNdhpL8kvgYYyws0hUq/Qcto+j09PMYqqTxSTJKdQQ3/c0xEEKlll9UBoCNTRLUfpfXfTFzv0HUXQ==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/html': ^0.9.0
@@ -12790,20 +12760,8 @@ packages:
       vue:
         optional: true
 
-  comark-include@0.12.2:
-    resolution: {integrity: sha512-dfUob64hjAVVdkFCBFzl/4Soy7aAKuFGrHsAPrItq0+FvOUmh22ekLH/ovkz5heQ4DuC5/oVGAkFTGnchfO7dA==}
-    engines: {node: '>=22.12.0'}
-    peerDependencies:
-      comark: ^0.9.0
-
-  comark-keys@0.12.2:
-    resolution: {integrity: sha512-5cT5MHip+DNc1tPUj0CTCIZZjkzep4zdDC9o+0SIVxEYreWVaNjB8aIE7Wv7chP3jayHT49VvTsxflVH8HO4SQ==}
-    engines: {node: '>=22.12.0'}
-    peerDependencies:
-      comark: ^0.9.0
-
-  comark-links@0.12.2:
-    resolution: {integrity: sha512-jXyNE8w3xpKVSC6kRmhLlsot4NK1LZE50+uSM/H+70XHbQacyoNTt3iuxRNAY7UJrdCckRcja584LVl4UbCRnw==}
+  comark-github@0.14.3:
+    resolution: {integrity: sha512-ftW/uX2dYqGRPJvYyrYFxOhVYg61g81/orU9AMgdDI0jLMnDIpemWTL7xgQ0MTuGaq9WF6MAHc68HnRthWUosQ==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/html': ^0.9.0
@@ -12821,8 +12779,8 @@ packages:
       vue:
         optional: true
 
-  comark-magic-move@0.12.2:
-    resolution: {integrity: sha512-iTqsyCTmy7XbYt/kmwpuhQWA0YCA5Oo5NAT/22bBn/q9Yto+6MRAmcI2cCu6XIsrBQQfHw06t6wVd2rLLbPavg==}
+  comark-icon@0.14.3:
+    resolution: {integrity: sha512-zW0NmnRv5P8i76aU3R8gPGctCVG9Qmw39nQwI/h68Bx84lDYTbEWxMsW428ZLPZqS/ofWn5Q9Lt/rGxrHgifqg==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/html': ^0.9.0
@@ -12840,8 +12798,20 @@ packages:
       vue:
         optional: true
 
-  comark-mark@0.12.2:
-    resolution: {integrity: sha512-IPCArmxa0fmizu5iZK4vzoyGS1J4L0Yt9f6tdEhUGx/gmxB7R05TmhrxIVIhMhdtsBEv5U81x4bz3vjbpXwObw==}
+  comark-include@0.14.3:
+    resolution: {integrity: sha512-91egcI/vu0c1xn/2mdv8EUssLHuDn8GW9RtQzhv62H5TCQXQJntQZZVxM26P084UQwG5fczUhOQEVXa9Nmw/FQ==}
+    engines: {node: '>=22.12.0'}
+    peerDependencies:
+      comark: ^0.9.0
+
+  comark-keys@0.14.3:
+    resolution: {integrity: sha512-M0Snc+xXEzAKbsC5IXfjKOnUNHzJX+LO1xlxQ+k1QOZOsMDSeWrbITBW5p4zd5rjmRVMZp7xhBpF4wn4WPROzw==}
+    engines: {node: '>=22.12.0'}
+    peerDependencies:
+      comark: ^0.9.0
+
+  comark-links@0.14.3:
+    resolution: {integrity: sha512-wXux2x7e2MOXAKiKnGRJMf/kKFICZPaCJ5YrMU3yaW7y3cU5oc0PqZDvAfZXqSMNeSLB+7V3kFwtZwyRMG4fsg==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/html': ^0.9.0
@@ -12859,8 +12829,46 @@ packages:
       vue:
         optional: true
 
-  comark-mathml@0.12.2:
-    resolution: {integrity: sha512-udBZHIECB+5V4ZmvgbZ6X0UKuBwGMXTEnXqfORQ+LKuJrfqvbIlW9jomtPFYB0ZFdG77826k73sqUbFbR5Gsfg==}
+  comark-magic-move@0.14.3:
+    resolution: {integrity: sha512-l7aRJ5PYXrgGy+zliXsfqomoyiDv+tToX5pK+kGpGUjA1DgIM94MBYYmNkk7U2KUGevwyWCdnomAPMSajA3IxA==}
+    engines: {node: '>=22.12.0'}
+    peerDependencies:
+      '@comark/html': ^0.9.0
+      comark: ^0.9.0
+      react: '>=18'
+      svelte: '>=5'
+      vue: 3.5.46
+    peerDependenciesMeta:
+      '@comark/html':
+        optional: true
+      react:
+        optional: true
+      svelte:
+        optional: true
+      vue:
+        optional: true
+
+  comark-mark@0.14.3:
+    resolution: {integrity: sha512-pT53tXmIXt1bp0BSXMZ/69BGZHiCM4LN1q1gAMj/lorgHTPA43IxHNXe+JqhwmLaMCSj8mFKDD37fnfJ2NjUmg==}
+    engines: {node: '>=22.12.0'}
+    peerDependencies:
+      '@comark/html': ^0.9.0
+      comark: ^0.9.0
+      react: '>=18'
+      svelte: '>=5'
+      vue: 3.5.46
+    peerDependenciesMeta:
+      '@comark/html':
+        optional: true
+      react:
+        optional: true
+      svelte:
+        optional: true
+      vue:
+        optional: true
+
+  comark-mathml@0.14.3:
+    resolution: {integrity: sha512-5OmhhpKBQSQCRduMjetG/UwQcJHQfqC6OwjHqYk59+IECqNBkQLQL3e6KEgPm+SJrzmst4PyxIuLIKiIdjRKqw==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/html': ^0.9.0
@@ -12881,8 +12889,8 @@ packages:
       vue:
         optional: true
 
-  comark-media@0.12.2:
-    resolution: {integrity: sha512-c092W/LfHNUo3A78+HxAVSQWXIgrOqfgPgWF3LgVAEuHcgTzOW5h7cbX9IsRIrQ9B/pFkVk7Uce2UGe/UNwVVg==}
+  comark-media@0.14.3:
+    resolution: {integrity: sha512-KoehgPUsymOrpeSKQDCvT8rHti1kJrVXKhFPgVSP9zWg4lcS8hOS8Q/FaWOhKM8TkUjMu+E+Vk3sufnO3AhhVQ==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/html': ^0.9.0
@@ -12900,8 +12908,8 @@ packages:
       vue:
         optional: true
 
-  comark-metrics@0.12.2:
-    resolution: {integrity: sha512-1PIBCqP2Hs4icbOCbX+PXdYZ7JiOAet4DMjy8+tP3AzmTnw6AfQuKykL4kG2Ls2tCz/CHDjb7UUgIu14W9eEuA==}
+  comark-metrics@0.14.3:
+    resolution: {integrity: sha512-c7kgZ3zNXHydjXvUBe1qlsoqqONY/cpM1aEzyKh7YyN+A32/iliDVS2rJ5CsOqpwLwALf7Ywp6tohTVr2NSkyw==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/html': ^0.9.0
@@ -12919,8 +12927,27 @@ packages:
       vue:
         optional: true
 
-  comark-outline@0.12.2:
-    resolution: {integrity: sha512-8OvCAY3KNgXrrCr6TzOh4w+M70HJj42nXMvbq9HdKuDvmJQTpI3lgZ0JisRuDQ59vGH8o7GfGj2YNBqEDp7kxg==}
+  comark-motion@0.14.3:
+    resolution: {integrity: sha512-wqlo8yz//DrxFKlzttvDNeRFHHE4obaaCmfR4Ltk3jr23KBZyvHZsv7fYCyv5lZtTCtfEMDz1d8fYMg+ieycPQ==}
+    engines: {node: '>=22.12.0'}
+    peerDependencies:
+      '@comark/html': ^0.9.0
+      comark: ^0.9.0
+      react: '>=18'
+      svelte: '>=5'
+      vue: 3.5.46
+    peerDependenciesMeta:
+      '@comark/html':
+        optional: true
+      react:
+        optional: true
+      svelte:
+        optional: true
+      vue:
+        optional: true
+
+  comark-outline@0.14.3:
+    resolution: {integrity: sha512-Q0Xdcq6T1VB2D8+iEEcVQVhb41PKnO9ciTc4DzPhcjbi34KiavhGjdd7Nn+kEu0R/+P8gCyzD+j5cN7El8JhPw==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/html': ^0.9.0
@@ -12960,8 +12987,8 @@ packages:
       vue:
         optional: true
 
-  comark-properties@0.12.2:
-    resolution: {integrity: sha512-RAkJ1F6I+VQeetaSf8KP8QcHw7PDdKfBUqbOPdjS45wdJ3k4SBho1GbDjShKJXVY+ndbWUmToKklRnmkpa3inA==}
+  comark-properties@0.14.3:
+    resolution: {integrity: sha512-CfjPAbExRVuQycDIZss+HPAooHy4AWEqgB33r2B7WM2S4uu2vugIaiBGnR+hlg/PAdLdsH2wpN9nGWAu+ch6oQ==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/html': ^0.9.0
@@ -12979,8 +13006,8 @@ packages:
       vue:
         optional: true
 
-  comark-qr@0.12.2:
-    resolution: {integrity: sha512-HksQFDH8pV/TFNxCnN104S+fEtIyrj35pchMNxCAVTrlazN7hxwpL4mIDm+6cHOUvDM7OeCnmAve3trXRHEZzw==}
+  comark-qr@0.14.3:
+    resolution: {integrity: sha512-d7+xuPprMCrXbkdPikoyYrMX8NvfpC6Vjqcq6UKefnSUAt9z9OBYoLJaelFbSjpDxAr8eprAv61IuhpnYdXQ/Q==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/html': ^0.9.0
@@ -12998,8 +13025,8 @@ packages:
       vue:
         optional: true
 
-  comark-quiz@0.12.2:
-    resolution: {integrity: sha512-R7kNt0FGMgwYfniJaKzaUCcVYeDokrIEvoY9pLpLYy+AXbiQ1C1B+9T9owaqSUs5Pi6B0Kh1QwLq/Dbg5p4dmg==}
+  comark-quiz@0.14.3:
+    resolution: {integrity: sha512-PbiZP0fNbWtJpOXLyxxSxtN+5JshxVJY+KJ9GNxbar+GqtLcDBsCL0YcRZXVxoftSy1alhlrMtPtpP3VBExg4A==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/html': ^0.9.0
@@ -13008,33 +13035,14 @@ packages:
       '@comark/html':
         optional: true
 
-  comark-reading-time@0.12.2:
-    resolution: {integrity: sha512-XZaO7EwCD/gxC6Le+M6zmwZAalDV2HAUh6yl1gwv1S33UdbGxFOPZ+JzUv9qHyV8/+g6LBHW1Kap9XAyNLt49A==}
+  comark-reading-time@0.14.3:
+    resolution: {integrity: sha512-rB/9XFwUIG8vHnPOLmZNYxzB+LSIL/esRNfLjqVYRmayQwwDcpoSGDcXqh683DtDTYzEafBYEzl8Ui+BEyJXwA==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       comark: ^0.9.0
 
-  comark-sources@0.12.2:
-    resolution: {integrity: sha512-/I2owxae2gii/bjhioegjcOMsxZunIxmUrmM0lMK/54HxzTu8CbDjiq7LlFEHmofoHAlB3wA7rQ4RWh7VqnOOQ==}
-    engines: {node: '>=22.12.0'}
-    peerDependencies:
-      '@comark/html': ^0.9.0
-      comark: ^0.9.0
-      react: '>=18'
-      svelte: '>=5'
-      vue: 3.5.46
-    peerDependenciesMeta:
-      '@comark/html':
-        optional: true
-      react:
-        optional: true
-      svelte:
-        optional: true
-      vue:
-        optional: true
-
-  comark-steps@0.12.2:
-    resolution: {integrity: sha512-h6OVeSYquXx2BwaqY+kOHzk32c9YatYkbYHIvzG85NeFfGG4JNKfwcAEOTOGeMrrytW6e65eCDd8FkHEpHg7EA==}
+  comark-sources@0.14.3:
+    resolution: {integrity: sha512-JcIIFyd72WbCTg26X2ave6EnNfhC9/dCg8hRJtLDEQgl0k0Y7XdKoxDNOQZ65138WIEjJCEPiTXEwGb/u+1org==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/html': ^0.9.0
@@ -13052,8 +13060,8 @@ packages:
       vue:
         optional: true
 
-  comark-table@0.12.2:
-    resolution: {integrity: sha512-cH0R/khcffZPBRfO3eyBBavZDl/T+T1O64SUm+cu4mFPydyOWrLmDPwQNFzagXNSK9/hK9vdrpz3s9g8tfVJjg==}
+  comark-steps@0.14.3:
+    resolution: {integrity: sha512-vDQYSKE1BVrpmOlM2N7x9h86SzcL91dVL+Fqu+ouR4nbzGyN0bb3tuJXW3ODEPMBDm89TuXvOEV5m55b1AUbSw==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/html': ^0.9.0
@@ -13071,8 +13079,27 @@ packages:
       vue:
         optional: true
 
-  comark-tabs@0.12.2:
-    resolution: {integrity: sha512-goWP0NahnG7A/hhiofWS4ihkNICushj0AliwCuV0CSEA+dtkgmHl+gtk8LeQoPS4UBv4Cg/STNtUz9I1YL+XuA==}
+  comark-table@0.14.3:
+    resolution: {integrity: sha512-RV083MVUESWq0V7HyTLmB4uJ8I1+KxLZ0RDjS9uu2+QppO+r2TLtBBL9D1AEXm3f3Sjkqfrx00qW/FsctEnZQg==}
+    engines: {node: '>=22.12.0'}
+    peerDependencies:
+      '@comark/html': ^0.9.0
+      comark: ^0.9.0
+      react: '>=18'
+      svelte: '>=5'
+      vue: 3.5.46
+    peerDependenciesMeta:
+      '@comark/html':
+        optional: true
+      react:
+        optional: true
+      svelte:
+        optional: true
+      vue:
+        optional: true
+
+  comark-tabs@0.14.3:
+    resolution: {integrity: sha512-MgJt7+wtovLTWBIE/V1RzkPEwz1kKr1avxr6X9WsJ6EC7sxOVQZBrd0rJwoGPpuH/WjhInyo7/xMPH4uNFsVAA==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/html': ^0.9.0
@@ -13090,8 +13117,8 @@ packages:
       vue:
         optional: true
 
-  comark-tests@0.12.2:
-    resolution: {integrity: sha512-LuLOHJ7VfLnFAU/VQB9lpt696rHCnAtEdwoi+cZHz0+Ok4dcMS4Knl1v3Vfj033+jBsoyXnHV+nSkWPe9h1nvA==}
+  comark-tests@0.14.3:
+    resolution: {integrity: sha512-v9dd/aNiOEGm9dzmfmxZzn5LAWOxCzYGudRdnauU4cIGsHjbPgaa2cofbHmGojwj360M/LWHizaMAgQ8+d+CPQ==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/html': ^0.9.0
@@ -13109,8 +13136,8 @@ packages:
       vue:
         optional: true
 
-  comark-time@0.12.2:
-    resolution: {integrity: sha512-IlR2DZPrecmt9VxHMk1pw6kefdg6CjCdr/vOnlyi449folHROWGUVnc8803E4DCaq7bV2XAs3pYjajn8nP80Ug==}
+  comark-time@0.14.3:
+    resolution: {integrity: sha512-QpFwPTLKWuPRkmaYMySSF7+aI0UXLN3BxSkZqpgR1bR0bKn3/Fw6Np6B4lDI+Do/BItlFRQzZfhNwTUASd01ag==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/html': ^0.9.0
@@ -13128,8 +13155,8 @@ packages:
       vue:
         optional: true
 
-  comark-ui@0.12.2:
-    resolution: {integrity: sha512-5PbOWm3+AWpJyGwpHfmg0zAiZ/IT0VmUQyC2ssVpQf8DpmYbcmxMmE/bXxYOynrctekSww0uDBOhzhahjzCplQ==}
+  comark-ui@0.14.3:
+    resolution: {integrity: sha512-TU3H4tGz4GwLvNFOXe9VkUKmPpWfCQvxDvUFTF5iScjqwl1IOrPV1KLpmT+Sotc3DGVEj7tsSYe8TnjfwuFdJA==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/html': ^0.9.0
@@ -13171,14 +13198,14 @@ packages:
       vue:
         optional: true
 
-  comark-xref@0.12.2:
-    resolution: {integrity: sha512-YQPzOMOTQWijOYRvII94/NGflfNtgrX4zP52jIE8GH0EvQR4eAbclYHwhk28gRbjX4hm6HHZ6KjX+V341wBpBw==}
+  comark-xref@0.14.3:
+    resolution: {integrity: sha512-+9HPp1VddqRqM7cH149hSFXIWvHbGpbmIbJlfstfWZPsadBs6KA12SyEcB2zZG2cNY3P/wju15MJLK5nXt2gHQ==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       comark: ^0.9.0
 
-  comark-zoom@0.12.2:
-    resolution: {integrity: sha512-UDojAFNpYpjffmA64+sMeGOeZRQ7eVqKy7s606Z7yP3Miqic9bTeEqvvF959erFrefzZ313TQ1ibszEKwZUg8Q==}
+  comark-zoom@0.14.3:
+    resolution: {integrity: sha512-t1viBBOBku4tqLw5Wm65nWHXKxwQ/Sh98NN0guWF2LAChh8OarYDb53J2fvm3Y8HYWbOxTGmCOT8B6h/zLVpiQ==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/html': ^0.9.0
@@ -13363,10 +13390,6 @@ packages:
 
   crelt@1.0.7:
     resolution: {integrity: sha512-aK6BbWfhf4U/wCcLHKPJl/xa6VkVstRaPywWtMKGwuOLc/wZTyQYuoxgvZnNsBvv7Kg3YTBQYYBCggcviQczuA==}
-
-  cron-parser@5.10.1:
-    resolution: {integrity: sha512-pKRrRagItwk9rGIStcUyMxFX34x56zoX3KDf9HJ4ttwkXIK1qxK63EvXvEDmlxI9AdPJ+Y7TEKRftRlW5eSS7A==}
-    engines: {node: '>=18'}
 
   cron-schedule@6.0.0:
     resolution: {integrity: sha512-BoZaseYGXOo5j5HUwTaegIog3JJbuH4BbrY9A1ArLjXpy+RWb3mV28F/9Gv1dDA7E2L8kngWva4NWisnLTyfgQ==}
@@ -15783,10 +15806,6 @@ packages:
   lru_map@0.4.1:
     resolution: {integrity: sha512-I+lBvqMMFfqaV8CJCISjI3wbjmwVu/VyOoU7+qtu9d7ioW5klMgsTTiUOUp+DJvfTTzKXoPbyC6YfgkNcyPSOg==}
 
-  luxon@3.7.2:
-    resolution: {integrity: sha512-vtEhXh/gNjI9Yg1u4jX/0YVPMvxzHuGgCm6tC5kZyb08yjGWGnqAjGJvcXbqQR2P3MyMEFnRbpcdFS6PBcLqew==}
-    engines: {node: '>=12'}
-
   lz-string@1.5.0:
     resolution: {integrity: sha512-h5bgJWpxJNswbU7qCrV0tIKQCaS3blPDrqKWx+QxzuzL1zGUzij9XCWLrSLsJPu5t+eWA/ycetzYAO5IOMcWAQ==}
     hasBin: true
@@ -16225,6 +16244,15 @@ packages:
       vite:
         optional: true
 
+  my-bad@1.3.1:
+    resolution: {integrity: sha512-fXJrmk58jNXr2jMqNFwwEkAJcAnLFO/6xnDsu9E4/vA3YZL5bdIsuXKSxvNZpxQU7pYI4nTTvN7k4pPMv51u9A==}
+    engines: {node: '>=22.12.0'}
+    peerDependencies:
+      vite: '>=6'
+    peerDependenciesMeta:
+      vite:
+        optional: true
+
   nan@2.29.0:
     resolution: {integrity: sha512-GlGk3HIvitbvs+LT3g6XUP1kpirKNvmDFwF/bmo6XNWSb/eYEs/O4bfgIEIXCZ+lIOTS5xNwDvSGMw6FJdAhtA==}
 
@@ -16294,10 +16322,6 @@ packages:
     resolution: {integrity: sha512-Z3lTE9pLaJF47NyMhd4ww1yFTAP8YhYI8SleJiHzM46Fgpm5cnNzSl9XfzFNqbaz+VlJrIj3fXQ4DeN1Rjm6cw==}
     engines: {node: '>=18'}
 
-  nodemailer@10.6.0:
-    resolution: {integrity: sha512-jWanL7D9GD3jvUDYKmoC5rWTiG8MnBgnN2yV68bgMKip1zUJhiSTyz7Eg+18y8sk5OvdVDzws5nZK5arSI4f5Q==}
-    engines: {node: '>=20.0.0'}
-
   node-fetch-native@1.6.7:
     resolution: {integrity: sha512-g9yhqoedzIUm0nTnTqAQvueMPVOuIY16bqgAJJC8XOOubYFNwz6IER9qs0Gq2Xd0+CecCKFjtdDTMA4u4xG06Q==}
 
@@ -16341,6 +16365,10 @@ packages:
   node-releases@2.0.57:
     resolution: {integrity: sha512-kQK9LGGFiHtrWiNhZtA7Qbw17AQz+dmsEKODRIVTXA9+e5MS/2gZEBhYJt13GrAz5/IOZKddH/0Z3TP/Zgo+yw==}
     engines: {node: '>=18'}
+
+  nodemailer@10.6.0:
+    resolution: {integrity: sha512-jWanL7D9GD3jvUDYKmoC5rWTiG8MnBgnN2yV68bgMKip1zUJhiSTyz7Eg+18y8sk5OvdVDzws5nZK5arSI4f5Q==}
+    engines: {node: '>=20.0.0'}
 
   nopt@10.0.1:
     resolution: {integrity: sha512-df3sBr/6ax9hSGuC3CspvLlbnX8cP5L5nZwXF8cGN8l0zSWR6BvzmQ6jPUKjvo6+/xdpkNvEcucBNUdBeeV13g==}
@@ -17648,6 +17676,10 @@ packages:
 
   sisteransi@1.0.5:
     resolution: {integrity: sha512-bLGGlR1QxBcynn2d5YmDX4MGjlZvy2MRBDRNHLJ8VI6l6+9FUiyTFNJ0IveOSP0bcXgVDPRcfGqA0pjaqUpfVg==}
+
+  sisteransi@2.0.0:
+    resolution: {integrity: sha512-2WCqLdt12eN6ehLI50S2/ZxoowXU3DD1KVPRyVP0WEsFahrGZZmCdq1K59qjJljMRIDTwx1D9YaRK+hDneBUMg==}
+    engines: {node: '>=20'}
 
   site-config-stack@5.0.3:
     resolution: {integrity: sha512-AE5Hg4DiwpK11s+0gKYV6C2/0GNxhig3BiPwc9OBXfeYmY5O6B69l9ga0uIeNgW4NHL7KFyAjSnI3PUNyL89IA==}
@@ -19277,7 +19309,6 @@ snapshots:
       cross-spawn: 7.0.6
       pkce-challenge: 5.0.2
       zod: 4.6.7
-    optional: true
 
   '@ai-sdk/openai-compatible@3.0.94(zod@4.6.7)':
     dependencies:
@@ -20566,12 +20597,25 @@ snapshots:
       fast-wrap-ansi: 0.2.2
       sisteransi: 1.0.5
 
+  '@clack/core@1.6.0':
+    dependencies:
+      fast-string-width: 3.0.2
+      fast-wrap-ansi: 0.2.2
+      sisteransi: 2.0.0
+
   '@clack/prompts@1.8.1':
     dependencies:
       '@clack/core': 1.5.1
       fast-string-width: 3.0.2
       fast-wrap-ansi: 0.2.2
       sisteransi: 1.0.5
+
+  '@clack/prompts@1.9.0':
+    dependencies:
+      '@clack/core': 1.6.0
+      fast-string-width: 3.0.2
+      fast-wrap-ansi: 0.2.2
+      sisteransi: 2.0.0
 
   '@cloudflare/kv-asset-handler@0.4.2':
     optional: true
@@ -22469,9 +22513,9 @@ snapshots:
       fastq: 1.20.3
     optional: true
 
-  '@nuxt/cli-nightly@4.1.0-2611220959-0626111(@nuxt/schema-nightly@5.0.0-2611222336-0ed8910)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(jiti@2.7.0)(oxc-parser@0.139.0)(rolldown@1.2.19)':
+  '@nuxt/cli-nightly@4.1.0-2611250955-3e3cd15(@nuxt/schema-nightly@5.0.0-2611222336-0ed8910)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(jiti@2.7.0)(oxc-parser@0.139.0)(rolldown@1.2.19)':
     dependencies:
-      '@clack/prompts': 1.8.1
+      '@clack/prompts': 1.9.0
       args-tokenizer: 0.3.0
       clickable-path: 0.1.1
       confbox: 0.3.2
@@ -22480,7 +22524,7 @@ snapshots:
       exsolve: 1.2.0
       fuzzysort: 4.0.2
       get-port-please: 3.2.0
-      my-bad: 1.2.0(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))
+      my-bad: 1.3.1(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))
       obug: 3.0.0
       package-manager-detector: 1.9.0
       pathe: 2.0.3
@@ -22502,9 +22546,9 @@ snapshots:
     transitivePeerDependencies:
       - vite
 
-  '@nuxt/cli-nightly@4.1.0-2611220959-0626111(@nuxt/schema-nightly@5.0.0-2611222336-0ed8910)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(jiti@2.7.0)(oxc-parser@0.153.0)(rolldown@1.2.19)':
+  '@nuxt/cli-nightly@4.1.0-2611250955-3e3cd15(@nuxt/schema-nightly@5.0.0-2611222336-0ed8910)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(jiti@2.7.0)(oxc-parser@0.153.0)(rolldown@1.2.19)':
     dependencies:
-      '@clack/prompts': 1.8.1
+      '@clack/prompts': 1.9.0
       args-tokenizer: 0.3.0
       clickable-path: 0.1.1
       confbox: 0.3.2
@@ -22513,7 +22557,7 @@ snapshots:
       exsolve: 1.2.0
       fuzzysort: 4.0.2
       get-port-please: 3.2.0
-      my-bad: 1.2.0(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))
+      my-bad: 1.3.1(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))
       obug: 3.0.0
       package-manager-detector: 1.9.0
       pathe: 2.0.3
@@ -22535,9 +22579,9 @@ snapshots:
     transitivePeerDependencies:
       - vite
 
-  '@nuxt/cli-nightly@4.1.0-2611220959-0626111(@nuxt/schema-nightly@5.0.0-2611222336-0ed8910)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(jiti@2.7.0)(oxc-parser@0.158.0)(rolldown@1.2.19)':
+  '@nuxt/cli-nightly@4.1.0-2611250955-3e3cd15(@nuxt/schema-nightly@5.0.0-2611222336-0ed8910)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(jiti@2.7.0)(oxc-parser@0.158.0)(rolldown@1.2.19)':
     dependencies:
-      '@clack/prompts': 1.8.1
+      '@clack/prompts': 1.9.0
       args-tokenizer: 0.3.0
       clickable-path: 0.1.1
       confbox: 0.3.2
@@ -22546,7 +22590,7 @@ snapshots:
       exsolve: 1.2.0
       fuzzysort: 4.0.2
       get-port-please: 3.2.0
-      my-bad: 1.2.0(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))
+      my-bad: 1.3.1(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))
       obug: 3.0.0
       package-manager-detector: 1.9.0
       pathe: 2.0.3
@@ -30666,18 +30710,29 @@ snapshots:
 
   colortranslator@5.0.0: {}
 
-  comark-annotate@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+  comark-annotate@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
-      comark-carousel: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-zoom: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-carousel: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-zoom: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
     transitivePeerDependencies:
       - react
       - svelte
       - vue
 
-  comark-badge@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+  comark-annotate@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      comark-carousel: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-zoom: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+    transitivePeerDependencies:
+      - react
+      - svelte
+      - vue
+
+  comark-badge@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
     optionalDependencies:
@@ -30685,7 +30740,15 @@ snapshots:
       react: 19.2.6
       vue: 3.5.46(typescript@6.0.3)
 
-  comark-bundle@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+  comark-badge@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.3.1
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-bundle@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
     optionalDependencies:
@@ -30693,25 +30756,51 @@ snapshots:
       react: 19.2.6
       vue: 3.5.46(typescript@6.0.3)
 
-  comark-cards@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+  comark-bundle@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
-      comark-icon: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.3.1
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-cards@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      comark-icon: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
     optionalDependencies:
       '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
       react: 19.2.6
       vue: 3.5.46(typescript@6.0.3)
 
-  comark-carousel@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+  comark-cards@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
-      comark-zoom: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-icon: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.3.1
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-carousel@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      comark-zoom: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
     optionalDependencies:
       '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
       react: 19.2.6
       vue: 3.5.46(typescript@6.0.3)
 
-  comark-cast@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+  comark-carousel@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      comark-zoom: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.3.1
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-cast@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
     optionalDependencies:
@@ -30719,10 +30808,18 @@ snapshots:
       react: 19.2.6
       vue: 3.5.46(typescript@6.0.3)
 
-  comark-charts@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+  comark-cast@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
-      comark-annotate: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.3.1
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-charts@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      comark-annotate: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
       d3-sankey: 0.12.3
       flint-chart: 0.5.1(vega-lite@6.5.0(vega@6.4.0))(vega@6.4.0)
       vega: 6.4.0
@@ -30738,13 +30835,32 @@ snapshots:
       - echarts
       - plotly.js
 
+  comark-charts@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      comark-annotate: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      d3-sankey: 0.12.3
+      flint-chart: 0.5.1(vega-lite@6.5.0(vega@6.4.0))(vega@6.4.0)
+      vega: 6.4.0
+      vega-interpreter: 2.3.2
+      vega-lite: 6.5.0(vega@6.4.0)
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.3.1
+      vue: 3.5.46(typescript@6.0.3)
+    transitivePeerDependencies:
+      - '@napi-rs/canvas'
+      - chart.js
+      - echarts
+      - plotly.js
+
   comark-chat@0.12.2(@comark/vue@0.9.2(@nuxt/kit@4.6.4(@nuxt/schema@4.6.4)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.158.0)(rolldown@1.2.19)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.19)(rollup@4.68.8)))(@nuxt/schema@4.6.4)(katex@0.19.1)(shiki@4.6.0)(vue@3.5.46(typescript@6.0.3)))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
     optionalDependencies:
       '@comark/vue': 0.9.2(@nuxt/kit@4.6.4(@nuxt/schema@4.6.4)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.158.0)(rolldown@1.2.19)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.19)(rollup@4.68.8)))(@nuxt/schema@4.6.4)(katex@0.19.1)(shiki@4.6.0)(vue@3.5.46(typescript@6.0.3))
       react: 19.2.6
       vue: 3.5.46(typescript@6.0.3)
 
-  comark-chips@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+  comark-chips@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
     optionalDependencies:
@@ -30752,7 +30868,15 @@ snapshots:
       react: 19.2.6
       vue: 3.5.46(typescript@6.0.3)
 
-  comark-cjk@0.12.2(@types/markdown-it@14.2.0)(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(markdown-it@15.0.3):
+  comark-chips@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.3.1
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-cjk@0.14.3(@types/markdown-it@14.2.0)(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(markdown-it@15.0.3):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
       markdown-it-cjk-friendly: 3.0.0(@types/markdown-it@14.2.0)(markdown-it@15.0.3)
@@ -30760,7 +30884,7 @@ snapshots:
       - '@types/markdown-it'
       - markdown-it
 
-  comark-code-notes@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+  comark-code-notes@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
     optionalDependencies:
@@ -30768,16 +30892,33 @@ snapshots:
       react: 19.2.6
       vue: 3.5.46(typescript@6.0.3)
 
-  comark-code@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+  comark-code-notes@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
-      comark-icon: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.3.1
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-code@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      comark-icon: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
     optionalDependencies:
       '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
       react: 19.2.6
       vue: 3.5.46(typescript@6.0.3)
 
-  comark-colors@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+  comark-code@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      comark-icon: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.3.1
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-colors@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
     optionalDependencies:
@@ -30785,7 +30926,15 @@ snapshots:
       react: 19.2.6
       vue: 3.5.46(typescript@6.0.3)
 
-  comark-comments@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0)):
+  comark-colors@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.3.1
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-comments@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
     optionalDependencies:
@@ -30825,38 +30974,33 @@ snapshots:
       - rangi
       - shiki
 
-  comark-critic@0.12.2(comark@0.9.2(katex@0.19.1)(shiki@4.6.0)):
+  comark-critic@0.14.3(comark@0.9.2(katex@0.19.1)(shiki@4.6.0)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
 
-  comark-deflist@0.12.2(comark@0.9.2(katex@0.19.1)(shiki@4.6.0)):
+  comark-deflist@0.14.3(comark@0.9.2(katex@0.19.1)(shiki@4.6.0)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
 
-  comark-details@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+  comark-details@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
-      comark-icon: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-icon: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
     optionalDependencies:
       '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
       react: 19.2.6
       vue: 3.5.46(typescript@6.0.3)
 
-  comark-diagrams@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+  comark-details@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      comark-icon: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
     optionalDependencies:
       '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
-      react: 19.2.6
+      react: 19.3.1
       vue: 3.5.46(typescript@6.0.3)
 
-  comark-diff@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0)):
-    dependencies:
-      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
-    optionalDependencies:
-      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
-
-  comark-embed@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+  comark-diagrams@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
     optionalDependencies:
@@ -30864,7 +31008,21 @@ snapshots:
       react: 19.2.6
       vue: 3.5.46(typescript@6.0.3)
 
-  comark-fields@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+  comark-diagrams@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.3.1
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-diff@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+
+  comark-embed@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
     optionalDependencies:
@@ -30872,24 +31030,15 @@ snapshots:
       react: 19.2.6
       vue: 3.5.46(typescript@6.0.3)
 
-  comark-figure@0.12.2(comark@0.9.2(katex@0.19.1)(shiki@4.6.0)):
+  comark-embed@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
-
-  comark-file-tree@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
-    dependencies:
-      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
-      comark-icon: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
     optionalDependencies:
       '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
-      react: 19.2.6
+      react: 19.3.1
       vue: 3.5.46(typescript@6.0.3)
 
-  comark-footnotes@0.12.2(comark@0.9.2(katex@0.19.1)(shiki@4.6.0)):
-    dependencies:
-      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
-
-  comark-git-graph@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+  comark-fields@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
     optionalDependencies:
@@ -30897,7 +31046,41 @@ snapshots:
       react: 19.2.6
       vue: 3.5.46(typescript@6.0.3)
 
-  comark-github@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+  comark-fields@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.3.1
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-figure@0.14.3(comark@0.9.2(katex@0.19.1)(shiki@4.6.0)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+
+  comark-file-tree@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      comark-icon: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.2.6
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-file-tree@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      comark-icon: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.3.1
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-footnotes@0.14.3(comark@0.9.2(katex@0.19.1)(shiki@4.6.0)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+
+  comark-git-graph@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
     optionalDependencies:
@@ -30905,7 +31088,31 @@ snapshots:
       react: 19.2.6
       vue: 3.5.46(typescript@6.0.3)
 
-  comark-icon@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+  comark-git-graph@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.3.1
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-github@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.2.6
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-github@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.3.1
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-icon@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       '@iconify/types': 2.0.0
       '@iconify/utils': 3.1.7
@@ -30915,15 +31122,25 @@ snapshots:
       react: 19.2.6
       vue: 3.5.46(typescript@6.0.3)
 
-  comark-include@0.12.2(comark@0.9.2(katex@0.19.1)(shiki@4.6.0)):
+  comark-icon@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      '@iconify/types': 2.0.0
+      '@iconify/utils': 3.1.7
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.3.1
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-include@0.14.3(comark@0.9.2(katex@0.19.1)(shiki@4.6.0)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
 
-  comark-keys@0.12.2(comark@0.9.2(katex@0.19.1)(shiki@4.6.0)):
+  comark-keys@0.14.3(comark@0.9.2(katex@0.19.1)(shiki@4.6.0)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
 
-  comark-links@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+  comark-links@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
     optionalDependencies:
@@ -30931,7 +31148,15 @@ snapshots:
       react: 19.2.6
       vue: 3.5.46(typescript@6.0.3)
 
-  comark-magic-move@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+  comark-links@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.3.1
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-magic-move@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
     optionalDependencies:
@@ -30939,7 +31164,15 @@ snapshots:
       react: 19.2.6
       vue: 3.5.46(typescript@6.0.3)
 
-  comark-mark@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+  comark-magic-move@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.3.1
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-mark@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
     optionalDependencies:
@@ -30947,7 +31180,15 @@ snapshots:
       react: 19.2.6
       vue: 3.5.46(typescript@6.0.3)
 
-  comark-mathml@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(katex@0.19.1)(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+  comark-mark@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.3.1
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-mathml@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(katex@0.19.1)(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
       temml: 0.14.0
@@ -30957,7 +31198,17 @@ snapshots:
       react: 19.2.6
       vue: 3.5.46(typescript@6.0.3)
 
-  comark-media@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+  comark-mathml@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(katex@0.19.1)(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      temml: 0.14.0
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      katex: 0.19.1
+      react: 19.3.1
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-media@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
     optionalDependencies:
@@ -30965,7 +31216,15 @@ snapshots:
       react: 19.2.6
       vue: 3.5.46(typescript@6.0.3)
 
-  comark-metrics@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+  comark-media@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.3.1
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-metrics@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
     optionalDependencies:
@@ -30973,12 +31232,44 @@ snapshots:
       react: 19.2.6
       vue: 3.5.46(typescript@6.0.3)
 
-  comark-outline@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+  comark-metrics@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.3.1
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-motion@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
     optionalDependencies:
       '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
       react: 19.2.6
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-motion@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.3.1
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-outline@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.2.6
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-outline@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.3.1
       vue: 3.5.46(typescript@6.0.3)
 
   comark-pele@1.1.0(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
@@ -30989,15 +31280,33 @@ snapshots:
       react: 19.2.6
       vue: 3.5.46(typescript@6.0.3)
 
-  comark-properties@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+  comark-pele@1.1.0(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      pele: 1.12.0
+    optionalDependencies:
+      react: 19.3.1
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-properties@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      comark-time: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
     optionalDependencies:
       '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
       react: 19.2.6
       vue: 3.5.46(typescript@6.0.3)
 
-  comark-qr@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+  comark-properties@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      comark-time: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.3.1
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-qr@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
       uqr: 0.1.3
@@ -31006,17 +31315,26 @@ snapshots:
       react: 19.2.6
       vue: 3.5.46(typescript@6.0.3)
 
-  comark-quiz@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0)):
+  comark-qr@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      uqr: 0.1.3
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.3.1
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-quiz@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
     optionalDependencies:
       '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
 
-  comark-reading-time@0.12.2(comark@0.9.2(katex@0.19.1)(shiki@4.6.0)):
+  comark-reading-time@0.14.3(comark@0.9.2(katex@0.19.1)(shiki@4.6.0)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
 
-  comark-sources@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+  comark-sources@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
     optionalDependencies:
@@ -31024,7 +31342,15 @@ snapshots:
       react: 19.2.6
       vue: 3.5.46(typescript@6.0.3)
 
-  comark-steps@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+  comark-sources@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.3.1
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-steps@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
     optionalDependencies:
@@ -31032,7 +31358,15 @@ snapshots:
       react: 19.2.6
       vue: 3.5.46(typescript@6.0.3)
 
-  comark-table@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+  comark-steps@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.3.1
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-table@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
     optionalDependencies:
@@ -31040,16 +31374,33 @@ snapshots:
       react: 19.2.6
       vue: 3.5.46(typescript@6.0.3)
 
-  comark-tabs@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+  comark-table@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
-      comark-icon: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.3.1
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-tabs@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      comark-icon: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
     optionalDependencies:
       '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
       react: 19.2.6
       vue: 3.5.46(typescript@6.0.3)
 
-  comark-tests@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+  comark-tabs@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      comark-icon: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.3.1
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-tests@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
     optionalDependencies:
@@ -31057,7 +31408,15 @@ snapshots:
       react: 19.2.6
       vue: 3.5.46(typescript@6.0.3)
 
-  comark-time@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+  comark-tests@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.3.1
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-time@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
     optionalDependencies:
@@ -31065,57 +31424,66 @@ snapshots:
       react: 19.2.6
       vue: 3.5.46(typescript@6.0.3)
 
-  comark-ui@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/extension-image@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0)))(@tiptap/extension-list@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0))(@tiptap/extension-table@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)(@tiptap/starter-kit@3.35.0)(@tiptap/vue-3@3.35.0(@floating-ui/dom@1.8.0)(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)(vue@3.5.46(typescript@6.0.3)))(@types/markdown-it@14.2.0)(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(katex@0.19.1)(markdown-it@15.0.3)(react@19.2.6)(shiki@4.6.0)(vue@3.5.46(typescript@6.0.3)):
+  comark-time@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
-      comark-annotate: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-badge: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-bundle: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-cards: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-carousel: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-cast: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-charts: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-chips: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-cjk: 0.12.2(@types/markdown-it@14.2.0)(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(markdown-it@15.0.3)
-      comark-code: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-code-notes: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-colors: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-comments: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))
-      comark-critic: 0.12.2(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))
-      comark-deflist: 0.12.2(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))
-      comark-details: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-diagrams: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-diff: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))
-      comark-embed: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-fields: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-figure: 0.12.2(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))
-      comark-file-tree: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-footnotes: 0.12.2(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))
-      comark-git-graph: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-github: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-icon: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-include: 0.12.2(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))
-      comark-keys: 0.12.2(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))
-      comark-links: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-magic-move: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-mark: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-mathml: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(katex@0.19.1)(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-media: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-metrics: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-outline: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.3.1
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-ui@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/extension-image@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0)))(@tiptap/extension-list@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0))(@tiptap/extension-table@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)(@tiptap/starter-kit@3.35.0)(@tiptap/vue-3@3.35.0(@floating-ui/dom@1.8.0)(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)(vue@3.5.46(typescript@6.0.3)))(@types/markdown-it@14.2.0)(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(katex@0.19.1)(markdown-it@15.0.3)(react@19.2.6)(shiki@4.6.0)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      comark-annotate: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-badge: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-bundle: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-cards: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-carousel: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-cast: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-charts: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-chips: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-cjk: 0.14.3(@types/markdown-it@14.2.0)(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(markdown-it@15.0.3)
+      comark-code: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-code-notes: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-colors: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-comments: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))
+      comark-critic: 0.14.3(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))
+      comark-deflist: 0.14.3(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))
+      comark-details: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-diagrams: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-diff: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))
+      comark-embed: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-fields: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-figure: 0.14.3(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))
+      comark-file-tree: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-footnotes: 0.14.3(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))
+      comark-git-graph: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-github: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-icon: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-include: 0.14.3(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))
+      comark-keys: 0.14.3(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))
+      comark-links: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-magic-move: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-mark: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-mathml: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(katex@0.19.1)(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-media: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-metrics: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-motion: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-outline: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
       comark-pele: 1.1.0(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-properties: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-qr: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-quiz: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))
-      comark-reading-time: 0.12.2(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))
-      comark-sources: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-steps: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-table: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-tabs: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-tests: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-time: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
-      comark-xref: 0.12.2(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))
-      comark-zoom: 0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-properties: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-qr: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-quiz: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))
+      comark-reading-time: 0.14.3(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))
+      comark-sources: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-steps: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-table: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-tabs: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-tests: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-time: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
+      comark-xref: 0.14.3(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))
+      comark-zoom: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3))
     optionalDependencies:
       '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
       '@tiptap/core': 3.35.0(@tiptap/pm@3.35.0)
@@ -31139,16 +31507,99 @@ snapshots:
       - markdown-it
       - plotly.js
 
-  comark-xref@0.12.2(comark@0.9.2(katex@0.19.1)(shiki@4.6.0)):
+  comark-ui@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/extension-image@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0)))(@tiptap/extension-list@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0))(@tiptap/extension-table@3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)(@tiptap/starter-kit@3.35.0)(@tiptap/vue-3@3.35.0(@floating-ui/dom@1.8.0)(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)(vue@3.5.46(typescript@6.0.3)))(@types/markdown-it@14.2.0)(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(katex@0.19.1)(markdown-it@15.0.3)(react@19.3.1)(shiki@4.6.0)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      comark-annotate: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-badge: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-bundle: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-cards: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-carousel: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-cast: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-charts: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-chips: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-cjk: 0.14.3(@types/markdown-it@14.2.0)(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(markdown-it@15.0.3)
+      comark-code: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-code-notes: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-colors: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-comments: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))
+      comark-critic: 0.14.3(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))
+      comark-deflist: 0.14.3(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))
+      comark-details: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-diagrams: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-diff: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))
+      comark-embed: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-fields: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-figure: 0.14.3(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))
+      comark-file-tree: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-footnotes: 0.14.3(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))
+      comark-git-graph: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-github: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-icon: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-include: 0.14.3(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))
+      comark-keys: 0.14.3(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))
+      comark-links: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-magic-move: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-mark: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-mathml: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(katex@0.19.1)(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-media: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-metrics: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-motion: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-outline: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-pele: 1.1.0(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-properties: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-qr: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-quiz: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))
+      comark-reading-time: 0.14.3(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))
+      comark-sources: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-steps: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-table: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-tabs: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-tests: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-time: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+      comark-xref: 0.14.3(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))
+      comark-zoom: 0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3))
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      '@tiptap/core': 3.35.0(@tiptap/pm@3.35.0)
+      '@tiptap/extension-image': 3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))
+      '@tiptap/extension-list': 3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)
+      '@tiptap/extension-table': 3.35.0(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)
+      '@tiptap/pm': 3.35.0
+      '@tiptap/starter-kit': 3.35.0
+      '@tiptap/vue-3': 3.35.0(@floating-ui/dom@1.8.0)(@tiptap/core@3.35.0(@tiptap/pm@3.35.0))(@tiptap/pm@3.35.0)(vue@3.5.46(typescript@6.0.3))
+      react: 19.3.1
+      shiki: 4.6.0
+      vue: 3.5.46(typescript@6.0.3)
+    transitivePeerDependencies:
+      - '@angular/common'
+      - '@angular/core'
+      - '@napi-rs/canvas'
+      - '@types/markdown-it'
+      - chart.js
+      - echarts
+      - katex
+      - markdown-it
+      - plotly.js
+
+  comark-xref@0.14.3(comark@0.9.2(katex@0.19.1)(shiki@4.6.0)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
 
-  comark-zoom@0.12.2(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
+  comark-zoom@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.2.6)(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
     optionalDependencies:
       '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
       react: 19.2.6
+      vue: 3.5.46(typescript@6.0.3)
+
+  comark-zoom@0.14.3(@comark/html@0.9.2(katex@0.19.1)(shiki@4.6.0))(comark@0.9.2(katex@0.19.1)(shiki@4.6.0))(react@19.3.1)(vue@3.5.46(typescript@6.0.3)):
+    dependencies:
+      comark: 0.9.2(katex@0.19.1)(shiki@4.6.0)
+    optionalDependencies:
+      '@comark/html': 0.9.2(katex@0.19.1)(shiki@4.6.0)
+      react: 19.3.1
       vue: 3.5.46(typescript@6.0.3)
 
   comark@0.8.1(shiki@4.6.0):
@@ -31275,10 +31726,6 @@ snapshots:
     optional: true
 
   crelt@1.0.7: {}
-
-  cron-parser@5.10.1:
-    dependencies:
-      luxon: 3.7.2
 
   cron-schedule@6.0.0: {}
 
@@ -33902,8 +34349,6 @@ snapshots:
 
   lru_map@0.4.1: {}
 
-  luxon@3.7.2: {}
-
   lz-string@1.5.0: {}
 
   magic-bytes.js@1.13.1: {}
@@ -34816,6 +35261,14 @@ snapshots:
     optionalDependencies:
       vite: '@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1)'
 
+  my-bad@1.3.1(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1)):
+    dependencies:
+      clickable-path: 0.1.1
+      errx: 0.2.2
+      fnv1a-64: 0.1.2
+    optionalDependencies:
+      vite: '@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1)'
+
   nan@2.29.0:
     optional: true
 
@@ -35328,8 +35781,6 @@ snapshots:
 
   node-fetch-native@1.6.7: {}
 
-  nodemailer@10.6.0: {}
-
   node-fetch@2.7.0:
     dependencies:
       whatwg-url: 5.0.0
@@ -35364,6 +35815,8 @@ snapshots:
   node-mock-http@1.0.5: {}
 
   node-releases@2.0.57: {}
+
+  nodemailer@10.6.0: {}
 
   nopt@10.0.1:
     dependencies:
@@ -35551,7 +36004,7 @@ snapshots:
     dependencies:
       '@dxup/nuxt': 0.5.11(@nuxt/schema-nightly@5.0.0-2611222336-0ed8910)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(confbox@0.3.2)(dotenv@17.4.2)(esbuild@0.28.2)(giget@3.3.1)(jiti@2.7.0)(mlly@1.8.2)(oxc-parser@0.139.0)(rolldown@1.2.19)(rollup@4.68.8)
       '@jridgewell/trace-mapping': 0.3.31
-      '@nuxt/cli': '@nuxt/cli-nightly@4.1.0-2611220959-0626111(@nuxt/schema-nightly@5.0.0-2611222336-0ed8910)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(jiti@2.7.0)(oxc-parser@0.139.0)(rolldown@1.2.19)'
+      '@nuxt/cli': '@nuxt/cli-nightly@4.1.0-2611250955-3e3cd15(@nuxt/schema-nightly@5.0.0-2611222336-0ed8910)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(jiti@2.7.0)(oxc-parser@0.139.0)(rolldown@1.2.19)'
       '@nuxt/devtools-onboard': 4.1.0(@nuxt/devtools@3.4.4(61ecb9bfa004d8fff898446823adbed8))(@nuxt/kit-nightly@5.0.0-2611222336-0ed8910(@nuxt/schema-nightly@5.0.0-2611222336-0ed8910)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.139.0)(rolldown@1.2.19)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.19)(rollup@4.68.8)))
       '@nuxt/kit': '@nuxt/kit-nightly@5.0.0-2611222336-0ed8910(@nuxt/schema-nightly@5.0.0-2611222336-0ed8910)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.139.0)(rolldown@1.2.19)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.19)(rollup@4.68.8))'
       '@nuxt/nitro-server': '@nuxt/nitro-server-nightly@5.0.0-2611222336-0ed8910(@babel/plugin-proposal-decorators@8.0.2(@babel/core@8.1.3))(@babel/plugin-syntax-typescript@7.29.7(@babel/core@7.29.7(supports-color@8.1.1)))(@nuxt/schema-nightly@5.0.0-2611222336-0ed8910)(@oxc-project/types@0.156.0)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(acorn@8.19.0)(confbox@0.3.2)(dotenv@17.4.2)(esbuild@0.28.2)(giget@3.3.1)(jiti@2.7.0)(lightningcss@1.33.0)(mlly@1.8.2)(nuxt-nightly@5.0.0-2611222336-0ed8910(0a9df0d354cfd3756f2a626b5479843b))(oxc-parser@0.139.0)(rollup@4.68.8)(vue@3.5.46(typescript@6.0.3))'
@@ -35677,7 +36130,7 @@ snapshots:
     dependencies:
       '@dxup/nuxt': 0.5.11(@nuxt/schema-nightly@5.0.0-2611222336-0ed8910)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(confbox@0.3.2)(dotenv@17.4.2)(esbuild@0.28.2)(giget@3.3.1)(jiti@2.7.0)(mlly@1.8.2)(oxc-parser@0.158.0)(rolldown@1.2.19)(rollup@4.68.8)
       '@jridgewell/trace-mapping': 0.3.31
-      '@nuxt/cli': '@nuxt/cli-nightly@4.1.0-2611220959-0626111(@nuxt/schema-nightly@5.0.0-2611222336-0ed8910)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(jiti@2.7.0)(oxc-parser@0.158.0)(rolldown@1.2.19)'
+      '@nuxt/cli': '@nuxt/cli-nightly@4.1.0-2611250955-3e3cd15(@nuxt/schema-nightly@5.0.0-2611222336-0ed8910)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(jiti@2.7.0)(oxc-parser@0.158.0)(rolldown@1.2.19)'
       '@nuxt/devtools-onboard': 4.1.0(@nuxt/devtools@3.4.4(ccd22f8de9f6374f6a473a8a012b2747))(@nuxt/kit-nightly@5.0.0-2611222336-0ed8910(@nuxt/schema-nightly@5.0.0-2611222336-0ed8910)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.158.0)(rolldown@1.2.19)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.19)(rollup@4.68.8)))
       '@nuxt/kit': '@nuxt/kit-nightly@5.0.0-2611222336-0ed8910(@nuxt/schema-nightly@5.0.0-2611222336-0ed8910)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.158.0)(rolldown@1.2.19)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.19)(rollup@4.68.8))'
       '@nuxt/nitro-server': '@nuxt/nitro-server-nightly@5.0.0-2611222336-0ed8910(@babel/plugin-proposal-decorators@8.0.2(@babel/core@8.1.3))(@babel/plugin-syntax-typescript@7.29.7(@babel/core@7.29.7(supports-color@8.1.1)))(@nuxt/schema-nightly@5.0.0-2611222336-0ed8910)(@oxc-project/types@0.159.0)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(acorn@8.19.0)(confbox@0.3.2)(dotenv@17.4.2)(esbuild@0.28.2)(giget@3.3.1)(jiti@2.7.0)(lightningcss@1.33.0)(mlly@1.8.2)(nuxt-nightly@5.0.0-2611222336-0ed8910(1862ae8b142633d865eb8baf947e7a6c))(oxc-parser@0.158.0)(rollup@4.68.8)(vue@3.5.46(typescript@6.0.3))'
@@ -35803,7 +36256,7 @@ snapshots:
     dependencies:
       '@dxup/nuxt': 0.5.11(@nuxt/schema-nightly@5.0.0-2611222336-0ed8910)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(confbox@0.3.2)(dotenv@17.4.2)(esbuild@0.28.2)(giget@3.3.1)(jiti@2.7.0)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.19)(rollup@4.68.8)
       '@jridgewell/trace-mapping': 0.3.31
-      '@nuxt/cli': '@nuxt/cli-nightly@4.1.0-2611220959-0626111(@nuxt/schema-nightly@5.0.0-2611222336-0ed8910)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(jiti@2.7.0)(oxc-parser@0.153.0)(rolldown@1.2.19)'
+      '@nuxt/cli': '@nuxt/cli-nightly@4.1.0-2611250955-3e3cd15(@nuxt/schema-nightly@5.0.0-2611222336-0ed8910)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(jiti@2.7.0)(oxc-parser@0.153.0)(rolldown@1.2.19)'
       '@nuxt/devtools-onboard': 4.1.0(@nuxt/devtools@3.4.4(94206f4fcd132c00a5d8200c7b976b72))(@nuxt/kit-nightly@5.0.0-2611222336-0ed8910(@nuxt/schema-nightly@5.0.0-2611222336-0ed8910)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.19)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.19)(rollup@4.68.8)))
       '@nuxt/kit': '@nuxt/kit-nightly@5.0.0-2611222336-0ed8910(@nuxt/schema-nightly@5.0.0-2611222336-0ed8910)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.19)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.19)(rollup@4.68.8))'
       '@nuxt/nitro-server': '@nuxt/nitro-server-nightly@5.0.0-2611222336-0ed8910(@babel/plugin-proposal-decorators@8.0.2(@babel/core@8.1.3))(@babel/plugin-syntax-typescript@7.29.7(@babel/core@7.29.7(supports-color@8.1.1)))(@nuxt/schema-nightly@5.0.0-2611222336-0ed8910)(@oxc-project/types@0.156.0)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(acorn@8.19.0)(confbox@0.3.2)(dotenv@17.4.2)(esbuild@0.28.2)(giget@3.3.1)(jiti@2.7.0)(lightningcss@1.33.0)(mlly@1.8.2)(nuxt-nightly@5.0.0-2611222336-0ed8910(33aa5b716a5e6c0ac96241bc0f3d9957))(oxc-parser@0.153.0)(rollup@4.68.8)(vue@3.5.46(typescript@6.0.3))'
@@ -35929,7 +36382,7 @@ snapshots:
     dependencies:
       '@dxup/nuxt': 0.5.11(@nuxt/schema-nightly@5.0.0-2611222336-0ed8910)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(confbox@0.3.2)(dotenv@17.4.2)(esbuild@0.28.2)(giget@3.3.1)(jiti@2.7.0)(mlly@1.8.2)(oxc-parser@0.158.0)(rolldown@1.2.19)(rollup@4.68.8)
       '@jridgewell/trace-mapping': 0.3.31
-      '@nuxt/cli': '@nuxt/cli-nightly@4.1.0-2611220959-0626111(@nuxt/schema-nightly@5.0.0-2611222336-0ed8910)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(jiti@2.7.0)(oxc-parser@0.158.0)(rolldown@1.2.19)'
+      '@nuxt/cli': '@nuxt/cli-nightly@4.1.0-2611250955-3e3cd15(@nuxt/schema-nightly@5.0.0-2611222336-0ed8910)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(jiti@2.7.0)(oxc-parser@0.158.0)(rolldown@1.2.19)'
       '@nuxt/devtools-onboard': 4.1.0(@nuxt/devtools@3.4.4(b5944595609f75408efb790023ca1cae))(@nuxt/kit-nightly@5.0.0-2611222336-0ed8910(@nuxt/schema-nightly@5.0.0-2611222336-0ed8910)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.158.0)(rolldown@1.2.19)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.19)(rollup@4.68.8)))
       '@nuxt/kit': '@nuxt/kit-nightly@5.0.0-2611222336-0ed8910(@nuxt/schema-nightly@5.0.0-2611222336-0ed8910)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.158.0)(rolldown@1.2.19)(unplugin@3.7.0(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.19)(rollup@4.68.8))'
       '@nuxt/nitro-server': '@nuxt/nitro-server-nightly@5.0.0-2611222336-0ed8910(@babel/plugin-proposal-decorators@8.0.2(@babel/core@8.1.3))(@babel/plugin-syntax-typescript@7.29.7(@babel/core@7.29.7(supports-color@8.1.1)))(@nuxt/schema-nightly@5.0.0-2611222336-0ed8910)(@oxc-project/types@0.159.0)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@24.19.2)(@volar/typescript@2.4.30(typescript@6.0.3))(@vue/language-core@3.3.14)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(vue-tsc@3.3.14(typescript@6.0.3))(yaml@2.9.1))(acorn@8.19.0)(confbox@0.3.2)(dotenv@17.4.2)(esbuild@0.28.2)(giget@3.3.1)(jiti@2.7.0)(lightningcss@1.33.0)(mlly@1.8.2)(nuxt-nightly@5.0.0-2611222336-0ed8910(9bc55771b633bf4a2b0b875a797c7c9a))(oxc-parser@0.158.0)(rollup@4.68.8)(vue@3.5.46(typescript@6.0.3))'
@@ -38086,6 +38539,8 @@ snapshots:
 
   sisteransi@1.0.5: {}
 
+  sisteransi@2.0.0: {}
+
   site-config-stack@5.0.3(vue@3.5.46(typescript@6.0.3)):
     dependencies:
       ufo: 1.6.4
@@ -38108,8 +38563,7 @@ snapshots:
       astral-regex: 2.0.0
       is-fullwidth-code-point: 3.0.0
 
-  slugify@1.6.9:
-    optional: true
+  slugify@1.6.9: {}
 
   smart-buffer@4.2.0:
     optional: true

@@ -117,8 +117,8 @@ catalogs:
     "@comark/html": ^0.9.2
     comark: ^0.9.2
     comark-content: 0.5.1
-    comark-ui: ^0.12.2
-    comark-zoom: ^0.12.2
+    comark-ui: ^0.14.3
+    comark-zoom: ^0.14.3
   # The Nitro versions that ViteHub supports as a peer: the workspace pin and the one that Nuxt 5 nightly uses.
   # A caret on an RC matches only that RC until Nitro 3 is stable, so each supported RC is listed.
   nitro-compat:
