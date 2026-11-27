@@ -23,7 +23,7 @@ import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import { inspectWorkflowDefinitions, inspectWorkflowResources } from "./inspect.ts"
 import { discoverWorkflowDevDefinitions, registersAgentWorkflows, workflowDevGeneratedDir, workflowTestSetupFile, writeWorkflowDevRegistryFiles } from "./internal/dev-registry.ts"
 import { writeWorkflowTypes } from "./internal/registry-types.ts"
-import { addVercelWorkflowNitroRoutes, createCloudflareWorkflowNitroConfig, createOptionalPackagesPlugin, createVercelWorkflowModuleTransform, createVercelWorkflowTransformPlugin, discoverWorkflowProviderSources, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, resolveVercelWorkflowWorld, resolveWorkflowProviderOutputs, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
+import { addVercelWorkflowNitroRoutes, assertVercelWorkflowsRunNatively, createCloudflareWorkflowNitroConfig, createOptionalPackagesPlugin, createVercelWorkflowModuleTransform, createVercelWorkflowTransformPlugin, discoverWorkflowProviderSources, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, resolveVercelWorkflowWorld, resolveWorkflowProviderOutputs, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
 
 import type { WorkflowVercelNitroRegistry } from "./internal/dev-registry.ts"
 import type { AgentWorkflowModules, VercelWorkflowModuleTransform } from "./internal/vite-build.ts"
@@ -268,7 +268,8 @@ export function hubWorkflow(workflow?: WorkflowOptions, internalOptions: Interna
       workspaceDependencies: internalOptions?.workspaceDependencyRuntimeImports,
     }, retainedServerDirs, internalOptions?.includeUserAppEntry, (config.plugins as AgentWorkflowRegistryPlugin[])
       .find(plugin => plugin.vitehub?.agent?.transformWorkflowRegistry)
-      ?.vitehub?.agent?.transformWorkflowRegistry, definitionRootDir, artifactDir ? resolve(artifactDir, "output") : undefined, retainedAgentInstructions)
+      ?.vitehub?.agent?.transformWorkflowRegistry, definitionRootDir, artifactDir ? resolve(artifactDir, "output") : undefined, retainedAgentInstructions, true)
+    assertVercelWorkflowsRunNatively(artifacts.providerDefinitions)
     const retainedAliases = retainedSources ? retainProviderOutputAliases(aliases, retainedSources) : aliases
     const native = hasVercelNativeWorkflowEntry(rootDir, artifacts.providerDefinitions, retainedAliases, artifacts.vercelNativeFiles)
     const workflowRequire = native ? createRequire(import.meta.url) : undefined
@@ -377,7 +378,8 @@ export function hubWorkflow(workflow?: WorkflowOptions, internalOptions: Interna
       workspaceDependencies: internalOptions.workspaceDependencyRuntimeImports,
     }, serverDirs, internalOptions.includeUserAppEntry, (config.plugins as AgentWorkflowRegistryPlugin[])
       .find(plugin => plugin.vitehub?.agent?.transformWorkflowRegistry)
-      ?.vitehub?.agent?.transformWorkflowRegistry, config.root)
+      ?.vitehub?.agent?.transformWorkflowRegistry, config.root, undefined, undefined, true)
+    assertVercelWorkflowsRunNatively(artifacts.providerDefinitions)
     const native = hasVercelNativeWorkflowEntry(rootDir, artifacts.providerDefinitions, await providerImportAliases(config), artifacts.vercelNativeFiles)
     vercelModuleTransform = native ? await createVercelWorkflowModuleTransform(rootDir) : undefined
     return { native, registryFile: artifacts.registryFile }
@@ -540,6 +542,7 @@ export function hubWorkflow(workflow?: WorkflowOptions, internalOptions: Interna
         if (!options) return []
         const input = {
           driver: options.driver,
+          ...(options.driver === "vercel" && resolveOutputs(workflow).vercel ? { native: true } : {}),
           defaultDatabase: options.driver === "openworkflow" && readPostgresDefaultDatabase(databasePlugin) === true,
           ...(options.driver === "openworkflow" && options.postgres?.url !== undefined ? { postgresUrl: workflowDurabilityUrl(options.postgres.url) } : {}),
           ...(options.driver === "openworkflow" && options.sqlite?.path !== undefined ? { sqlitePath: options.sqlite.path } : {}),
@@ -719,7 +722,7 @@ export function hubWorkflow(workflow?: WorkflowOptions, internalOptions: Interna
           workflow: internalOptions?.importBase,
           workspaceRuntime: internalOptions?.workspaceRuntimeModule,
           workspaceDependencies: internalOptions?.workspaceDependencyRuntimeImports,
-        }, retainedServerDirs, internalOptions?.includeUserAppEntry, transformRegistry, retainedDefinitionRoot, resolve(artifactDir, "output"), retainedAgentInstructions)
+        }, retainedServerDirs, internalOptions?.includeUserAppEntry, transformRegistry, retainedDefinitionRoot, resolve(artifactDir, "output"), retainedAgentInstructions, Boolean(outputs.vercel && outputs.vercel.driver === "vercel"))
         stagedArtifactDirs.set(environment, artifactDir)
         contributeProviderDeploymentOutput(buildProviderOutput, {
           discard: async () => {

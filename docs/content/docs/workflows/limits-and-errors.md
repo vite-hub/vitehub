@@ -72,7 +72,7 @@ export default async function fetchIssues(input: { repo: string }, { signal }: W
 | Cloudflare | Sent to `step.do()`. | Sent to `step.do()`. Without `timeout`, Cloudflare stops an attempt after 10 minutes. |
 | OpenWorkflow | Sent as the step's `retryPolicy`, with `maximumAttempts: limit + 1`. | ViteHub aborts `signal` and fails the attempt. |
 | Vercel, generated native entry for numbered steps without an index handler | `limit` becomes Workflow DevKit's `maxRetries`. DevKit retries a step after about one second, so `delay` or `backoff` fails the build with `WORKFLOW_STEP_RETRY_DELAY_UNSUPPORTED`. | ViteHub aborts `signal` and fails the attempt. |
-| Inline (`vite dev`, normal Vercel handlers) | No retries. | ViteHub aborts `signal` and fails the attempt. |
+| Inline (`vite dev`, Agent turns and `createWorkflow()` on Vercel) | No retries. | ViteHub aborts `signal` and fails the attempt. |
 
 > [!NOTE]
 > Only Cloudflare enforces `timeout` itself. Elsewhere, ViteHub cannot stop code that ignores `signal`: the attempt fails, and the next attempt can start while the old one still runs. Pass `signal` to `fetch()` and to every other call that takes one.
@@ -135,7 +135,7 @@ A duration is a number of milliseconds or a string such as `'30 seconds'` or `'1
 | --- | --- |
 | Cloudflare | Durable. Uses `step.sleep()` and `step.sleepUntil()`, at most 365 days. |
 | OpenWorkflow | Durable. Stores the wake time in its database. |
-| Inline runs (`vite dev`, normal Vercel handlers) | Waits with a timer. Not durable: a restart loses the run. |
+| Inline runs (`vite dev`, Agent turns and `createWorkflow()` on Vercel) | Waits with a timer. Not durable: a restart loses the run. |
 | Vercel `native` entry | Use `sleep()` from Workflow DevKit. |
 
 After a sleep, the provider runs `index.ts` again from the start. Completed step files return their stored results and do not run again, so put each side effect in a numbered step file. ViteHub names each sleep by call order (`sleep-1`, `sleep-2`), so `index.ts` must call `sleep()` in the same order on each replay. Put a value that changes, such as `Date.now()`, in a step file.

@@ -41,6 +41,8 @@ describe("Vercel Workflow transform plugin", () => {
     const result = await load(workflow)
     expect(result).toMatchObject({ code: expect.stringContaining('welcome.workflowId = "workflow//./welcome//welcome"') })
     expect(result).not.toMatchObject({ code: expect.stringContaining("WORKFLOW_USE_STEP") })
+    const loadWithDefaultMode = await loadHook(rootDir)
+    expect(await loadWithDefaultMode(workflow)).toEqual(result)
   })
 
   it("transforms only files with Workflow code", async () => {
