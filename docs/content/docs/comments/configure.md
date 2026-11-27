@@ -83,11 +83,13 @@ Do not add the `comments()` plugin next to `vitehub()`. The dev server and the b
 
 Hosted Comments works on any site that can load a script. The Console signs reviewers in and stores threads in its database. The embed runs entirely in the browser.
 
+Use Hosted Comments or the app's own Comments on a page, not both. When the app's Comments start, Hosted Comments stay off or stop after you send or discard any draft and pending sends finish. The browser console shows `COMMENTS_HOSTED_CONFLICT`. To use the Hosted Comments script on a connected app with its own Comments API, set `comments: { overlay: false }`. This turns off the app's overlay but keeps its Comments API. Add the script tag manually as shown below.
+
 A ViteHub app that the Console links and that has no app Comments gets Hosted Comments without a script tag. Its pages get a short inline loader, which loads `hosted-comments.js` only with `?vitehub`, `?comment`, a sign-in code, or an earlier pill in the tab. The loader uses the Console-generated `VITEHUB_CONSOLE_KEY_CONSOLE_<ID>` variables to find the project at the app's public URL, including its base path. If multiple teams link the same app URL, choose a team in the pill; the choice stays in that tab. `/_vitehub` and `/_vitehub/<page>` send the browser back to the page with `?vitehub`. The pill links to the selected project in the Console, or offers a Console link if the key no longer matches. CLI and CI signing keys alone do not enable the pill.
 
 The app needs no Comments, Database, or project ID. Set `comments: false` to turn the pill off; `/_vitehub` then opens the Console. A prerendered page gets the loader only when the build has the Console-generated variables, because a static page does not reach the server. A development server, and a host that is not the `publicUrl`, get no loader.
 
-For any other site:
+To add the script manually:
 
 1. In the Console, open **Apps** > **Link app**, select **Hosted Comments only**, and enter the site's URL. For a connected app, open **Settings** > **Connection** > **Hosted Comments**.
 2. Copy the script into the HTML at the registered URL and on the pages you want to review. The registered page completes sign-in for the review tab.

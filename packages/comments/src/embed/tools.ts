@@ -3,6 +3,7 @@ import { viteHubPillButtonStyles } from "@vite-hub/internal/runtime/page-tools-s
 
 import { commentsUnansweredError } from "../client-diagnostics.ts"
 import { apiError, useCommentsOverlayBackend } from "../overlay/api.ts"
+import { appCommentsRunning, appOverlayElement, pendingHostedDraft } from "../overlay/element.ts"
 import { embedPath } from "./protocol.ts"
 
 import type { ViteHubPageToolModule } from "@vite-hub/internal/runtime/page-tools-loader"
@@ -89,19 +90,28 @@ function backendOf(frame: Promise<EmbedFrame>, project: HostedProject): Comments
   }
 }
 
-/**
- * Shows the page tools with Comments, which reach the Console only through the embed frame. A second call, after a
- * sign-in, replaces the tools of the first with tools for the new account. It does not open them: the page stays as the
- * person left it, and they choose when to comment.
- */
+let watchAppComments: Promise<void> | undefined
+
+function watchForAppComments(): boolean {
+  if (appCommentsRunning()) return false
+  watchAppComments ??= customElements.whenDefined(appOverlayElement).then(async () => {
+    appCommentsRunning()
+    const draft = pendingHostedDraft()
+    if (draft) await draft.ready
+    stopViteHubPageTools()
+  })
+  return true
+}
+
 export async function mountHostedComments(frame: Promise<EmbedFrame>, project: HostedProject): Promise<void> {
+  if (!watchForAppComments()) return
   stopViteHubPageTools()
   useCommentsOverlayBackend(backendOf(frame, project))
   const { consoleUrl } = project
   await loadViteHubPageTools({
     pill,
     session: async () => ({ tools: consoleUrl ? [commentsTool, consoleTool] : [commentsTool] }),
-    load: tool => tool === "console" && consoleUrl ? Promise.resolve(consoleLink(consoleUrl)) : import("../overlay/index.ts"),
+    load: async tool => tool === "console" && consoleUrl ? consoleLink(consoleUrl) : { default: (await import("../overlay/index.ts")).startHostedOverlay },
   })
 }
 
@@ -118,6 +128,7 @@ function consoleLink(url: string): ViteHubPageToolModule {
 }
 
 export async function mountHostedProjectChoice(url: string, projects: readonly { team: string, choose: () => void }[]): Promise<void> {
+  if (!watchForAppComments()) return
   await loadViteHubPageTools({
     pill,
     session: async () => ({ tools: projects.length ? [projectTool, consoleTool] : [consoleTool] }),
