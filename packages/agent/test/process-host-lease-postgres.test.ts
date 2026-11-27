@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url"
 
 import { generateDrizzleJson, generateMigration } from "drizzle-kit/api-postgres"
 import postgres from "postgres"
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { postgresAgentInvocationTables } from "../src/invocations/postgres.ts"
 import { agentInvocationPostgresClient } from "../src/invocations/postgres-clients.ts"
@@ -23,6 +23,7 @@ const ttlMs = 3_000
 const intervalMs = 500
 const claimMs = 1_000
 const agentName = `babysitter-${process.pid}`
+const stateBackends = ["file", "postgres"] as const
 
 vi.setConfig({ testTimeout: 60_000 })
 
@@ -36,8 +37,9 @@ describe.skipIf(!url)("one Agent process host across servers on a Postgres serve
   let rootDir: string
   const store = () => createPostgresAgentInvocationStore({ client: () => agentInvocationPostgresClient(sql, "default"), maxAge: false, maxRecords: false, tablePrefix })
 
-  function start(name: string): Server {
-    const child = spawn(process.execPath, ["--no-warnings", "--experimental-transform-types", fixture, url!, tablePrefix, agentName, join(rootDir, "state.db"), join(rootDir, "data"), String(ttlMs), String(intervalMs), String(claimMs)], {
+  function start(name: string, agent: string, backend: typeof stateBackends[number]): Server {
+    const state = backend === "postgres" ? "postgres" : join(rootDir, `${agent}.db`)
+    const child = spawn(process.execPath, ["--no-warnings", "--experimental-transform-types", fixture, url!, tablePrefix, agent, state, join(rootDir, agent), String(ttlMs), String(intervalMs), String(claimMs)], {
       env: { ...process.env, VITEHUB_INSTANCE_ID: name },
       stdio: ["ignore", "pipe", "inherit", "ipc"],
     })
@@ -69,19 +71,27 @@ describe.skipIf(!url)("one Agent process host across servers on a Postgres serve
     sql = postgres(url!, { max: 1, onnotice: () => {} })
     rootDir = await mkdtemp(join(tmpdir(), "vitehub-process-host-lease-"))
     await sql.unsafe(`DROP TABLE IF EXISTS ${tablePrefix}invocations_observations, ${tablePrefix}invocations`)
-    await sql.unsafe(`DELETE FROM vitehub_leases WHERE key = '${agentProcessHostLeaseKey(agentName)}'`).catch(() => undefined)
+    for (const backend of stateBackends) {
+      await sql.unsafe(`DELETE FROM vitehub_leases WHERE key = '${agentProcessHostLeaseKey(`${agentName}-${backend}`)}'`).catch(() => undefined)
+    }
+    const stateTables = await sql.unsafe(`SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND starts_with(table_name, '${tablePrefix}state_')`)
+    for (const { table_name } of stateTables) await sql.unsafe(`DROP TABLE IF EXISTS "${String(table_name)}"`)
     const migration = await generateMigration(await generateDrizzleJson({}), await generateDrizzleJson({ ...postgresAgentInvocationTables({ tablePrefix }) }))
     for (const statement of migration) await sql.unsafe(statement)
   })
 
+  afterEach(() => {
+    for (const server of servers.splice(0)) server.process.kill("SIGKILL")
+  })
+
   afterAll(async () => {
-    for (const server of servers) server.process.kill("SIGKILL")
     await sql.end()
     await rm(rootDir, { force: true, recursive: true })
   })
 
-  it("runs one host, forwards deliveries to it, and fails over after the holder is killed", async () => {
-    const all = [start("instance-a"), start("instance-b"), start("instance-c")]
+  it.each(stateBackends)("runs one host, forwards deliveries to it through %s Agent State, and fails over after the holder is killed", async (backend) => {
+    const agent = `${agentName}-${backend}`
+    const all = ["instance-a", "instance-b", "instance-c"].map(name => start(name, agent, backend))
     await Promise.all(all.map(server => server.next(line => line.ready === true)))
     await Promise.race(all.map(server => server.next(line => line.started === true)))
     await new Promise(resolve => setTimeout(resolve, 4 * intervalMs))
@@ -92,7 +102,7 @@ describe.skipIf(!url)("one Agent process host across servers on a Postgres serve
     const standbys = all.filter(server => server !== holder)
     const inline = await holder!.next(line => line.invocation !== undefined)
     expect(await store().getSummary(inline.invocation!)).toMatchObject({ status: "running" })
-    const [lease] = await sql.unsafe(`SELECT owner FROM vitehub_leases WHERE key = '${agentProcessHostLeaseKey(agentName)}'`)
+    const [lease] = await sql.unsafe(`SELECT owner FROM vitehub_leases WHERE key = '${agentProcessHostLeaseKey(agent)}'`)
     expect(lease).toMatchObject({ owner: holder!.name })
 
     standbys[0]!.process.send({ deliver: "delivery-1" })
@@ -119,6 +129,6 @@ describe.skipIf(!url)("one Agent process host across servers on a Postgres serve
     const standby = standbys.find(server => server !== next)!
     standby.process.send({ deliver: "delivery-2" })
     await next!.next(line => line.handled === "delivery-2")
-    process.stdout.write(`process host failover took ${failoverMs} ms with a ${ttlMs} ms Lease and a ${intervalMs} ms interval\n`)
+    process.stdout.write(`process host failover on ${backend} Agent State took ${failoverMs} ms with a ${ttlMs} ms Lease and a ${intervalMs} ms interval\n`)
   })
 })

@@ -288,6 +288,52 @@ describe("Default Agent journal on a Node Postgres Database", () => {
   })
 })
 
+async function generatedStatePlugin(options: ViteHubOptions, command: "build" | "serve", files: Record<string, string>): Promise<{ durability: readonly DurabilityContribution[], info: string[], route: string }> {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-storage-state-"))
+  try {
+    for (const [file, contents] of Object.entries({ ...files, "server/agents/support.ts": "export default {}\n" })) {
+      await mkdir(dirname(join(root, file)), { recursive: true })
+      await writeFile(join(root, file), contents)
+    }
+    const owners = vitehub(options).filter((plugin): plugin is Plugin => !!plugin && typeof plugin === "object" && "name" in plugin && (plugin.name === "@vite-hub/agent/vite" || plugin.name === "@vite-hub/database/vite"))
+    const plugin = owners.find(plugin => plugin.name === "@vite-hub/agent/vite")
+    const info: string[] = []
+    await resolveConfig({ root, configFile: false, customLogger: { ...createLogger("silent"), info: message => { info.push(message) } }, plugins: owners }, command)
+    const durability = (plugin && "vitehub" in plugin ? (plugin.vitehub as DurabilityPluginMetadata).durability?.() : undefined) ?? []
+    return { durability, info, route: await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8") }
+  }
+  finally {
+    await rm(root, { force: true, recursive: true })
+  }
+}
+
+describe("Default Agent State on a Node Postgres Database", () => {
+  const postgres = { "server/databases/default.ts": 'export default defineDatabase({ dialect: "postgresql", driver: "node-postgres", schema: {} })\n' }
+  const sqlite = { "server/databases/default.ts": "export default defineDatabase({ schema: {} })\n" }
+  const node = { host: "node", agent: true, database: true } satisfies ViteHubOptions
+  const stateRow = (durability: readonly DurabilityContribution[]) => durability.find(row => row.primitive === "agent-state")
+
+  it("keeps Agent State in the Postgres default Database of a Node build", async () => {
+    const { durability, info, route } = await generatedStatePlugin(node, "build", postgres)
+    expect(stateRow(durability)).toMatchObject({ input: { database: "default", provider: "database" } })
+    expect(route).toContain("createDatabaseAgentState")
+    expect(route).not.toContain("durableUrlRequired")
+    expect(info).toContain("[vitehub] Agent State: the Postgres default Database. The store creates its tables on first use.")
+  })
+
+  it.each([
+    ["a SQLite default Database", node, "build", sqlite],
+    ["development", node, "serve", postgres],
+    ["no Database", { host: "node", agent: true }, "build", postgres],
+    ["an explicit state URL", { ...node, agent: { providers: { state: { driver: "libsql", url: "libsql://state.example.com" } } } }, "build", postgres],
+    ["another host", { ...node, host: "vercel" }, "build", postgres],
+  ] satisfies Array<[string, ViteHubOptions, "build" | "serve", Record<string, string>]>)("keeps libSQL Agent State with %s", async (_, options, command, files) => {
+    const { durability, route } = await generatedStatePlugin(options, command, files)
+    expect(stateRow(durability)).toMatchObject({ input: { provider: "libsql" } })
+    expect(route).not.toContain("createDatabaseAgentState")
+  })
+})
+
 describe("Connections database default", () => {
   // SAFETY: vitehub() returns a flat list of concrete plugins in these tests.
   const pluginNames = (options: ViteHubOptions) => (vitehub(options) as Plugin[]).map(plugin => plugin.name)

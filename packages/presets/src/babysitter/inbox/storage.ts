@@ -10,9 +10,11 @@ export type PullRequestInboxExecutor = SqliteAgentStateExtensionExecutor
 
 /**
  * SQL access for the PR inbox. `agentState.extension("babysitter")` from
- * `@vite-hub/agent/state` satisfies it and keeps the inbox in the Agent State database.
+ * `@vite-hub/agent/state` satisfies it on SQLite Agent State and keeps the inbox in the Agent State database.
+ * The inbox SQL is SQLite, so the inbox rejects an extension on Postgres Agent State.
  */
 export interface PullRequestInboxStorage extends Pick<SqliteAgentStateExtension, 'execute' | 'tablePrefix' | 'transaction'> {
+  readonly dialect?: SqliteAgentStateExtension['dialect']
   close?: () => Promise<void>
 }
 

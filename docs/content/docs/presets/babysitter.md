@@ -376,7 +376,7 @@ Set these variables on the host, or declare them in `env.server.github`:
 | `VITEHUB_GITHUB_INSTALLATION_ID` | Optional fixed installation, only for `VITEHUB_GITHUB_APP_OWNER`, which it needs. |
 | `VITEHUB_GITHUB_APP_OWNER` | Repository owner for the fixed installation, such as `vite-hub`. Server Env field `env.server.github.appOwner`. |
 | `VITEHUB_GITHUB_APP_INSTALLATIONS` | Optional JSON object that maps repository owners to installation IDs. Server Env field `env.server.github.appInstallations`. |
-| `VITEHUB_AGENT_STATE_URL` | Agent State, such as `file:/var/lib/babysitter/state.sqlite`. Production builds need it. |
+| `VITEHUB_AGENT_STATE_URL` | Agent State, such as `file:/var/lib/babysitter/state.sqlite`. Production builds need it, unless the Database named `default` runs on Postgres. Then Agent State uses that Database, and the pull request inbox stays in a SQLite file in the data directory. |
 
 Declare the fixed ID as `env.server.github.installationId` with `appOwner`; without an owner, startup fails with `FORGE_INVALID_ENV`. Other owners use GitHub App discovery, which needs access to the App API.
 

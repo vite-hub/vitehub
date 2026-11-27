@@ -22,6 +22,16 @@ describe("agentStateDurability", () => {
     expect(agentStateDurability({ provider: "libsql", url: "file:state.db" }, context({ VITEHUB_AGENT_STATE_URL: "libsql://state.turso.io" }))).toMatchObject([{ scope: "shared" }])
     expect(agentStateDurability({ provider: "libsql" }, context())).toMatchObject([{ scope: "process", fix: expect.stringContaining("VITEHUB_AGENT_STATE_URL") }])
   })
+
+  it("reports a Postgres Database as shared only when that Database is shared", () => {
+    const shared: Durability = { primitive: "database", store: "postgresql", scope: "shared", reason: "A Postgres server." }
+    const local: Durability = { primitive: "database", store: "pglite", scope: "host", reason: "A PGlite directory.", fix: "Set DATABASE_URL." }
+    const input = { database: "default", provider: "database" } as const
+    expect(agentStateDurability(input, context({}, [shared]))).toMatchObject([{ store: "database (postgresql)", scope: "shared" }])
+    expect(agentStateDurability(input, context({}, [local]))).toMatchObject([{ store: "database (pglite)", scope: "host", fix: "Set DATABASE_URL." }])
+    expect(agentStateDurability(input, context())).toMatchObject([{ store: "database", scope: "process" }])
+    expect(agentStateDurability(input, context({ VITEHUB_AGENT_STATE_URL: "file:state.db" }, [shared]))).toMatchObject([{ store: "sqlite", scope: "host" }])
+  })
 })
 
 describe("agentInvocationsDurability", () => {

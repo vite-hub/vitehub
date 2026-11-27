@@ -88,9 +88,10 @@ function pgliteClient(pglite: Pglite): AgentInvocationPostgresClient {
 
 const clients = new WeakMap<object, AgentInvocationPostgresClient>()
 
-export function agentInvocationPostgresClient(client: unknown, database: string): AgentInvocationPostgresClient {
+/** `unsupported` is the error for a client that is not postgres.js, a node-postgres Pool, or PGlite. */
+export function agentInvocationPostgresClient(client: unknown, database: string, unsupported: (input: { database: string }) => Error = agentDiagnostics.AGENT_INVOCATIONS_POSTGRES_DRIVER_UNSUPPORTED): AgentInvocationPostgresClient {
   if (!client || (typeof client !== "object" && typeof client !== "function")) {
-    throw agentDiagnostics.AGENT_INVOCATIONS_POSTGRES_DRIVER_UNSUPPORTED({ database })
+    throw unsupported({ database })
   }
   const cached = clients.get(client)
   if (cached) return cached
@@ -98,7 +99,7 @@ export function agentInvocationPostgresClient(client: unknown, database: string)
   if (isPostgresJs(client)) journal = trackPostgresClient(client)
   else if (isNodePostgresPool(client)) journal = nodePostgresClient(trackNodePostgresClient(client))
   else if (isPglite(client)) journal = pgliteClient(trackPgliteClient(client))
-  else throw agentDiagnostics.AGENT_INVOCATIONS_POSTGRES_DRIVER_UNSUPPORTED({ database })
+  else throw unsupported({ database })
   clients.set(client, journal)
   return journal
 }

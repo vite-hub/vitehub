@@ -204,12 +204,13 @@ const agent = context.agent as AgentInput & { options: { filter: GitHubPullReque
     invocations: host.invocations,
     driver: { capacity: host.capacity, ...(resumeThreads ? { sessionStorePath: host.providerSessionStorePath } : {}) },
   });
+  const inboxStorage = context.state.extension("babysitter");
   runtime = createBabysitterRuntime({
     workspaces,
     agent: worker,
     agentName: context.agentName,
     github,
-    inboxStorage: context.state.extension("babysitter"),
+    ...(inboxStorage.dialect === "postgresql" ? { inboxPath: join(context.dataDir, "inbox.sqlite") } : { inboxStorage }),
     inboxScope: context.agentName,
     repositories,
     concurrency: agent.options.concurrency,

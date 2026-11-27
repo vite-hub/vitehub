@@ -16,6 +16,7 @@ const codes = [
   "PRESETS_BABYSITTER_GITHUB_QUERY_FAILED",
   "PRESETS_BABYSITTER_HOST_EXECUTABLE_UNAVAILABLE",
   "PRESETS_BABYSITTER_INBOX_STORAGE_MISSING",
+  "PRESETS_BABYSITTER_INBOX_STORAGE_NOT_SQLITE",
   "PRESETS_BABYSITTER_PROMPT_TOO_LARGE",
   "PRESETS_DEPENDENCY_CHECKS_INCOMPLETE",
   "PRESETS_FEEDBACK_CHANGED",
@@ -64,6 +65,14 @@ it("reports a prompt over the transport limit with a code and a fix", () => {
 it("reports an inbox without storage with a code and a fix", () => {
   expect(() => new PullRequestInbox({ repositories: () => ["acme/app"] })).toThrow(expect.objectContaining({
     code: "PRESETS_BABYSITTER_INBOX_STORAGE_MISSING",
+    fix: expect.stringContaining("inboxPath"),
+  }))
+})
+
+it("rejects inbox storage on Postgres Agent State with a code and a fix", () => {
+  const storage = { dialect: "postgresql" as const, tablePrefix: "vitehub_agent_state_babysitter_", execute: async () => [], transaction: async <T>(run: (executor: { execute: () => Promise<never[]> }) => Promise<T>) => await run({ execute: async () => [] }) }
+  expect(() => new PullRequestInbox({ repositories: () => ["acme/app"], storage })).toThrow(expect.objectContaining({
+    code: "PRESETS_BABYSITTER_INBOX_STORAGE_NOT_SQLITE",
     fix: expect.stringContaining("inboxPath"),
   }))
 })

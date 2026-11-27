@@ -20,6 +20,7 @@ import { hostFromNitroPreset } from "@vite-hub/internal/deployment"
 import { registerViteHubNitroDevEndpoint, renderViteHubNitroDevHandler } from "@vite-hub/internal/dev-endpoint"
 import { ownModule } from "@vite-hub/internal/build/paths"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
+import type { DBVitePlugin } from "@vite-hub/database/vite"
 import type { DeploymentEnvContribution } from "@vite-hub/internal/build/deployment-plan-output"
 import type { DurabilityPluginMetadata } from "@vite-hub/internal/durability"
 import type { AgentProcessHostDurabilityInput, AgentRecoveryDurabilityInput, AgentStateDurabilityInput } from "./durability.ts"
@@ -150,6 +151,7 @@ export type AgentRuntimeModule =
   | "server/registry"
   | "server/workspace"
   | "state"
+  | "state/postgres"
 
 /**
  * The absolute path of an Agent build entry. Generated code imports these by path, so they need no package export.
@@ -258,6 +260,7 @@ interface InternalAgentModuleOptions extends AgentOptions {
   /** The specifier that generated code uses to import the KV package. */
   kvImport?: string
   processDiscordGateway?: boolean
+  postgresStateDatabase?: boolean
   providerImportAliases?: Record<string, string>
   runtimeCapabilityImports?: Record<string, false | string>
   /** Workflow module specifiers, or false when the facade disables Workflow. */
@@ -653,6 +656,7 @@ type BuildWithRolldownOptions = {
 }
 type GeneratedLibsqlAgentStateOptions = Pick<AgentSqlStateProviderOptions, "journalMode" | "tablePrefix" | "url"> & {
   authTokenEnvNames?: string[]
+  database?: string
   durableUrlRequired?: boolean
   ephemeralHosting?: "cloudflare" | "netlify" | "vercel"
   /** The URL is the local file that `vite dev` picks when the app sets none. */
@@ -721,6 +725,7 @@ function shouldInstallCloudflareAgentState(
 function resolveLibsqlAgentState(
   options: false | ResolvedAgentModuleOptions,
   config: unknown,
+  database?: string,
 ): GeneratedLibsqlAgentStateOptions | undefined {
   if (!options) return
   const state = options.providers.state
@@ -740,6 +745,14 @@ function resolveLibsqlAgentState(
   if (ephemeralHosting && resolvedUrl?.startsWith("file:")) {
     throw agentDiagnostics.AGENT_B0005({ message: `[vitehub] Agent state cannot use a file: URL on ${ephemeralHosting} because its filesystem is ephemeral. Configure a durable libSQL URL.` })
   }
+  if (auto && !resolvedUrl && !ephemeralHosting && database) {
+    return {
+      ...(authTokenEnvNames ? { authTokenEnvNames } : {}),
+      database,
+      ...(journalMode ? { journalMode } : {}),
+      ...(tablePrefix ? { tablePrefix } : {}),
+    }
+  }
   return {
     ...(authTokenEnvNames ? { authTokenEnvNames } : {}),
     ...(!resolvedUrl ? { durableUrlRequired: true } : {}),
@@ -751,6 +764,16 @@ function resolveLibsqlAgentState(
   }
 }
 
+async function postgresAgentStateDatabase(options: false | ResolvedAgentModuleOptions, config: ResolvedConfig): Promise<string | undefined> {
+  if (!options || options.runtime === "deno" || config.command !== "build") return
+  const state = resolveLibsqlAgentState(options, config)
+  if (!state?.durableUrlRequired || state.ephemeralHosting) return
+  const owner = config.plugins.find((plugin): plugin is DBVitePlugin => plugin.name === "@vite-hub/database/vite")
+  if (!owner) return
+  await owner.api.whenConfigResolved?.()
+  return owner.api.getConfig()?.databases.default?.dialect === "postgresql" ? "default" : undefined
+}
+
 function warnMissingServerlessStateUrl(config: ViteHubHintsConfig, state: GeneratedLibsqlAgentStateOptions | undefined): void {
   if (!state?.durableUrlRequired || (state.ephemeralHosting !== "vercel" && state.ephemeralHosting !== "netlify")) return
   if (process.env.VITEHUB_AGENT_STATE_URL?.trim()) return
@@ -758,12 +781,13 @@ function warnMissingServerlessStateUrl(config: ViteHubHintsConfig, state: Genera
 }
 
 /** The Agent state store for the durability report. A remote URL becomes `remote`, so no credential reaches the server bundle. */
-function agentStateDurabilityInput(options: ResolvedAgentModuleOptions, config: unknown, cloudflare: boolean): AgentStateDurabilityInput | undefined {
+function agentStateDurabilityInput(options: ResolvedAgentModuleOptions, config: unknown, cloudflare: boolean, database?: string): AgentStateDurabilityInput | undefined {
   if (cloudflare) return { provider: "cloudflare" }
   const { driver } = options.providers.state
   if (driver === "memory") return { provider: "memory" }
-  const libsql = resolveLibsqlAgentState(options, config)
+  const libsql = resolveLibsqlAgentState(options, config, database)
   if (!libsql) return
+  if (libsql.database) return { database: libsql.database, provider: "database" }
   return { provider: "libsql", ...(libsql.url ? { url: sqliteUrlInput(libsql.url) } : {}) }
 }
 
@@ -1477,11 +1501,40 @@ function generatedCloudflareChatStateHelper(): string[] {
 }
 
 function generatedLibsqlChatStateHelper(state: GeneratedLibsqlAgentStateOptions, typescript = false): string[] {
-  const { authTokenEnvNames, durableUrlRequired, ephemeralHosting, localDefault, ...stateOptions } = state
+  const { authTokenEnvNames, database, durableUrlRequired, ephemeralHosting, localDefault, ...stateOptions } = state
   const configuredAuthToken = authTokenEnvNames?.map(name => `process.env[${JSON.stringify(name)}]`).join(" || ")
   const configuredAuthTokenOption = configuredAuthToken
     ? [`  ...(typeof process === 'object' && (${configuredAuthToken}) ? { authToken: ${configuredAuthToken} } : {}),`]
     : []
+  if (database) {
+    return [
+      "",
+      `import { createDatabaseAgentState } from ${JSON.stringify(agentRuntimeModule("state/postgres"))}`,
+      `const viteHubChatStateOptions${typescript ? ": Omit<Parameters<typeof createLibsqlAgentState>[0], \"url\">" : ""} = ${JSON.stringify(stateOptions)}`,
+      `let viteHubChatState${typescript ? ": ReturnType<typeof createLibsqlAgentState> | undefined" : ""}`,
+      "",
+      `/** VITEHUB_AGENT_STATE_URL at boot selects libSQL. Without it, the State uses the Postgres ${database} Database. */`,
+      "function chatStateFromLibsql() {",
+      "  const url = typeof process === 'object' ? process.env.VITEHUB_AGENT_STATE_URL : undefined",
+      "  viteHubChatState ||= url",
+      "    ? createLibsqlAgentState({",
+      "      ...viteHubChatStateOptions,",
+      ...configuredAuthTokenOption.map(line => `    ${line}`),
+      "      ...(typeof process === 'object' && process.env.VITEHUB_AGENT_STATE_AUTH_TOKEN ? { authToken: process.env.VITEHUB_AGENT_STATE_AUTH_TOKEN } : {}),",
+      "      url,",
+      "    })",
+      `    : createDatabaseAgentState({ ...viteHubChatStateOptions, database: ${JSON.stringify(database)} })`,
+      "  return viteHubChatState",
+      "}",
+      "function viteHubChatStateOpens() {",
+      "  return true",
+      "}",
+      "const viteHubChatStateQueueOpens = viteHubChatStateOpens",
+      "const viteHubChatStateResolver = () => chatStateFromLibsql()",
+      "viteHubChatStateResolver.ownsScope = false",
+      "viteHubChatStateResolver.workflowCustody = true",
+    ]
+  }
   return [
     "",
     `import { opensLibsqlAgentState } from ${JSON.stringify(agentRuntimeModule("server/internal"))}`,
@@ -1512,6 +1565,10 @@ function generatedLibsqlChatStateHelper(state: GeneratedLibsqlAgentStateOptions,
     "  const runtimeUrl = typeof process === 'object' ? process.env.VITEHUB_AGENT_STATE_URL : undefined",
     `  return opensLibsqlAgentState(runtimeUrl || viteHubChatStateOptions.url, { configured: ${localDefault ? "Boolean(runtimeUrl)" : "true"} })`,
     "}",
+    "function viteHubChatStateQueueOpens() {",
+    "  const runtimeUrl = typeof process === 'object' ? process.env.VITEHUB_AGENT_STATE_URL : undefined",
+    "  return Boolean(runtimeUrl || viteHubChatStateOptions.url) && viteHubChatStateOpens()",
+    "}",
     "const viteHubChatStateResolver = () => viteHubChatStateOpens() ? chatStateFromLibsql() : undefined",
     "viteHubChatStateResolver.ownsScope = false",
     "viteHubChatStateResolver.workflowCustody = true",
@@ -1521,8 +1578,7 @@ function generatedLibsqlChatStateHelper(state: GeneratedLibsqlAgentStateOptions,
 function generatedWebhookQueueResumeHelper(routeCapabilities: { requestOption: string }, typescript = false, runtimeRouteOption = "", libsqlState = true): string[] {
   return [
     `export function resumeWebhookQueues(waitUntil${typescript ? ": AgentWaitUntil | undefined" : ""}, recoverInterruptedBefore${typescript ? "?: number" : ""}, recoverySweep${typescript ? "?: NonNullable<Parameters<ReturnType<typeof createChannelWebhookRouteHandler>[\"resume\"]>[0]>[\"recoverySweep\"]" : ""}) {`,
-    ...(libsqlState ? ["  const runtimeUrl = typeof process === 'object' ? process.env.VITEHUB_AGENT_STATE_URL : undefined"] : []),
-    `  const queueOpens = ${libsqlState ? "Boolean(runtimeUrl || viteHubChatStateOptions.url) && viteHubChatStateOpens()" : "false"}`,
+    `  const queueOpens = ${libsqlState ? "viteHubChatStateQueueOpens()" : "false"}`,
     "  if (!queueOpens && !recoverySweep) return async () => undefined",
     "  const discoveredJournalNames = Object.entries(agents).map(([name, agent]) => agent.name || name)",
     `  const stops = Object.entries(webhookHandlers).flatMap(([name, handler]) => typeof handler.resume === 'function' ? [handler.resume({ agentIdentity: agentIdentities[name]${runtimeRouteOption}, ${routeCapabilities.requestOption}discoveredJournalNames, recoverInterruptedBefore, recoverySweep: recoverySweep && { ...recoverySweep, withoutQueue: !queueOpens }, ${libsqlState ? "webhookState: queueOpens ? chatStateFromLibsql() : undefined, " : ""}waitUntil })] : [])`,
@@ -2901,6 +2957,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
   let resolved: ResolvedConfig | undefined
   // The Agent state store that the server uses, when the app has hosted Agents.
   let stateDurability: AgentStateDurabilityInput | undefined
+  let stateDatabase: string | undefined
   let recoveryDurability: AgentRecoveryDurabilityInput | undefined
   let processHostDurability: AgentProcessHostDurabilityInput | undefined
   let closeDiscoveryWatcher: (() => Promise<void>) | undefined
@@ -2919,7 +2976,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
     installsCloudflareState ||= shouldInstallCloudflareAgentState(normalized, config)
     return {
       cloudflare: installsCloudflareState,
-      libsql: installsCloudflareState ? undefined : resolveLibsqlAgentState(normalized, config),
+      libsql: installsCloudflareState ? undefined : resolveLibsqlAgentState(normalized, config, stateDatabase),
     }
   }
 
@@ -2990,7 +3047,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
     }
     if (normalized && hasHostedAgents) {
       if (normalized.runtime !== "deno" && config.command === "build" && !Reflect.get(config, VITEHUB_NUXT_HINTS)) {
-        warnMissingServerlessStateUrl(config, resolveLibsqlAgentState(normalized, config))
+        warnMissingServerlessStateUrl(config, resolveLibsqlAgentState(normalized, config, stateDatabase))
       }
       if (normalized.runtime === "deno") {
         await writeAgentDenoServer(generatedRoot, {
@@ -3001,7 +3058,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
             join(resolveViteHubProjectRoot(config.root), ".vitehub", "schedule", "deno-cron.mjs"),
           ),
           inspectionRoute: normalized.routes.inspection,
-          libsqlState: resolveLibsqlAgentState(normalized, config),
+          libsqlState: resolveLibsqlAgentState(normalized, config, stateDatabase),
           runtimeCapabilities: standaloneRuntimeCapabilities,
           workflowModules: getWorkflowModules(agent, frameworkOptions),
           workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(agent, frameworkOptions),
@@ -3015,7 +3072,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
           webhookAliases: normalized.routes.aliases,
           cloudflareState: shouldInstallCloudflareAgentState(normalized, config),
           inspectionRoute: normalized.routes.inspection,
-          libsqlState: resolveLibsqlAgentState(normalized, config),
+          libsqlState: resolveLibsqlAgentState(normalized, config, stateDatabase),
           processDiscordGateway,
           recoverySweep: recoveryDurability?.sweep,
           ...(config.command === "serve" ? { runtime: "vite" as const } : {}),
@@ -3038,7 +3095,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
         if (config.command === "serve" && isNetlifyHosting(config)) {
           await writeNetlifyAgentProviderOutput(config, normalized, {
             standaloneChannels,
-            libsqlState: resolveLibsqlAgentState(normalized, config),
+            libsqlState: resolveLibsqlAgentState(normalized, config, stateDatabase),
             providerImportAliases: getProviderImportAliases(agent, frameworkOptions),
             runtime: "vite",
             runtimeCapabilities: standaloneRuntimeCapabilities,
@@ -3062,6 +3119,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
         const normalized = normalizeAgentOptions(agent)
         return agentDeploymentEnv(normalized, context, {
           processDiscordGateway: Boolean(frameworkOptions?.processDiscordGateway),
+          stateDatabase: Boolean(stateDatabase),
         })
       },
     },
@@ -3354,10 +3412,10 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       bindsCloudflareState ||= installCloudflareState
       if (resolved && hasHostedAgents && !denoOutput && environment?.command === "build" && typeof Reflect.get(config, VITEHUB_NUXT_HINTS) === "function") {
         const buildConfig = { ...config, root, command: environment.command }
-        warnMissingServerlessStateUrl(buildConfig, resolveLibsqlAgentState(resolved, buildConfig))
+        warnMissingServerlessStateUrl(buildConfig, resolveLibsqlAgentState(resolved, buildConfig, stateDatabase))
       }
       const stateDriver = resolved && resolved.providers.state.driver
-      stateDurability = resolved && hasHostedAgents && !denoOutput ? agentStateDurabilityInput(resolved, environment ? { ...config, command: environment.command } : config, installCloudflareState) : undefined
+      stateDurability = resolved && hasHostedAgents && !denoOutput ? agentStateDurabilityInput(resolved, environment ? { ...config, command: environment.command } : config, installCloudflareState, stateDatabase) : undefined
       const installWebhookQueue = Boolean(
         resolved
         && hasHostedAgents
@@ -3560,6 +3618,12 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
       )
       standaloneRuntimeCapabilities = await writeStandaloneAgentRuntimeCapabilities(config, runtimeCapabilities)
       build.runtimeCapabilities = standaloneRuntimeCapabilities
+      const normalized = normalizeAgentOptions(agent)
+      stateDatabase = installsCloudflareState || !getInternalAgentOptions(agent)?.postgresStateDatabase ? undefined : await postgresAgentStateDatabase(normalized, config)
+      if (stateDatabase && normalized && stateDurability?.provider === "libsql") {
+        stateDurability = agentStateDurabilityInput(normalized, config, false, stateDatabase)
+        config.logger.info(`[vitehub] Agent State: the Postgres ${stateDatabase} Database. The store creates its tables on first use.`)
+      }
       await writeGeneratedAgentOutputs(config)
       ownDevModelEmulation(config)
       const configs = (scheduledBuildConfigsByRoot.get(config.root) ?? []).filter(previous => previous !== config)
@@ -3715,7 +3779,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
             await writeFile(handlerPath, await generateAgentNetlifyFunctionRouteHandler(retainedDefinitions.filter(definition => hostedDefinitions.some(hosted => hosted.name === definition.name)), handlerPath, {
               standaloneChannels,
               inspectionRoute: normalized.routes.inspection,
-              libsqlState: resolveLibsqlAgentState(normalized, config),
+              libsqlState: resolveLibsqlAgentState(normalized, config, stateDatabase),
               runtimeCapabilities: build?.runtimeCapabilities ?? standaloneRuntimeCapabilities,
               workflowModules: getWorkflowModules(buildAgent, frameworkOptions),
               workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(buildAgent, frameworkOptions),
@@ -3739,7 +3803,7 @@ export function hubAgent(options?: AgentOptions): AgentVitePlugin {
           if (normalized && hostedDefinitions.length && isNetlifyHosting(config)) {
             await writeNetlifyAgentProviderOutput(config, normalized, {
               standaloneChannels,
-              libsqlState: resolveLibsqlAgentState(normalized, config),
+              libsqlState: resolveLibsqlAgentState(normalized, config, stateDatabase),
               providerImportAliases: retainedProviderImportAliases,
               runtimeCapabilities: build?.runtimeCapabilities ?? standaloneRuntimeCapabilities,
               sourceRootDir: retainedSources?.resolve(config.root),

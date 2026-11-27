@@ -3068,7 +3068,8 @@ export default defineAgent({
         expect(webhookRoute).toContain("process.env.VITEHUB_AGENT_STATE_URL")
         expect(webhookRoute).toContain("function chatStateFromLibsql()")
         expect(webhookRoute).toContain("export function resumeWebhookQueues(waitUntil: AgentWaitUntil | undefined, recoverInterruptedBefore?: number, recoverySweep?: ")
-        expect(webhookRoute).toContain("const queueOpens = Boolean(runtimeUrl || viteHubChatStateOptions.url) && viteHubChatStateOpens()")
+        expect(webhookRoute).toContain("  return Boolean(runtimeUrl || viteHubChatStateOptions.url) && viteHubChatStateOpens()")
+        expect(webhookRoute).toContain("const queueOpens = viteHubChatStateQueueOpens()")
         expect(webhookRoute).toContain("if (!queueOpens && !recoverySweep) return async () => undefined")
         // A file: URL that the app set throws in workerd instead of running without State.
         expect(webhookRoute).toContain("return opensLibsqlAgentState(runtimeUrl || viteHubChatStateOptions.url, { configured: true })")
