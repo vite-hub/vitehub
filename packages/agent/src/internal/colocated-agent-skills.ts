@@ -133,7 +133,7 @@ export function agentWithSkills<Agent extends object>(agent: Agent, skills: Reco
     enumerable: true,
     get: () => {
       const inherited: unknown = Reflect.get(agent, colocatedAgentSkillsSymbol)
-      return { ...(typeof inherited === "object" ? inherited : undefined), ...discovered, ...added }
+      return extendColocatedAgentSkills(extendColocatedAgentSkills(inherited, discovered ?? {}), added)
     },
   })
   return resolved

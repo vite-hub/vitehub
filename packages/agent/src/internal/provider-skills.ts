@@ -59,9 +59,7 @@ async function skillDirectories(root: string, skillRoot: string): Promise<string
  * These are Workspace Skills under another provider's root, Agent-owned Skills,
  * Skills of an outer Workspace root when the provider runs in a nested checkout,
  * and Skills inside mounted Sources, such as `<mount>/.agents/skills/<name>`.
- * A Skill name that the provider already reads natively is not added again.
- * Precedence by name: the working directory, then Agent-owned Skills, then the outer root,
- * then the Sources in declaration order.
+ * Private-Home harnesses apply native discovery and precedence themselves. Other harnesses skip names that are already native in `cwd`.
  */
 export async function selectProviderSkills(input: {
   colocated: unknown
@@ -78,8 +76,10 @@ export async function selectProviderSkills(input: {
   const colocated = Object.values(isRuntimeRecord(input.colocated) ? input.colocated : {})
   const native: readonly string[] = profile.workspace
   const nativeNames = new Set<string>()
-  for (const skillRoot of native) {
-    for (const name of await skillDirectories(input.cwd, skillRoot)) nativeNames.add(name)
+  if (profile.extra.kind !== "private-home") {
+    for (const skillRoot of native) {
+      for (const name of await skillDirectories(input.cwd, skillRoot)) nativeNames.add(name)
+    }
   }
   const skills = new Map<string, ProviderSkill>()
   const add = (name: string, skill: ProviderSkill) => {

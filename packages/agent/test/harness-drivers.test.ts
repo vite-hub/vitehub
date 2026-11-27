@@ -8,7 +8,7 @@ import { cliproxy, cloudflare, defineAiGateway, emulate, google } from "@vite-hu
 import { acpDriver, agentWithSkills, antigravityDriver, claudeCodeDriver, codexDriver, cursorDriver, defineAgent, fxDriver, geminiDriver, grokDriver, kimiDriver, kiroDriver, museDriver, opencodeDriver, piDriver } from "../src/index.ts"
 import { normalizeAgentDriver } from "../src/internal/agent-driver.ts"
 import { agentDriverSessionModel, materializeAgentDriverGatewayHome, resolveAgentDriverGateway, withAgentDriverGatewayModel } from "../src/internal/agent-gateway.ts"
-import { colocatedAgentSkillsSymbol } from "../src/internal/colocated-agent-skills.ts"
+import { colocatedAgentSkillsSymbol, inspectAgentSkillFiles, withColocatedAgentSkills } from "../src/internal/colocated-agent-skills.ts"
 import { providerHarnessProfile, providerHarnessProfiles } from "../src/internal/provider-profiles.ts"
 import { assertProviderSkillDelivery, materializeProviderSkills, selectProviderSkills } from "../src/internal/provider-skills.ts"
 import { providerRuntimeSettings } from "../src/provider-agent.ts"
@@ -237,7 +237,11 @@ describe("harness Skills in a private gateway Home", () => {
     const cwd = join(root, "work")
     await mkdir(join(userHome, skillRoot, "user-skill"), { recursive: true })
     await writeFile(join(userHome, skillRoot, "user-skill/SKILL.md"), "# User skill\n")
-    await mkdir(cwd)
+    for (const name of ["code-word", "native-only"]) {
+      const directory = join(cwd, ".agents/skills", name)
+      await mkdir(directory, { recursive: true })
+      await writeFile(join(directory, "SKILL.md"), "# Workspace skill\n")
+    }
     const previous = process.env[homeEnv]
     process.env[homeEnv] = userHome
     try {
@@ -250,6 +254,7 @@ describe("harness Skills in a private gateway Home", () => {
       const materialized = await materializeAgentDriverGatewayHome(resolved, join(root, "gateway-home"))
       const home = materialized.environment[homeEnv]!
       const skills = await selectProviderSkills({ colocated, cwd, privateHome: true, provider: harness, workspaceRoot: cwd })
+      expect([...skills.keys()]).toEqual(["code-word"])
       await materializeProviderSkills(skills, harness, home)
 
       expect(home).not.toBe(userHome)
@@ -271,6 +276,29 @@ describe("harness Skills in a private gateway Home", () => {
     const agent = defineAgent({ driver: geminiDriver({ permissions: "allow-all" }) })
     expect(() => agentWithSkills(agent, { review: { "notes.md": "x" } })).toThrow('Skill "review" has no SKILL.md')
     expect(() => agentWithSkills(agent, { review: { "SKILL.md": "x", "../escape.md": "x" } })).toThrow('invalid file path "../escape.md"')
+  })
+
+  it("replaces inherited and discovered Skill folders without keeping old references", () => {
+    const parent = agentWithSkills(defineAgent({ driver: geminiDriver({ permissions: "allow-all" }) }), {
+      review: { "SKILL.md": "parent", "references/old.md": "old" },
+      unrelated: "keep",
+    })
+    const child = agentWithSkills(defineAgent({ extends: parent }), {
+      review: { "SKILL.md": "child", "references/new.md": "new" },
+    })
+    withColocatedAgentSkills(child, {
+      discovered: { content: "discovered", workspacePath: ".agents/skills/review/references/discovered.md", materialize: "startup", mount: "" },
+    })
+    const files = (agent: object) => Object.fromEntries(inspectAgentSkillFiles(agent).map(file => [file.path, new TextDecoder().decode(file.read())]))
+    expect(files(child)).toEqual({
+      ".agents/skills/review/SKILL.md": "child",
+      ".agents/skills/review/references/new.md": "new",
+      ".agents/skills/unrelated/SKILL.md": "keep",
+    })
+    expect(files(agentWithSkills(child, { review: "short" }))).toEqual({
+      ".agents/skills/review/SKILL.md": "short",
+      ".agents/skills/unrelated/SKILL.md": "keep",
+    })
   })
 })
 
