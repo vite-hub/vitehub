@@ -65,10 +65,11 @@ async function setup() {
   return { client, db, portal, other, grant, join, leave, count }
 }
 
-interface Authorize { userId?: string, cookie?: string, challenge?: string, return?: string, headers?: Record<string, string>, now?: number }
+interface Authorize { userId?: string, cookie?: string, challenge?: string, return?: string, headers?: Record<string, string>, now?: number, linked?: boolean }
 
 function authorize(db: ConsoleDatabase, project: ConsoleProject, input: Authorize = {}) {
   const query = new URLSearchParams({ challenge: input.challenge ?? "x".repeat(43), ...(input.return === undefined ? {} : { return: input.return }) })
+  if (input.linked) query.set("linked", "")
   const headers = new Headers(input.headers)
   if (input.cookie) headers.set("cookie", input.cookie)
   return authorizeHostedComments(new Request(`${consoleOrigin}/comments/${project.id}/authorize?${query}`, { headers }), { db, userId: input.userId ?? null, ...(input.now === undefined ? {} : { now: input.now }) })
@@ -130,6 +131,13 @@ function dataOf<T>(result: { body: { data?: unknown } }): T {
 }
 
 describe("hosted Comments sign-in", () => {
+  it("identifies the chosen project on linked sign-in return", async () => {
+    const { db, portal } = await setup()
+    const response = await authorize(db, portal, { userId: "u-ada", linked: true })
+    const location = new URL(response.headers.get("location")!)
+    expect(location.searchParams.get("vhp")).toBe(portal.id)
+    expect(location.hash).toMatch(/^#vhc=[\w-]{43}$/)
+  })
   it("sends a member back to the page with a one-time code, and gives the embed a token for its verifier", async () => {
     const { db, portal } = await setup()
     const { verifier, challenge } = await pkce()

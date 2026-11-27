@@ -104,6 +104,14 @@ export const viteHubPageToolsMarker = "data-vitehub-page-tools"
 /** The bootstrap's opening tag, so the server can recognize the generated bootstrap when it replaces it. */
 export const viteHubPageToolsInlineStart: string = `<script type="module" ${viteHubPageToolsMarker}>`
 
+const hostedCommentsBootstrap = `(()=>{let seen=false;try{for(let index=0;index<sessionStorage.length;index++)seen||=sessionStorage.key(index)?.startsWith("vitehub-comments:")===true}catch{}const query=new URLSearchParams(location.search);if(!seen&&!${JSON.stringify([viteHubPageToolsQuery, ...viteHubPageToolsLinkParams])}.some(param=>query.has(param))&&!/^#\\/?vhc=/.test(location.hash))return;const loader=document.currentScript;const embed=document.createElement("script");embed.type="module";embed.src=loader.dataset.vitehubSource;embed.dataset.vitehubConsoleKey=loader.dataset.vitehubKeys;embed.dataset.vitehubBase=loader.dataset.vitehubBase;embed.nonce=loader.nonce;document.head.append(embed)})()`
+
+export function hostedCommentsLoader(consoleOrigin: string, keys: readonly string[], base = "", nonce?: string): string {
+  const attr = (value: string) => value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;")
+  const source = new URL("/hosted-comments.js", consoleOrigin).href
+  return `<script data-vitehub-hosted-comments${nonce ? ` nonce="${attr(nonce)}"` : ""} ${viteHubPageToolsMarker} data-vitehub-source="${attr(source)}" data-vitehub-keys="${attr(keys.join(" "))}" data-vitehub-base="${attr(base)}">${hostedCommentsBootstrap}</script>`
+}
+
 /**
  * The exact page tools bootstrap: an inline module script that imports `<base>/_vitehub/page/assets/loader.js` only
  * when `viteHubPageToolsWanted()` is true in the browser. Without the hint it makes no request. Vite adds it to a

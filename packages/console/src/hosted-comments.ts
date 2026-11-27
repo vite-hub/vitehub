@@ -196,6 +196,7 @@ export async function authorizeHostedComments(request: Request, options: { db: C
   }
   if (!holder) return renderHostedCommentsSignIn({ site: new URL(project.url).host, state: options.userId ? "forbidden" : "sign-in" })
   const code = await issueHostedCommentsCode(db, { projectId: project.id, holder, challenge, now })
+  if (url.searchParams.has("linked")) target.searchParams.set("vhp", project.id)
   target.hash = `vhc=${code}`
   headers.set("location", target.href)
   return new Response(null, { headers, status: 303 })

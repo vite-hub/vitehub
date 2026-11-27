@@ -3,13 +3,16 @@ import commentMarks from "@vite-hub/ui/comment-marks.css?inline"
 import commentSend from "@vite-hub/ui/comment-send.css?inline"
 
 import { fieldElementOf } from "../anchor.ts"
+import { commentsClientDiagnostics, warnDiagnostic } from "../client-diagnostics.ts"
 import { normalizeCommentPage } from "../page.ts"
 import { api } from "./api.ts"
 import { hostIsDark, mountOverlay } from "./app.ts"
+import { appOverlayElement, hostedDraftEvent, hostedOverlayElement, pendingHostedDraft } from "./element.ts"
 import { areaStyles, documentStyles, pillBarStyles } from "./styles.ts"
 
 import type { ViteHubPageToolContext, ViteHubPageToolModule } from "@vite-hub/internal/runtime/page-tools-loader"
 import type { Mode, OverlayControl } from "./app.ts"
+import type { HostedDraftRequest } from "./element.ts"
 
 function style(text: string): HTMLStyleElement {
   const element = document.createElement("style")
@@ -17,44 +20,33 @@ function style(text: string): HTMLStyleElement {
   return element
 }
 
-/**
- * The `<vitehub-comments>` element: the shadow root of the comment UI, and the document listeners that it needs. The
- * comment UI itself is Vue and the comment parts of `@vite-hub/ui`, which `mountOverlay()` mounts once the session
- * says who the person is.
- */
 class CommentsOverlay extends HTMLElement {
-  /** The page tools context that started the overlay. */
   context?: ViteHubPageToolContext
-  /**
-   * The highlights of commented text, and edit mode. The marks stay in the components layer, as `@vite-hub/ui/styles.css`
-   * puts them, so the page's own rules win over them.
-   */
   private readonly documentStyle = style(`@layer components {\n${commentMarks}\n}\n${documentStyles}`)
-  /** The areas of threads, under the page's floating controls. See `areaStyles`. */
   private readonly areas = document.createElement("vitehub-comment-areas")
   private readonly toolbar = document.createElement("div")
   private control?: OverlayControl
   private mode: Mode = "view"
   private frame = 0
-  /** Whether the DOM of the page changed since the last layout frame. */
   private changed = false
   private lastCursor = 0
   private readonly cleanups: Array<() => void> = []
+
+  waitForPendingComment() {
+    return this.control?.waitForPendingComment()
+  }
 
   private get active() {
     return this.isConnected && !this.context?.signal.aborted
   }
 
   async connectedCallback() {
-    // Anchors and the comment parts skip the overlay's own elements by this attribute.
     this.setAttribute("data-comments-ui", "")
     if (!this.shadowRoot) this.attachShadow({ mode: "open" })
     const bar = this.context?.bar
     if (bar) {
       bar.tabIndex = -1
       bar.setAttribute("data-comments-ui", "")
-      // Until the session answers, the segment keeps the launch button's place and busy look, so the pill does not shrink
-      // and grow again. A session that does not allow the overlay hides the segment.
       const segment = bar.shadowRoot ?? bar.attachShadow({ mode: "open" })
       const busy = document.createElement("button")
       busy.disabled = true
@@ -91,7 +83,6 @@ class CommentsOverlay extends HTMLElement {
       prompt: this.context?.open !== false,
     })
     if (!allowed) {
-      // Someone who may sign in, or switch accounts, keeps the tool's button, as before it loaded. Pressing it says how.
       if (bar && session && this.active && !this.context?.open && (session.signIn || session.signOut)) {
         const launch = document.createElement("button")
         launch.type = "button"
@@ -105,7 +96,6 @@ class CommentsOverlay extends HTMLElement {
     this.listen()
     this.context?.onOpen(() => this.control?.showPanel())
     this.context?.beforeExit(() => !this.control?.hasUnsentComment() || window.confirm("Turn off tools without sending your comment?"))
-    // A `?comment=<n>` link opens its thread on the page, not the list.
     if (this.context?.open && !new URLSearchParams(location.search).has("comment")) this.control.showPanel()
   }
 
@@ -116,7 +106,6 @@ class CommentsOverlay extends HTMLElement {
     this.control = undefined
   }
 
-  /** Keeps the overlay in the page's light or dark scheme when the page or the system switches. */
   private followTheme() {
     const apply = () => {
       const dark = hostIsDark()
@@ -124,8 +113,6 @@ class CommentsOverlay extends HTMLElement {
       this.classList.toggle("dark", dark)
       this.areas.classList.toggle("dark", dark)
       this.dataset.theme = dark ? "dark" : "light"
-      // The page can select a scheme with CSS alone. Give document highlights the same default as the area host,
-      // while keeping the page's comment and theme token overrides. No host page attributes need to change.
       const ink = getComputedStyle(this.areas).getPropertyValue("--vh-comment-default-ink").trim()
       const text = `@layer components {\n${commentMarks}\n:root { --vh-comment-ink: var(--vh-ui-comment-ink, var(--vh-highlighted, ${ink})); }\n}\n${documentStyles}`
       if (this.documentStyle.textContent !== text) this.documentStyle.textContent = text
@@ -161,24 +148,18 @@ class CommentsOverlay extends HTMLElement {
     this.on(window, "resize" as keyof DocumentEventMap, schedule)
     const mutations = new MutationObserver((records) => {
       if (records.every(record => record.target === this || this.contains(record.target))) return
-      // A direct body or field replacement need not blur the detached editable element.
       const editing = this.control?.editElement()
       if (editing && !editing.isConnected) void this.control?.finishEdit(true)
-      // Astro replaces html attributes; Astro and Turbo both merge the head. The retained overlay must restore its
-      // stylesheet and mode class without resetting its mode or drafts, even when the URL stays the same.
       this.restoreDocumentState()
       this.changed = true
       schedule()
     })
-    // Follow the new page as well when its router replaces the body.
     mutations.observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["class", "style", "hidden"] })
     this.cleanups.push(() => mutations.disconnect())
 
-    // Client navigation: Nuxt and other routers use the History API.
     const navigate = () => queueMicrotask(() => {
       if (this.active) this.control?.navigated(normalizeCommentPage(location.pathname))
     })
-    // Finalize the inline draft before Astro or Turbo removes its field, as a normal blur would.
     for (const event of ["astro:before-swap", "turbo:before-render"]) {
       this.on(document, event as keyof DocumentEventMap, () => void this.control?.finishEdit(true))
     }
@@ -195,7 +176,6 @@ class CommentsOverlay extends HTMLElement {
     }
     this.on(window, "popstate" as keyof DocumentEventMap, navigate)
 
-    // The bar over selected text: shown once the selection settles, so it does not chase a drag.
     let selectionTimer: ReturnType<typeof setTimeout> | undefined
     const selectionChanged = (delay: number) => {
       clearTimeout(selectionTimer)
@@ -218,7 +198,6 @@ class CommentsOverlay extends HTMLElement {
     this.cleanups.push(() => clearInterval(poll))
   }
 
-  /** Whether the event happened on the overlay, or on the page tools pill that holds its toolbar and the other tools. */
   private ours(event: Event): boolean {
     const path = event.composedPath()
     const pill = this.context?.bar.parentElement
@@ -231,14 +210,12 @@ class CommentsOverlay extends HTMLElement {
 
   private pointerMoved(event: PointerEvent) {
     if (this.ours(event)) return
-    // Presence sends at most one cursor every 80ms.
     const edit = this.control?.editMode()
     if (!edit && event.timeStamp - this.lastCursor < 80) return
     this.lastCursor = event.timeStamp
     this.control?.pointer(event, this.elementAt(event.clientX, event.clientY))
   }
 
-  /** In edit mode, a click on a Content field edits it. Comment mode's clicks go to the comment layer. */
   private clicked(event: MouseEvent) {
     if (this.ours(event) || !this.control?.editMode()) return
     const target = this.elementAt(event.clientX, event.clientY)
@@ -258,8 +235,8 @@ class CommentsOverlay extends HTMLElement {
     }
   }
 
-  /** Ends comment and edit mode, then removes the overlay. The loader calls it when the page tools stop. */
   stop() {
+    if (!this.isConnected) return
     void this.control?.finishEdit(false)
     this.control?.setMode("view")
     this.mode = "view"
@@ -268,20 +245,45 @@ class CommentsOverlay extends HTMLElement {
   }
 }
 
-/**
- * The `comments` page tool: the page tools loader calls it for people that may read comments. It mounts the
- * `<vitehub-comments>` element for pins, cursors, and cards, and draws the toolbar in `context.bar`, the tool's segment
- * of the pill. It returns its cleanup. The toolbar always shows, so `context.open` only opens the list.
- */
+function overlayTool(name: string): ViteHubPageToolModule["default"] {
+  return (context) => {
+    if (!customElements.get(name)) customElements.define(name, class extends CommentsOverlay {})
+    const overlay = document.createElement(name)
+    if (!(overlay instanceof CommentsOverlay)) {
+      warnDiagnostic(commentsClientDiagnostics.COMMENTS_OVERLAY_ELEMENT_TAKEN({ name }))
+      return
+    }
+    overlay.context = context
+    if (name === hostedOverlayElement) overlay.addEventListener(hostedDraftEvent, (event) => {
+      if (!(event instanceof CustomEvent)) return
+      const detail: HostedDraftRequest = event.detail
+      const ready = overlay.waitForPendingComment()
+      if (ready) detail.draft = { ready, stop: () => overlay.stop() }
+    })
+    document.documentElement.append(overlay)
+    return () => overlay.stop()
+  }
+}
+
+const startAppOverlay = overlayTool(appOverlayElement)
+
 const start: ViteHubPageToolModule["default"] = (context) => {
-  if (!customElements.get("vitehub-comments")) customElements.define("vitehub-comments", CommentsOverlay)
-  const overlay = document.createElement("vitehub-comments")
-  if (!(overlay instanceof CommentsOverlay)) return
-  overlay.context = context
-  // Like the pill and its windows, stay connected throughout a router's body swap. A detach would stop listeners,
-  // polling and Realtime, and reconnecting would initialize the toolbar's shadow root a second time.
-  document.documentElement.append(overlay)
-  return () => overlay.stop()
+  const draft = pendingHostedDraft()
+  if (!draft) return startAppOverlay(context)
+  let cancelled = false
+  let stop: (() => void) | void
+  void draft.ready.then(() => {
+    if (cancelled || context.signal.aborted) return
+    draft.stop()
+    stop = startAppOverlay(context)
+  })
+  return () => {
+    cancelled = true
+    stop?.()
+  }
 }
 
 export default start
+
+/** The `comments` tool of the Hosted Comments pill: the same overlay in its own `<vitehub-hosted-comments>` element. */
+export const startHostedOverlay: ViteHubPageToolModule["default"] = overlayTool(hostedOverlayElement)
