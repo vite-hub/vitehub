@@ -3,6 +3,7 @@ import { renderToString } from "@vue/server-renderer";
 import { describe, expect, it } from "vitest";
 import { defineContent } from "@vite-hub/content";
 import { Markdown } from "../src/components/markdown.ts";
+import { createViteHubUI } from "../src/config.ts";
 
 async function page() {
   const markdown = "# Ready\n\n> [!NOTE]\n> No renderer setup.\n\n::steps\n### First\nRead the page.\n### Next\nKeep going.\n::\n\nInline $x^2$.\n";
@@ -19,6 +20,17 @@ async function page() {
 }
 
 describe("Markdown with Content", () => {
+  it.each([undefined, false])("respects the app's motion setting (%s) for string and Content values", async (motion) => {
+    const MotionRuntime = defineComponent({ setup: () => () => h("span", { "data-motion-runtime": "" }) });
+    for (const value of ["# Ready", await page()]) {
+      const app = createSSRApp({ render: () => h(Markdown, { value, components: { MotionRuntime } }) });
+      if (motion === false) app.use(createViteHubUI({ motion }));
+      const html = await renderToString(app);
+      expect(html).toContain("Ready</h1>");
+      expect(html.includes("data-motion-runtime")).toBe(motion !== false);
+    }
+  });
+
   it("renders a Content page with its components and styles without reparsing", async () => {
     const value = await page();
     const html = await renderToString(createSSRApp({ render: () => h(Markdown, {
