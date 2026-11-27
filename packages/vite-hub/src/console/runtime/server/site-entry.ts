@@ -174,13 +174,12 @@ export const consoleEntryRoute: ConsoleRoute = consoleRoute(async (event) => {
 
 /**
  * `/_vitehub` in an app without Comments, which gets the Hosted Comments pill: the page of the app with `?vitehub`, when
- * the app has a `VITEHUB_CONSOLE_KEY_<NAME>` variable. Without one, or on a development server, the Console page of the
- * app, as `consoleEntryRoute`.
+ * the app has a `VITEHUB_CONSOLE_KEY_<NAME>` variable. Without one, on a development server, or for a name in
+ * `siteEntryReservedNames` such as `/_vitehub/agents`, the Console page of the app, as `consoleEntryRoute`.
  */
 export const hostedCommentsEntryRoute: ConsoleRoute = consoleRoute(async (event) => {
   const { development, origin, request } = await enterRequest(event)
   if (development || !hostedCommentsKeys(consoleRequestEnv(request)).length) return consoleLocation(request, origin)
   const target = siteEntryTarget(request, origin)
-  if (!target) throw consoleRequestError(404, "ViteHub serves this path itself, and nothing answered it. Open the page and follow a link to /_vitehub from it.")
-  return seeOther(withPageTools(`${target.base}${target.page}`))
+  return target ? seeOther(withPageTools(`${target.base}${target.page}`)) : consoleLocation(request, origin)
 })

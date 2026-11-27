@@ -455,9 +455,9 @@ describe("GET /_vitehub in an app without Comments, which gets the Hosted Commen
     expect(await location("/_vitehub", { headers: { referer: "https://other.example.com/recetas/x" } })).toBe("/?vitehub")
   })
 
-  it("answers 404 for a path that ViteHub serves itself", async () => {
-    expect((await enter("/_vitehub/rpc/x")).status).toBe(404)
-    expect((await enter("/_vitehub/comments/x")).status).toBe(404)
+  it("opens the Console page for a path that ViteHub serves itself", async () => {
+    expect(await location("/_vitehub/agents/support?tab=trace")).toBe("https://console.vitehub.dev/open?project=https%3A%2F%2Fcocina.example.com&path=%2Fagents%2Fsupport%3Ftab%3Dtrace")
+    expect(new URL(await location("/_vitehub/comments/x") ?? "").origin).toBe("https://console.vitehub.dev")
   })
 
   it("opens the ViteHub Console when the app has no Console key, or on a development server", async () => {
