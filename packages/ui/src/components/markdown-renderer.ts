@@ -12,6 +12,7 @@ import { defineComponent, h, shallowRef, type PropType } from "vue";
 import { markdownMath } from "../internal/markdown-math.ts";
 import { ImagePreview } from "../internal/image-preview.ts";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
+import { useViteHubUIMotionEnabled } from "../config.ts";
 
 type Katex = typeof import("katex").default;
 
@@ -81,6 +82,7 @@ export const MarkdownRenderer = defineComponent({
     value: { default: "", type: [String, Object] as PropType<string | NonNullable<MarkdownDocumentProps["value"]>> },
   },
   setup(props, { attrs }) {
+    const motionEnabled = useViteHubUIMotionEnabled();
     return () => {
       const parserOptions = { ...props.options };
       const builtInPlugins = [
@@ -109,6 +111,7 @@ export const MarkdownRenderer = defineComponent({
         delete resolvedComponents[`Prose${tag}`];
         resolvedComponents[tag] = component;
       }
+      if (!motionEnabled) resolvedComponents.ProseMotionRuntime = () => null;
       const shared = { ...attrs, components: resolvedComponents, streaming: props.streaming };
       return typeof props.value === "string"
         ? h(ComarkMarkdown, { ...shared, plugins: safePlugins, options: { ...parserOptions, registerDefaultPlugins: false }, value: props.value })

@@ -35,7 +35,7 @@ export interface DocsDocument {
 export interface DocsParserOptions {
   /**
    * comark-ui's preset options, merged over the built-in ones: `{ typeset: false, chips: false, diagrams: false,
-   * motion: false, badge: { download: false } }`. Such as `{ chips: true }` or `{ github: { references: { repo: "owner/name" } } }`.
+   * badge: { download: false } }`. Such as `{ chips: true }` or `{ github: { references: { repo: "owner/name" } } }`.
    * `diagrams: true` draws D2, PlantUML, and Graphviz fences through kroki.io, which receives their source. Set
    * `diagrams: { server }` to use your own Kroki server.
    */
@@ -66,14 +66,13 @@ const themes = { light: githubLight, dark: githubDark }
  * link into a chip and fetch its favicon. A site turns them on with `comarkUi: { chips: true }`. Kroki diagrams are
  * off: they send each D2, PlantUML, or Graphviz fence to kroki.io while the page parses. Mermaid stays on, since
  * comark-pele draws it in the process. Remove the Kroki override when comark-ui turns drawing off by default
- * (https://github.com/onmax/comark-ui/issues/446). Motion is off: comark-ui turns it on by default from 0.14, and it
- * adds a `motion-runtime` node and the comark-motion layer to every page. A site turns it on with `comarkUi: { motion: true }`.
+ * (https://github.com/onmax/comark-ui/issues/446).
  *
  * The plugins are the HTML preset's, so annotate, comments, diff, and quiz parse too, with the Vue preset's copy of
  * every plugin the two share.
  */
 function docsBlocks(options: PresetOptions = {}) {
-  const merged = defu(options, { typeset: false, chips: false, diagrams: false, motion: false, badge: { download: false } }) as PresetOptions
+  const merged = defu(options, { typeset: false, chips: false, diagrams: false, badge: { download: false } }) as PresetOptions
   // Keep the plugin's authored-SVG rejection when remote drawing is off, without changing explicit opt-ins.
   if (merged.diagrams === false) merged.diagrams = { draw: false }
   const vue = new Map(comarkUi(merged).plugins.map(plugin => [plugin.name, plugin]))
