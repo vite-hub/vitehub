@@ -28,7 +28,7 @@ It needs the AI SDK provider package of its model API. The `api` option selects 
 | `api` | Request | URL | Package |
 | --- | --- | --- | --- |
 | `'chat'` | OpenAI Chat Completions | `openai-compatible` | `@ai-sdk/openai-compatible`, or `@ai-sdk/openai` with `openai()` |
-| `'responses'` | OpenAI Responses | `openai-compatible`, else `codex` | `@ai-sdk/openai` |
+| `'responses'` | OpenAI Responses | `openai-compatible`, else `codex`; `zai()` uses `codex` | `@ai-sdk/openai` |
 | `'messages'` | Anthropic Messages | `claude-code` | `@ai-sdk/anthropic` |
 
 The default `api` is `'chat'` with an `openai-compatible` URL, else `'messages'` with a `claude-code` URL, else `'responses'`. So `anthropic()` uses Anthropic Messages, and `openai()` uses Chat Completions until you pass `api: 'responses'`, which OpenAI reasoning models that call tools need. `openai()` uses `@ai-sdk/openai` for both, so an OpenAI app installs only that package.
@@ -196,10 +196,10 @@ export const codexThroughCloudflare = defineAiGateway({
 | Option | Description |
 | --- | --- |
 | `name` | Shown in inspection and diagnostics. |
-| `baseURL` | One URL per model API: `codex` (OpenAI Responses at `<url>/responses`, for the Codex Driver), `claude-code` (Anthropic Messages at `<url>/v1/messages`, for the Claude Code Driver and `api: 'messages'`), and `openai-compatible` (Chat Completions at `<url>/chat/completions` and Responses at `<url>/responses`, for AI SDK models). A function runs per request. |
+| `baseURL` | One URL per model API: `codex` (OpenAI Responses at `<url>/responses`, for the Codex Driver), `claude-code` (Anthropic Messages at `<url>/v1/messages`, for the Claude Code Driver and `api: 'messages'`), `gemini` (the Gemini API at `<url>/v1beta/models/<model>:generateContent`, for the Gemini CLI), and `openai-compatible` (Chat Completions at `<url>/chat/completions` and Responses at `<url>/responses`, for AI SDK models). A function runs per request. |
 | `apiKey` | A string, a sealed value, or a function. |
 | `apiKeyEnv` | Host variables that supply the key, in order. |
-| `auth` | `'bearer'` (default) sends `Authorization: Bearer <key>`. `'x-api-key'` sends `x-api-key: <key>`. |
+| `auth` | `'bearer'` (default) sends `Authorization: Bearer <key>`. `'x-api-key'` sends `x-api-key: <key>`. The `gemini` route always sends `x-goog-api-key: <key>`. |
 | `headers` | Extra headers. Each value is a secret, like `apiKey`. |
 
 ## Other exports
@@ -208,4 +208,6 @@ export const codexThroughCloudflare = defineAiGateway({
 | --- | --- |
 | `cloudflareAccess()` | Headers for a gateway behind Cloudflare Access. See [Presets](/docs/gateways/configure#presets). |
 | `aiGatewayEnv` | The variables that each preset reads. |
+| `aiGatewayHarnessRoute(gateway, harness)` | Looks up a route key for the specified configuration, skipping SDK-only presets. Does not verify CLI compatibility. See [Gemini CLI](/docs/gateways/configure#gemini-cli). |
+| `aiGatewayHarnessRoutes` | Route keys for `claude-code`, `codex`, and `gemini`, plus Chat Completions configurations for `kimi`, `opencode`, and `pi`. |
 | `chatgpt({ connection? })` | A gateway without a key for a Codex Driver or a model-backed Driver. It uses the `chatgpt` Connection by default. See [ChatGPT plan usage](/docs/connections/chatgpt). |

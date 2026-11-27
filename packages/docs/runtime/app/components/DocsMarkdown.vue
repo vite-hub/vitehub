@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { MarkdownDocument } from "@comark/vue/components/MarkdownDocument"
+import { useViteHubUIMotionEnabled } from "@vite-hub/ui"
 import { components as lazyBlocks } from "comark-ui/vue/lazy"
 import { camelize, capitalize, defineAsyncComponent } from "vue"
 import customComponents from "#docs/custom-components"
@@ -20,6 +21,7 @@ const props = defineProps<{
 }>()
 
 const blocks: Record<string, Component> = lazyBlocks
+const motionEnabled = useViteHubUIMotionEnabled()
 
 // `::note`, `::tip`, and the other callout components draw comark-ui's GitHub callout, the same as a `> [!NOTE]` quote.
 const callout = (type: string, title?: string): Component => defineComponent({
@@ -40,7 +42,11 @@ const componentKey = (tag: string) => capitalize(camelize(tag))
 // Comark looks up PascalCase before the raw tag, so all maps must use the same keys for precedence to hold.
 const byKey = (maps: Record<string, Component>[]) => Object.fromEntries(maps.flatMap(map => Object.entries(map).map(([tag, component]) => [componentKey(tag), component])))
 const overrides = computed(() => byKey([contentBlocks, customComponents, props.components ?? {}]))
-const resolved = computed(() => ({ ...byKey([blocks, callouts]), ...overrides.value }))
+const resolved = computed(() => ({
+  ...byKey([blocks, callouts]),
+  ...overrides.value,
+  ...(motionEnabled ? {} : { ProseMotionRuntime: () => null }),
+}))
 
 // HTML is the fallback. An app component still receives the original tag, props, and source children. comark-ui's own
 // component doesn't: the parser drew the block as HTML because that component can't, as with a chart's marks.
