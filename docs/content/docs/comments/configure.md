@@ -83,7 +83,9 @@ Do not add the `comments()` plugin next to `vitehub()`. The dev server and the b
 
 Hosted Comments works on any site that can load a script. The Console signs reviewers in and stores threads in its database. The embed runs entirely in the browser.
 
-1. In the Console, open **Apps** > **Link app**, select **Hosted Comments only**, and enter the site's URL. For a connected app, open **Settings** > **Connection** > **Hosted Comments**.
+Use Hosted Comments or the app's own Comments on a page, not both. When a page runs the app's own Comments, the script does not start, or it stops when the app's Comments start later. The browser console then shows `COMMENTS_HOSTED_CONFLICT`. To use Hosted Comments on a connected app, set `comments: false`.
+
+1. In the Console, open **Apps** > **Link app**, select **Hosted Comments only**, and enter the site's URL. For a connected app without its own Comments, open **Settings** > **Connection** > **Hosted Comments**.
 2. Copy the script into the HTML at the registered URL and on the pages you want to review. The registered page completes sign-in for the review tab.
 
 ```html

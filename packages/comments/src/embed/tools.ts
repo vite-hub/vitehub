@@ -2,6 +2,7 @@ import { loadViteHubPageTools, stopViteHubPageTools } from "@vite-hub/internal/r
 
 import { commentsUnansweredError } from "../client-diagnostics.ts"
 import { apiError, useCommentsOverlayBackend } from "../overlay/api.ts"
+import { appCommentsRunning, appOverlayElement } from "../overlay/element.ts"
 import { embedPath } from "./protocol.ts"
 
 import type { ViteHubPageSession } from "@vite-hub/internal/runtime/page-tools-shared"
@@ -72,13 +73,21 @@ function backendOf(frame: Promise<EmbedFrame>, project: HostedProject): Comments
   }
 }
 
+let watchAppComments: Promise<void> | undefined
+
 /**
  * Shows the page tools with Comments, which reach the Console only through the embed frame. A second call, after a
  * sign-in, replaces the tools of the first with tools for the new account. It does not open them: the page stays as the
- * person left it, and they choose when to comment.
+ * person left it, and they choose when to comment. The app's own Comments win: on a page that runs them, or once the
+ * page starts them, the hosted tools stop and say why in the browser console.
  */
 export async function mountHostedComments(frame: Promise<EmbedFrame>, project: HostedProject): Promise<void> {
   stopViteHubPageTools()
+  if (appCommentsRunning()) return
+  watchAppComments ??= customElements.whenDefined(appOverlayElement).then(() => {
+    stopViteHubPageTools()
+    appCommentsRunning()
+  })
   useCommentsOverlayBackend(backendOf(frame, project))
   await loadViteHubPageTools({
     pill: {
@@ -90,6 +99,6 @@ export async function mountHostedComments(frame: Promise<EmbedFrame>, project: H
       initialDock: { edge: "right", at: 85 },
     },
     session: async () => session,
-    load: () => import("../overlay/index.ts"),
+    load: async () => ({ default: (await import("../overlay/index.ts")).startHostedOverlay }),
   })
 }

@@ -3,9 +3,11 @@ import commentMarks from "@vite-hub/ui/comment-marks.css?inline"
 import commentSend from "@vite-hub/ui/comment-send.css?inline"
 
 import { fieldElementOf } from "../anchor.ts"
+import { commentsClientDiagnostics, warnDiagnostic } from "../client-diagnostics.ts"
 import { normalizeCommentPage } from "../page.ts"
 import { api } from "./api.ts"
 import { hostIsDark, mountOverlay } from "./app.ts"
+import { appOverlayElement, hostedOverlayElement } from "./element.ts"
 import { areaStyles, documentStyles, pillBarStyles } from "./styles.ts"
 
 import type { ViteHubPageToolContext, ViteHubPageToolModule } from "@vite-hub/internal/runtime/page-tools-loader"
@@ -18,7 +20,7 @@ function style(text: string): HTMLStyleElement {
 }
 
 /**
- * The `<vitehub-comments>` element: the shadow root of the comment UI, and the document listeners that it needs. The
+ * The `<vitehub-comments>` element, or `<vitehub-hosted-comments>` for Hosted Comments: the shadow root of the comment UI, and the document listeners that it needs. The
  * comment UI itself is Vue and the comment parts of `@vite-hub/ui`, which `mountOverlay()` mounts once the session
  * says who the person is.
  */
@@ -273,15 +275,25 @@ class CommentsOverlay extends HTMLElement {
  * `<vitehub-comments>` element for pins, cursors, and cards, and draws the toolbar in `context.bar`, the tool's segment
  * of the pill. It returns its cleanup. The toolbar always shows, so `context.open` only opens the list.
  */
-const start: ViteHubPageToolModule["default"] = (context) => {
-  if (!customElements.get("vitehub-comments")) customElements.define("vitehub-comments", CommentsOverlay)
-  const overlay = document.createElement("vitehub-comments")
-  if (!(overlay instanceof CommentsOverlay)) return
-  overlay.context = context
-  // Like the pill and its windows, stay connected throughout a router's body swap. A detach would stop listeners,
-  // polling and Realtime, and reconnecting would initialize the toolbar's shadow root a second time.
-  document.documentElement.append(overlay)
-  return () => overlay.stop()
+function overlayTool(name: string): ViteHubPageToolModule["default"] {
+  return (context) => {
+    if (!customElements.get(name)) customElements.define(name, class extends CommentsOverlay {})
+    const overlay = document.createElement(name)
+    if (!(overlay instanceof CommentsOverlay)) {
+      warnDiagnostic(commentsClientDiagnostics.COMMENTS_OVERLAY_ELEMENT_TAKEN({ name }))
+      return
+    }
+    overlay.context = context
+    // Like the pill and its windows, stay connected throughout a router's body swap. A detach would stop listeners,
+    // polling and Realtime, and reconnecting would initialize the toolbar's shadow root a second time.
+    document.documentElement.append(overlay)
+    return () => overlay.stop()
+  }
 }
 
+const start = overlayTool(appOverlayElement)
+
 export default start
+
+/** The `comments` tool of the Hosted Comments pill: the same overlay in its own `<vitehub-hosted-comments>` element. */
+export const startHostedOverlay: ViteHubPageToolModule["default"] = overlayTool(hostedOverlayElement)
