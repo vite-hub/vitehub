@@ -10,7 +10,6 @@ const ana: CommentUser = { id: "ana", name: "Ana Ruiz" }
 const subject = { kind: "page", id: "/pricing" }
 const anchor = { kind: "element", selector: "#cta", x: 500, y: 500 } as const
 
-/** One browser: tabs that share one lock and one channel, one network switch, and timers that run when the test says. */
 function createBrowser() {
   let now = Date.now()
   vi.spyOn(Date, "now").mockImplementation(() => now)
@@ -28,7 +27,6 @@ function createBrowser() {
       online = value
       for (const listener of listeners) listener(value ? "online" : "offline")
     },
-    /** Runs every timer that is due. */
     runTimers() {
       const ready = timers.splice(0).filter(timer => !timer.cancelled)
       now += Math.max(0, ...ready.map(timer => timer.ms))
@@ -44,7 +42,6 @@ function createBrowser() {
         isVisible: () => true,
         isOnline: () => online,
         lock: (_name, task) => task(),
-        // One lock for the whole browser, granted in request order, as Web Locks do.
         lead(_name, task) {
           const controller = new AbortController()
           const previous = lock
@@ -81,7 +78,6 @@ function createBrowser() {
 type Failure = Error & { status?: number, retryAfter?: number }
 const failure = (status: number, retryAfter?: number): Failure => Object.assign(new Error(`Status ${status}`), { status, ...(retryAfter === undefined ? {} : { retryAfter }) })
 
-/** A memory transport whose next calls fail as the test says. `lost` stores the comment and then loses the answer. */
 function createServer() {
   const memory = createMemoryTransport({ user: ana, users: [ana] })
   const plan: Array<Failure | "lost" | Promise<void>> = []
@@ -121,10 +117,67 @@ function setup(options: { store?: CommentsOutboxStore, browser?: ReturnType<type
   return { browser, server, store, client, stop }
 }
 
+function createSlowStore() {
+  const memory = createMemoryOutboxStore()
+  const plan: Array<Promise<void> | Error> = []
+  const store: CommentsOutboxStore = {
+    persisted: false,
+    list: account => memory.list(account),
+    async update(account, change) {
+      const step = plan.shift()
+      if (step instanceof Error) throw step
+      if (step) await step
+      return memory.update(account, change)
+    },
+  }
+  return { store, plan }
+}
+
+function createSerialStore() {
+  const memory = createMemoryOutboxStore()
+  const plan: Array<Promise<void>> = []
+  let queue: Promise<unknown> = Promise.resolve()
+  const serial = <T>(run: () => Promise<T>): Promise<T> => {
+    const result = queue.then(run)
+    queue = result.catch(() => undefined)
+    return result
+  }
+  const store: CommentsOutboxStore = {
+    persisted: false,
+    list: account => serial(() => memory.list(account)),
+    update(account, change) {
+      const step = plan.shift()
+      return serial(async () => {
+        await step
+        return memory.update(account, change)
+      })
+    },
+  }
+  return { store, plan }
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((pass, fail) => {
+    resolve = pass
+    reject = fail
+  })
+  return { promise, resolve, reject }
+}
+
+function gate() {
+  const { promise, resolve: open } = deferred<void>()
+  return { promise, open }
+}
+
+const settle = () => new Promise(resolve => setTimeout(resolve, 20))
+
 const stops: Array<() => void> = []
 afterEach(() => {
   for (const stop of stops.splice(0)) stop()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe("the comments outbox", () => {
@@ -154,7 +207,6 @@ describe("the comments outbox", () => {
     await expect(client.edit({ threadId: draft.id, messageId: draft.id, body: "Corrected" })).rejects.toMatchObject({ code: "COMMENTS_OUTBOX_SENDING" })
     await expect(client.outbox.dismiss(draft.id)).resolves.toBe(false)
 
-    // The server has it. A refresh lists it while the outbox still waits to resend.
     await client.refresh()
     expect(server.memory.threads).toHaveLength(1)
     expect(client.threads).toHaveLength(1)
@@ -313,7 +365,6 @@ describe("the comments outbox", () => {
     await vi.waitFor(() => expect(first.client.outbox.entries).toHaveLength(0))
     await vi.waitFor(() => expect(second.client.outbox.entries).toHaveLength(0))
     expect(server.creates).toHaveLength(1)
-    // The tab that did not send hears the server copy.
     expect(second.client.threads).toHaveLength(1)
     expect(second.client.threads[0]).toMatchObject({ n: 1 })
     expect(second.client.threads[0]!.delivery).toBeUndefined()
@@ -329,7 +380,6 @@ describe("the comments outbox", () => {
     expect(thread.messages[0]!.delivery!.files).toHaveLength(1)
     before.stop()
 
-    // A reload: a new page with the same store.
     const after = setup({ store, server })
     await vi.waitFor(() => expect(server.memory.threads).toHaveLength(1))
     await vi.waitFor(() => expect(after.client.outbox.entries).toHaveLength(0))
@@ -540,6 +590,400 @@ describe("the comments outbox", () => {
     expect(other.client.threads).toEqual([])
     expect(server.creates).toHaveLength(0)
     expect(await store.list("ben")).toHaveLength(1)
+  })
+
+  it("shows a comment and tells onChange before the store has saved it", async () => {
+    const { store, plan } = createSlowStore()
+    const { server, client } = setup({ store })
+    await vi.waitFor(() => expect(client.status).toBe("ready"))
+    const write = gate()
+    plan.push(write.promise)
+    const changes = vi.fn()
+    client.onChange(changes)
+    const created = client.create({ subject, anchor, body: "Right away" })
+    expect(changes).toHaveBeenCalled()
+    expect(client.outbox.queued.map(entry => entry.input.body)).toEqual(["Right away"])
+    expect(client.threads).toMatchObject([{ delivery: { status: "pending" }, messages: [{ body: "Right away", delivery: { status: "pending" } }] }])
+    const thread = await created
+    expect(client.threads.map(item => item.id)).toEqual([thread.id])
+    expect(await store.list(ana.id)).toEqual([])
+    write.open()
+    await vi.waitFor(() => expect(client.outbox.entries).toHaveLength(0))
+    expect(server.creates.map(input => input.body)).toEqual(["Right away"])
+  })
+
+  it("sends nothing when the store saves a comment after the client stopped", async () => {
+    const { store, plan } = createSlowStore()
+    const { server, client, stop } = setup({ store })
+    await vi.waitFor(() => expect(client.status).toBe("ready"))
+    const write = gate()
+    plan.push(write.promise)
+    await client.create({ subject, anchor, body: "Saved after the page left" })
+    stop()
+    write.open()
+    await settle()
+    expect(server.creates).toHaveLength(0)
+    expect(await store.list(ana.id)).toMatchObject([{ input: { body: "Saved after the page left" } }])
+  })
+
+  it("keeps the order of the calls when the first write is slower", async () => {
+    const { store, plan } = createSlowStore()
+    const { server, client } = setup({ store })
+    await vi.waitFor(() => expect(client.status).toBe("ready"))
+    const write = gate()
+    plan.push(write.promise)
+    const first = client.create({ subject, anchor, body: "First", files: [new Blob(["a bigger file"])] })
+    const second = client.create({ subject, anchor, body: "Second" })
+    expect(client.outbox.entries.map(entry => entry.input.body)).toEqual(["First", "Second"])
+    await second
+    await settle()
+    expect(server.creates).toHaveLength(0)
+    write.open()
+    await first
+    await vi.waitFor(() => expect(client.outbox.entries).toHaveLength(0))
+    expect(server.creates.map(input => input.body)).toEqual(["First", "Second"])
+  })
+
+  it("sends the next saved draft when the earlier write fails late", async () => {
+    const { store, plan } = createSlowStore()
+    const { server, client } = setup({ store })
+    await vi.waitFor(() => expect(client.status).toBe("ready"))
+    const write = deferred<void>()
+    plan.push(write.promise)
+    await client.create({ subject, anchor, body: "First" })
+    await client.create({ subject, anchor, body: "Second" })
+    await settle()
+    expect(server.creates).toHaveLength(0)
+    write.reject(new DOMException("Full", "QuotaExceededError"))
+    await vi.waitFor(() => expect(server.creates.map(input => input.body)).toEqual(["Second"]))
+    expect(client.outbox.failures.map(entry => entry.input.body)).toEqual(["First"])
+  })
+
+  it("does not restore a cleared draft when its delayed save finishes", async () => {
+    const { store, plan } = createSlowStore()
+    const { server, client } = setup({ store })
+    await vi.waitFor(() => expect(client.status).toBe("ready"))
+    const write = gate()
+    plan.push(write.promise)
+    await client.create({ subject, anchor, body: "Discard this" })
+    await client.outbox.clear()
+    write.open()
+    await settle()
+    expect(await store.list(ana.id)).toEqual([])
+    expect(server.creates).toHaveLength(0)
+  })
+
+  it("warns before unload after an offline draft is saved in memory", async () => {
+    const page = new EventTarget()
+    vi.stubGlobal("addEventListener", page.addEventListener.bind(page))
+    vi.stubGlobal("removeEventListener", page.removeEventListener.bind(page))
+    const { browser, client, store } = setup()
+    browser.online = false
+    await client.create({ subject, anchor, body: "Only in memory" })
+    await vi.waitFor(async () => expect(await store.list(ana.id)).toHaveLength(1))
+    expect(page.dispatchEvent(new Event("beforeunload", { cancelable: true }))).toBe(false)
+    await client.outbox.clear()
+    expect(page.dispatchEvent(new Event("beforeunload", { cancelable: true }))).toBe(true)
+  })
+
+  it("resolves only after the previous reply reaches the server", async () => {
+    const { server, client } = setup()
+    const thread = await server.memory.create({ subject, anchor, body: "Open" })
+    await client.refresh()
+    const write = gate()
+    server.plan.push(write.promise)
+    await client.reply({ threadId: thread.id, body: "Before Resolve" })
+    await vi.waitFor(() => expect(server.replies).toHaveLength(1))
+    const resolved = client.resolve({ threadId: thread.id })
+    await settle()
+    expect((await server.memory.get({ threadId: thread.id }))?.status).toBe("open")
+    write.open()
+    expect(await resolved).toMatchObject({ status: "resolved", messages: [{ body: "Open" }, { body: "Before Resolve" }] })
+  })
+
+  it("reports a diagnostic without resolving a thread with a failed reply", async () => {
+    const { server, client } = setup()
+    const thread = await server.memory.create({ subject, anchor, body: "Open" })
+    await client.refresh()
+    server.plan.push(failure(422))
+    await client.reply({ threadId: thread.id, body: "Keep this reply" })
+    await vi.waitFor(() => expect(client.outbox.failures).toHaveLength(1))
+    await expect(client.resolve({ threadId: thread.id })).rejects.toMatchObject({ code: "COMMENTS_OUTBOX_RESOLVE_BLOCKED" })
+    expect((await server.memory.get({ threadId: thread.id }))?.status).toBe("open")
+  })
+
+  it("returns the first draft on a replay before the other client's snapshot loads", async () => {
+    const { browser, client, store, server } = setup()
+    browser.online = false
+    const first = await client.create({ subject, anchor, requestId: "one", body: "First body" })
+    const other = setup({ browser, store, server }).client
+    const replay = other.create({ subject, anchor, requestId: "one", body: "Other body" })
+    const repeatedReplay = other.create({ subject, anchor, requestId: "one", body: "Also ignored" })
+    const provisional = other.outbox.entries[0]?.id
+    expect(provisional).toBeDefined()
+    const reply = other.reply({ threadId: provisional!, requestId: "two", body: "A reply" })
+    expect(await replay).toMatchObject({ id: first.id, messages: [{ body: "First body" }] })
+    expect(await repeatedReplay).toMatchObject({ id: first.id, messages: [{ body: "First body" }] })
+    await reply
+    await vi.waitFor(async () => expect(await store.list(ana.id)).toMatchObject([
+      { id: first.id, input: { body: "First body" } },
+      { input: { threadId: first.id, body: "A reply" } },
+    ]))
+    const third = setup({ browser, store, server }).client
+    const replyReplay = third.reply({ threadId: first.id, requestId: "two", body: "Ignore this replay" })
+    const repeatedReplyReplay = third.reply({ threadId: first.id, requestId: "two", body: "Also ignored" })
+    for (const result of [replyReplay, repeatedReplyReplay]) {
+      expect(await result).toMatchObject({ id: first.id, messages: [{ body: "First body" }, { body: "A reply" }] })
+    }
+  })
+
+  it("retains deferred bytes when their checkpoint fails and sends them on retry", async () => {
+    const { store, plan } = createSlowStore()
+    const { server, client } = setup({ store })
+    await vi.waitFor(() => expect(client.status).toBe("ready"))
+    const files = deferred<Blob[]>()
+    const draft = await client.create({ subject, anchor, body: "With picture", files: files.promise })
+    await settle()
+    plan.push(new DOMException("Full", "QuotaExceededError"))
+    files.resolve([new Blob(["pixels"])])
+    await vi.waitFor(() => expect(client.outbox.failures).toHaveLength(1))
+    expect(server.creates).toHaveLength(0)
+    await client.outbox.retry(draft.id)
+    await vi.waitFor(() => expect(server.creates).toHaveLength(1))
+    expect(await server.creates[0]!.files![0]!.text()).toBe("pixels")
+  })
+
+  it("does not expose drafts awaiting files to a shared store without Web Locks", async () => {
+    vi.stubGlobal("window", new EventTarget())
+    vi.stubGlobal("document", Object.assign(new EventTarget(), { visibilityState: "visible" }))
+    const navigator = { onLine: false }
+    vi.stubGlobal("navigator", navigator)
+    const store = createMemoryOutboxStore()
+    const server = createServer()
+    const open = () => {
+      const client = createCommentsClient({ transport: server.transport, user: ana, query: { page: "/pricing" }, outbox: { account: ana.id, store } })
+      stops.push(client.start())
+      return client
+    }
+    const producer = open()
+    const files = deferred<Blob[]>()
+    await producer.create({ subject, anchor, body: "With picture", files: files.promise })
+    await producer.create({ subject, anchor, body: "After picture" })
+    await settle()
+    navigator.onLine = true
+    const consumer = open()
+    await vi.waitFor(() => expect(consumer.status).toBe("ready"))
+    expect(await store.list(ana.id)).toEqual([])
+    expect(server.creates).toHaveLength(0)
+
+    files.resolve([new Blob(["pixels"])])
+    await vi.waitFor(() => expect(server.creates.map(input => input.body)).toEqual(["With picture", "After picture"]))
+    expect(await server.creates[0]!.files![0]!.text()).toBe("pixels")
+  })
+
+  it("checkpoints a parked reply's files after its parent's retry captures the batch", async () => {
+    const memory = createMemoryOutboxStore()
+    const captured = gate()
+    const commit = gate()
+    let refuse = true
+    const store: CommentsOutboxStore = {
+      ...memory,
+      async update(account, change) {
+        return memory.update(account, (drafts) => {
+          const result = change(drafts)
+          if (refuse && drafts.size === 1) throw new DOMException("Full", "QuotaExceededError")
+          return result
+        }).then(async (result) => {
+          if ((await memory.list(account)).length === 2) {
+            captured.open()
+            await commit.promise
+          }
+          return result
+        })
+      },
+    }
+    const browser = createBrowser()
+    browser.online = false
+    const { client, server } = setup({ browser, store })
+    const parent = await client.create({ subject, anchor, body: "Parent" })
+    await vi.waitFor(() => expect(client.outbox.failures).toHaveLength(1))
+    const files = deferred<Blob[]>()
+    await client.reply({ threadId: parent.id, requestId: "reply", body: "With picture", files: files.promise })
+    refuse = false
+    const retry = client.outbox.retry(parent.id)
+    await captured.promise
+    files.resolve([new Blob(["pixels"])])
+    await settle()
+    commit.open()
+    await retry
+    browser.online = true
+    await vi.waitFor(() => expect(server.replies).toHaveLength(1))
+    expect(await server.replies[0]!.files?.[0]?.text()).toBe("pixels")
+  })
+
+  it.each(["create", "reply"] as const)("keeps one tab's %s calls in order when another tab's write lands first", async (kind) => {
+    const { store, plan } = createSerialStore()
+    const browser = createBrowser()
+    const server = createServer()
+    const parent = await server.memory.create({ subject, anchor, body: "Parent" })
+    const first = setup({ browser, server, store })
+    const second = setup({ browser, server, store })
+    await vi.waitFor(() => expect([first.client.status, second.client.status]).toEqual(["ready", "ready"]))
+    const write = gate()
+    plan.push(write.promise)
+    const send = (client: typeof first.client, body: string) => kind === "create" ? client.create({ subject, anchor, body }) : client.reply({ threadId: parent.id, body })
+    await send(second.client, "Other tab")
+    await send(first.client, "One")
+    await send(first.client, "Two")
+    write.open()
+    await vi.waitFor(() => expect(first.client.outbox.entries).toHaveLength(0))
+    await vi.waitFor(() => expect(second.client.outbox.entries).toHaveLength(0))
+    const sent = (kind === "create" ? server.creates : server.replies).map(input => input.body)
+    expect(sent).toEqual(["Other tab", "One", "Two"])
+  })
+
+  it("keeps the replies of a comment whose save failed with it, and asks before the page leaves", async () => {
+    const unload = new Set<EventListener>()
+    vi.stubGlobal("addEventListener", (type: string, listener: EventListener) => type === "beforeunload" && unload.add(listener))
+    vi.stubGlobal("removeEventListener", (type: string, listener: EventListener) => type === "beforeunload" && unload.delete(listener))
+    const leave = () => {
+      const event = new Event("beforeunload", { cancelable: true })
+      for (const listener of unload) listener(event)
+      return event.defaultPrevented
+    }
+    const { store, plan } = createSlowStore()
+    const browser = createBrowser()
+    const server = createServer()
+    const { client, stop } = setup({ browser, server, store })
+    await vi.waitFor(() => expect(client.status).toBe("ready"))
+    plan.push(Object.assign(new Error("The disk is full."), { name: "QuotaExceededError" }))
+    const thread = await client.create({ subject, anchor, body: "Wrong price" })
+    await vi.waitFor(() => expect(client.outbox.failures).toHaveLength(1))
+    const replied = await client.reply({ threadId: thread.id, body: "Yearly too" })
+    expect(replied.messages.map(message => message.body)).toEqual(["Wrong price", "Yearly too"])
+    await settle()
+    expect(await store.list(ana.id)).toEqual([])
+
+    const reloaded = setup({ browser, server, store })
+    await vi.waitFor(() => expect(reloaded.client.status).toBe("ready"))
+    await settle()
+    expect(reloaded.client.outbox.entries).toEqual([])
+    expect(server.replies).toHaveLength(0)
+    reloaded.stop()
+
+    stop()
+    expect(leave()).toBe(true)
+    stops.push(client.start())
+    await client.outbox.retry(thread.id)
+    await vi.waitFor(() => expect(server.memory.threads).toHaveLength(1))
+    await vi.waitFor(() => expect(leave()).toBe(false))
+    const [stored] = server.memory.threads
+    expect(server.replies.map(input => input.threadId)).toEqual([stored!.id])
+    expect(stored!.messages.map(message => message.body)).toEqual(["Wrong price", "Yearly too"])
+  })
+
+  it("keeps a comment whose save failed, and Retry saves and sends it", async () => {
+    const { store, plan } = createSlowStore()
+    const { server, client } = setup({ store })
+    await vi.waitFor(() => expect(client.status).toBe("ready"))
+    plan.push(Object.assign(new Error("The disk is full."), { name: "QuotaExceededError" }))
+    const thread = await client.create({ subject, anchor, body: "Do not lose me", files: [new Blob(["pixels"])] })
+    await vi.waitFor(() => expect(client.outbox.failures).toHaveLength(1))
+    expect(client.outbox.failures[0]).toMatchObject({ id: thread.id, input: { body: "Do not lose me" }, error: { why: "The disk is full." } })
+    expect(client.outbox.failures[0]!.files).toHaveLength(1)
+    expect(client.threads).toMatchObject([{ id: thread.id, delivery: { status: "failed" } }])
+    expect(await store.list(ana.id)).toEqual([])
+    expect(server.creates).toHaveLength(0)
+
+    await client.outbox.retry(thread.id)
+    await vi.waitFor(() => expect(client.outbox.entries).toHaveLength(0))
+    expect(server.creates.map(input => input.body)).toEqual(["Do not lose me"])
+    expect(await server.creates[0]!.files![0]!.text()).toBe("pixels")
+  })
+
+  it("saves a comment whose files are on their way, and sends it once they arrive", async () => {
+    const { server, client, store } = setup()
+    await vi.waitFor(() => expect(client.status).toBe("ready"))
+    let deliver!: (files: Blob[]) => void
+    const files = new Promise<Blob[]>(resolve => deliver = resolve)
+    const thread = await client.create({ subject, anchor, body: "Screenshot follows", files })
+    expect(client.threads.map(item => item.id)).toEqual([thread.id])
+    await vi.waitFor(async () => expect(await store.list(ana.id)).toMatchObject([{ input: { body: "Screenshot follows" } }]))
+    await settle()
+    expect(server.creates).toHaveLength(0)
+    deliver([new Blob(["pixels"])])
+    await vi.waitFor(() => expect(server.creates).toHaveLength(1))
+    expect(await server.creates[0]!.files![0]!.text()).toBe("pixels")
+    await vi.waitFor(() => expect(client.outbox.entries).toHaveLength(0))
+  })
+
+  it("sends without the files after a reload, or when they fail", async () => {
+    const browser = createBrowser()
+    const server = createServer()
+    const store = createMemoryOutboxStore()
+    const before = setup({ browser, server, store })
+    await vi.waitFor(() => expect(before.client.status).toBe("ready"))
+    await before.client.create({ subject, anchor, body: "The page went away", files: new Promise<Blob[]>(() => undefined) })
+    await vi.waitFor(async () => expect(await store.list(ana.id)).toHaveLength(1))
+    before.stop()
+
+    const after = setup({ browser, server, store })
+    await vi.waitFor(() => expect(server.creates).toHaveLength(1))
+    expect(server.creates[0]).toMatchObject({ body: "The page went away" })
+    expect(server.creates[0]!.files ?? []).toHaveLength(0)
+    await vi.waitFor(() => expect(after.client.outbox.entries).toHaveLength(0))
+
+    await after.client.create({ subject, anchor, body: "The screenshot failed", files: Promise.reject(new Error("No canvas")) })
+    await vi.waitFor(() => expect(server.creates).toHaveLength(2))
+    expect(server.creates[1]!.files ?? []).toHaveLength(0)
+  })
+
+  it("saves picked files at once and adds deferred ones when they arrive", async () => {
+    const { server, client, store } = setup()
+    await vi.waitFor(() => expect(client.status).toBe("ready"))
+    let deliver!: (files: Blob[]) => void
+    const deferredFiles = new Promise<Blob[]>(resolve => deliver = resolve)
+    await client.create({ subject, anchor, body: "Picked and later", files: [new Blob(["picked"])], deferredFiles })
+    await vi.waitFor(async () => expect(await store.list(ana.id)).toMatchObject([{ files: [expect.any(Blob)], awaitingFiles: true }]))
+    await settle()
+    expect(server.creates).toHaveLength(0)
+    deliver([new Blob(["later"])])
+    await vi.waitFor(() => expect(server.creates).toHaveLength(1))
+    expect(await Promise.all(server.creates[0]!.files!.map(file => file.text()))).toEqual(["picked", "later"])
+  })
+
+  it("a replayed request whose deferred files fail raises no unhandled rejection", async () => {
+    const { server, client } = setup()
+    await vi.waitFor(() => expect(client.status).toBe("ready"))
+    await client.create({ subject, anchor, requestId: "once", body: "Sent once" })
+    await vi.waitFor(() => expect(server.creates).toHaveLength(1))
+    const unhandled = vi.fn()
+    process.on("unhandledRejection", unhandled)
+    try {
+      const replay = await client.create({ subject, anchor, requestId: "once", body: "Sent once", deferredFiles: Promise.reject(new Error("no picture")) })
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(replay).toMatchObject({ n: 1, requestId: "once" })
+      expect(server.creates).toHaveLength(1)
+      expect(unhandled).not.toHaveBeenCalled()
+    }
+    finally {
+      process.off("unhandledRejection", unhandled)
+    }
+  })
+
+  it("keeps picked files through a reload while deferred ones are on their way", async () => {
+    const browser = createBrowser()
+    const server = createServer()
+    const store = createMemoryOutboxStore()
+    const before = setup({ browser, server, store })
+    await vi.waitFor(() => expect(before.client.status).toBe("ready"))
+    await before.client.create({ subject, anchor, body: "Reloaded", files: [new Blob(["picked"])], deferredFiles: new Promise<Blob[]>(() => undefined) })
+    await vi.waitFor(async () => expect(await store.list(ana.id)).toHaveLength(1))
+    before.stop()
+
+    setup({ browser, server, store })
+    await vi.waitFor(() => expect(server.creates).toHaveLength(1))
+    expect(await Promise.all(server.creates[0]!.files!.map(file => file.text()))).toEqual(["picked"])
   })
 
   it("clears every entry of the account", async () => {

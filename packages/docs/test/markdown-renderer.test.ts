@@ -152,6 +152,17 @@ describe("DocsMarkdown", () => {
     expect(await render(lazyBlocks)).toBe(eager)
   })
 
+  it("keeps short inline code on one line and lets long inline code wrap", async () => {
+    const long = "npx glosslint print > .agents/terms.md"
+    const document = await parseMarkdown(`Write \`e-bike\`, not \`${long}\`.\n\n\`\`\`sh\ne-bike\n\`\`\`\n`)
+    const html = await renderToString(vue.createSSRApp(renderer(), { document }))
+    const nowrap = [...html.matchAll(/<code\b[^>]*\bdata-nowrap\b[^>]*>([^<]*)<\/code>/g)].map(match => match[1])
+
+    expect(nowrap).toEqual(["e-bike"])
+    expect(html).toContain(long.replace(">", "&gt;"))
+    expect(html).not.toMatch(/<pre\b[^]*data-nowrap[^]*<\/pre>/)
+  })
+
   it("lets a tutorial replace the built-in pre block by its Markdown tag", async () => {
     const document = await parseMarkdown("```ts [index.ts]\nexport const answer = 42\n```\n")
     const html = await renderToString(vue.createSSRApp(renderer(), { document, components: { pre: block("tutorial-code") } }))

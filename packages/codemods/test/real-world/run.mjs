@@ -103,7 +103,7 @@ for (const project of projects.filter(entry => !only.length || only.includes(ent
       }
     }
 
-    const migration = await runMigration({ cwd: app })
+    const migration = await runMigration({ cwd: app, nuxtNightly: true })
     const report = formatMigrationReport(migration)
     await writeFile(join(workRoot, `${project.id}.report.txt`), report)
     const ran = migration.steps.map(step => `${step.codemod.name}${step.error ? " (error)" : ""}`)

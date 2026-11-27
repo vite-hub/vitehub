@@ -3,12 +3,15 @@ import { join } from "node:path"
 
 import { toJsonSchema } from "@valibot/to-json-schema"
 
+import { isRecordOrFunction } from "@vite-hub/internal/object"
+
 import { codemodError } from "../error-diagnostics.ts"
-import { defaultRejection, fieldSchema } from "./field-schema.ts"
+import { defaultRejection, fieldAccess, fieldSchema, hasSchemaDefault, isAsyncSchema } from "./field-schema.ts"
 import { flatPublicName, looksSecret, nuxtVariableName, pathLabel } from "./fields.ts"
 
 import type { BaseIssue, BaseSchema } from "valibot"
-import type { EnvField, LiteralValue, PlannedFollowUp } from "./fields.ts"
+import type { FieldAccess } from "./field-schema.ts"
+import type { EnvField, EnvFieldKind, Framework, LiteralValue, PlannedFollowUp } from "./fields.ts"
 import type { RuntimeConfigValue } from "./nuxt-config.ts"
 
 type JsonObject = Record<string, unknown>
@@ -126,8 +129,8 @@ function zodPackageJsonSchema(schema: unknown, cwd: string | undefined): JsonObj
  * the converter load the app's own Zod for Zod 4 versions before 4.2.
  */
 export async function schemaToJsonSchema(schema: unknown, cwd?: string): Promise<JsonObject> {
-  const standard = isRecord(schema) ? schema["~standard"] : undefined
-  if (!isRecord(schema) || !isRecord(standard)) {
+  const standard = isRecordOrFunction(schema) ? schema["~standard"] : undefined
+  if (!isRecordOrFunction(schema) || !isRecord(standard)) {
     throw codemodError("The $schema is not a Standard Schema. Use a Valibot, Zod, or ArkType schema.")
   }
   const vendor = typeof standard.vendor === "string" ? standard.vendor : "unknown"
@@ -171,18 +174,23 @@ const valibotJsonValidations = new Set([
   "value", "values",
 ])
 
-function addIssue(issues: Map<string, string[]>, path: readonly string[], issue: string): void {
+/** Rules that JSON Schema cannot hold, by dotted path, and the paths whose rules change the value. */
+export class SchemaIssues extends Map<string, string[]> {
+  readonly transforms = new Set<string>()
+}
+
+function addIssue(issues: SchemaIssues, path: readonly string[], issue: string): void {
   const key = path.join(".")
   issues.set(key, [...(issues.get(key) ?? []), issue])
 }
 
-function valibotIssues(schema: unknown, path: string[], issues: Map<string, string[]>): void {
+function valibotIssues(schema: unknown, path: string[], issues: SchemaIssues): void {
   if (!isRecord(schema)) return
   if (Array.isArray(schema.pipe)) {
     for (const action of schema.pipe.slice(1)) {
       if (!isRecord(action) || typeof action.type !== "string") continue
       if (action.kind === "transformation") addIssue(issues, path, `the Valibot ${action.type} action`)
-      else if (action.kind === "validation" && !valibotJsonValidations.has(action.type)) addIssue(issues, path, `the Valibot ${action.type} check`)
+      else if (action.kind === "validation" && !valibotJsonValidations.has(action.type)) addIssue(issues, path, action.type === "check" ? "a Valibot check" : `the Valibot ${action.type} check`)
     }
   }
   if (isRecord(schema.entries) && ["object", "loose_object", "strict_object", "object_with_rest"].includes(String(schema.type))) {
@@ -200,7 +208,7 @@ function zodDefinition(schema: unknown): JsonObject | undefined {
   return isRecord(schema) && isRecord(schema._zod) && isRecord(schema._zod.def) ? schema._zod.def : undefined
 }
 
-function zodIssues(schema: unknown, path: string[], issues: Map<string, string[]>): void {
+function zodIssues(schema: unknown, path: string[], issues: SchemaIssues): void {
   const definition = zodDefinition(schema)
   if (!definition) return
   for (const check of Array.isArray(definition.checks) ? definition.checks : []) {
@@ -230,13 +238,14 @@ function zodIssues(schema: unknown, path: string[], issues: Map<string, string[]
 
 // Checks that zod3ToJsonSchema writes as JSON Schema keywords. Other checks need follow-ups.
 const zod3JsonChecks = new Set(["url", "email", "uuid", "min", "max", "length", "regex", "int"])
+const zod3TransformChecks = new Set(["trim", "toLowerCase", "toUpperCase"])
 
-function zod3Issues(schema: unknown, path: string[], issues: Map<string, string[]>): void {
+function zod3Issues(schema: unknown, path: string[], issues: SchemaIssues): void {
   const definition = zod3Definition(schema)
   if (!definition) return
   for (const check of Array.isArray(definition.checks) ? definition.checks : []) {
     if (!isRecord(check) || typeof check.kind !== "string") continue
-    if (["trim", "toLowerCase", "toUpperCase"].includes(check.kind)) addIssue(issues, path, `a Zod ${check.kind} transform`)
+    if (zod3TransformChecks.has(check.kind)) addIssue(issues, path, `a Zod ${check.kind} transform`)
     else if (!zod3JsonChecks.has(check.kind)) addIssue(issues, path, `the Zod ${check.kind} check`)
   }
   const type = definition.typeName
@@ -279,12 +288,129 @@ function zod3Issues(schema: unknown, path: string[], issues: Map<string, string[
   }
 }
 
+function arktypeNarrows(json: unknown): boolean {
+  if (Array.isArray(json)) return json.some(arktypeNarrows)
+  if (!isRecord(json)) return false
+  if (Array.isArray(json.predicate) && json.predicate.some(entry => typeof entry === "string")) return true
+  return Object.values(json).some(arktypeNarrows)
+}
+
+function arktypeIssues(schema: unknown, path: string[], issues: SchemaIssues): void {
+  if (!isRecordOrFunction(schema) || !isRecordOrFunction(schema.internal)) return
+  const json = schema.json
+  const object = schema.internal.kind !== "morph" && isRecord(json) && json.domain === "object" && json.proto === undefined
+  if (!object) {
+    if (schema.internal.includesTransform === true) {
+      addIssue(issues, path, "an ArkType morph")
+      issues.transforms.add(path.join("."))
+    }
+    if (arktypeNarrows(json)) addIssue(issues, path, "an ArkType narrow")
+    return
+  }
+  if (Array.isArray(json.predicate) && json.predicate.some(entry => typeof entry === "string")) addIssue(issues, path, "an ArkType narrow")
+  const props: unknown = schema.props
+  for (const prop of Array.isArray(props) ? props : []) {
+    if (isRecordOrFunction(prop) && typeof prop.key === "string") arktypeIssues(prop.value, [...path, prop.key], issues)
+  }
+}
+
+function collectTransformPaths(schema: unknown, transforms: Set<string>): void {
+  function visit(node: unknown, path: string[]): void {
+    if (!isRecord(node)) return
+    const mark = () => transforms.add(path.join("."))
+    const at = (child: unknown, key: string) => visit(child, [...path, key])
+    const samePath = (child: unknown) => visit(child, path)
+    const entries = (shape: unknown) => {
+      if (isRecord(shape)) for (const [key, child] of Object.entries(shape)) at(child, key)
+    }
+    const items = (values: unknown) => {
+      if (Array.isArray(values)) values.forEach((child, index) => at(child, String(index)))
+    }
+    const options = (values: unknown) => {
+      if (Array.isArray(values)) values.forEach(samePath)
+    }
+
+    const zod = zodDefinition(node)
+    const definition = zod ?? zod3Definition(node)
+    if (definition) {
+      const checks = Array.isArray(definition.checks) ? definition.checks : []
+      const effect = isRecord(definition.effect) ? definition.effect.type : undefined
+      const changesValue = zod
+        ? definition.type === "transform" || checks.some(check => zodDefinition(check)?.check === "overwrite")
+        : effect === "transform" || effect === "preprocess" || checks.some(check => isRecord(check) && typeof check.kind === "string" && zod3TransformChecks.has(check.kind))
+      if (changesValue) mark()
+      switch (zod ? definition.type : definition.typeName) {
+        case "object":
+        case "ZodObject":
+          entries(typeof definition.shape === "function" ? Reflect.apply(definition.shape, undefined, []) : definition.shape)
+          at(definition.catchall, "*")
+          break
+        case "tuple":
+        case "ZodTuple":
+          items(definition.items)
+          at(definition.rest, "*")
+          break
+        case "array":
+        case "ZodArray":
+          at(zod ? definition.element : definition.type, "*")
+          break
+        case "record":
+        case "ZodRecord":
+        case "map":
+        case "ZodMap":
+          at(definition.keyType, "*")
+          at(definition.valueType, "*")
+          break
+        case "set":
+        case "ZodSet":
+          at(definition.valueType, "*")
+          break
+        case "union":
+        case "ZodUnion":
+        case "ZodDiscriminatedUnion":
+          options(definition.options)
+          break
+        case "intersection":
+        case "ZodIntersection":
+          samePath(definition.left)
+          samePath(definition.right)
+          break
+        case "pipe":
+        case "ZodPipeline":
+          samePath(definition.in)
+          samePath(definition.out)
+          break
+        case "ZodEffects": samePath(definition.schema); break
+        case "ZodBranded": samePath(definition.type); break
+        default: samePath(definition.innerType)
+      }
+    }
+    else if (node.kind === "schema" || node.kind === "transformation") {
+      if (node.kind === "transformation") mark()
+      if (Array.isArray(node.pipe)) {
+        options(node.pipe)
+        return
+      }
+      entries(node.entries)
+      items(node.items)
+      options(node.options)
+      samePath(node.wrapped)
+      at(node.item, "*")
+      at(node.rest, "*")
+      at(node.value, "*")
+    }
+  }
+  visit(schema, [])
+}
+
 /** Rules that JSON Schema cannot hold, such as transforms and custom checks, by dotted path. `""` is the schema root. */
-export function schemaIssues(schema: unknown): Map<string, string[]> {
-  const issues = new Map<string, string[]>()
+export function schemaIssues(schema: unknown): SchemaIssues {
+  const issues = new SchemaIssues()
   if (isValibotSchema(schema)) valibotIssues(schema, [], issues)
   else if (zodDefinition(schema)) zodIssues(schema, [], issues)
   else if (zod3Definition(schema)) zod3Issues(schema, [], issues)
+  else if (isRecordOrFunction(schema) && isRecord(schema["~standard"]) && schema["~standard"].vendor === "arktype") arktypeIssues(schema, [], issues)
+  collectTransformPaths(schema, issues.transforms)
   return issues
 }
 
@@ -293,17 +419,21 @@ export interface SchemaPlan {
   /** Labels of `runtimeConfig` paths that stay in `runtimeConfig`, such as `public.tags`. */
   unmigrated: string[]
   followUps: PlannedFollowUp[]
+  /** True when a field has a rule or a shape that only its schema can check, so a schema module would keep it. */
+  needsSchemaModule: boolean
 }
 
 interface PlanInput {
   /** The `$schema` itself. Each kept default must pass its field's schema. */
   schema?: unknown
+  schemaExports?: boolean
   jsonSchema: JsonObject
   issues: Map<string, string[]>
-  runtimeConfig: Map<string, Pick<RuntimeConfigValue, "expression" | "literal" | "processEnv">>
+  runtimeConfig: Map<string, Pick<RuntimeConfigValue, "expression" | "json" | "literal" | "processEnv">>
   validateAtBuild?: boolean
   validateAtRuntime?: boolean
   rejectInvalidDefaults?: boolean
+  framework?: Framework
 }
 
 function resolveReference(root: JsonObject, node: unknown): JsonObject {
@@ -400,8 +530,37 @@ export function coerceDefault(value: LiteralValue, field: Pick<EnvField, "kind" 
   return text
 }
 
-function literalText(value: LiteralValue): string {
-  return typeof value === "string" ? JSON.stringify(value) : String(value)
+function literalText(value: NonNullable<EnvField["default"]>): string {
+  return typeof value === "string" || typeof value === "object" ? JSON.stringify(value) : String(value)
+}
+
+const valibotJsonInputs = new Set([
+  "array", "bigint", "boolean", "loose_object", "loose_tuple", "number", "object", "object_with_rest", "record", "strict_object",
+  "strict_tuple", "tuple", "tuple_with_rest",
+])
+
+function valibotInputType(schema: unknown): string | undefined {
+  let current = schema
+  while (isRecord(current) && isRecord(current.wrapped)) current = current.wrapped
+  return isValibotSchema(schema) && isRecord(current) && typeof current.type === "string" ? current.type : undefined
+}
+
+function plainFieldKind(leaf: Leaf): EnvFieldKind | undefined {
+  if (leaf.kind === "integer") return "number"
+  return leaf.kind === "boolean" || leaf.kind === "enum" || leaf.kind === "number" || leaf.kind === "string" ? leaf.kind : undefined
+}
+
+function schemaFieldKind(access: FieldAccess, leaf: Leaf): EnvFieldKind | undefined {
+  const valibot = valibotInputType(access.schema)
+  if (valibot === "string") return "string"
+  if (valibot && valibotJsonInputs.has(valibot)) return "json"
+  if (valibot && !["enum", "literal", "picklist"].includes(valibot)) return undefined
+  if (leaf.kind === "string" || leaf.kind === "enum") return "string"
+  return leaf.kind === "union" || leaf.kind === "unknown" ? undefined : "json"
+}
+
+function schemaDefault(value: LiteralValue, kind: EnvFieldKind): LiteralValue {
+  return kind === "json" ? value : String(value)
 }
 
 function coerceRuntimeInput(value: LiteralValue, leaf: Leaf): LiteralValue {
@@ -430,7 +589,9 @@ export async function planFromJsonSchema(input: PlanInput): Promise<SchemaPlan> 
   if (root.type !== "object" || !isRecord(properties)) {
     throw codemodError("The $schema must describe the runtimeConfig object, for example `v.object({ ... })`.")
   }
-  const plan: SchemaPlan = { fields: [], unmigrated: [], followUps: [] }
+  const plan: SchemaPlan = { fields: [], unmigrated: [], followUps: [], needsSchemaModule: false }
+  const framework = input.framework ?? "nuxt"
+  const frameworkName = framework === "nitro" ? "Nitro" : "Nuxt"
   const follow = (message: string, anchor?: PlannedFollowUp["anchor"]) => plan.followUps.push({ message, anchor })
 
   for (const issue of input.issues.get("") ?? []) {
@@ -446,6 +607,7 @@ export async function planFromJsonSchema(input: PlanInput): Promise<SchemaPlan> 
 
   const visit = async (section: EnvField["section"], configPath: string[], node: unknown, required: boolean): Promise<void> => {
     const label = pathLabel({ section, configPath })
+    const schemaPath = section === "public" ? ["public", ...configPath] : configPath
     const runtimeValue = input.runtimeConfig.get(label)
     const leaf = describeLeaf(input.jsonSchema, isRecord(node) ? node : {})
     const objectProperties = leaf.node.properties
@@ -460,97 +622,140 @@ export async function planFromJsonSchema(input: PlanInput): Promise<SchemaPlan> 
       }
       return
     }
-    if (leaf.kind === "array" || leaf.kind === "object" || leaf.kind === "union" || leaf.kind === "unknown") {
+    const issues = input.issues.get(label) ?? []
+    const constraints = [...constraintNotes(leaf), ...issues]
+    const structured = leaf.kind === "array" || leaf.kind === "object"
+    if (constraints.length || structured) plan.needsSchemaModule = true
+    const exported = input.schemaExports && (constraints.length || structured) ? fieldAccess(input.schema, schemaPath) : undefined
+    const publicFunction = section === "public" && typeof exported?.schema === "function"
+    const found = publicFunction ? undefined : exported
+    const schemaKind = found && schemaFieldKind(found, leaf)
+    const access = schemaKind ? found : undefined
+    const kind = schemaKind || plainFieldKind(leaf)
+    const credential = looksSecret(configPath)
+    const variable = nuxtVariableName(section, configPath, framework)
+    const stay = (reason: string) => {
       plan.unmigrated.push(label)
-      const reason = leaf.kind === "union"
-        ? "is a union, which Env cannot declare"
-        : leaf.kind === "unknown"
-          ? "has no JSON Schema type"
-          : `is a JSON ${leaf.kind}, which code-first Env declarations cannot parse`
-      const alternative = leaf.kind === "array" || leaf.kind === "object"
-        ? `, or declare it in a .env.example with @type=${leaf.kind}(...) and use envSchema()`
-        : ""
-      const issues = input.issues.get(label) ?? []
-      const detail = issues.length ? ` Env cannot keep ${issues.join(", ")}.` : ""
-      follow(`${label} ${reason}.${detail} It stays in runtimeConfig without validation. Read it with useRuntimeConfig()${alternative}.`, { runtimeConfig: label })
+      follow(`${label} ${reason} It stays in runtimeConfig. Read it with useRuntimeConfig(), or move it to Env by hand.`, { runtimeConfig: label })
+    }
+    const configValue = runtimeValue?.json
+    if (kind && ((kind === "json" && leaf.kind === "object") || isRecord(configValue))) {
+      const warning = credential ? " Remove any hardcoded credentials before deploying." : ""
+      stay(`can receive nested overrides such as ${variable}_*, but one Env declaration reads only the whole value.${warning}`)
       return
     }
-    const kind = leaf.kind === "integer" ? "number" : leaf.kind
+    const moduleInput = runtimeValue?.literal ?? runtimeValue?.processEnv?.fallback
+    const jsonDefault = kind === "json" ? configValue : undefined
+    if (kind && access && isAsyncSchema(access.schema, [undefined, moduleInput ?? jsonDefault])) {
+      stay("has an async validator, and Env runs schemas synchronously.")
+      return
+    }
+    if (kind && runtimeValue?.expression && jsonDefault === undefined) {
+      const value = credential ? "a computed credential value" : `the value ${runtimeValue.expression}`
+      stay(`has ${value} in runtimeConfig, which the codemod cannot keep as an Env default. Use ${variable} for the Env declaration.`)
+      return
+    }
+    if (kind && access && moduleInput === undefined && jsonDefault === undefined && hasSchemaDefault(access.schema)) {
+      stay("gets its default from its $schema, and Env does not run the schema when the variable is not set.")
+      return
+    }
+    if (!kind) {
+      plan.unmigrated.push(label)
+      const reason = leaf.kind === "union"
+        ? "is a union of input types, which the codemod cannot map to one Env declaration"
+        : leaf.kind === "unknown"
+          ? "has no JSON Schema type"
+          : `is a JSON ${leaf.kind}, and the codemod cannot export its schema`
+      const detail = issues.length ? ` It has ${issues.join(", ")}.` : ""
+      follow(`${label} ${reason}.${detail} It stays in runtimeConfig without validation. Read it with useRuntimeConfig(), or ${section === "server" ? "export its schema from a server module and declare it with env.schemaFrom()" : "declare it with env.json() and its schema object, with mode: 'build'"}.`, { runtimeConfig: label })
+      return
+    }
     const field: EnvField = {
       section,
       configPath,
       envPath: section === "public" ? [flatPublicName(configPath)] : configPath,
-      variable: nuxtVariableName(section, configPath),
+      variable,
       kind,
-      ...(leaf.kind === "enum" ? { values: leaf.values } : {}),
+      ...(kind === "enum" && leaf.kind === "enum" ? { values: leaf.values } : {}),
       required: required && !leaf.nullable,
-      secret: section === "server" && kind !== "enum" && looksSecret(configPath),
+      secret: section === "server" && kind !== "enum" && credential,
+      ...(access ? { schema: { steps: access.steps } } : {}),
     }
-    if (section === "server" && kind === "enum" && looksSecret(configPath)) {
+    if (section === "server" && kind === "enum" && credential) {
       follow(`${label} looks like a credential, but an enum cannot be a secret because its values are public metadata. Use a string if the value is secret.`, { env: field })
     }
-    if (section === "public" && looksSecret(configPath)) {
+    if (section === "public" && credential) {
       follow(`${label} looks like a credential. Public Env is bundled into client code. Move it to the server section if it is secret.`, { env: field })
     }
     if (leaf.nullable) follow(`${label} accepts null. Env has no null value, so the field is optional and is undefined when the variable is not set.`, { env: field })
     if (section === "public" && configPath.length > 1) {
       follow(`${label} is nested. Public Env is flat, so read it as usePublicEnv().${field.envPath[0]}.`, { env: field })
     }
+    if (kind === "json" && leaf.kind === "boolean") {
+      follow(`${label}: Env reads ${field.variable} as JSON before its schema runs. Set it to true or false. Spellings such as 1, 0, or TRUE now fail.`, { env: field })
+    }
+    else if (kind === "json" && (leaf.kind === "number" || leaf.kind === "integer")) {
+      follow(`${label}: Env reads ${field.variable} as JSON before its schema runs. Set it to a JSON number, such as 3000. Spellings such as 0xBB8, +3000, or .5 now fail.`, { env: field })
+    }
+    if (access && section === "server" && validateAtBuild && !validateAtRuntime) {
+      follow(`${label}: the module ran its $schema only during the build (validateAtRuntime: false). Env runs it when the server reads ${field.variable}, so a value that the build did not check now stops the request.`, { env: field })
+    }
 
-    const moduleInput = runtimeValue?.literal ?? runtimeValue?.processEnv?.fallback
-    const schemaPath = section === "public" ? ["public", ...configPath] : configPath
     const runtimeInput = moduleInput !== undefined && validateAtRuntime
       ? coerceRuntimeInput(moduleInput, coercionSchema ? leafAtPath(coercionSchema, schemaPath) : leaf)
       : moduleInput
-    let defaultValue = runtimeInput === undefined ? undefined : coerceDefault(runtimeInput, field)
+    const toDefault = (value: LiteralValue) => access ? schemaDefault(value, kind) : coerceDefault(value, field)
+    let defaultValue: EnvField["default"] = jsonDefault ?? (runtimeInput === undefined ? undefined : toDefault(runtimeInput))
     if (runtimeValue?.literal !== undefined) {
       if (defaultValue === undefined) {
-        follow(`runtimeConfig.${label} has the value ${literalText(runtimeValue.literal)}, which is not a valid ${kind}. It was not kept as a default.`, { env: field })
+        const value = credential ? "a credential value" : `the value ${literalText(runtimeValue.literal)}`
+        follow(`runtimeConfig.${label} has ${value}, which is not a valid ${kind}. It was not kept as a default.${credential ? ` Set ${variable} instead.` : ""}`, { env: field })
       }
     }
     else if (runtimeValue?.processEnv) {
       field.extraVariables = [runtimeValue.processEnv.name]
-      follow(`runtimeConfig.${label} read process.env.${runtimeValue.processEnv.name} when Nuxt loaded the config. Env now reads ${field.variable === runtimeValue.processEnv.name ? field.variable : `${field.variable}, then ${runtimeValue.processEnv.name}`}, ${section === "public" ? "during the build" : "when the server runs"}. Env treats an empty variable as unset.`, { env: field })
+      follow(`runtimeConfig.${label} read process.env.${runtimeValue.processEnv.name} when ${frameworkName} loaded the config. Env now reads ${field.variable === runtimeValue.processEnv.name ? field.variable : `${field.variable}, then ${runtimeValue.processEnv.name}`}, ${section === "public" ? "during the build" : "when the server runs"}. Env treats an empty variable as unset.`, { env: field })
     }
-    else if (runtimeValue?.expression) {
-      follow(`runtimeConfig.${label} is computed (${runtimeValue.expression}). It was not kept as a default. Set ${field.variable} or add a default by hand.`, { env: field })
-    }
-    if (defaultValue === undefined) {
-      const schemaDefault = leaf.node.default
-      if (typeof schemaDefault === "string" || typeof schemaDefault === "number" || typeof schemaDefault === "boolean") {
-        defaultValue = coerceDefault(schemaDefault, field)
+    if (defaultValue === undefined && !access) {
+      const schemaDefaultValue = leaf.node.default
+      if (typeof schemaDefaultValue === "string" || typeof schemaDefaultValue === "number" || typeof schemaDefaultValue === "boolean") {
+        defaultValue = toDefault(schemaDefaultValue)
       }
     }
     let rejection: string | undefined
     if (defaultValue !== undefined && input.rejectInvalidDefaults !== false && (validateAtRuntime || validateAtBuild)) {
-      const schema = fieldSchema(input.schema, schemaPath)
-      const check = { schema, node: leaf.node, input: validateAtBuild ? moduleInput : runtimeInput, value: defaultValue }
+      const schema = access?.schema ?? fieldSchema(input.schema, schemaPath)
+      const check = { schema, node: leaf.node, input: jsonDefault ?? (validateAtBuild ? moduleInput : runtimeInput), value: defaultValue }
       rejection = await defaultRejection(check)
-      if (rejection === undefined && validateAtBuild && runtimeInput !== moduleInput) {
+      if (rejection === undefined && validateAtBuild && jsonDefault === undefined && runtimeInput !== moduleInput) {
         rejection = await defaultRejection({ ...check, input: runtimeInput })
       }
     }
     if (defaultValue !== undefined && rejection !== undefined) {
-      follow(`${label} had the value ${literalText(defaultValue)}, which its $schema rejects: ${rejection}. The module treats this validation failure as fatal, so the codemod kept no default and Env requires ${field.variable}.`, { env: field })
+      const value = credential ? "a credential default, which its $schema rejects" : `the value ${literalText(defaultValue)}, which its $schema rejects: ${rejection}`
+      follow(`${label} had ${value}. The module treats this validation failure as fatal, so the codemod kept no default and Env requires ${field.variable}.`, { env: field })
       field.required = true
       defaultValue = undefined
     }
     if (defaultValue !== undefined && defaultValue !== "" && field.secret) {
-      follow(`${label} is secret, so its value ${literalText(defaultValue)} was not kept as a default. Defaults are written into the server build. Set ${field.variable} instead.`, { env: field })
+      follow(`${label} is secret, so its value was not kept as a default. Defaults are written into the server build. Set ${field.variable} instead.`, { env: field })
       defaultValue = undefined
     }
     if (defaultValue !== undefined) field.default = defaultValue
 
-    const constraints = [...constraintNotes(leaf), ...(input.issues.get(label) ?? [])]
-    if (constraints.length) {
-      follow(`${label}: Env does not keep ${constraints.join(", ")}. Check the value in code, or use envSchema() with a .env.example for length, range, integer, and URL checks.`, { env: field })
+    if (constraints.length && !access && publicFunction) {
+      follow(`${label}: the codemod does not move a public schema that is a function, such as an ArkType type, and did not keep ${constraints.join(", ")}. Check the value in code.`, { env: field })
+    }
+    else if (constraints.length && !access) {
+      const advice = section === "server" ? "Export the field schema from a server module and declare it with env.schemaFrom()" : "Pass the field schema object as the schema option"
+      follow(`${label}: the codemod did not keep ${constraints.join(", ")}. ${advice}, or check the value in code.`, { env: field })
     }
     plan.fields.push(field)
   }
 
   const rootRequired = requiredOf(root)
   for (const [key, node] of Object.entries(properties)) {
-    if (key === "public") {
+    if (key === "public" && framework === "nuxt") {
       const publicNode = describeLeaf(input.jsonSchema, isRecord(node) ? node : {})
       const publicProperties = publicNode.node.properties
       if (!isRecord(publicProperties)) {
@@ -566,7 +771,7 @@ export async function planFromJsonSchema(input: PlanInput): Promise<SchemaPlan> 
     }
     if (key === "app" || key === "nitro") {
       plan.unmigrated.push(key)
-      follow(`${key} is a reserved Nuxt runtimeConfig key. The codemod left it and its schema rules alone.`, { runtimeConfig: key })
+      follow(`${key} is a reserved ${frameworkName} runtimeConfig key. The codemod left it and its schema rules alone.`, { runtimeConfig: key })
       continue
     }
     await visit("server", [key], node, rootRequired.has(key))

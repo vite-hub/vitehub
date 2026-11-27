@@ -1254,6 +1254,23 @@ describe("realtime Workspace documents", () => {
     expect(destroy).toHaveBeenCalledOnce()
   })
 
+  it("restores durable Yjs identities only for the matching Workspace version", async () => {
+    const original = await markdownToYDoc("# Shared draft")
+    const stored = {
+      baseline_digest: "baseline",
+      update_blob: Uint8Array.from(Y.encodeStateAsUpdate(original)).buffer,
+    }
+    const restored = await restoreRealtimeDocument("# Shared draft", "baseline", stored)
+    const replaced = await restoreRealtimeDocument("# Workspace replacement", "changed", stored)
+
+    expect(Y.encodeStateVector(restored)).toEqual(Y.encodeStateVector(original))
+    expect(await yDocToMarkdown(replaced)).toBe("# Workspace replacement")
+
+    original.destroy()
+    restored.destroy()
+    replaced.destroy()
+  })
+
   it("restores durable state from a cross-realm ArrayBuffer", async () => {
     const original = await markdownToYDoc("# Shared draft")
     const bytes = Y.encodeStateAsUpdate(original)

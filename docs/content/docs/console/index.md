@@ -24,8 +24,7 @@ Every action is an **operation** like `kv.list` or `content.publish`. An operati
 | Route | Use |
 | --- | --- |
 | `POST /_vitehub/rpc` | The Operations endpoint. Each request carries one operation call and requires a [signed request](/docs/console/signed-requests). |
-| `GET /_vitehub/rpc?ticket=<ticket>` | Opens a [one-time link](/docs/console/site-access#one-time-links), such as a Content preview, in the browser. |
-| `/_vitehub/.well-known/skills/` | Public files of the [ViteHub skill](/docs/getting-started/ai-resources/agent-instructions-skills#install-from-your-app) for `npx skills add`. |
+| `GET /_vitehub/site` | Takes the signed tokens of the Console in the browser: [Site access](/docs/console/site-access#how-the-app-checks-a-visit), [impersonation, and Content preview](/docs/console/site-access#impersonation-and-content-preview). |
 
 The build includes routes and server code only for the sections your app turns on, so an app without Agents has no Agent routes.
 

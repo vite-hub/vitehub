@@ -10,6 +10,7 @@ export default defineConfig({
   plugins: [vue(), standaloneUI()],
   resolve: {
     alias: [
+      { find: /^#vitehub\/console\/app$/, replacement: fileURLToPath(new URL("./test/fixtures/console-app.ts", import.meta.url)) },
       { find: /^@vite-hub\/ui\/comments$/, replacement: fileURLToPath(new URL("../ui/src/comments.ts", import.meta.url)) },
       { find: /^@vite-hub\/ui\/standalone\/(.+)$/, replacement: `${fileURLToPath(new URL("../ui/src/standalone", import.meta.url))}/$1` },
     ],

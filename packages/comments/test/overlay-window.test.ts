@@ -7,7 +7,7 @@ import { commentsButton, openList, press, serveComments, type } from "./overlay-
 import type { ElementAnchor } from "../src/types.ts"
 
 vi.mock("@vite-hub/realtime/client", () => ({
-  connectRealtimeRoom: vi.fn(() => ({ onUpdate: vi.fn(), onChange: vi.fn(), notify: vi.fn(), setLocal: vi.fn(), destroy: vi.fn(), people: () => [], states: () => new Map() })),
+  connectRealtimeRoom: vi.fn(() => ({ onUpdate: vi.fn(), onChange: vi.fn(), onNotice: vi.fn(), notify: vi.fn(), setLocal: vi.fn(), destroy: vi.fn(), people: () => [], states: () => new Map() })),
 }))
 
 const ada = { id: "ada", name: "Ada Lovelace" }
@@ -122,7 +122,7 @@ describe("the Comments list in the pill's window", () => {
     await type(input, "Sent reply")
     press(input, "Enter")
     await vi.waitFor(() => expect(panel.querySelectorAll('[data-slot="comment-reply"]')).toHaveLength(2))
-    expect((await comments.get(thread!.id))[1]!.messages.map(message => message.body)).toEqual(["Original comment", "Sent reply"])
+    await vi.waitFor(async () => expect((await comments.get(thread!.id))[1]!.messages.map(message => message.body)).toEqual(["Original comment", "Sent reply"]))
     await vi.waitFor(() => expect(panel.querySelector<HTMLTextAreaElement>('textarea[aria-label="Reply"]')!.value).toBe(""))
     document.querySelector("vitehub-pill")!.shadowRoot!.querySelector<HTMLButtonElement>("button[aria-label=\"Turn off ViteHub tools\"]")!.click()
     expect(window.confirm).not.toHaveBeenCalled()

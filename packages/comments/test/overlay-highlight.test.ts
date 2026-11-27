@@ -6,7 +6,7 @@ import { captureMarked } from "../src/overlay/marker.ts"
 import { pageTools, press, serveComments, startOverlay, tool, type } from "./overlay-harness.ts"
 
 vi.mock("@vite-hub/realtime/client", () => ({
-  connectRealtimeRoom: vi.fn(() => ({ states: () => new Map(), people: () => [], onUpdate: vi.fn(), onChange: vi.fn(), notify: vi.fn(), setLocal: vi.fn(), destroy: vi.fn() })),
+  connectRealtimeRoom: vi.fn(() => ({ states: () => new Map(), people: () => [], onUpdate: vi.fn(), onChange: vi.fn(), onNotice: vi.fn(), notify: vi.fn(), setLocal: vi.fn(), destroy: vi.fn() })),
 }))
 // Happy DOM draws no pixels, so the screenshot is a stand-in. The browser test takes a real one.
 vi.mock("../src/overlay/marker.ts", async importOriginal => ({
@@ -15,7 +15,7 @@ vi.mock("../src/overlay/marker.ts", async importOriginal => ({
 }))
 
 const ada = { id: "ada", name: "Ada Lovelace" }
-const highlightImage = (shadow: ShadowRoot) => shadow.querySelector('[data-slot="comment-layer-popover"] [data-slot="comment-image-stack"] img[alt="highlight.webp"]')
+const commentBox = (shadow: ShadowRoot) => shadow.querySelector<HTMLTextAreaElement>('textarea[aria-label="Comment"]')
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -110,7 +110,7 @@ describe("Highlight in the Comments segment", () => {
     await vi.waitFor(() => expect(button(bar, "Done")?.disabled).toBe(false))
 
     button(bar, "Done")!.click()
-    await vi.waitFor(() => expect(highlightImage(shadow)).not.toBeNull())
+    await vi.waitFor(() => expect(commentBox(shadow)).not.toBeNull())
     expect(vi.mocked(captureMarked).mock.calls[0]![0]).toEqual([{ tip: "marker", color: "#ec4899", points: [[20, 20], [70, 22], [120, 24]] }])
     // The strokes stay on the page, where they were drawn, while the comment is written. The toolbar is back.
     expect(layer()!.hasAttribute("data-frozen")).toBe(true)
@@ -125,6 +125,60 @@ describe("Highlight in the Comments segment", () => {
     expect(thread!.messages[0]!.attachments).toEqual(["files/highlight.webp"])
     expect(stored).toEqual(["highlight.webp image/webp"])
     await vi.waitFor(() => expect(document.querySelector("vitehub-marker")).toBeNull())
+  })
+
+  it("opens the composer at Done while the picture is taken, and a comment sent before it is ready waits for it", async () => {
+    let picture!: (blob: Blob | undefined) => void
+    vi.mocked(captureMarked).mockReturnValueOnce(new Promise((resolve) => { picture = resolve }))
+    const { bar, shadow, comments, stored } = await site()
+    tool(bar, "Highlight")!.click()
+    await vi.waitFor(() => expect(layer()).not.toBeNull())
+    stroke([[20, 20], [70, 22], [120, 24]])
+    await vi.waitFor(() => expect(button(bar, "Done")?.disabled).toBe(false))
+
+    button(bar, "Done")!.click()
+    await vi.waitFor(() => expect(shadow.querySelector('textarea[aria-label="Comment"]')).not.toBeNull())
+    expect(captureMarked).toHaveBeenCalledTimes(1)
+    const box = shadow.querySelector<HTMLTextAreaElement>('textarea[aria-label="Comment"]')!
+    await type(box, "This price is wrong")
+    expect(box.value).toBe("This price is wrong")
+    press(box, "Enter")
+    await vi.waitFor(() => expect(shadow.querySelector('textarea[aria-label="Comment"]')).toBeNull())
+    await vi.waitFor(() => expect(shadow.querySelector("[data-slot='comment-pin'][data-thread-id]")?.getAttribute("data-pending")).toBe("true"))
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect((await comments.list())[1]).toHaveLength(0)
+
+    picture(new Blob(["webp bytes"], { type: "image/webp" }))
+    await vi.waitFor(async () => expect((await comments.list())[1]).toHaveLength(1))
+    const [thread] = (await comments.list())[1]!
+    expect(thread!.anchor).toMatchObject({ kind: "area" })
+    expect(thread!.messages[0]!.body).toBe("This price is wrong")
+    expect(thread!.messages[0]!.attachments).toEqual(["files/highlight.webp"])
+    expect(stored).toEqual(["highlight.webp image/webp"])
+  })
+
+  it("sends a file the reader picked with the picture that arrives after Send", async () => {
+    let picture!: (blob: Blob | undefined) => void
+    vi.mocked(captureMarked).mockReturnValueOnce(new Promise((resolve) => { picture = resolve }))
+    const { bar, shadow, comments, stored } = await site()
+    tool(bar, "Highlight")!.click()
+    await vi.waitFor(() => expect(layer()).not.toBeNull())
+    stroke([[20, 20], [70, 22], [120, 24]])
+    await vi.waitFor(() => expect(button(bar, "Done")?.disabled).toBe(false))
+    button(bar, "Done")!.click()
+    await vi.waitFor(() => expect(commentBox(shadow)).not.toBeNull())
+    const picker = shadow.querySelector<HTMLInputElement>('[data-slot="comment-layer-popover"] input[type="file"]')!
+    Object.defineProperty(picker, "files", { configurable: true, value: [new File(["png bytes"], "shot.png", { type: "image/png" })] })
+    picker.dispatchEvent(new Event("change", { bubbles: true }))
+    await type(commentBox(shadow)!, "Both pictures")
+    await vi.waitFor(() => expect(shadow.querySelector('[data-slot="comment-layer-popover"] [data-slot="comment-image-stack"] img[alt="shot.png"]')).not.toBeNull())
+    press(commentBox(shadow)!, "Enter")
+    await vi.waitFor(() => expect(commentBox(shadow)).toBeNull())
+
+    picture(new Blob(["webp bytes"], { type: "image/webp" }))
+    await vi.waitFor(async () => expect((await comments.list())[1]).toHaveLength(1))
+    expect((await comments.list())[1]![0]!.messages[0]!.attachments).toEqual(["files/shot.png", "files/highlight.webp"])
+    expect(stored).toEqual(["shot.png image/png", "highlight.webp image/webp"])
   })
 
   it("toggles with B, undoes the last stroke, keeps the page still, and cancels with Esc", async () => {
@@ -205,7 +259,7 @@ describe("Highlight in the Comments segment", () => {
 
     await vi.waitFor(() => expect(button(bar, "Done")?.disabled).toBe(false))
     button(bar, "Done")!.click()
-    await vi.waitFor(() => expect(highlightImage(shadow)).not.toBeNull())
+    await vi.waitFor(() => expect(commentBox(shadow)).not.toBeNull())
     expect(vi.mocked(captureMarked).mock.calls[0]![0]).toEqual([
       { tip: "pen", color: "#2563eb", points: [[20, 20], [60, 30], [100, 20]] },
       { tip: "arrow", color: "#16a34a", points: [[20, 80], [140, 140]] },
@@ -243,7 +297,7 @@ describe("Highlight in the Comments segment", () => {
     stroke([[300, 300]])
     await type(layer()!.querySelector<HTMLInputElement>("input")!, "Send")
     press(layer()!.querySelector("input")!, "Enter", { metaKey: true })
-    await vi.waitFor(() => expect(highlightImage(shadow)).not.toBeNull())
+    await vi.waitFor(() => expect(commentBox(shadow)).not.toBeNull())
     expect(vi.mocked(captureMarked).mock.calls[0]![0]).toEqual([
       { tip: "text", color: "#ec4899", points: [[241, 150]], text: "Move me" },
       { tip: "pen", color: "#ec4899", points: [[20, 20], [60, 20]] },
@@ -253,14 +307,17 @@ describe("Highlight in the Comments segment", () => {
 
   it("marks the area without a picture when the page cannot be drawn", async () => {
     vi.mocked(captureMarked).mockResolvedValueOnce(undefined)
-    const { bar, shadow } = await site()
+    const { bar, shadow, comments } = await site()
     tool(bar, "Highlight")!.click()
     await vi.waitFor(() => expect(layer()).not.toBeNull())
     stroke([[20, 20], [120, 24]])
     await vi.waitFor(() => expect(button(bar, "Done")?.disabled).toBe(false))
     button(bar, "Done")!.click()
-    await vi.waitFor(() => expect(shadow.querySelector('textarea[aria-label="Comment"]')).not.toBeNull())
-    expect(highlightImage(shadow)).toBeNull()
-    expect(shadow.querySelector(".toast")?.textContent).toContain("could not be drawn")
+    await vi.waitFor(() => expect(commentBox(shadow)).not.toBeNull())
+    await vi.waitFor(() => expect(shadow.querySelector(".toast")?.textContent).toContain("could not be drawn"))
+    await type(commentBox(shadow)!, "No picture")
+    press(commentBox(shadow)!, "Enter")
+    await vi.waitFor(async () => expect((await comments.list())[1]).toHaveLength(1))
+    expect((await comments.list())[1]![0]!.messages[0]).toMatchObject({ body: "No picture", attachments: [] })
   })
 })

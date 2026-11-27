@@ -187,7 +187,7 @@ function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined
     : []
   const kit = createNitroServerKit(nitro)
   kit.addPlugin(plugin)
-  if (cloudflare) kit.addHandler({ handler: middleware, middleware: true })
+  if (cloudflare) kit.addHandler({ handler: middleware, middleware: true, route: "/**" })
   // Only an `fs` store signs links to this route. A hosted store signs links to its provider.
   // The route checks the signature of each link.
   if (signedRoute) kit.addHandler({ handler: signedRouteModule, meta: { ...ownAccessRouteMeta }, route: signedNitroRoute })

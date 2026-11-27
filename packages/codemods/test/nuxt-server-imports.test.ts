@@ -44,6 +44,18 @@ describe("nuxt-server-imports", () => {
     await expect(formatReport(run)).toMatchFileSnapshot(join(fixtures, name, "output", "report.txt"))
   })
 
+  it.each([
+    ["npm:nuxt-nightly@5x", true],
+    ["^4.7.0", false],
+  ])("names the Nitro helpers that Nuxt stops auto-importing on nuxt %s: %s", async (nuxt, named) => {
+    const { run } = await migrate({
+      "package.json": JSON.stringify({ dependencies: { nitro: "^3.0.261103-rc", nuxt, "vite-hub": "^0.0.0" } }),
+      "server/api/a.ts": "export default defineEventHandler(() => kv.get(\"a\"))\n",
+    })
+    expect(run.result.edits.map(edit => edit.path)).toEqual(["server/api/a.ts"])
+    expect(run.result.notes.some(note => note.includes("Nuxt 5 also stops auto-importing the Nitro and H3 helpers"))).toBe(named)
+  })
+
   it("names the first file that needs an import", async () => {
     const cwd = await createApp({ "server/api/a.ts": "export default { fetch: () => kv.get(\"a\") }\n" })
     expect(await nuxtServerImports.detect({ cwd })).toEqual({ reason: "server/api/a.ts uses kv without an import, and Nuxt server auto-imports are off" })

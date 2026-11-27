@@ -93,7 +93,6 @@ export default defineConsoleAuthorize((context) => {
 | `'console'` | A person in the ViteHub Console. | The signed `user`, and the `team` that linked the app with the user's role. |
 | `'cli'` | The `vitehub` CLI or a CI job. | No `user`. |
 | `'agent'` | An Agent that calls operations as tools. | The Auth user of its Invoker. |
-| `'page'` | The tools pill, asking whether to show the [Console link](/docs/console/site-access#open-the-console-from-your-pages). | The page's session request, and the app's Auth `user` when someone signed in. |
 
 `'console'` and `'cli'` also carry `key`, the `<NAME>` of the signing key. Console editors are Console accounts, not users of your app, so check the signed `user`, as above. Operations get the same user as `context.user`.
 

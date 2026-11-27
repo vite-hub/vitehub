@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/mcp",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "The MCP server of a ViteHub app: one tool, prompt, or resource per file in server/mcp/, protected with MCP OAuth.",
   "keywords": [
     "mcp",
@@ -33,6 +33,11 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./eval": {
+      "types": "./dist/eval.d.ts",
+      "import": "./dist/eval.js",
+      "default": "./dist/eval.js"
+    },
     "./runtime": {
       "types": "./dist/runtime.d.ts",
       "import": "./dist/runtime.js",
@@ -59,9 +64,11 @@
     "pathe": "catalog:unjs"
   },
   "devDependencies": {
+    "@ai-sdk/mcp": "catalog:ai",
     "@modelcontextprotocol/sdk": "catalog:ai",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
+    "ai": "catalog:ai",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
@@ -70,9 +77,17 @@
     "zod": "catalog:runtime"
   },
   "peerDependencies": {
+    "@ai-sdk/mcp": "catalog:ai",
+    "ai": "catalog:ai",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
+    "@ai-sdk/mcp": {
+      "optional": true
+    },
+    "ai": {
+      "optional": true
+    },
     "vite": {
       "optional": true
     }

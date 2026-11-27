@@ -13,7 +13,7 @@ An **operation** is one named action of your app, such as `content.publish` or `
 | Console | Sends one birpc call, `{ m: operation, a: [input] }`, to `POST /_vitehub/rpc`. See [Call format](#call-format). |
 | CLI | `vitehub <namespace> <command>` sends the same request. |
 | Agent | The `operations()` capability turns the operation into a tool. |
-| MCP | `read_operation` or `run_operation` of the [ViteHub MCP](/docs/console/mcp#project-tools) sends the same request, signed by the Console. |
+| MCP | `read_operation`, `run_operation`, or `run_destructive_operation` of the [ViteHub MCP](/docs/console/mcp#project-tools) sends the same request, signed by the Console. |
 
 ## Define an operation
 
@@ -222,7 +222,7 @@ A failure has `e` instead, with `code`, `message` and `status`, plus `fix`, `doc
 
 | Package | Operations |
 | --- | --- |
-| `vite-hub` (Console sections) | `agents.list`, `agents.invoke`, `invocations.list`, `invocations.get`, `invocations.cancel`, `invocations.undo`, `invocations.delete`, `invocations.workspace`, `invocations.capabilities`, `databases.browse`, `databases.tables`, `definitions.list`, `env.get`, `project.get`, `search.query`, `sections.list`, `status.get`, `usage.get`, `documents.action`, `media.action` |
+| `vite-hub` (Console sections) | `agents.list`, `agents.invoke`, `invocations.list`, `invocations.get`, `invocations.cancel`, `invocations.undo`, `invocations.delete`, `invocations.workspace`, `invocations.capabilities`, `invocations.usage`, `databases.browse`, `databases.tables`, `definitions.list`, `env.get`, `project.get`, `search.query`, `sections.list`, `status.get`, `documents.action`, `media.action` |
 | [Blob](/docs/cli/primitives#read-and-write-blobs) | `blob.list`, `blob.head`, `blob.get`, `blob.put`, `blob.delete`, `blob.media`, `blob.variants` |
 | [Env](/docs/env) (Env section) | `env.inspect` |
 | [KV](/docs/cli/primitives#read-and-write-kv-keys) | `kv.list`, `kv.get`, `kv.has`, `kv.set`, `kv.delete` |

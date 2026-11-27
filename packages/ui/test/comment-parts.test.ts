@@ -95,9 +95,9 @@ function withState(child: () => ReturnType<typeof h>, comments = client()) {
 }
 
 function addFiles(wrapper: Pick<VueWrapper, "get">, files: File[]) {
-  const input = wrapper.get("input[type=file]").element as HTMLInputElement;
-  Object.defineProperty(input, "files", { configurable: true, value: files });
-  input.dispatchEvent(new Event("change"));
+  const input = wrapper.get("input[type=file]");
+  Object.defineProperty(input.element, "files", { configurable: true, value: files });
+  void input.trigger("change");
 }
 
 describe("mention ranking", () => {
@@ -383,6 +383,7 @@ describe("composer attachments", () => {
   });
 
   it("does not send files without text in a new comment unless allowEmpty is on", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.now());
     const wrapper = keep(mount(CommentComposer, { attachTo: document.body, global, props: { autofocus: false, guard: false } }));
     addFiles(wrapper, [shot]);
     await flushPromises();
@@ -1218,15 +1219,16 @@ describe("agent messages and replies since resolved", () => {
     expect(images.map(image => image.attributes("src"))).toEqual(["/agents/claude.svg"]);
   });
 
-  it("puts a reply since the thread was resolved below the Resolved line, and offers Resolve again", async () => {
-    const onResolve = vi.fn().mockResolvedValue(undefined);
+  it("puts a reply since the thread was resolved below the Resolved line, and keeps the thread resolved", async () => {
+    const onReopen = vi.fn().mockResolvedValue(undefined);
     const later = thread(1, { ...resolvedBy, messages: [message("m1"), message("m2", { actor: claude, createdAt: 3_000 })] });
-    const wrapper = keep(mount(CommentThread, { attachTo: document.body, global, props: { onResolve, thread: later, user: ana } }));
+    const wrapper = keep(mount(CommentThread, { attachTo: document.body, global, props: { onReopen, thread: later, user: ana } }));
     const messages = wrapper.get("[data-slot=comment-thread-messages]").element;
     expect([...messages.children].map(child => child.getAttribute("data-slot"))).toEqual(["comment-reply", "marker", "comment-reply"]);
     expect(messages.children[1]!.textContent).toBe("Resolved by Ana Ruiz");
-    await wrapper.get("[aria-label=Resolve]").trigger("click");
-    expect(onResolve).toHaveBeenCalledOnce();
+    expect(wrapper.find("[aria-label=Resolve]").exists()).toBe(false);
+    await wrapper.get("[aria-label=Reopen]").trigger("click");
+    expect(onReopen).toHaveBeenCalledOnce();
 
     const quiet = thread(2, { ...resolvedBy, messages: [message("m3"), message("m4", { createdAt: 1_500 })] });
     const done = keep(mount(CommentThread, { attachTo: document.body, global, props: { thread: quiet, user: ana } }));
@@ -1234,7 +1236,7 @@ describe("agent messages and replies since resolved", () => {
     expect([...done.get("[data-slot=comment-thread-messages]").element.children].at(-1)?.textContent).toContain("Resolved by Ana Ruiz");
   });
 
-  it("lists a resolved thread with a later reply under Open, and as resolved under Resolved", async () => {
+  it("lists a resolved thread with a later reply under Resolved only", async () => {
     const comments = client([
       thread(1),
       thread(2, { ...resolvedBy, messages: [message("m2"), message("m3", { actor: claude, createdAt: 3_000 })] }),
@@ -1243,23 +1245,18 @@ describe("agent messages and replies since resolved", () => {
     const wrapper = keep(mount(CommentPanel, { attachTo: document.body, global, props: { client: comments, subject: pricing } }));
     await vi.waitFor(() => expect(comments.status).toBe("ready"));
     await flushPromises();
-    expect(wrapper.findAll("[data-slot=comment-panel-filter]").map(button => button.text())).toEqual(["Open 2", "Resolved 2"]);
-    const sections = wrapper.findAll("[data-slot=comment-panel-groups] > *");
-    expect(sections[0]!.findAll("[data-slot=comment-panel-item]").map(row => row.attributes("data-thread-id"))).toEqual(["thread-1"]);
-    expect(wrapper.get("[data-slot=comment-panel-group-header]").text()).toBe("Replied since resolved");
-    expect(sections[1]!.findAll("[data-slot=comment-panel-item]").map(row => row.attributes("data-thread-id"))).toEqual(["thread-2"]);
+    expect(wrapper.findAll("[data-slot=comment-panel-filter]").map(button => button.text())).toEqual(["Open 1", "Resolved 2"]);
+    expect(wrapper.findAll("[data-slot=comment-panel-item]").map(row => row.attributes("data-thread-id"))).toEqual(["thread-1"]);
+    expect(wrapper.find("[data-slot=comment-panel-group-header]").exists()).toBe(false);
 
     await wrapper.findAll("[data-slot=comment-panel-filter]")[1]!.trigger("click");
     expect(wrapper.findAll("[data-slot=comment-panel-item]").map(row => row.attributes("data-thread-id"))).toEqual(["thread-2", "thread-3"]);
     expect(wrapper.find("[data-slot=comment-panel-group-header]").exists()).toBe(false);
   });
 
-  it("keeps a replied-to thread ungrouped when the app's grouper returns undefined", async () => {
-    const comments = client([
-      thread(1),
-      thread(2, { ...resolvedBy, messages: [message("m2"), message("m3", { createdAt: 3_000 })] }),
-    ]);
-    const group = (item: CommentThreadModel) => item.status === "open" ? "Current" : undefined;
+  it("keeps a thread ungrouped when the app's grouper returns undefined", async () => {
+    const comments = client([thread(1), thread(2)]);
+    const group = (item: CommentThreadModel) => item.id === "thread-1" ? "Current" : undefined;
     const wrapper = keep(mount(CommentPanel, { attachTo: document.body, global, props: { client: comments, group, subject: pricing } }));
     await vi.waitFor(() => expect(comments.status).toBe("ready"));
     await flushPromises();
@@ -1383,7 +1380,7 @@ describe("composer layout", () => {
     const popover = item.get<HTMLElement>("[data-slot=comment-layer-popover]");
     expect(item.attributes("data-flip-x")).toBe(flipped ? "true" : undefined);
     expect(Number.parseFloat(item.element.style.left)).toBe(x);
-    expect(x + Number.parseFloat(popover.element.style.left)).toBe(left);
+    expect(x + Number.parseFloat(popover.element.style.getPropertyValue("--vh-comment-draft-left"))).toBe(left);
   });
 
   it.each([375, 1024])("centers the page draft's bubble in a %s px viewport", async (viewport) => {
@@ -1393,7 +1390,7 @@ describe("composer layout", () => {
     await flushPromises();
     const item = wrapper.get<HTMLElement>("[data-draft=true]");
     const popover = item.get<HTMLElement>("[data-slot=comment-layer-popover]");
-    expect(Number.parseFloat(item.element.style.left) + Number.parseFloat(popover.element.style.left) + 144).toBe(viewport / 2);
+    expect(Number.parseFloat(item.element.style.left) + Number.parseFloat(popover.element.style.getPropertyValue("--vh-comment-draft-left")) + 144).toBe(viewport / 2);
   });
 
   it("draws attach as a ghost icon in a row box and as an outlined button in a bordered one", () => {

@@ -13,10 +13,11 @@ import { pathLabel } from "./fields.ts"
 import type { CallExpression, File, ImportSpecifier, ObjectPattern, ObjectProperty } from "@babel/types"
 import type { CodeStyle, Node } from "@vite-hub/internal/ast"
 import type { FileEdit, FollowUp } from "../types.ts"
-import type { EnvField } from "./fields.ts"
+import type { EnvField, Framework } from "./fields.ts"
 
 const serverImport = "vite-hub/env"
 const publicImport = "#vitehub/env/public"
+const nitroRuntimeImports = new Set(["#imports", "nitro/runtime", "nitro/runtime-config"])
 
 export interface CallSiteInput {
   cwd: string
@@ -25,12 +26,19 @@ export interface CallSiteInput {
   unmigrated: readonly string[]
   /** Source trees owned by other Nuxt or Nitro configs, relative to `cwd`. */
   excludedDirectories?: readonly string[]
+  /**
+   * `nitro` rewrites `useRuntimeConfig()` calls that read only migrated fields, and treats every file as server code.
+   * `nuxt` rewrites `useSafeRuntimeConfig()` calls and only reports `useRuntimeConfig()` reads. Defaults to `nuxt`.
+   */
+  framework?: Framework
 }
 
 export interface SecretRead {
   field: EnvField
   file: string
   line: number
+  /** Set when the codemod wrote `.unseal()` at this read, so the code keeps the raw value. */
+  unsealed: boolean
 }
 
 export interface CallSiteResult {
@@ -54,6 +62,7 @@ interface Block {
 interface FileState {
   file: string
   context: Context
+  framework: Framework
   output: MagicString
   followUps: FollowUp[]
   secretReads: SecretRead[]
@@ -70,16 +79,15 @@ type Target =
   | { kind: "unsupported", message: string }
 
 interface Read {
-  /** Static property names after the config object. */
   segments: string[]
-  /** The member expression for each segment. */
   members: Node[]
   line: number
 }
 
 type Access = { kind: "read", read: Read } | { kind: "other", line: number, reason: string }
 
-function classify(file: string): Context {
+function classify(file: string, framework: Framework): Context {
+  if (framework === "nitro") return "server"
   const segments = file.split("/")
   if (segments.includes("server")) return "server"
   if (segments.includes("shared")) return "shared"
@@ -112,7 +120,6 @@ function memberName(node: Node): string | undefined {
   return keyName(node.property, node.computed)
 }
 
-/** How code uses an expression that holds the config object. */
 function accessOf(node: Node, ancestors: readonly Node[], lineOffset: number): Access {
   const segments: string[] = []
   const members: Node[] = []
@@ -140,17 +147,16 @@ function accessOf(node: Node, ancestors: readonly Node[], lineOffset: number): A
 class Resolver {
   private readonly byLabel = new Map<string, EnvField>()
 
-  constructor(private readonly fields: readonly EnvField[], private readonly unmigrated: readonly string[]) {
+  constructor(private readonly fields: readonly EnvField[], private readonly unmigrated: readonly string[], private readonly publicSection: boolean) {
     for (const field of fields) this.byLabel.set(pathLabel(field), field)
   }
 
-  /** Server fields whose path starts with `segments`. */
   fieldsUnder(segments: readonly string[]): EnvField[] {
     return this.fields.filter(field => field.section === "server" && segments.every((segment, index) => field.configPath[index] === segment))
   }
 
   resolve(segments: readonly string[]): Target {
-    const publicRead = segments[0] === "public"
+    const publicRead = this.publicSection && segments[0] === "public"
     const rest = publicRead ? segments.slice(1) : segments
     const prefix = publicRead ? ["public"] : []
     for (let length = 1; length <= rest.length; length++) {
@@ -167,6 +173,9 @@ class Resolver {
       const flat = this.fields.filter(field => field.section === "public").every(field => field.configPath.length === 1)
       if (!rest.length && flat) return { kind: "public-root" }
       return { kind: "unsupported", message: `Reads the ${label} object. Public Env is flat, so nested public groups do not exist. Read each field from usePublicEnv(), for example usePublicEnv().${this.fields.find(field => field.section === "public" && field.configPath.length > 1)?.envPath[0] ?? "name"}.` }
+    }
+    if (!this.publicSection && nested.length && keptBelow) {
+      return { kind: "unsupported", message: `Reads the ${label} group, which has keys in both runtimeConfig and Server Env. Read the keys separately from useRuntimeConfig() and useServerEnv().` }
     }
     if (!publicRead && rest.length && nested.length && !keptBelow) return { kind: "server-group" }
     return { kind: "kept", label }
@@ -199,6 +208,11 @@ interface Rewrite {
   edits: Array<{ from: number, to: number, text: string }>
   needsServer: boolean
   needsPublic: boolean
+  secretReads: SecretRead[]
+}
+
+function unsealCall(field: EnvField): string {
+  return !field.required && field.default === undefined ? "?.unseal()" : ".unseal()"
 }
 
 class BlockRewriter {
@@ -206,7 +220,11 @@ class BlockRewriter {
   private readonly style: Pick<CodeStyle, "quote" | "semicolons">
   private readonly bindings: Map<string, Node[]>
   private readonly safeImports = new Map<string, ImportSpecifier>()
+  private readonly namespaces = new Set<string>()
   private readonly rewrittenCallees = new Set<Node>()
+  private readonly nitro: boolean
+  private readonly callName: string
+  private readonly accessors: string
 
   constructor(
     private readonly state: FileState,
@@ -216,12 +234,18 @@ class BlockRewriter {
     this.program = parseProgram(block.code, { jsx: block.jsx, typescript: block.typescript })
     this.style = detectStyle(block.code, this.program)
     this.bindings = blockBindings(this.program)
+    this.nitro = state.framework === "nitro"
+    const composable = this.nitro ? "useRuntimeConfig" : "useSafeRuntimeConfig"
+    this.callName = `${composable}()`
+    this.accessors = this.nitro ? "useServerEnv()" : "useServerEnv() or usePublicEnv()"
     for (const statement of this.program.program.body) {
-      if (statement.type !== "ImportDeclaration" || statement.source.value !== "#imports" || statement.importKind === "type") continue
+      if (statement.type !== "ImportDeclaration" || statement.importKind === "type") continue
+      if (this.nitro ? !nitroRuntimeImports.has(statement.source.value) : statement.source.value !== "#imports") continue
       for (const specifier of statement.specifiers) {
-        if (specifier.type === "ImportSpecifier" && specifier.importKind !== "type" && keyName(specifier.imported) === "useSafeRuntimeConfig") {
+        if (specifier.type === "ImportSpecifier" && specifier.importKind !== "type" && keyName(specifier.imported) === composable) {
           this.safeImports.set(specifier.local.name, specifier)
         }
+        if (specifier.type === "ImportNamespaceSpecifier") this.namespaces.add(specifier.local.name)
       }
     }
   }
@@ -237,10 +261,18 @@ class BlockRewriter {
   run(): void {
     const safeCalls: Array<{ call: CallExpression, ancestors: Node[] }> = []
     const runtimeCalls: Array<{ call: CallExpression, ancestors: Node[] }> = []
+    const composable = this.nitro ? "useRuntimeConfig" : "useSafeRuntimeConfig"
     walk(this.program, (node, ancestors) => {
+      if (this.nitro) this.reportIndirectNitroReference(node, ancestors)
+      if (node.type === "CallExpression" && node.callee.type === "MemberExpression" && node.callee.object.type === "Identifier"
+        && this.namespaces.has(node.callee.object.name) && memberName(node.callee) === composable) {
+        this.follow(this.lineOf(node), `${node.callee.object.name}.${composable}() is called through a namespace import, so the codemod left it unchanged.${this.nitro ? " Values that moved to Env are no longer in runtimeConfig." : ""} Rewrite it by hand with ${this.accessors}.`)
+        this.state.remainingCalls++
+        return
+      }
       if (node.type !== "CallExpression" || node.callee.type !== "Identifier") return
-      if (node.callee.name === "useSafeRuntimeConfig" || this.safeImports.has(node.callee.name)) safeCalls.push({ call: node, ancestors: [...ancestors] })
-      if (node.callee.name === "useRuntimeConfig") runtimeCalls.push({ call: node, ancestors: [...ancestors] })
+      if (node.callee.name === composable || this.safeImports.has(node.callee.name)) safeCalls.push({ call: node, ancestors: [...ancestors] })
+      else if (node.callee.name === "useRuntimeConfig") runtimeCalls.push({ call: node, ancestors: [...ancestors] })
     })
     let needsServer = false
     let needsPublic = false
@@ -253,8 +285,8 @@ class BlockRewriter {
         this.state.remainingCalls++
         continue
       }
-      // Decline the whole call when either generated accessor could be shadowed.
-      const collision = ([[serverImport, "useServerEnv"], [publicImport, "usePublicEnv"]] as const).find(([source, name]) => {
+      const accessorImports = this.nitro ? [[serverImport, "useServerEnv"] as const] : [[serverImport, "useServerEnv"] as const, [publicImport, "usePublicEnv"] as const]
+      const collision = accessorImports.find(([source, name]) => {
         const bindings = this.bindings.get(name) ?? []
         return bindings.length > 0 && !(bindings.length === 1 && sameImport(this.program, source, name))
       })
@@ -268,7 +300,11 @@ class BlockRewriter {
         this.state.remainingCalls++
         continue
       }
-      for (const edit of rewrite.edits) this.state.output.overwrite(this.block.offset + edit.from, this.block.offset + edit.to, edit.text)
+      for (const edit of rewrite.edits) {
+        if (edit.from === edit.to) this.state.output.appendLeft(this.block.offset + edit.from, edit.text)
+        else this.state.output.overwrite(this.block.offset + edit.from, this.block.offset + edit.to, edit.text)
+      }
+      this.state.secretReads.push(...rewrite.secretReads)
       needsServer ||= rewrite.needsServer
       needsPublic ||= rewrite.needsPublic
       this.rewrittenCallees.add(call.callee)
@@ -276,6 +312,29 @@ class BlockRewriter {
     }
     for (const { call, ancestors } of runtimeCalls) this.checkRuntimeConfigCall(call, ancestors)
     this.updateImports(needsServer, needsPublic)
+  }
+
+  private reportIndirectNitroReference(node: Node, ancestors: readonly Node[]): void {
+    const report = () => {
+      this.follow(this.lineOf(node), "An indirect reference to useRuntimeConfig() stays unchanged. Values that moved to Env are no longer in runtimeConfig. Update this reference and its consumers by hand.")
+      this.state.remainingCalls++
+    }
+    if (node.type === "ExportAllDeclaration" && node.exportKind !== "type" && nitroRuntimeImports.has(node.source.value)) report()
+    if (node.type === "ExportNamedDeclaration" && node.exportKind !== "type" && node.source && nitroRuntimeImports.has(node.source.value)
+      && node.specifiers.some(specifier => specifier.type === "ExportNamespaceSpecifier"
+        || (specifier.type === "ExportSpecifier" && specifier.exportKind !== "type" && keyName(specifier.local) === "useRuntimeConfig"))) report()
+    const parent = ancestors.at(-1)
+    if (!isReference(node, parent)) return
+    const grandparent = ancestors.at(-2)
+    if (parent?.type === "ExportSpecifier" && grandparent?.type === "ExportNamedDeclaration" && grandparent.source) return
+    if (this.safeImports.has(node.name) && !(parent?.type === "CallExpression" && parent.callee === node)) report()
+    if (!this.namespaces.has(node.name)) return
+    if ((parent?.type === "MemberExpression" || parent?.type === "OptionalMemberExpression") && parent.object === node) {
+      const key = memberName(parent)
+      if (key !== undefined && key !== "useRuntimeConfig") return
+      if (parent.type === "MemberExpression" && key === "useRuntimeConfig" && grandparent?.type === "CallExpression" && grandparent.callee === parent) return
+    }
+    report()
   }
 
   private updateImports(needsServer: boolean, needsPublic: boolean): void {
@@ -303,7 +362,7 @@ class BlockRewriter {
               || (parent?.type === "JSXMemberExpression" && parent.object === node)
             ))) referenced = true
           })
-          if (referenced) {
+          if (referenced && !this.nitro) {
             this.follow(this.lineOf(specifier), `Some references to ${specifier.local.name} remain. Replace them by hand before removing this Nuxt composable import.`)
             this.state.remainingCalls++
           }
@@ -323,7 +382,6 @@ class BlockRewriter {
         }
         removed.add(statement)
         if (lines.length && !replacedImport) {
-          // Put the new imports where the removed import was.
           this.state.output.overwrite(from, to, lines.join("\n"))
           replacedImport = true
         }
@@ -342,7 +400,6 @@ class BlockRewriter {
     this.state.changed = true
   }
 
-  /** Plans one `useSafeRuntimeConfig()` call, or reports a follow-up and returns `undefined`. */
   private planCall(call: CallExpression, ancestors: readonly Node[]): Rewrite | undefined {
     const context = this.state.context
     const callLine = this.lineOf(call)
@@ -360,23 +417,33 @@ class BlockRewriter {
       if (parent.id.type === "ObjectPattern") return this.planPattern(call, parent.id, parent)
     }
     if (parent?.type === "AwaitExpression") {
-      this.follow(callLine, "useSafeRuntimeConfig() is awaited. Rewrite it by hand: useServerEnv() and usePublicEnv() are synchronous.")
+      this.follow(callLine, `${this.callName} is awaited. Rewrite it by hand: ${this.nitro ? "useServerEnv() is" : "useServerEnv() and usePublicEnv() are"} synchronous.`)
       return undefined
     }
-    this.follow(callLine, "useSafeRuntimeConfig() passes the config object on. Rewrite it by hand with useServerEnv() or usePublicEnv().")
+    if (this.nitro && parent?.type === "ExpressionStatement") return undefined
+    this.follow(callLine, `${this.callName} passes the config object on. ${this.nitro ? "Values that moved to Env are no longer in it. Read them" : "Rewrite it"} by hand with ${this.accessors}.`)
     return undefined
   }
 
-  /** Records the secret fields that a server read reaches, including the secrets in a group it reads whole. */
-  private recordSecretReads(target: Target, segments: readonly string[], lineNumber: number): void {
+  private secretFields(target: Target, segments: readonly string[]): EnvField[] {
     const fields = target.kind === "field"
       ? [target.field]
       : target.kind === "server-group"
         ? this.resolver.fieldsUnder(segments)
         : []
-    for (const field of fields) {
-      if (field.secret) this.state.secretReads.push({ field, file: this.state.file, line: lineNumber })
-    }
+    return fields.filter(field => field.secret)
+  }
+
+  private secretRead(field: EnvField, lineNumber: number, unsealed: boolean): SecretRead {
+    return { field, file: this.state.file, line: lineNumber, unsealed }
+  }
+
+  private declineSecretGroup(target: Target, segments: readonly string[], lineNumber: number): boolean {
+    if (!this.nitro || target.kind !== "server-group") return false
+    const secrets = this.secretFields(target, segments)
+    if (!secrets.length) return false
+    this.follow(lineNumber, `Reads ${segments.join(".")} whole, and it holds the secret ${secrets.map(field => pathLabel(field)).join(", ")}. useServerEnv() returns a secret as a SecretEnv, not as its raw value. Rewrite this ${this.callName} call by hand with useServerEnv(), and call .unseal() where the code needs the raw value.`)
+    return true
   }
 
   private calleeEdit(call: CallExpression, name: string): { from: number, to: number, text: string } {
@@ -386,9 +453,10 @@ class BlockRewriter {
   private planReads(call: CallExpression, accesses: readonly Access[], binding: { kind: "direct" } | { kind: "identifier", name: string }): Rewrite | undefined {
     const callLine = this.lineOf(call)
     const reads: Array<{ read: Read, target: Target }> = []
+    if (this.nitro && !this.nitroRewritable(accesses)) return undefined
     for (const access of accesses) {
       if (access.kind === "other") {
-        this.follow(access.line, `useSafeRuntimeConfig() result ${access.reason}. Rewrite it by hand with useServerEnv() or usePublicEnv().`)
+        this.follow(access.line, `${this.callName} result ${access.reason}. Rewrite it by hand with ${this.accessors}.`)
         return undefined
       }
       const target = this.resolver.resolve(access.read.segments)
@@ -397,9 +465,10 @@ class BlockRewriter {
         return undefined
       }
       if (target.kind === "unsupported") {
-        this.follow(access.read.line, `${target.message} Then rewrite this useSafeRuntimeConfig() call by hand.`)
+        this.follow(access.read.line, `${target.message} Then rewrite this ${this.callName} call by hand.`)
         return undefined
       }
+      if (this.declineSecretGroup(target, access.read.segments, access.read.line)) return undefined
       reads.push({ read: access.read, target })
     }
     const isPublic = (target: Target) => target.kind === "public-root" || (target.kind === "field" && target.field.section === "public")
@@ -410,11 +479,18 @@ class BlockRewriter {
       return undefined
     }
     if (!reads.length) {
-      this.follow(callLine, "useSafeRuntimeConfig() result is not read. Remove it or rewrite it by hand.")
+      if (!this.nitro) this.follow(callLine, "useSafeRuntimeConfig() result is not read. Remove it or rewrite it by hand.")
       return undefined
     }
-    for (const entry of serverReads) this.recordSecretReads(entry.target, entry.read.segments, entry.read.line)
     const edits: Rewrite["edits"] = []
+    const secretReads: SecretRead[] = []
+    for (const { read, target } of serverReads) {
+      const secrets = this.secretFields(target, read.segments)
+      const unseal = this.nitro && target.kind === "field" && target.field.secret
+      const last = unseal ? read.members[target.consumed - 1] : undefined
+      if (unseal && last) edits.push({ from: end(last), to: end(last), text: unsealCall(target.field) })
+      secretReads.push(...secrets.map(field => this.secretRead(field, read.line, Boolean(last))))
+    }
     const publicOnly = !serverReads.length
     const publicBase = publicOnly && binding.kind === "identifier" ? binding.name : "usePublicEnv()"
     for (const entry of publicReads) {
@@ -425,18 +501,29 @@ class BlockRewriter {
       edits.push({ from: this.objectStart(read), to: end(last), text })
     }
     if (binding.kind === "direct") {
-      if (publicOnly) return { edits, needsServer: false, needsPublic: true }
-      return { edits: [this.calleeEdit(call, "useServerEnv")], needsServer: true, needsPublic: false }
+      if (publicOnly) return { edits, needsServer: false, needsPublic: true, secretReads }
+      return { edits: [this.calleeEdit(call, "useServerEnv"), ...edits], needsServer: true, needsPublic: false, secretReads }
     }
     if (publicOnly) {
       edits.push({ from: start(call), to: end(call), text: "usePublicEnv()" })
-      return { edits, needsServer: false, needsPublic: true }
+      return { edits, needsServer: false, needsPublic: true, secretReads }
     }
     edits.push(this.calleeEdit(call, "useServerEnv"))
-    return { edits, needsServer: true, needsPublic: publicReads.length > 0 }
+    return { edits, needsServer: true, needsPublic: publicReads.length > 0, secretReads }
   }
 
-  /** Start of the expression that holds the config object in a read such as `config.public.x`. */
+  private nitroRewritable(accesses: readonly Access[]): boolean {
+    const reads = accesses.flatMap(access => access.kind === "read" ? [access.read] : [])
+    const kept = reads.some(read => this.resolver.resolve(read.segments).kind === "kept")
+    const other = accesses.find(access => access.kind === "other")
+    if (!kept && !other) return true
+    if (other) {
+      this.follow(other.line, `${this.callName} result ${other.reason}. Values that moved to Env are no longer in it. Read them by hand with ${this.accessors}.`)
+    }
+    for (const read of reads) this.reportRuntimeRead(read.segments, read.line)
+    return false
+  }
+
   private objectStart(read: Read): number {
     const first = read.members[0]
     if (!first || (first.type !== "MemberExpression" && first.type !== "OptionalMemberExpression")) throw invariantError("the call-site scan collects only member reads, so the first member of a read is a member expression")
@@ -479,6 +566,8 @@ class BlockRewriter {
       return undefined
     }
     const serverProperties: ObjectProperty[] = []
+    let unsealed: { field: EnvField, local: string } | undefined
+    const secretReads: SecretRead[] = []
     let publicProperty: ObjectProperty | undefined
     for (const property of pattern.properties) {
       const key = property.type === "ObjectProperty" ? keyName(property.key, property.computed) : undefined
@@ -486,7 +575,7 @@ class BlockRewriter {
         this.follow(this.lineOf(property), "The destructuring pattern uses a rest element or a computed key. Rewrite it by hand.")
         return undefined
       }
-      if (key === "public") {
+      if (key === "public" && !this.nitro) {
         if (property.value.type !== "ObjectPattern" || property.value.properties.some(entry => entry.type !== "ObjectProperty"
           || !keyName(entry.key, entry.computed) || (entry.value.type !== "Identifier" && entry.value.type !== "AssignmentPattern"))) {
           this.follow(this.lineOf(property), "The public part of the pattern is not a flat list of keys. Rewrite it by hand with usePublicEnv().")
@@ -508,11 +597,29 @@ class BlockRewriter {
         this.follow(this.lineOf(property), `${target.message} Rewrite this pattern by hand.`)
         return undefined
       }
+      if (target.kind === "kept" && this.nitro) {
+        const migratedKeys = pattern.properties.flatMap((entry) => {
+          const entryKey = entry.type === "ObjectProperty" ? keyName(entry.key, entry.computed) : undefined
+          return entryKey && this.resolver.resolve([entryKey]).kind !== "kept" ? [{ key: entryKey, line: this.lineOf(entry) }] : []
+        })
+        for (const entry of migratedKeys) this.reportRuntimeRead([entry.key], entry.line)
+        return undefined
+      }
       if (target.kind === "kept") {
         this.follow(this.lineOf(property), `Reads ${target.label}, which stays in runtimeConfig. Read it with useRuntimeConfig() and rewrite this pattern by hand.`)
         return undefined
       }
-      this.recordSecretReads(target, [key], this.lineOf(property))
+      if (this.declineSecretGroup(target, [key], this.lineOf(property))) return undefined
+      if (this.nitro && target.kind === "field" && target.field.secret) {
+        if (property.value.type !== "Identifier") {
+          this.follow(this.lineOf(property), `The pattern reads the secret ${key} with a default value or a nested pattern. useServerEnv() returns it as a SecretEnv, not as its raw value. Rewrite this ${this.callName} call by hand, and call .unseal() where the code needs the raw value.`)
+          return undefined
+        }
+        unsealed = { field: target.field, local: property.value.name }
+        secretReads.push(this.secretRead(target.field, this.lineOf(property), true))
+        continue
+      }
+      secretReads.push(...this.secretFields(target, [key]).map(field => this.secretRead(field, this.lineOf(property), false)))
       serverProperties.push(property)
     }
     const context = this.state.context
@@ -520,7 +627,18 @@ class BlockRewriter {
       this.follow(callLine, "App code destructures private keys. Server Env is for server code only. Move the read to a server route.")
       return undefined
     }
-    if (!publicProperty) return { edits: [this.calleeEdit(call, "useServerEnv")], needsServer: true, needsPublic: false }
+    const serverPattern = `{ ${serverProperties.map(property => code.slice(start(property), end(property))).join(", ")} }`
+    const callText = `useServerEnv${code.slice(end(call.callee), end(call))}`
+    if (unsealed) {
+      if (pattern.properties.length !== 1) {
+        this.follow(callLine, "This pattern reads a secret with other keys. Rewrite it by hand to preserve binding order, and call .unseal() where the code needs the raw value.")
+        return undefined
+      }
+      const { field, local } = unsealed
+      const access = field.envPath.map(key => /^[A-Za-z_$][\w$]*$/.test(key) ? `.${key}` : `[${quoteString(key, this.style)}]`).join("")
+      return { edits: [{ from: start(declarator), to: end(declarator), text: `${local} = ${callText}${access}${unsealCall(field)}` }], needsServer: true, needsPublic: false, secretReads }
+    }
+    if (!publicProperty) return { edits: [this.calleeEdit(call, "useServerEnv")], needsServer: true, needsPublic: false, secretReads }
     const publicPattern = code.slice(start(publicProperty.value), end(publicProperty.value))
     if (!serverProperties.length) {
       return {
@@ -530,14 +648,14 @@ class BlockRewriter {
         ],
         needsServer: false,
         needsPublic: true,
+        secretReads,
       }
     }
-    const serverPattern = `{ ${serverProperties.map(property => code.slice(start(property), end(property))).join(", ")} }`
-    const callText = `useServerEnv${code.slice(end(call.callee), end(call))}`
     return {
       edits: [{ from: start(declarator), to: end(declarator), text: `${serverPattern} = ${callText}, ${publicPattern} = usePublicEnv()` }],
       needsServer: true,
       needsPublic: true,
+      secretReads,
     }
   }
 
@@ -581,7 +699,7 @@ class BlockRewriter {
     const target = this.resolver.resolve(segments)
     if (target.kind === "kept") return
     if (target.kind === "unsupported") {
-      this.follow(lineNumber, `useRuntimeConfig() reads ${segments.join(".")}, which moved to Env. ${target.message}`)
+      this.follow(lineNumber, this.nitro ? target.message : `useRuntimeConfig() reads ${segments.join(".")}, which moved to Env. ${target.message}`)
       return
     }
     const label = target.kind === "field" ? pathLabel(target.field) : segments.join(".")
@@ -603,17 +721,22 @@ function templateConfigReads(state: FileState, template: string, resolver: Resol
 
 const sourcePatterns = ["**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,vue}"]
 const ignoredPatterns = ["**/node_modules/**", "**/.nuxt/**", "**/.output/**", "**/.data/**", "**/.vitehub/**", "**/dist/**", "**/coverage/**", "**/*.d.ts", "**/nuxt.config.*", "**/eslint.config.*"]
+const nitroIgnoredPatterns = ["**/.nitro/**", "**/nitro.config.*", "**/vite.config.*"]
 
-/** Rewrites `useSafeRuntimeConfig()` calls and reports reads that it cannot rewrite safely. */
+/** Rewrites `useSafeRuntimeConfig()` calls, or Nitro `useRuntimeConfig()` calls, and reports reads that it cannot rewrite safely. */
 export async function rewriteCallSites(input: CallSiteInput): Promise<CallSiteResult> {
-  const resolver = new Resolver(input.fields, input.unmigrated)
-  const files = (await glob(sourcePatterns, { cwd: input.cwd, ignore: ignoredPatterns, dot: false }))
+  const framework = input.framework ?? "nuxt"
+  const resolver = new Resolver(input.fields, input.unmigrated, framework === "nuxt")
+  const ignore = framework === "nitro" ? [...ignoredPatterns, ...nitroIgnoredPatterns] : ignoredPatterns
+  const files = (await glob(sourcePatterns, { cwd: input.cwd, ignore, dot: false }))
     .filter(file => !input.excludedDirectories?.some(directory => file.startsWith(`${directory}/`)))
     .sort()
   const result: CallSiteResult = { edits: [], followUps: [], secretReads: [], remaining: [] }
   for (const file of files) {
     const source = await readFile(join(input.cwd, file), "utf8")
-    if (!/useSafeRuntimeConfig|useRuntimeConfig|\$config/.test(source)) continue
+    const mayReadConfig = (code: string) => /useSafeRuntimeConfig|useRuntimeConfig|\$config/.test(code)
+      || (framework === "nitro" && [...nitroRuntimeImports].some(specifier => code.includes(specifier)))
+    if (!mayReadConfig(source)) continue
     let blocks: ReturnType<typeof scriptBlocks>
     try {
       blocks = scriptBlocks(file, source)
@@ -624,7 +747,8 @@ export async function rewriteCallSites(input: CallSiteInput): Promise<CallSiteRe
     }
     const state: FileState = {
       file,
-      context: classify(file),
+      context: classify(file, framework),
+      framework,
       output: new MagicString(source),
       followUps: [],
       secretReads: [],
@@ -638,7 +762,7 @@ export async function rewriteCallSites(input: CallSiteInput): Promise<CallSiteRe
       continue
     }
     for (const block of blocks.blocks) {
-      if (!/useSafeRuntimeConfig|useRuntimeConfig/.test(block.code)) continue
+      if (!mayReadConfig(block.code)) continue
       try {
         new BlockRewriter(state, block, resolver).run()
       }

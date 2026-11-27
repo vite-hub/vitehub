@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/env",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Safe build and runtime environment variables for ViteHub.",
   "keywords": [
     "env",
@@ -103,6 +103,7 @@
   },
   "dependencies": {
     "@env-spec/parser": "0.6.3",
+    "@valibot/to-json-schema": "catalog:runtime",
     "@vite-hub/runtime": "workspace:*",
     "magic-string": "^1.4.5",
     "nostics": "catalog:runtime",

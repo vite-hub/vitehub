@@ -38,8 +38,8 @@ export interface DefineContentSeoOptions {
    */
   rss?: boolean | ContentRssOptions
   /**
-   * Serve a public read-only MCP server at `/mcp` with two tools: `list-pages` lists the published Markdown pages that
-   * the sitemap lists, and `get-page` reads one of them as Markdown. `name` is the server name, the host name by default.
+   * Serve a public read-only MCP server at `/mcp` with two tools: `list-pages` finds or lists the published Markdown pages
+   * that the sitemap lists, and `get-page` reads one of them as Markdown. `name` is the server name, the host name by default.
    */
   mcp?: boolean | ContentMcpOptions
   /**

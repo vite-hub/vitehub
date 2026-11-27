@@ -19,6 +19,6 @@ ViteHub builds on UnJS. Use TypeScript, native responses, and your usual Vite an
 
 - [Build your first Server Primitive](/docs/getting-started/first-server-primitive)
 - [Build your first Agent](/docs/getting-started/first-agent)
-- [Migrate from NuxtHub](/docs/getting-started/migrate-from-nuxthub)
+- [Migrate from NuxtHub](/docs/compare/nuxthub#migrate-from-nuxthub)
 - [Choose a host](/docs/frameworks-hosts)
 - [Browse docs](/docs)

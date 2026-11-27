@@ -344,7 +344,7 @@ The same callback protects [Blob serve routes](/docs/blob/configure#protect-serv
 
 The generated access middleware checks each request that an access route matches. A route ending in `/**` matches its base path and descendants. Exact routes match only that path. A route has no other pattern syntax: `*`, `:name`, `(`, `{`, and `?`, also when percent-encoded, and `.` or `..` segments fail with `AUTH_C0068`. A `GET` route also guards `HEAD`. The middleware reads the path as the Nitro router does, so `/api/billing/` and `/api/%62illing` match `/api/billing`. All matching rules apply. Unmatched requests do not load the Auth Definition or session.
 
-The [Console](/docs/console/access#who-can-call-the-endpoint) endpoint does not use these access routes. It takes only signed requests and one-time links.
+The [Console](/docs/console/access#who-can-call-the-endpoint) endpoint does not use these access routes. It takes only signed requests and signed Site access tokens.
 
 Other generated ViteHub routes check access on every request, even without an app rule. These are Realtime and Comments, Blob signed links, Connections, MCP with `auth: true` and its `publicRoute`, the Content GitHub webhook, and the page tools session. Each runs a required `authorize` policy, an explicit `access` rule, a required access token, or a signature check. The access routes still apply to them, so an app rule such as an admin check stays in force. Routes that can run without a check stay unmarked: `/_vitehub/browser-errors`, Forms, Sync, Blob serve routes, and Agent webhooks. Middleware of your own that guards the whole app can skip the marked routes and the Console with `checksOwnAccess(event)`:
 
@@ -433,7 +433,7 @@ With the evlog Nitro module, added through `vitehub({ observability })` or by ha
 | `path` | The Better Auth endpoint, such as `/sign-in/email`. It is not set when Better Auth refused the request before an endpoint ran, such as for its rate limit, or for a guard. |
 | `provider` | The OAuth provider of a callback or a social sign-in. |
 | `status` | The HTTP status of a failure or a refusal. |
-| `code` | Better Auth's error code, such as `INVALID_EMAIL_OR_PASSWORD`, the `error` of an OAuth callback redirect, or the code of a guard refusal: `SIGNED_OUT` or `FORBIDDEN`. |
+| `code` | Better Auth's error code, such as `INVALID_EMAIL_OR_PASSWORD`, the `error` of an OAuth error response such as `invalid_grant` or of an OAuth callback redirect, or the code of a guard refusal: `SIGNED_OUT` or `FORBIDDEN`. |
 | `userId` | The user of a completed sign-in or sign-up. |
 
 Better Auth's warnings and errors also go on the event, with `[Better Auth]` before the message. Auth keeps your `logger` option: your `logger.log`, or Better Auth's console output, still gets every message.

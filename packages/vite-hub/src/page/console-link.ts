@@ -2,27 +2,15 @@
 import { parseContentField } from "@vite-hub/content/client"
 import { hostedConsoleUrl } from "@vite-hub/runtime"
 
-/** The marker in the URL of the segment script. The part before it is the app base. */
-const scriptMarker = "/_vitehub/console/assets/"
-
-/** The app base of the segment script URL, such as `/portal` for `/portal/_vitehub/console/assets/page-tool.js`. */
-export function consolePageBase(scriptPath: string): string {
-  const index = scriptPath.lastIndexOf(scriptMarker)
-  return index > 0 ? scriptPath.slice(0, index) : ""
-}
-
 const appBase = /^(?:\/(?!\.\.?(?:\/|$))[^/?#\\]+)*$/
-const consoleAssetPath = /^\/page\/[^/]+\/(?:[0-9a-f]+\/)?[^/]+$/
 
 /**
- * Where the segment script came from. A script that the app serves has the app base in its path and opens the hosted
- * Console. A script that a Console serves, such as `https://console.vitehub.dev/page/0.4.0/<hash>/page-tool.js?base=/portal`,
- * has the app base in its `base` query and opens that Console, also when the page is on the Console itself. A `base` that
- * is not an app base reads as `""`.
+ * Where the segment script came from. A Console serves it, such as
+ * `https://console.vitehub.dev/page/0.4.0/<hash>/page-tool.js?base=/portal`, with the app base in its `base` query. The
+ * segment opens that Console, also when the page is on the Console itself. A `base` that is not an app base reads as `""`.
  */
-export function consoleScriptSource(scriptUrl: string, pageOrigin: string): { base: string, consoleOrigin?: string } {
+export function consoleScriptSource(scriptUrl: string): { base: string, consoleOrigin: string } {
   const url = new URL(scriptUrl)
-  if (url.origin === pageOrigin && !consoleAssetPath.test(url.pathname)) return { base: consolePageBase(url.pathname) }
   const base = url.searchParams.get("base") ?? ""
   return { base: appBase.test(base) ? base : "", consoleOrigin: url.origin }
 }

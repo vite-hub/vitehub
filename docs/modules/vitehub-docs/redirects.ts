@@ -83,7 +83,8 @@ const agentCapabilities = {
 
 const movedLearningPages = new Map(Object.entries({
   "/docs/ui/built-for-vue": "/docs/getting-started/built-for-vue",
-  "/docs/frameworks-hosts/migrate-from-nuxthub": "/docs/getting-started/migrate-from-nuxthub",
+  "/docs/frameworks-hosts/migrate-from-nuxthub": "/docs/compare/nuxthub",
+  "/docs/getting-started/migrate-from-nuxthub": "/docs/compare/nuxthub",
   "/docs/getting-started/concepts/workspace-and-sources": "/docs/workspace/concepts",
   "/docs/getting-started/concepts/auth-users-and-agent-invokers": "/docs/agents/invokers",
   "/docs/getting-started/concepts/runtime-policy-approvals-and-traces": "/docs/agents/runtime-policy",
@@ -188,11 +189,16 @@ export const docsPageRedirects = {
   ...Object.fromEntries(Object.entries(movedDiagnostics).flatMap(([section, { from, codes }]) => codes.map(code => [`/docs/${from}/diagnostics/${code}`, `/docs/${section}/diagnostics/${code}`]))),
 } satisfies Record<string, string>;
 
-/**
- * Fragments that moved with the Blob page split, with the CMS move to its own section, and with the moves of packages to their own sections.
- * The old page redirect keeps the hash, so `/docs/content/cms-preset#github-store` lands on `/docs/cms#github-store`.
- */
 export const docsLegacyFragmentRedirects = {
+  "/docs/compare/nuxthub": {
+    "where-nuxthub-is-stronger": "/docs/compare/nuxthub#compare-the-features",
+    "what-nuxthub-has-that-vitehub-does-not": "/docs/compare/nuxthub#compare-the-features",
+    "move-a-nuxt-app-from-nuxthub": "/docs/compare/nuxthub#migrate-from-nuxthub",
+    "keep-a-turso-or-libsql-connection": "/docs/database/configure",
+    "keep-the-cache": "/docs/guides/cache-server-results",
+    "baseline-an-existing-cloudflare-d1-database": "/docs/database/configure#keep-an-existing-migrations-table",
+    "related-guides": "/docs/compare/nuxthub#next-steps",
+  },
   "/docs/blob": {
     "quick-start": "/docs/blob/get-started",
     install: "/docs/blob/get-started",
@@ -413,13 +419,13 @@ export const docsLegacyFragmentRedirects = {
     "manage-connections": "/docs/console/sections#content-and-people",
     "connect-to-mcp-servers": "/docs/console/mcp-client",
     "sign-in-with-oauth": "/docs/console/mcp-client#sign-in-with-oauth",
-    "what-the-mcp-client-keeps": "/docs/console/mcp-client#keep-connections-across-restarts",
-    "one-time-links": "/docs/console/site-access#one-time-links",
-    "site-access-from-the-terminal": "/docs/console/site-access#site-access-from-the-terminal",
-    "site-access-without-auth": "/docs/console/site-access#site-access-without-auth",
+    "what-the-mcp-client-keeps": "/docs/console/mcp-client#where-connections-live",
+    "one-time-links": "/docs/console/site-access#impersonation-and-content-preview",
+    "site-access-from-the-terminal": "/docs/console/site-access#sign-browsers-in",
+    "site-access-without-auth": "/docs/console/site-access#how-the-app-checks-a-visit",
     "give-browsers-site-access": "/docs/console/site-access#sign-browsers-in",
     "links-to-the-console": "/docs/console/site-access#link-to-the-console",
-    "open-the-console-from-your-pages": "/docs/console/site-access#open-the-console-from-your-pages",
+    "open-the-console-from-your-pages": "/docs/console/site-access#the-console-segment-of-the-comments-pill",
     "self-host-the-console": "/docs/console/get-started#self-host-the-console",
     "protect-the-console-route": "/docs/console/access#who-can-call-the-endpoint",
     "sign-console-requests": "/docs/console/signed-requests",
@@ -478,14 +484,40 @@ export const docsLegacyFragmentRedirects = {
   },
 } satisfies Record<string, Record<string, string>>;
 
+const removedPrimitiveLandings = [
+  "agents",
+  "auth",
+  "blob",
+  "browser",
+  "channels",
+  "choices",
+  "cms",
+  "comments",
+  "connections",
+  "content",
+  "database",
+  "email",
+  "env",
+  "forms",
+  "i18n",
+  "kv",
+  "logs",
+  "queue",
+  "rate-limit",
+  "realtime",
+  "sandbox",
+  "schedule",
+  "shell",
+  "source",
+  "webhooks",
+  "workflows",
+  "workspace",
+];
+
 function rawMarkdownPath(path: string) {
   return `/raw${path}.md`;
 }
 
-/**
- * Permanent redirects for each removed HTML page and its raw Markdown copy. Nitro matches the trailing-slash form of a
- * route too, and ViteHub writes both forms to the Cloudflare `_redirects` file, so a second `/old/` rule is not needed.
- */
 export function createDocsRedirectRouteRules(redirects: Record<string, string> = docsPageRedirects) {
   const routeRules: Record<string, { redirect: { status: 301, to: string } }> = {};
 
@@ -495,8 +527,15 @@ export function createDocsRedirectRouteRules(redirects: Record<string, string> =
   }
 
   for (const [from, to] of Object.entries({
-    "/databases": "/database",
-    "/rate-limits": "/rate-limit",
+    ...Object.fromEntries(removedPrimitiveLandings.map(section => [`/${section}`, `/docs/${section}`] as const)),
+    "/databases": "/docs/database",
+    "/rate-limits": "/docs/rate-limit",
+  })) {
+    routeRules[from] = { redirect: { status: 301, to } };
+    routeRules[`${from}.md`] = { redirect: { status: 301, to: rawMarkdownPath(to) } };
+  }
+
+  for (const [from, to] of Object.entries({
     "/blog": "/learn",
     "/guides": "/learn",
     // Decisions was renamed to Choices.

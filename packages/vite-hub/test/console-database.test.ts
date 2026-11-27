@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createClient } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
 import { sql } from "drizzle-orm";
@@ -9,9 +9,10 @@ import {
   consoleDatabaseRequestQuery,
   parseConsoleDatabase,
 } from "../src/console/runtime/components/console-database-model.ts";
-import { browseConsoleDatabase } from "../src/console/runtime/server/database.get.ts";
+import { browseConsoleDatabase } from "../src/database/console/database.get.ts";
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts";
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts";
+import { installViteHubConsoleOperations } from "./support/console-operations.ts";
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts";
 import { installConsoleDatabase } from "../src/console/runtime/server/database.ts";
 import { operationRpcBody, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts";
@@ -56,6 +57,10 @@ afterEach(() => {
   delete consoleState().database;
   delete consoleState().sections;
   delete consoleState().navigationSections;
+});
+
+beforeEach(async () => {
+  await installViteHubConsoleOperations();
 });
 
 describe("Console database inspection", () => {

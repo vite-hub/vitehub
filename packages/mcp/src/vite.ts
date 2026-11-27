@@ -277,7 +277,7 @@ export function hubMcp(options: McpVitePluginOptions = {}): McpVitePlugin {
       if (auth) {
         const discoveryFile = resolve(projectRoot, generatedDir, "discovery.ts")
         writeFileIfChangedSync(discoveryFile, renderDiscovery(imports))
-        kit.addHandler({ handler: discoveryFile, middleware: true }, "start")
+        kit.addHandler({ handler: discoveryFile, middleware: true, route: "/**" }, "start")
       }
       ;(config as { nitro?: unknown }).nitro = kit.config
     },

@@ -1,10 +1,11 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fixture } from "../../auth/test/fixtures/console.ts";
 import { consoleEventsFixture } from "../../auth/test/fixtures/console-events.ts";
 import { authConsoleActionOperations, authConsoleReadOperations } from "../src/console/runtime/auth-operations.ts";
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts";
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts";
 import { changeAuthConsole, readAuthConsole } from "../src/console/runtime/client/auth-management.ts";
+import { installViteHubConsoleOperations } from "./support/console-operations.ts";
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts";
 import { operationRpcBody, operationRpcFetch, operationRpcRequest, operationRpcResponseResult } from "../../internal/test-utils/operation-rpc.ts"
 
@@ -12,6 +13,10 @@ const state = vi.hoisted(() => ({ inspect: undefined as unknown }));
 vi.mock("@vite-hub/auth/server", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@vite-hub/auth/server")>()),
   getAuthConsoleForRequest: () => state.inspect,
+}));
+vi.mock("../src/console/runtime/client/project-session.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/console/runtime/client/project-session.ts")>()),
+  useConsoleProjects: () => ({ current: { value: { id: "p 1", url: "https://app.example.com" } } }),
 }));
 afterEach(() => {
   Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.access"));
@@ -45,6 +50,10 @@ async function value(response: Promise<Response>): Promise<unknown> {
   expect(body).toMatchObject({ ok: true });
   return Reflect.get(Object(body), "value");
 }
+
+beforeEach(async () => {
+  await installViteHubConsoleOperations();
+});
 
 describe("Auth Console operations", () => {
   it("rejects read and write access outside the auth section before opening Better Auth", async () => {
@@ -142,13 +151,16 @@ describe("Auth Console operations", () => {
 });
 
 describe("Auth Console client", () => {
-  it("reads and changes Auth through operations, and opens impersonation links in a new tab", async () => {
+  it("reads and changes Auth through operations, and opens impersonation through the Console in a new tab", async () => {
     const sent: Array<{ body: unknown; path: string }> = [];
     vi.stubGlobal("fetch", operationRpcFetch(async (input: string, init?: RequestInit) => {
+      if (input.startsWith("/api/")) {
+        sent.push({ body: JSON.parse(String(init?.body)), path: input });
+        return Response.json({ url: `https://app.example.com/_vitehub/site?intent=${sent.length}`, expiresAt: "2026-11-11T00:01:00.000Z" }, { status: 201 });
+      }
       const body = operationRpcRequest(init?.body);
       sent.push({ body, path: input });
-      const operation = Reflect.get(Object(body), "operation");
-      return Response.json({ ok: true, value: operation === "auth.impersonate" || operation === "auth.stop-impersonating" ? { url: `https://app.example.com/_vitehub/rpc?ticket=${operation}`, expiresAt: "2026-11-11T00:01:00.000Z" } : { total: 0 } });
+      return Response.json({ ok: true, value: { total: 0 } });
     }));
     const opened: string[] = [];
     const tab = { opener: {} as unknown, location: { replace: (url: string) => opened.push(url) }, close: vi.fn() };
@@ -162,17 +174,17 @@ describe("Auth Console client", () => {
       { body: { input: { limit: 25, search: "ada" }, operation: "auth.users" }, path: "/_vitehub/rpc" },
       { body: { input: { id: "org", offset: 25 }, operation: "auth.organization" }, path: "/_vitehub/rpc" },
       { body: { input: { userId: "u1" }, operation: "auth.revoke-sessions" }, path: "/_vitehub/rpc" },
-      { body: { input: { userId: "u1" }, operation: "auth.impersonate" }, path: "/_vitehub/rpc" },
-      { body: { input: {}, operation: "auth.stop-impersonating" }, path: "/_vitehub/rpc" },
+      { body: { kind: "impersonate", target: { action: "start", userId: "u1" } }, path: "/api/projects/p%201/site/open" },
+      { body: { kind: "impersonate", target: { action: "stop" } }, path: "/api/projects/p%201/site/open" },
     ]);
     // The tab opens before the call and cannot reach the Console page.
-    expect(opened).toEqual(["https://app.example.com/_vitehub/rpc?ticket=auth.impersonate", "https://app.example.com/_vitehub/rpc?ticket=auth.stop-impersonating"]);
+    expect(opened).toEqual(["https://app.example.com/_vitehub/site?intent=4", "https://app.example.com/_vitehub/site?intent=5"]);
     expect(tab.opener).toBeNull();
     expect(tab.close).not.toHaveBeenCalled();
   });
 
-  it("closes the new tab when the app refuses the link", async () => {
-    vi.stubGlobal("fetch", operationRpcFetch(async () => Response.json({ ok: false, code: "CONSOLE_ACCESS_DENIED", message: "No.", status: 403 }, { status: 403 })));
+  it("closes the new tab when the app refuses the impersonation", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ok: false, code: "CONSOLE_ACCESS_DENIED", message: "No.", status: 403 }, { status: 403 })));
     const tab = { opener: {} as unknown, location: { replace: vi.fn() }, close: vi.fn() };
     vi.stubGlobal("open", vi.fn(() => tab));
     await expect(changeAuthConsole({ action: "impersonate", userId: "u1" })).rejects.toThrow();

@@ -16,9 +16,6 @@ export type ConsoleDiagnosticCode =
   | "CONSOLE_KEY_UNKNOWN"
   | "CONSOLE_LOOPBACK_ONLY"
   | "CONSOLE_MCP_AUTHORIZATION_FAILED"
-  | "CONSOLE_MCP_KEY_INVALID"
-  | "CONSOLE_MCP_KV_REQUIRED"
-  | "CONSOLE_MCP_LIST_INCOMPLETE"
   | "CONSOLE_MCP_SIGNED_OUT"
   | "CONSOLE_MCP_UNREACHABLE"
   | "CONSOLE_NOT_FOUND"
@@ -31,11 +28,8 @@ export type ConsoleDiagnosticCode =
   | "CONSOLE_SIGNATURE_MISSING"
   | "CONSOLE_SIGNATURE_ORIGIN"
   | "CONSOLE_SIGNATURE_STALE"
-  | "CONSOLE_SITE_SECRET_MISSING"
-  | "CONSOLE_TICKET_INVALID"
-  | "CONSOLE_TICKET_MISMATCH"
-  | "CONSOLE_TICKET_NO_PERSON"
-  | "CONSOLE_TICKET_STORE_MISSING"
+  | "CONSOLE_SITE_ACCOUNT_MISMATCH"
+  | "CONSOLE_SITE_TOKEN_REFUSED"
   | "CONSOLE_UNAVAILABLE"
 
 export type ConsoleDiagnosticData = {
@@ -146,36 +140,6 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
       `${consoleGuide}/signed-requests`,
       "docs",
     ),
-    CONSOLE_SITE_SECRET_MISSING: code(
-      "Site access without Auth seals the browser's cookie with VITEHUB_SECRET, and the app has none.",
-      "Set VITEHUB_SECRET on the server. Generate one with `openssl rand -base64 32`, then restart or deploy.",
-      `${consoleGuide}/site-access#site-access-without-auth`,
-      "docs",
-    ),
-    CONSOLE_TICKET_INVALID: code(
-      "This one-time link expired, was used, or was changed.",
-      "Open the page again from the ViteHub Console. Each link works once, within 60 seconds.",
-      `${consoleGuide}/site-access#one-time-links`,
-      "docs",
-    ),
-    CONSOLE_TICKET_MISMATCH: code(
-      "This one-time link was made for another person or another app.",
-      "Open the page from the ViteHub Console in the browser where you are signed in to the app with the email of your Console account.",
-      `${consoleGuide}/site-access#one-time-links`,
-      "docs",
-    ),
-    CONSOLE_TICKET_NO_PERSON: code(
-      "A one-time link opens the app as the person who asks for it, and this call names no person. A `vitehub` command signs its calls with a key, not as a person.",
-      "Make the link in the ViteHub Console, where you are signed in. On a development server, which the Console cannot reach, invite the browser as a guest: `vitehub site invite <name> --grants <role>`.",
-      `${consoleGuide}/site-access#site-access-from-the-terminal`,
-      "docs",
-    ),
-    CONSOLE_TICKET_STORE_MISSING: code(
-      "One-time links need a store that every instance of the app shares, and the app has none.",
-      "Add app Auth with a Database, such as `defineAuth({ database: authDatabase() })`, then run `vitehub database migrate`. Its verification table keeps each link until it is used. Without Auth, add a Database: when the default KV store cannot take a key out once, such as Cloudflare KV, the links go in its `vitehub_console_site` table. Or use a default KV store on Redis, Upstash, or the `database` driver.",
-      `${consoleGuide}/site-access#one-time-links`,
-      "docs",
-    ),
     CONSOLE_LOOPBACK_ONLY: code(
       "The development Console without signed calls accepts only requests from this machine.",
       "Call it from this machine, such as with `vitehub` commands, or remove console.auth so the app takes calls that the ViteHub Console and the CLI sign.",
@@ -200,24 +164,6 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
       `${consoleGuide}/mcp-client`,
       "docs",
     ),
-    CONSOLE_MCP_KEY_INVALID: code(
-      "VITEHUB_CONSOLE_MCP_KEY is not 32 random bytes, so the Console cannot seal MCP connections.",
-      "Set VITEHUB_CONSOLE_MCP_KEY to 32 random bytes as base64 or hex, such as the output of openssl rand -base64 32.",
-      `${consoleGuide}/mcp-client#keep-connections-across-restarts`,
-      "docs",
-    ),
-    CONSOLE_MCP_KV_REQUIRED: code(
-      "VITEHUB_CONSOLE_MCP_KEY is set, but the app has no configured default KV store for MCP connections.",
-      "Set kv: true in vitehub(), or configure a default KV store, then rebuild the app.",
-      `${consoleGuide}/mcp-client#keep-connections-across-restarts`,
-      "docs",
-    ),
-    CONSOLE_MCP_LIST_INCOMPLETE: code(
-      "The MCP server sent a list of more than 20 pages, so the Console did not show it.",
-      "Make the MCP server send its tools, resources, resource templates, or prompts in 20 pages or fewer, such as with more items in each page.",
-      `${consoleGuide}/mcp-client`,
-      "docs",
-    ),
     CONSOLE_REQUEST_INVALID: code(
       "The server cannot read this Console request.",
       "Reload the Console. If this continues, deploy the Console and the server from the same build.",
@@ -235,6 +181,18 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
       "Reload the Console, then try again.",
       `${consoleGuide}/limits-and-errors#fix-common-failures`,
       "reload",
+    ),
+    CONSOLE_SITE_ACCOUNT_MISMATCH: code(
+      "Impersonation uses the app session of this browser, and it belongs to another person than your Console account, or it has no session.",
+      "Sign in to the app in this browser with the email of your ViteHub Console account, then start the impersonation again from the Console. Stop an impersonation in the browser that started it.",
+      `${consoleGuide}/site-access#impersonation-and-content-preview`,
+      "docs",
+    ),
+    CONSOLE_SITE_TOKEN_REFUSED: code(
+      "The app refused the Site access token that the ViteHub Console sent.",
+      "Open the site again from the ViteHub Console, in the same browser. Check that the app has the `VITEHUB_CONSOLE_KEY_<NAME>` of its link and that `vitehub({ publicUrl })` is the URL that you open.",
+      `${consoleGuide}/site-access#how-the-app-checks-a-visit`,
+      "docs",
     ),
     CONSOLE_UNAVAILABLE: code(
       "The server did not answer. It can be restarting, offline, or rate limited.",

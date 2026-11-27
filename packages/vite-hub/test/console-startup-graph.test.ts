@@ -5,7 +5,7 @@ import { dirname, join, relative, resolve } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
-import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
+import { writeConsoleAppModule } from "../src/console/app-module.ts"
 import { generatedModules } from "../src/internal/generated-modules.ts"
 
 const packageRoot = resolve(import.meta.dirname, "..")
@@ -52,14 +52,14 @@ function startupGraph(code: string): { files: Set<string>, packages: Set<string>
 }
 
 describe("Console server startup graph", () => {
-  it("loads the operations, usage index, and journal stores on the first Console request", async () => {
+  it("loads the operations and journal stores on the first Console request", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-startup-"))
     try {
-      const file = join(root, "plugin.mjs")
-      await writeConsoleNitroPlugin({
+      const file = join(root, "app.mjs")
+      await writeConsoleAppModule({
         file,
         projectRoot: root,
-        sections: ["agents", "databases", "env", "kv", "mcp-client"],
+        sections: ["agents", "databases", "env", "kv"],
         catalog: { agents: [], content: {}, operations: [{ export: "kvOperations", module: "/kv/dist/console.js", plugin: "@vite-hub/kv/vite" }] },
         blobStores: [],
         access: { mode: "open" },
@@ -67,7 +67,7 @@ describe("Console server startup graph", () => {
       })
       const generated = await readFile(file, "utf8")
       expect(staticSpecifiers(generated).sort()).toEqual([generatedModules.consoleSetup])
-      for (const module of ["vite-hub/console/server", generatedModules.consoleOperations, "/kv/dist/console.js", "vite-hub/console/mcp-client", "@vite-hub/database/runtime/registry", "vite-hub/kv"]) {
+      for (const module of ["vite-hub/console/server", generatedModules.consoleOperations, "/kv/dist/console.js", "@vite-hub/database/runtime/registry", "vite-hub/kv"]) {
         expect(generated).toContain(`import(${JSON.stringify(module)})`)
       }
 
@@ -80,7 +80,7 @@ describe("Console server startup graph", () => {
       // app-wide journal of an Agent that runs before the first Console request.
       expect(files).not.toContain(join(agentSource, "invocations/default.ts"))
       expect(files).not.toContain(join(agentSource, "internal/default-invocations.ts"))
-      for (const lazy of ["agents.ts", "invocations.ts", "operation-contributions.ts", "operations.ts", "usage-index.ts", "invocations-database.ts", "mcp.ts", "mcp-client-operations.ts", "rpc.ts"]) {
+      for (const lazy of ["agents.ts", "invocations.ts", "operation-contributions.ts", "operations.ts", "invocations.usage.ts", "invocations-database.ts", "mcp.ts", "rpc.ts"]) {
         expect(loaded).not.toContain(`src/console/runtime/server/${lazy}`)
       }
       for (const lazy of ["d1.ts", "sqlite.ts"]) expect(files).not.toContain(join(agentSource, "invocations", lazy))
@@ -94,8 +94,8 @@ describe("Console server startup graph", () => {
   it("loads the Console access and sign-in pages on the first Console request", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-startup-"))
     try {
-      const file = join(root, "plugin.mjs")
-      await writeConsoleNitroPlugin({
+      const file = join(root, "app.mjs")
+      await writeConsoleAppModule({
         file,
         projectRoot: root,
         sections: ["kv"],
@@ -107,10 +107,8 @@ describe("Console server startup graph", () => {
       const generated = await readFile(file, "utf8")
       expect(staticSpecifiers(generated)).toEqual([generatedModules.consoleSetup])
       expect(generated).toContain("installConsoleBuild(")
-      expect(generated).not.toContain("installConsolePageTool(")
       const loaded = [...startupGraph(generated).files].map(file => relative(packageRoot, file))
       expect(loaded).toContain("src/console/runtime/server/access-policy.ts")
-      expect(loaded).not.toContain("src/console/runtime/server/page-tool.ts")
       for (const lazy of ["src/console/auth-pages.ts", "src/console/runtime/server/access.ts", "src/console/runtime/server/sections.ts"]) {
         expect(loaded).not.toContain(lazy)
       }

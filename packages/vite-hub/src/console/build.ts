@@ -51,15 +51,15 @@ export function withConsoleDocumentEditorSections(sections: readonly ConsoleSect
  * and checked again when the app starts.
  */
 export async function assertUniqueOperationNames(contributions: readonly CollectedOperationContribution[]): Promise<void> {
-  const { consoleOperations } = await import("./runtime/server/operations.ts")
-  const sources: Array<{ operations: ReturnType<typeof operationsOf>, plugin: string }> = [{ operations: [...consoleOperations], plugin: "vite-hub" }]
+  const { loadConsoleOperations } = await import("./operation-modules.ts")
+  const sources: Array<{ operations: ReturnType<typeof operationsOf>, plugin: string }> = [{ operations: await loadConsoleOperations(), plugin: "vite-hub" }]
   for (const contribution of contributions) {
     try {
       const exported = contribution.load ? await contribution.load() : Reflect.get(Object(await import(/* @vite-ignore */ contribution.module)), contribution.export)
       sources.push({ operations: operationsOf(exported), plugin: contribution.plugin })
     }
     catch {
-      // The app resolves its own modules. The generated plugin imports them and checks again at start.
+      // The app resolves its own modules. The generated Console app module imports them and checks again when it loads.
     }
   }
   createOperationRegistry(sources)

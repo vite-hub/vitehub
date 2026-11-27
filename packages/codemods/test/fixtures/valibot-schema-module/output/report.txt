@@ -1,25 +1,22 @@
-nuxt-safe-runtime-config: migrated 5 Env declarations (1 public, 4 server) from $schema (schema.ts) to vite-hub/nuxt.
+nuxt-safe-runtime-config: moved here because the schema has transforms on `allowedOrigins` and `port`. Migrated 5 Env declarations (1 public, 4 server) from $schema (schema.ts) to vite-hub/nuxt.
 Dry run: no files were written.
 
-Files to change (2):
+Files to change (3):
   nuxt.config.ts
+  server/env.schema.ts (new)
   package.json
 
-Manual follow-ups (8):
-  1. nuxt.config.ts:12 apiSecret had the value "", which its $schema rejects: Invalid length: Expected >=16 but received 0. The module treats this validation failure as fatal, so the codemod kept no default and Env requires NUXT_API_SECRET.
-  2. nuxt.config.ts:12 apiSecret: Env does not keep minimum length 16. Check the value in code, or use envSchema() with a .env.example for length, range, integer, and URL checks.
-  3. nuxt.config.ts:14 allowedOrigins: Env does not keep the Valibot transform action. Check the value in code, or use envSchema() with a .env.example for length, range, integer, and URL checks.
-  4. nuxt.config.ts:15 port: Env does not keep minimum 1, the Valibot transform action. Check the value in code, or use envSchema() with a .env.example for length, range, integer, and URL checks.
-  5. nuxt.config.ts:9 public.apiBase: Env does not keep the URL format, the Valibot check check. Check the value in code, or use envSchema() with a .env.example for length, range, integer, and URL checks.
-  6. nuxt.config.ts:6 ViteHub needs a host, so the codemod set vitehub.host to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.
-  7. nuxt.config.ts:12 useServerEnv().apiSecret is secret, a SecretEnv<string>. No rewritten file reads it. Call .unseal() where code needs the raw value.
-  8. nuxt.config.ts:13 useServerEnv().webhookSecret is secret, a SecretEnv<string>. No rewritten file reads it. Call .unseal() where code needs the raw value.
+Manual follow-ups (4):
+  1. nuxt.config.ts:13 apiSecret had a credential default, which its $schema rejects. The module treats this validation failure as fatal, so the codemod kept no default and Env requires NUXT_API_SECRET.
+  2. nuxt.config.ts:7 ViteHub needs a host, so the codemod set vitehub.host to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.
+  3. nuxt.config.ts:13 useServerEnv().apiSecret is secret, a SecretEnv of the schema output. No rewritten file reads it. Call .unseal() where code needs the raw value.
+  4. nuxt.config.ts:14 useServerEnv().webhookSecret is secret, a SecretEnv<string>. No rewritten file reads it. Call .unseal() where code needs the raw value.
 
 Notes:
   - Each declaration reads its NUXT_* name with env.source(). Env reads the canonical name VITEHUB_<PATH> first, for example VITEHUB_API_SECRET before NUXT_API_SECRET.
-  - The codemod did not delete schema.ts. Delete it, and its schema library if nothing else uses it.
+  - server/env.schema.ts exports the $schema of each field that has a rule or transform. Server Env runs it with env.schemaFrom() when the server reads the value. Public Env runs it during the build.
+  - server/env.schema.ts imports schema.ts. Keep schema.ts and its schema library.
   - Public Env values are fixed at build time. Nuxt applied NUXT_PUBLIC_* overrides when the server started; now set them when you build. Server Env values are read when the server runs.
-  - Shelve and the standalone Nitro module (nuxt-safe-runtime-config/nitro) are out of scope for this codemod.
   - No ESLint config references nuxt-safe-runtime-config/eslint.
 
 Next steps:

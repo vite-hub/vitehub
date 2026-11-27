@@ -2,7 +2,7 @@ import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { isAbsolute, join, posix, relative, resolve } from "node:path"
 
-import { findProperty, keyName, line, parseProgram, walk } from "@vite-hub/internal/ast"
+import { detectStyle, findProperty, keyName, line, parseProgram, walk } from "@vite-hub/internal/ast"
 import { isRecord } from "@vite-hub/internal/object"
 import { subset, validRange } from "semver"
 import { glob } from "tinyglobby"
@@ -10,21 +10,23 @@ import { glob } from "tinyglobby"
 import packageJson from "../../package.json" with { type: "json" }
 import { ConfigEditor, removeModuleEntry } from "../shared/config-editor.ts"
 import { detectNuxtModule, readDependencies } from "../shared/detect.ts"
-import { findModuleEntry, literalValue, loadNuxtConfig, readNuxtConfig } from "../shared/nuxt-config.ts"
+import { findModuleEntry, literalValue, loadConfigFile, loadNuxtConfig, readNuxtConfig } from "../shared/nuxt-config.ts"
 import { editPackageJson } from "../shared/package-json.ts"
-import { codemodError } from "../error-diagnostics.ts"
+import { codemodError, isCodemodError } from "../error-diagnostics.ts"
 import { rewriteCallSites } from "./call-sites.ts"
 import { editNuxtConfig } from "./config-edit.ts"
 import { planFromEnvFile, readEnvFileKeys } from "./env-file.ts"
 import { pathLabel } from "./fields.ts"
+import { assertNotNitro2, checkNitroConfig, editNitroConfig, findNitroModuleEntry, isNitroApp, nitroModuleName, planNitroHost, readNitroConfig, readViteConfigPlan, writeViteConfig } from "./nitro-config.ts"
 import { loadSchemaModule, moduleName, readRuntimeConfig, readStaticOptions } from "./nuxt-config.ts"
 import { planFromJsonSchema, schemaIssues, schemaToJsonSchema } from "./schema.ts"
+import { planSchemaModule, renderSchemaModule } from "./schema-module.ts"
 
-import type { ObjectProperty } from "@babel/types"
+import type { Node, ObjectProperty } from "@babel/types"
 import type { NuxtConfigFile } from "../shared/nuxt-config.ts"
-import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from "../types.ts"
-import type { EnvSource } from "./config-edit.ts"
-import type { EnvField, PlannedFollowUp } from "./fields.ts"
+import type { Codemod, CodemodContext, CodemodResult, Detection, FileEdit, FollowUp } from "../types.ts"
+import type { EnvSource, SchemaModuleReference } from "./config-edit.ts"
+import type { EnvField, Framework, PlannedFollowUp } from "./fields.ts"
 import type { StaticOptions } from "./nuxt-config.ts"
 
 interface ResolvedOptions extends Pick<StaticOptions, "onError" | "validateAtBuild" | "validateAtRuntime"> {
@@ -80,12 +82,11 @@ function validationChecks(options: Pick<StaticOptions, "validateAtBuild" | "vali
   return { validateAtBuild: options.validateAtBuild !== false, validateAtRuntime: options.validateAtRuntime ?? true }
 }
 
-/** Reads the module options statically, and runs nuxt.config only when an inline schema or a dynamic option needs it. */
-async function resolveOptions(config: NuxtConfigFile, staticOptions: StaticOptions): Promise<ResolvedOptions> {
+async function resolveOptions(staticOptions: StaticOptions, load: () => Promise<Record<string, unknown>>): Promise<ResolvedOptions> {
   if (!staticOptions.inlineSchema && !staticOptions.dynamic) {
     return staticOptions
   }
-  const evaluated = await loadNuxtConfig(config.path)
+  const evaluated = await load()
   const modules = Array.isArray(evaluated.modules) ? evaluated.modules : []
   const tuple = modules.find((entry): entry is unknown[] => Array.isArray(entry) && entry[0] === moduleName)
   const options = {
@@ -103,7 +104,6 @@ async function resolveOptions(config: NuxtConfigFile, staticOptions: StaticOptio
   }
 }
 
-/** Line of each object property in a schema module, by its dotted path of property keys. */
 function schemaLines(code: string): Map<string, number> {
   const lines = new Map<string, number>()
   let program: ReturnType<typeof parseProgram>
@@ -152,8 +152,6 @@ async function layerExtends(config: NuxtConfigFile): Promise<string[]> {
 async function findOutOfScopeConfigs(cwd: string, rootConfig: NuxtConfigFile): Promise<{ directories: string[], followUps: FollowUp[] }> {
   const files = await glob(["**/nuxt.config.{ts,mts,js,mjs,cjs}", "**/nitro.config.{ts,mts,js,mjs,cjs}"], { cwd, ignore: ["**/node_modules/**", "**/.nuxt/**", "**/.output/**"] })
   const nuxtDirectories = new Set(files.filter(file => posix.basename(file).startsWith("nuxt.config.")).map(file => posix.dirname(file)))
-  // Nuxt consumes immediate layers/ children automatically, and resolves each
-  // configured local extends path relative to the config that declares it.
   const layers = new Set([".", ...[...nuxtDirectories].filter(directory => posix.dirname(directory) === "layers")])
   const followUps: FollowUp[] = []
   for (const directory of layers) {
@@ -188,76 +186,145 @@ async function findOutOfScopeConfigs(cwd: string, rootConfig: NuxtConfigFile): P
   return { directories: [...directories], followUps }
 }
 
+interface SchemaPlanResult {
+  fields: EnvField[]
+  unmigrated: string[]
+  planned: PlannedFollowUp[]
+  notes: string[]
+  schemaFile?: string
+  lines: Map<string, number>
+  sourceLabel: string
+  schemaModule?: SchemaModuleReference
+  generated?: { path: string, code: string, importedSources: string[] }
+  transforms: string[]
+}
+
+const reasonList = new Intl.ListFormat("en", { type: "conjunction" })
+
+function routeReason(reasons: readonly string[], summary: string): string {
+  if (!reasons.length) return summary
+  return `moved here because ${reasonList.format(reasons)}. ${summary.charAt(0).toUpperCase()}${summary.slice(1)}`
+}
+
+function transformReason(transforms: readonly string[]): string[] {
+  if (!transforms.length) return []
+  return [`the schema has transforms on ${reasonList.format(transforms.map(path => path ? `\`${path}\`` : "the whole runtimeConfig"))}`]
+}
+
+async function planSchema(input: { cwd: string, config: NuxtConfigFile, options: ResolvedOptions, optionNodes: readonly (Node | undefined)[], framework: Framework }): Promise<SchemaPlanResult> {
+  const { cwd, config, options, framework } = input
+  const planned: PlannedFollowUp[] = []
+  const notes: string[] = []
+  let schemaFile: string | undefined
+  let lines = new Map<string, number>()
+  let schemaModule: SchemaModuleReference | undefined
+  let generated: SchemaPlanResult["generated"]
+  let schema = options.schema
+  if (options.schemaPath !== undefined) {
+    schema = await loadSchemaModule(cwd, options.schemaPath)
+    const candidates = ["", ".ts", ".mts", ".js", ".mjs"].map(extension => `${options.schemaPath}${extension}`)
+    const found = candidates.find(candidate => existsSync(join(cwd, candidate)))
+    if (found) {
+      schemaFile = relative(cwd, join(cwd, found))
+      lines = schemaLines(await readFile(join(cwd, found), "utf8"))
+    }
+  }
+  const runtime = readRuntimeConfig(config)
+  const runtimeProperty = findProperty(config.root, "runtimeConfig")
+  if (runtimeProperty && !runtime.object) {
+    planned.push({ message: "runtimeConfig is not an object literal, so the codemod kept its values and removed no keys. Move the migrated values to Env defaults by hand." })
+  }
+  const { validateAtBuild, validateAtRuntime } = validationChecks(options, await moduleVersion(cwd))
+  const onError = options.onError ?? "throw"
+  const enforced = onError === "throw" && (validateAtBuild || validateAtRuntime)
+  const moduleTarget = enforced
+    ? planSchemaModule({ cwd, config, schemaPath: options.schemaPath, options: input.optionNodes })
+    : { reason: onError === "throw" ? "The module did not validate runtimeConfig, so the codemod wrote no schema module." : `The module only reported validation failures (onError: '${onError}'), but Env stops the app when a schema fails, so the codemod wrote no schema module.` }
+  const target = "target" in moduleTarget ? moduleTarget.target : undefined
+  const issues = schemaIssues(schema)
+  const plan = await planFromJsonSchema({
+    schema,
+    schemaExports: Boolean(target),
+    jsonSchema: await schemaToJsonSchema(schema, cwd),
+    issues,
+    runtimeConfig: runtime.values,
+    validateAtBuild,
+    validateAtRuntime,
+    rejectInvalidDefaults: onError === "throw",
+    framework,
+  })
+  const { fields, unmigrated } = plan
+  if ("reason" in moduleTarget && plan.needsSchemaModule) {
+    const retry = enforced ? " Move the $schema to its own module, then run the codemod again." : ""
+    planned.push({ message: `${moduleTarget.reason} The fields below that have rules keep follow-ups.${retry}`, anchor: { schema: "" } })
+  }
+  planned.push(...plan.followUps)
+  const sourceLabel = schemaFile ? `$schema (${schemaFile})` : "$schema"
+  const prefix = framework === "nitro" ? "NITRO_" : "NUXT_"
+  notes.push(`Each declaration reads its ${prefix}* name with env.source(). Env reads the canonical name VITEHUB_<PATH> first, for example VITEHUB_API_SECRET before ${prefix}API_SECRET.`)
+  if (target && fields.some(field => field.schema)) {
+    const rendered = renderSchemaModule(target, fields, detectStyle(config.code, config.program))
+    schemaModule = { runtimePath: target.runtimePath, importPath: target.importPath, exports: rendered.exports }
+    generated = { path: target.path, code: rendered.code, importedSources: rendered.importedSources }
+    notes.push(`${target.path} exports the $schema of each field that has a rule or transform. Server Env runs it with env.schemaFrom() when the server reads the value.${framework === "nuxt" ? " Public Env runs it during the build." : ""}`)
+    if (schemaFile) notes.push(`${target.path} imports ${schemaFile}. Keep ${schemaFile} and its schema library.`)
+  }
+  else if (schemaFile) {
+    notes.push(`The codemod did not delete ${schemaFile}. Delete it, and its schema library if nothing else uses it.`)
+  }
+  return { fields, unmigrated, planned, notes, schemaFile, lines, sourceLabel, schemaModule, generated, transforms: [...issues.transforms] }
+}
+
 async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
+  await assertNotNitro2(cwd, moduleName)
+  if (await isNitroApp(cwd)) return migrateNitro(cwd)
   const config = await readNuxtConfig(cwd)
   const moduleEntry = findModuleEntry(config, moduleName)
   const safeProperty = findProperty(config.root, "safeRuntimeConfig")
   if (!moduleEntry && !safeProperty) {
     throw codemodError(`${config.fileName} does not use ${moduleName}: it has no "${moduleName}" module and no safeRuntimeConfig key.`)
   }
-  const options = await resolveOptions(config, mergeStatic(readStaticOptions(safeProperty?.value), readStaticOptions(moduleEntry?.inlineOptions)))
+  const options = await resolveOptions(mergeStatic(readStaticOptions(safeProperty?.value), readStaticOptions(moduleEntry?.inlineOptions)), () => loadNuxtConfig(config.path))
   const hasSchema = options.schemaPath !== undefined || options.schema !== undefined
   if (options.envSchema && hasSchema) throw codemodError("safeRuntimeConfig sets both envSchema and $schema. The module accepts only one. Remove one, then run the codemod again.")
   if (!options.envSchema && !hasSchema) return removeUnusedModule(cwd, config, safeProperty)
 
-  const planned: PlannedFollowUp[] = []
-  const notes: string[] = []
-  let fields: EnvField[]
-  let unmigrated: string[] = []
+  let schemaPlan: SchemaPlanResult
   let env: EnvSource
-  let schemaFile: string | undefined
-  let lines = new Map<string, number>()
-  let sourceLabel: string
-
   if (options.envSchema) {
+    const planned: PlannedFollowUp[] = []
     const file = options.envSchema.file
     const path = join(cwd, file)
     if (!existsSync(path)) throw codemodError(`Cannot find the envSchema file ${file}.`)
     const plan = planFromEnvFile(readEnvFileKeys(await readFile(path, "utf8")), options.envSchema.paths, file)
-    fields = plan.fields
     planned.push(...plan.followUps)
+    schemaPlan = {
+      fields: plan.fields,
+      unmigrated: [],
+      planned,
+      notes: [`envSchema() with prefix "NUXT_" reads the same variable names: NUXT_PUBLIC_* keys become Public Env and other NUXT_* keys become Server Env, with the same camelCase names. Each field reads its exact schema key.`],
+      lines: new Map(),
+      sourceLabel: `envSchema (${file})`,
+      transforms: [],
+    }
     env = { kind: "env-schema", file, paths: plan.paths }
-    sourceLabel = `envSchema (${file})`
-    notes.push(`envSchema() with prefix "NUXT_" reads the same variable names: NUXT_PUBLIC_* keys become Public Env and other NUXT_* keys become Server Env, with the same camelCase names. Each field reads its exact schema key.`)
   }
   else {
-    let schema = options.schema
-    if (options.schemaPath !== undefined) {
-      schema = await loadSchemaModule(cwd, options.schemaPath)
-      const candidates = ["", ".ts", ".mts", ".js", ".mjs"].map(extension => `${options.schemaPath}${extension}`)
-      const found = candidates.find(candidate => existsSync(join(cwd, candidate)))
-      if (found) {
-        schemaFile = relative(cwd, join(cwd, found))
-        lines = schemaLines(await readFile(join(cwd, found), "utf8"))
-      }
-    }
-    const runtime = readRuntimeConfig(config)
-    const runtimeProperty = findProperty(config.root, "runtimeConfig")
-    if (runtimeProperty && !runtime.object) {
-      planned.push({ message: "runtimeConfig is not an object literal, so the codemod kept its values and removed no keys. Move the migrated values to Env defaults by hand." })
-    }
-    const plan = await planFromJsonSchema({
-      schema,
-      jsonSchema: await schemaToJsonSchema(schema, cwd),
-      issues: schemaIssues(schema),
-      runtimeConfig: runtime.values,
-      ...validationChecks(options, await moduleVersion(cwd)),
-      rejectInvalidDefaults: (options.onError ?? "throw") === "throw",
-    })
-    fields = plan.fields
-    unmigrated = plan.unmigrated
-    planned.push(...plan.followUps)
-    env = { kind: "fields", fields }
-    sourceLabel = schemaFile ? `$schema (${schemaFile})` : "$schema"
-    notes.push("Each declaration reads its NUXT_* name with env.source(). Env reads the canonical name VITEHUB_<PATH> first, for example VITEHUB_API_SECRET before NUXT_API_SECRET.")
-    if (schemaFile) notes.push(`The codemod did not delete ${schemaFile}. Delete it, and its schema library if nothing else uses it.`)
+    schemaPlan = await planSchema({ cwd, config, options, optionNodes: [moduleEntry?.inlineOptions, safeProperty?.value], framework: "nuxt" })
+    env = { kind: "fields", fields: schemaPlan.fields }
   }
+  const { fields, unmigrated, planned, notes, schemaFile, lines, sourceLabel, schemaModule, generated, transforms } = schemaPlan
+  const reasons = env.kind === "env-schema" ? [`the app validates with envSchema (\`${env.file}\`)`] : transformReason(transforms)
 
   const migrated = new Set(fields.map(field => pathLabel(field)))
-  const edited = editNuxtConfig({ config, env, migrated })
+  const edited = editNuxtConfig({ config, env, migrated, schemaModule })
   const outOfScope = await findOutOfScopeConfigs(cwd, config)
   const calls = await rewriteCallSites({ cwd, fields, unmigrated, excludedDirectories: outOfScope.directories })
-  const packageResult = await editPackageJson(cwd, packageJson.version, { remove: [moduleName], add: env.kind === "env-schema" ? ["vite-hub", "@vite-hub/env"] : ["vite-hub"] })
+  const packageResult = await editPackageJson(cwd, packageJson.version, {
+    remove: [moduleName],
+    add: env.kind === "fields" ? ["vite-hub"] : [],
+    require: env.kind === "env-schema" ? { name: "vite-hub", range: ">=0.5.1 <1", feature: "vite-hub/env/vite" } : undefined,
+  })
 
   const envLine = (field: EnvField) => edited.lineOf(["vitehub", "env", field.section, ...field.envPath])
   const configFollowUps: FollowUp[] = planned.map(({ anchor, message }) => {
@@ -280,42 +347,45 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     const reads = calls.secretReads.filter(read => read.field === field)
     const accessor = `useServerEnv().${field.envPath.join(".")}`
     if (!reads.length) {
-      secretFollowUps.push({ file: config.fileName, line: envLine(field), message: `${accessor} is secret, a SecretEnv<string>. No rewritten file reads it. Call .unseal() where code needs the raw value.` })
+      secretFollowUps.push({ file: config.fileName, line: envLine(field), message: `${accessor} is secret, a ${secretType(field)}. No rewritten file reads it. Call .unseal() where code needs the raw value.` })
     }
     for (const read of reads) {
-      secretFollowUps.push({ file: read.file, line: read.line, message: `${accessor} is secret, a SecretEnv<string>. Call .unseal() where this code needs the raw value.` })
+      secretFollowUps.push({ file: read.file, line: read.line, message: `${accessor} is secret, a ${secretType(field)}. Call .unseal() where this code needs the raw value.` })
     }
   }
 
   const eslint = await findEslintReferences(cwd)
 
   const edits: FileEdit[] = [{ path: config.fileName, before: config.code, after: edited.code }]
+  if (generated) edits.push({ path: generated.path, before: undefined, after: generated.code })
   if (packageResult.edit) edits.push(packageResult.edit)
   edits.push(...calls.edits)
 
-  for (const source of edited.removedImports.filter(entry => /^[@a-z]/i.test(entry) && !entry.startsWith("nuxt"))) {
+  const moved = new Set(generated?.importedSources)
+  for (const source of edited.removedImports.filter(entry => /^[@a-z]/i.test(entry) && !entry.startsWith("nuxt") && !moved.has(entry))) {
     notes.push(`${config.fileName} no longer imports ${source}. Remove it from package.json if nothing else uses it.`)
   }
   const publicCount = fields.filter(field => field.section === "public").length
-  notes.push(
-    "Public Env values are fixed at build time. Nuxt applied NUXT_PUBLIC_* overrides when the server started; now set them when you build. Server Env values are read when the server runs.",
-    "Shelve and the standalone Nitro module (nuxt-safe-runtime-config/nitro) are out of scope for this codemod.",
-  )
+  notes.push("Public Env values are fixed at build time. Nuxt applied NUXT_PUBLIC_* overrides when the server started; now set them when you build. Server Env values are read when the server runs.")
   if (!eslint.length) notes.push("No ESLint config references nuxt-safe-runtime-config/eslint.")
 
   return {
-    summary: `migrated ${fields.length} Env declaration${fields.length === 1 ? "" : "s"} (${publicCount} public, ${fields.length - publicCount} server) from ${sourceLabel} to vite-hub/nuxt.`,
+    summary: routeReason(reasons, `migrated ${fields.length} Env declaration${fields.length === 1 ? "" : "s"} (${publicCount} public, ${fields.length - publicCount} server) from ${sourceLabel} to vite-hub/nuxt.`),
     edits,
-    followUps: [...configFollowUps, ...calls.followUps, ...secretFollowUps, ...eslint, ...outOfScope.followUps],
+    requiresNitro3: true,
+    followUps: [...configFollowUps, ...calls.followUps, ...secretFollowUps, ...eslint, ...outOfScope.followUps, ...packageResult.followUps],
     notes,
     nextSteps: [
-      `Run \`${packageResult.installCommand}\` to install ${env.kind === "env-schema" ? "vite-hub and @vite-hub/env" : "vite-hub"} and remove ${moduleName}.`,
+      `Run \`${packageResult.installCommand}\` to install vite-hub and remove ${moduleName}.`,
       "Run `npx nuxi prepare` to generate the Env types, then type-check the app.",
     ],
   }
 }
 
-/** Remove a schema-free module only when no layer can supply options or composable calls. */
+function secretType(field: EnvField): string {
+  return field.schema ? "SecretEnv of the schema output" : "SecretEnv<string>"
+}
+
 async function removeUnusedModule(cwd: string, config: NuxtConfigFile, safeProperty: ObjectProperty | undefined): Promise<CodemodResult> {
   const editor = new ConfigEditor(config)
   removeModuleEntry(editor, config, moduleName)
@@ -348,10 +418,165 @@ async function removeUnusedModule(cwd: string, config: NuxtConfigFile, safePrope
   }
 }
 
+function migrateNitroScript(command: string): string {
+  const bare = /^(\s*(?:[A-Za-z_][\w]*=[\w./:-]+\s+)*)nitro\s+(dev|build)(\s*)$/
+  if (bare.test(command)) return command.replace(bare, "$1vite $2$3")
+  if (/\bnitro["']?\s+["']?(dev|build)\b/.test(command)) {
+    throw codemodError(`Cannot migrate the package.json script \`${command}\`. Convert it to the equivalent Vite command by hand, then run the codemod again.`)
+  }
+  return command
+}
+
+async function findNitroOutOfScopeConfigs(cwd: string, rootConfig: NuxtConfigFile): Promise<{ directories: string[], followUps: FollowUp[] }> {
+  const files = await glob(["**/nuxt.config.{ts,mts,js,mjs,cjs}", "**/nitro.config.{ts,mts,cts,js,mjs,cjs}"], { cwd, ignore: ["**/node_modules/**", "**/.nitro/**", "**/.output/**"] })
+  const directories = new Set<string>()
+  const followUps: FollowUp[] = []
+  for (const file of files.sort()) {
+    if (file === rootConfig.fileName) continue
+    const directory = posix.dirname(file)
+    if (directory !== ".") directories.add(directory)
+    const text = await readFile(join(cwd, file), "utf8")
+    followUps.push({ file, message: text.includes("safeRuntimeConfig") || text.includes(moduleName)
+      ? `This config also uses ${moduleName}. The codemod migrates only the app ${rootConfig.fileName}. Migrate this file by hand, or run the codemod in its directory.`
+      : "This config owns a separate source tree. The codemod left that tree unchanged; check its runtime config reads and migrate it separately if needed." })
+  }
+  return { directories: [...directories], followUps }
+}
+
+async function migrateNitro(cwd: string): Promise<CodemodResult> {
+  const config = await readNitroConfig(cwd)
+  checkNitroConfig(config)
+  const vitePlan = await readViteConfigPlan(cwd)
+  const moduleEntry = findNitroModuleEntry(config)
+  const safeProperty = findProperty(config.root, "safeRuntimeConfig")
+  if (!moduleEntry && !safeProperty) {
+    throw codemodError(`${config.fileName} does not use ${nitroModuleName}: it has no "${nitroModuleName}" module and no safeRuntimeConfig key.`)
+  }
+  const options = await resolveOptions(readStaticOptions(safeProperty?.value), () => loadConfigFile(config.path, "defineNitroConfig"))
+  if (options.envSchema) throw codemodError(`safeRuntimeConfig sets envSchema. The codemod migrates envSchema only in Nuxt apps. Move the fields to a $schema, then run the codemod again.`)
+  if (options.schemaPath === undefined && options.schema === undefined) return removeUnusedNitroModule(cwd, config, moduleEntry)
+
+  const { fields, unmigrated, planned, notes, schemaFile, lines, sourceLabel, schemaModule, generated, transforms } = await planSchema({ cwd, config, options, optionNodes: [safeProperty?.value], framework: "nitro" })
+  const reasons = transformReason(transforms)
+  if (moduleEntry) reasons.unshift(`${config.fileName} uses \`${nitroModuleName}\``)
+  const migrated = new Set(fields.map(field => pathLabel(field)))
+  const runtime = readRuntimeConfig(config)
+  const kept = [...runtime.values].flatMap(([path, { property }]) => {
+    if (migrated.has(path) || (property.value.type === "ObjectExpression" && property.value.properties.length)) return []
+    return [path]
+  })
+  const hostPlan = planNitroHost(config, vitePlan)
+  const edited = editNitroConfig({ config, moduleEntry, migrated, preset: hostPlan.preset })
+  const vite = writeViteConfig({ nitroConfig: config, env: { kind: "fields", fields }, host: hostPlan.host, schemaModule, removePresets: hostPlan.vitePresets }, vitePlan)
+  const viteFile = vite.edit.path
+  const outOfScope = await findNitroOutOfScopeConfigs(cwd, config)
+  const calls = await rewriteCallSites({ cwd, fields, unmigrated: [...unmigrated, ...kept], excludedDirectories: outOfScope.directories, framework: "nitro" })
+  const packageResult = await editPackageJson(cwd, packageJson.version, {
+    remove: [moduleName],
+    add: ["vite-hub"],
+    within: { vite: "^8.0.0" },
+    scripts: migrateNitroScript,
+  })
+
+  const envLine = (field: EnvField) => vite.lineOf(["env", field.section, ...field.envPath])
+  const configFollowUps: FollowUp[] = planned.map(({ anchor, message }) => {
+    if (anchor && "file" in anchor) return { file: anchor.file, line: anchor.line, message }
+    if (anchor && "env" in anchor) return { file: viteFile, line: envLine(anchor.env), message }
+    if (anchor && "runtimeConfig" in anchor) {
+      const configLine = edited.lineOf(["runtimeConfig", ...anchor.runtimeConfig.split(".")], { exact: true })
+      if (configLine || !schemaFile) return { file: config.fileName, line: configLine, message }
+      return { file: schemaFile, line: lines.get(anchor.runtimeConfig), message }
+    }
+    const label = anchor && "schema" in anchor ? anchor.schema : undefined
+    if (schemaFile && label !== undefined) return { file: schemaFile, line: lines.get(label), message }
+    return { file: viteFile, line: vite.lineOf(["env"]), message }
+  })
+  if (hostPlan.note) configFollowUps.push({ file: viteFile, line: vite.lineOf(["host"]) ?? vite.lineOf(["env"]), message: hostPlan.note })
+
+  const secretFollowUps: FollowUp[] = []
+  for (const field of fields.filter(entry => entry.secret)) {
+    const reads = calls.secretReads.filter(read => read.field === field)
+    const accessor = `useServerEnv().${field.envPath.join(".")}`
+    if (!reads.length) {
+      secretFollowUps.push({ file: viteFile, line: envLine(field), message: `${accessor} is secret, a ${secretType(field)}. No rewritten file reads it. Call .unseal() where code needs the raw value.` })
+    }
+    for (const read of reads) {
+      const message = read.unsealed
+        ? `${accessor} is secret, a ${secretType(field)}. The codemod calls .unseal() here, so this code keeps the raw value. If the code only passes the value on, remove .unseal() to keep it sealed.`
+        : `${accessor} is secret, a ${secretType(field)}. Call .unseal() where this code needs the raw value.`
+      secretFollowUps.push({ file: read.file, line: read.line, message })
+    }
+  }
+
+  const eslint = await findEslintReferences(cwd)
+  const edits: FileEdit[] = [{ path: config.fileName, before: config.code, after: edited.code }, vite.edit]
+  if (generated) edits.push({ path: generated.path, before: undefined, after: generated.code })
+  if (packageResult.edit) edits.push(packageResult.edit)
+  edits.push(...calls.edits)
+
+  const moved = new Set(generated?.importedSources)
+  for (const source of edited.removedImports.filter(entry => /^[@a-z]/i.test(entry) && !entry.startsWith("nitro") && entry !== nitroModuleName && !moved.has(entry))) {
+    notes.push(`${config.fileName} no longer imports ${source}. Remove it from package.json if nothing else uses it.`)
+  }
+  notes.push(
+    "Nitro also read runtimeConfig overrides with the \"_\" prefix and the NITRO_ENV_PREFIX prefix. Env reads only the names in env.source().",
+    `Start and build the app with \`vite dev\` and \`vite build\`. \`nitro dev\` does not run Vite plugins, so it does not load vitehub(). The codemod changed the package.json scripts that ran \`nitro dev\` or \`nitro build\`.`,
+    `nitro() from nitro/vite still reads ${config.fileName}, so the other Nitro options stay there.`,
+  )
+  if (!eslint.length) notes.push("No ESLint config references nuxt-safe-runtime-config/eslint.")
+
+  return {
+    summary: routeReason(reasons, `migrated ${fields.length} Env declaration${fields.length === 1 ? "" : "s"} (0 public, ${fields.length} server) from ${sourceLabel} to vitehub() in ${viteFile}.`),
+    edits,
+    followUps: [...configFollowUps, ...calls.followUps, ...secretFollowUps, ...eslint, ...outOfScope.followUps],
+    notes,
+    nextSteps: [
+      `Run \`${packageResult.installCommand}\` to install vite-hub and vite, and remove ${moduleName}.`,
+      "Run `npx vite build` to generate the Env types, then type-check the app.",
+    ],
+  }
+}
+
+async function removeUnusedNitroModule(cwd: string, config: NuxtConfigFile, moduleEntry: ReturnType<typeof findNitroModuleEntry>): Promise<CodemodResult> {
+  const sources = await glob(["**/*.{ts,mts,cts,js,mjs,cjs}"], { cwd, ignore: ["**/node_modules/**", "**/.nitro/**", "**/.output/**", config.fileName] })
+  for (const file of sources.sort()) {
+    const lines = (await readFile(join(cwd, file), "utf8")).split("\n")
+    const index = lines.findIndex(text => text.includes("useSafeRuntimeConfig"))
+    if (index >= 0) {
+      throw codemodError(`safeRuntimeConfig has no $schema, but ${file}:${index + 1} calls useSafeRuntimeConfig(). Add the schema, then run the codemod again, or replace the call with useRuntimeConfig() and remove the module by hand.`)
+    }
+  }
+  const edited = editNitroConfig({ config, moduleEntry, migrated: new Set() })
+  const packageResult = await editPackageJson(cwd, packageJson.version, { remove: [moduleName], add: [] })
+  const edits: FileEdit[] = [{ path: config.fileName, before: config.code, after: edited.code }]
+  if (packageResult.edit) edits.push(packageResult.edit)
+  return {
+    summary: `removed ${nitroModuleName}: it had no $schema, so it validated nothing.`,
+    edits,
+    followUps: [],
+    notes: ["To validate environment variables with ViteHub Env, add vitehub({ env }) and nitro() to vite.config. See https://vitehub.dev/docs/env."],
+    nextSteps: [`Run \`${packageResult.installCommand}\` to remove ${moduleName}.`],
+  }
+}
+
+async function detect({ cwd }: CodemodContext): Promise<Detection | undefined> {
+  if (await isNitroApp(cwd)) {
+    try {
+      const config = await readNitroConfig(cwd)
+      if (findNitroModuleEntry(config)) return { reason: `${config.fileName} lists ${nitroModuleName} in modules` }
+      if (findProperty(config.root, "safeRuntimeConfig")) return { reason: `${config.fileName} sets safeRuntimeConfig` }
+    }
+    catch (error) {
+      if (!isCodemodError(error)) throw error
+    }
+  }
+  return detectNuxtModule(cwd, moduleName, ["safeRuntimeConfig"])
+}
+
 export const nuxtSafeRuntimeConfig: Codemod = {
   name: moduleName,
-  description: "Move a Nuxt app from nuxt-safe-runtime-config to ViteHub Env through vite-hub/nuxt.",
+  description: "Move a Nuxt or Nitro 3 app from nuxt-safe-runtime-config to ViteHub Env.",
   usage: "[dir]",
-  detect: ({ cwd }) => detectNuxtModule(cwd, moduleName, ["safeRuntimeConfig"]),
+  detect,
   run: migrate,
 }

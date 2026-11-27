@@ -40,6 +40,20 @@ const init = { sql: "CREATE TABLE `users` (\n\t`id` integer PRIMARY KEY NOT NULL
 const seed = { sql: "INSERT INTO `users` (`id`, `name`) VALUES (7, 'Ada');", tag: "20231114221321_seed", when: 1_700_000_001_000 }
 const dropLegacy = { sql: "DROP TABLE `legacy`;", tag: "20231114221322_drop_legacy", when: 1_700_000_002_000 }
 
+function cascadeMigrations() {
+  const migration = (name: string, when: number, statements: string[]) => ({ dataLoss: findDataLoss(statements, new Map()), hash: name, name, statements, when })
+  return [
+    migration("0000_accounts", 1, ["CREATE TABLE `accounts` (`id` integer PRIMARY KEY NOT NULL);"]),
+    migration("0001_parent", 2, [
+      "CREATE TABLE `parent` (`id` integer PRIMARY KEY NOT NULL);",
+      "ALTER TABLE `accounts` ADD `parent_id` integer REFERENCES parent(id) ON DELETE cascade;",
+      "INSERT INTO `parent` (`id`) VALUES (1);",
+      "UPDATE `accounts` SET `parent_id` = 1;",
+    ]),
+    migration("0002_drop_parent", 3, ["DROP TABLE `parent`;"]),
+  ]
+}
+
 async function createProject() {
   const root = await mkdtemp(join(packageRoot, ".vitest-migrate-on-start-"))
   roots.push(root)
@@ -457,6 +471,25 @@ describe("database.migrateOnStart", () => {
     }
   })
 
+  it("refuses to drop a new table whose foreign key cascades into older SQLite rows", async () => {
+    const url = `file:${join(await createProject(), "app.sqlite")}`
+    const client = createClient({ url })
+    try {
+      await client.execute("PRAGMA foreign_keys = ON")
+      const migrations = cascadeMigrations()
+      await migrateOnStart([{ db: drizzle({ client }), dialect: "sqlite" as const, migrations: migrations.slice(0, 1), name: "default" }], { log: () => {} })
+      await client.execute("INSERT INTO accounts (id) VALUES (1)")
+      await expect(migrateOnStart([{ db: drizzle({ client }), dialect: "sqlite" as const, migrations, name: "default" }], { log: () => {} })).rejects.toMatchObject({
+        code: "DATABASE_MIGRATION_DATA_LOSS",
+        message: expect.stringContaining("0002_drop_parent: drops table \"parent\""),
+      })
+      expect((await client.execute("SELECT id FROM accounts")).rows.map(row => row.id)).toEqual([1])
+    }
+    finally {
+      client.close()
+    }
+  })
+
   it("adds the plugin only to production Node builds of the Vite integration", async () => {
     const root = await createProject()
     await writeMigrations(root, [init])
@@ -686,14 +719,126 @@ describe("migrateOnStart with Cloudflare D1 over HTTP", () => {
     await expect(query("SELECT name FROM d1_migrations")).rejects.toThrow("HTTP 200")
   })
 
-  it("does not carry the D1 data-loss exemption across migration files", async () => {
+  it("lets a fresh D1 database drop a table that an earlier pending file creates, in one request", { timeout: 60_000 }, async () => {
     const root = await createD1Project()
     await writeMigrations(root, [init, dropLegacy])
     const d1 = await startD1Proxy(root)
     try {
       const server = await buildNodeServer(root, { migrateOnStart: true })
-      await expect(server.start({ D1_HTTP_TOKEN: "proxy-token", D1_HTTP_URL: d1.url })).rejects.toMatchObject({ stderr: expect.stringContaining("DATABASE_MIGRATION_DATA_LOSS") })
-      await expect(d1.rows("SELECT name FROM sqlite_master WHERE type = 'table'")).resolves.toEqual([])
+      const { stdout } = await server.start({ D1_HTTP_TOKEN: "proxy-token", D1_HTTP_URL: d1.url })
+      expect(stdout).toContain('[vitehub] Database "default": applied 20231114221322_drop_legacy.')
+      await expect(d1.rows("SELECT name FROM d1_migrations ORDER BY id")).resolves.toEqual([["0000_init.sql"], ["0001_drop_legacy.sql"]])
+      await expect(d1.rows("SELECT name FROM sqlite_master WHERE name = 'legacy'")).resolves.toEqual([])
+      expect(d1.requests.filter(sql => sql.includes("CREATE TABLE `legacy`"))).toEqual([expect.stringContaining("DROP TABLE `legacy`")])
+    }
+    finally {
+      await d1.close()
+    }
+  })
+
+  it("refuses to drop a D1 table that an earlier start created", async () => {
+    const root = await createD1Project()
+    const d1 = await startD1Proxy(root)
+    try {
+      const query = createD1QueryAt(d1.url, "proxy-token", problem => new Error(problem))
+      await migrateOnStart([d1Database("default", d1.url, [init], query)], { log: () => {} })
+      await d1.rows("INSERT INTO legacy (id) VALUES (1)")
+      await expect(migrateOnStart([d1Database("default", d1.url, [init, dropLegacy], query)], { log: () => {} })).rejects.toMatchObject({ code: "DATABASE_MIGRATION_DATA_LOSS" })
+      await expect(d1.rows("SELECT id FROM legacy")).resolves.toEqual([[1]])
+    }
+    finally {
+      await d1.close()
+    }
+  })
+
+  it("refuses to drop a new D1 table whose foreign key cascades into older rows", async () => {
+    const root = await createD1Project()
+    const d1 = await startD1Proxy(root)
+    try {
+      await d1.rows("PRAGMA foreign_keys = ON")
+      const query = createD1QueryAt(d1.url, "proxy-token", problem => new Error(problem))
+      const files = cascadeMigrations().map(migration => ({ sql: migration.statements.join("\n"), tag: migration.name, when: migration.when }))
+      await migrateOnStart([d1Database("default", d1.url, files.slice(0, 1), query)], { log: () => {} })
+      await d1.rows("INSERT INTO accounts (id) VALUES (1)")
+      await expect(migrateOnStart([d1Database("default", d1.url, files, query)], { log: () => {} })).rejects.toMatchObject({ code: "DATABASE_MIGRATION_DATA_LOSS" })
+      await expect(d1.rows("SELECT id FROM accounts")).resolves.toEqual([[1]])
+      await expect(d1.rows("SELECT name FROM d1_migrations")).resolves.toEqual([["0000_migration.sql"]])
+    }
+    finally {
+      await d1.close()
+    }
+  })
+
+  it("refuses a full delete from a new D1 table when its trigger can remove older rows", async () => {
+    const root = await createD1Project()
+    const d1 = await startD1Proxy(root)
+    try {
+      const query = createD1QueryAt(d1.url, "proxy-token", problem => new Error(problem))
+      const createAccounts = { ...init, sql: "CREATE TABLE accounts (id integer PRIMARY KEY);" }
+      const files = [
+        createAccounts,
+        {
+          sql: [
+            "CREATE TABLE scratch (id integer PRIMARY KEY);",
+            "CREATE TRIGGER remove_account AFTER DELETE ON scratch BEGIN DELETE FROM accounts WHERE id = OLD.id; END;",
+            "INSERT INTO scratch VALUES (1);",
+          ].join("\n"),
+          tag: "create_scratch",
+          when: init.when,
+        },
+        { sql: "DELETE FROM scratch;", tag: "clear_scratch", when: init.when },
+      ]
+      await migrateOnStart([d1Database("default", d1.url, [createAccounts], query)], { log: () => {} })
+      await d1.rows("INSERT INTO accounts (id) VALUES (1)")
+      await expect(migrateOnStart([d1Database("default", d1.url, files, query)], { log: () => {} })).rejects.toMatchObject({ code: "DATABASE_MIGRATION_DATA_LOSS" })
+      await expect(d1.rows("SELECT id FROM accounts")).resolves.toEqual([[1]])
+      await expect(d1.rows("SELECT name FROM d1_migrations")).resolves.toEqual([["0000_migration.sql"]])
+    }
+    finally {
+      await d1.close()
+    }
+  })
+
+  it("goes on when another server applied a batch of more than 100 files first", async () => {
+    const root = await createD1Project()
+    const d1 = await startD1Proxy(root)
+    try {
+      const fillers = Array.from({ length: 100 }, (_, index) => ({ sql: `CREATE TABLE filler_${index} (id integer);`, tag: `filler_${index}`, when: init.when }))
+      const database = d1Database("default", d1.url, [init, ...fillers, dropLegacy], async () => [])
+      const direct = createD1QueryAt(d1.url, "proxy-token", problem => new Error(problem))
+      let olderServerApplied = false
+      const olderServerAppliesAllFirst: D1Query = async (sql, params = [], mode) => {
+        if (params.length > 100) throw new Error("D1 allows 100 bound parameters")
+        if (!olderServerApplied && sql.includes("DROP TABLE `legacy`")) {
+          olderServerApplied = true
+          await direct(sql, undefined, "write")
+        }
+        return direct(sql, params, mode)
+      }
+      const log: string[] = []
+      await migrateOnStart([{ ...database, db: { $client: { ...database.db.$client, query: olderServerAppliesAllFirst } } }], { log: message => log.push(message) })
+      expect(log).toEqual([])
+      await expect(d1.rows("SELECT count(*) FROM d1_migrations")).resolves.toEqual([[102]])
+    }
+    finally {
+      await d1.close()
+    }
+  })
+
+  it("keeps the rows of a D1 table that another server creates after the plan", async () => {
+    const root = await createD1Project()
+    const d1 = await startD1Proxy(root)
+    try {
+      const direct = createD1QueryAt(d1.url, "proxy-token", problem => new Error(problem))
+      const olderServerAppliesInitFirst: D1Query = async (sql, params, mode) => {
+        if (sql.includes("DROP TABLE `legacy`")) {
+          await direct(`${init.sql.replaceAll("--> statement-breakpoint", "")}\n;\nINSERT INTO d1_migrations (name) VALUES ('0000_migration.sql');\nINSERT INTO legacy (id) VALUES (1);`, undefined, "write")
+        }
+        return direct(sql, params, mode)
+      }
+      await expect(migrateOnStart([d1Database("default", d1.url, [init, dropLegacy], olderServerAppliesInitFirst)], { log: () => {} })).rejects.toThrow()
+      await expect(d1.rows("SELECT id FROM legacy")).resolves.toEqual([[1]])
+      await expect(d1.rows("SELECT name FROM d1_migrations")).resolves.toEqual([["0000_migration.sql"]])
     }
     finally {
       await d1.close()
@@ -1239,7 +1384,7 @@ describe("migratePostgres", () => {
    * A postgres.js client that records each query and answers the lock, identity, and ledger reads. `ledger` undefined
    * has no table; rows without `name` make a Drizzle Kit 0.x table.
    */
-  function fakeClient({ database = "app", events, fail, ledger, locked = true, role = "app", schemas = ["public"], started = "1794260759.623267" }: { database?: string, events?: string[], fail?: string, ledger?: FakeRow[], locked?: boolean, role?: string, schemas?: string[], started?: string }) {
+  function fakeClient({ busy = 0, database = "app", events, fail, ledger, role = "app", schemas = ["public"], started = "1794260759.623267" }: { busy?: number, database?: string, events?: string[], fail?: string, ledger?: FakeRow[], role?: string, schemas?: string[], started?: string }) {
     const queries: Array<[string, unknown[] | undefined]> = []
     const named = ledger?.every(row => row.name !== undefined)
     const sql: PostgresMigrationSql = {
@@ -1247,8 +1392,9 @@ describe("migratePostgres", () => {
         queries.push([query, parameters])
         events?.push(`${database}: ${query}`)
         if (query === fail) throw new Error("relation \"missing_table\" does not exist")
-        if (query.startsWith("select pg_try_advisory_xact_lock")) return [{ locked }]
+        if (query.startsWith("select pg_try_advisory_xact_lock")) return [{ locked: busy-- <= 0 }]
         if (query.startsWith("select current_database()")) return [{ database, role, schemas, started }]
+        if (query.startsWith("select exists (select 1 from pg_namespace")) return [{ can_create: true, can_create_schema: true, can_use: true, database, found: Boolean(ledger), role }]
         if (query.startsWith("select to_regclass(")) return [{ ledger: ledger ? "drizzle.__drizzle_migrations" : null }]
         if (query.startsWith("select column_name")) return ledger ? ["id", "hash", "created_at", ...named ? ["name", "applied_at"] : []].map(column_name => ({ column_name })) : []
         if (query.startsWith("SELECT id, hash, created_at FROM")) return (ledger ?? []).map(({ created_at, hash, id }) => ({ created_at: String(created_at), hash, id }))
@@ -1270,9 +1416,11 @@ describe("migratePostgres", () => {
       ["select pg_try_advisory_xact_lock(hashtext($1)) as locked", [postgresMigrationLock]],
       ["set local lock_timeout = '5s'", undefined],
       ["set local client_min_messages = warning", undefined],
-      ["select to_regclass('drizzle.__drizzle_migrations') as ledger", undefined],
+      ["select exists (select 1 from pg_namespace where nspname = $1) as found, case when exists (select 1 from pg_namespace where nspname = $1) then has_schema_privilege($1, 'USAGE') end as can_use, case when exists (select 1 from pg_namespace where nspname = $1) then has_schema_privilege($1, 'CREATE') end as can_create, has_database_privilege(current_database(), 'CREATE') as can_create_schema, current_user as role, current_database() as database", ["drizzle"]],
+      ["select to_regclass('\"drizzle\".\"__drizzle_migrations\"') as ledger", undefined],
       ["select column_name from information_schema.columns where table_schema = 'drizzle' and table_name = '__drizzle_migrations'", undefined],
       [`select id, hash, created_at, name from ${ledgerTable}`, undefined],
+      ["select format('%I.%I', nspname, relname) as name from pg_catalog.pg_class join pg_catalog.pg_namespace on relnamespace = pg_namespace.oid where nspname = current_schema() and relname = $1", ["_hub_migrations"]],
       ["CREATE TABLE a (id int)", undefined],
       [`insert into ${ledgerTable} ("hash", "created_at", "name") values ($1, $2, $3)`, ["hash-0001_older", 1, "0001_older"]],
     ])
@@ -1295,7 +1443,7 @@ describe("migratePostgres", () => {
     // Drizzle Kit 0.x stored the journal `when` in milliseconds; Drizzle 1.0 matches the second.
     const { client, queries } = fakeClient({ ledger: [{ created_at: 1_700_000_000_417, hash: "hash-0x", id: 1 }] })
     await migratePostgres([{ client, database: { migrations: [migration("20231114221320_init", 1_700_000_000_000, ["CREATE TABLE a (id int)"])], name: "default" } }], { log: () => {} })
-    expect(queries.slice(5, 9)).toEqual([
+    expect(queries.slice(6, 10)).toEqual([
       [`SELECT id, hash, created_at FROM ${ledgerTable} ORDER BY id ASC`, undefined],
       [`ALTER TABLE ${ledgerTable} ADD COLUMN IF NOT EXISTS "name" text`, undefined],
       [`ALTER TABLE ${ledgerTable} ADD COLUMN IF NOT EXISTS "applied_at" timestamp with time zone DEFAULT now()`, undefined],
@@ -1310,13 +1458,18 @@ describe("migratePostgres", () => {
     expect(queries.map(([query]) => query)).not.toContain("CREATE TABLE a (id int)")
   })
 
-  it("says that it waits when another process holds the lock", async () => {
-    const { client, queries } = fakeClient({ locked: false })
+  it("says that it waits when another process holds the lock, and tries again instead of blocking", async () => {
+    const { client, queries } = fakeClient({ busy: 2 })
     const log: string[] = []
     await migratePostgres([{ client, database: { migrations: [], name: "default" } }], { log: message => log.push(message) })
-    expect(queries[1]).toEqual(["select pg_advisory_xact_lock(hashtext($1))", [postgresMigrationLock]])
-    expect(queries[2]).toEqual(["set local lock_timeout = '5s'", undefined])
-    expect(log[0]).toBe('[vitehub] Database "default": another process is applying migrations. Waiting for it to finish.')
+    expect(queries.slice(0, 4)).toEqual([
+      ["select pg_try_advisory_xact_lock(hashtext($1)) as locked", [postgresMigrationLock]],
+      ["select pg_try_advisory_xact_lock(hashtext($1)) as locked", [postgresMigrationLock]],
+      ["select pg_try_advisory_xact_lock(hashtext($1)) as locked", [postgresMigrationLock]],
+      ["set local lock_timeout = '5s'", undefined],
+    ])
+    expect(queries.map(([query]) => query)).not.toContain("select pg_advisory_xact_lock(hashtext($1))")
+    expect(log).toEqual(['[vitehub] Database "default": another process is applying migrations. Waiting for it to finish.'])
   })
 
   it("names the migration that failed", async () => {

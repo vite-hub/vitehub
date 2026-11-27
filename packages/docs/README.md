@@ -356,6 +356,7 @@ Most changes are options in `nuxt.config.ts`:
 | `start` | None | `{ section, links }`: the section that new readers open first, and site pages listed at its top. |
 | `socials` | `[]` | Community links at the foot of the docs sidebar and in the header of other pages, or in its menu on narrow screens. |
 | `footer` | `[]` | Site pages linked at the end of every docs page, such as About and Privacy. |
+| `builtWith` | `true` | A "Built with ViteHub Docs" line at the end of every docs page. `false` removes it. |
 | `banner` | None | One line above every docs page. |
 | `github` | `false` | `{ repo, branch, dir }`. Adds a GitHub link beside the socials, with the star count when available. |
 | `icons` | Lucide fallbacks | Icon maps of the rail and the sidebar. |
@@ -498,7 +499,7 @@ Product landing components become plain Markdown, with the hero tagline, hosts, 
 
 Every page gets its title, description, canonical link, Open Graph and Twitter tags, Schema.org (`WebSite`, `WebPage`, `TechArticle`, and a breadcrumb), and a share image, from its frontmatter and the `site` options. [Nuxt SEO](https://nuxtseo.com) does the work: `nuxt-site-config` takes `site`, `nuxt-schema-org` writes the graph, and `nuxt-og-image` renders each image while the build prerenders, so the server carries no renderer and a Worker stays small. The default image shows the site, the section, the page title, and the description. A page sets `seo.image` to share a file of its own. For another design, add `components/OgImage/Docs.takumi.vue` with the props `title`, `description`, `site`, `section`, `logo`, and `host`, and set `ogImage: { component: "Docs" }`. An app page, such as a playground, calls `useDocsSeo({ title, description })` to get the same tags and image.
 
-Search indexes every page by heading. `⌘K` opens it. Page titles rank first, then headings, then text, and a typo still finds the page. The index loads the first time the dialog opens, from `/api/_docs/search.json`. `::agent-only` content is not indexed.
+Search indexes every page by heading. `⌘K` opens it. Page titles rank first, then headings, then text, and a typo still finds the page. A production page loads the index from `/api/_docs/search.json` once it is idle, so the dialog has results at the first key press. With Save-Data on, and in development, the index loads when the dialog first opens. `::agent-only` content is not indexed.
 
 ## Comments
 

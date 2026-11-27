@@ -1,0 +1,15 @@
+{
+  "name": "nitro3-module-app",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nitro dev",
+    "build": "nitro build",
+    "preview": "node .output/server/index.mjs"
+  },
+  "dependencies": {
+    "nitro": "^3.0.261103-rc",
+    "nuxt-safe-runtime-config": "^1.0.0",
+    "valibot": "^1.5.0"
+  }
+}

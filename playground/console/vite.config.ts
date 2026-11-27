@@ -6,6 +6,7 @@ import { defineConfig } from "vite"
 import { channelSimulatorPages } from "./channels-fixture.ts"
 import { consoleMockAPI } from "./mock-api.ts"
 import { consoleMockRPC } from "./rpc.ts"
+import { consoleMockSite } from "./site-fixture.ts"
 import { consoleAppConfig } from "../../packages/vite-hub/src/console/app.config.ts"
 
 const workspaceRoot = resolve(import.meta.dirname, "../..")
@@ -16,6 +17,7 @@ export default defineConfig({
   plugins: [
     consoleMockAPI(),
     consoleMockRPC(),
+    consoleMockSite(),
     channelSimulatorPages(),
     vue(),
     ...ui({

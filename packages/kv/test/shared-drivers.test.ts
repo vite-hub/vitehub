@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { DatabaseSync } from "node:sqlite"
 
 import { createClient } from "@libsql/client"
 import { Redis } from "ioredis"
@@ -48,19 +47,6 @@ const databaseStores = (count: number, client: () => object) => {
   }))
 }
 
-function createD1(path: string): object {
-  const sqlite = new DatabaseSync(path, { timeout: 5000 })
-  cleanups.push(async () => sqlite.close())
-  const statement = (query: string, params: (string | number | null)[] = []) => ({
-    bind: (...values: (string | number | null)[]) => statement(query, values),
-    async all() {
-      if (params.length > 100) throw new Error(`D1 binds at most 100 values, not ${params.length}.`)
-      return { results: sqlite.prepare(query).all(...params), success: true, meta: {} }
-    },
-  })
-  return { prepare: (query: string) => statement(query), batch: async () => [] }
-}
-
 let sqliteRoot: string
 beforeAll(async () => {
   sqliteRoot = await mkdtemp(join(tmpdir(), "vitehub-kv-database-"))
@@ -77,13 +63,6 @@ const targets: Target[] = [
         cleanups.push(async () => client.close())
         return client
       })
-    },
-  },
-  {
-    name: "database on Cloudflare D1",
-    stores(count) {
-      const path = join(sqliteRoot, `${randomUUID()}.db`)
-      return databaseStores(count, () => createD1(path))
     },
   },
   ...postgresUrl

@@ -1,4 +1,5 @@
 import type { ConsoleCaller, ConsoleCallerUser } from "@vite-hub/internal/console-signature"
+import { operationConfirmationHeader, operationSurfaceHeader } from "@vite-hub/internal/operations"
 
 /** How the Console calls an app for a person: from the Console page, or from the ViteHub MCP. */
 export interface ConsoleCallOptions {
@@ -6,8 +7,8 @@ export interface ConsoleCallOptions {
    * `"mcp"` when the ViteHub MCP calls for the person. The app then applies its MCP rules: it refuses operations with
    * `mcp: false`, runs the others with the `mcp` surface, and refuses a destructive call that is not `confirmed`.
    */
-  surface?: "mcp"
-  /** The person agreed to this destructive call. Only for `surface: "mcp"`. */
+  surface?: "mcp" | "cli"
+  /** The person agreed to this destructive call. Only for the MCP and CLI surfaces. */
   confirmed?: boolean
   /** The app runs only operations that read, and refuses a write or destructive call. */
   readOnly?: boolean
@@ -26,6 +27,12 @@ export function consoleCallerOf(caller: { user: ConsoleCallerUser, teamId: strin
     ...(options.surface ? { surface: options.surface, ...(options.confirmed ? { confirmed: true } : {}) } : {}),
     ...(options.readOnly ? { readOnly: true } : {}),
   }
+}
+
+export function consoleForwardCaller(request: Request, caller: Parameters<typeof consoleCallerOf>[0]): ConsoleCaller {
+  return consoleCallerOf(caller, "key" in caller && request.headers.get(operationSurfaceHeader) === "cli"
+    ? { surface: "cli", confirmed: request.headers.get(operationConfirmationHeader) === "confirmed" }
+    : undefined)
 }
 
 /** The signed fields of a person: the id, and the name and email when they have them and they fit the signed header. */

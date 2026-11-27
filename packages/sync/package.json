@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/sync",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Local-first synced tables: the browser reads and writes a local copy, and the server stays the authority for every row.",
   "keywords": [
     "local-first",
@@ -73,6 +73,7 @@
   "dependencies": {
     "@noble/hashes": "catalog:auth",
     "@standard-schema/spec": "catalog:runtime",
+    "@valibot/to-json-schema": "catalog:runtime",
     "@vite-hub/runtime": "workspace:*",
     "birpc": "catalog:runtime",
     "nostics": "catalog:runtime",

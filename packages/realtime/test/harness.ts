@@ -101,7 +101,8 @@ type Hooks = {
 
 export interface TestClient {
   awareness: Uint8Array[]
-  requests: RealtimeRequestFrame[]
+  notices: unknown[]
+  requests: Exclude<RealtimeRequestFrame, { kind: "notice" }>[]
   close(): void
   closed?: { code: number, reason: string }
   controls: RealtimeControlMessage[]
@@ -130,6 +131,7 @@ export function createTestServer(definition: RealtimeDefinition, options: { dura
     })) as Response & { crossws?: Hooks }
     const client: TestClient = {
       awareness: [],
+      notices: [],
       requests: [],
       close: () => {
         if (client.closed) return
@@ -188,7 +190,8 @@ export function createTestServer(definition: RealtimeDefinition, options: { dura
         }
         else if (type === messageRealtimeRequest) {
           const frame = decodeRealtimeRequestFramePayload(decoder)
-          if (frame) client.requests.push(frame)
+          if (frame?.kind === "notice") client.notices.push(frame.body)
+          else if (frame) client.requests.push(frame)
         }
       },
       subscribe(channel: string) {

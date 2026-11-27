@@ -88,10 +88,11 @@ Hosted Comments works on any site that can load a script. The Console signs revi
 
 ```html
 <script type="module" src="https://console.vitehub.dev/hosted-comments.js"
-  data-vitehub-comments="PROJECT_ID"></script>
+  data-vitehub-comments="PROJECT_ID"
+  data-vitehub-repo="OWNER/NAME"></script>
 ```
 
-Use the project ID from the Console. If your site sets a Content Security Policy, allow the Console origin in `script-src` and `frame-src`, and allow inline styles in `style-src`: the embed adds its styles inside its shadow root.
+Use the project ID from the Console. `data-vitehub-repo` is optional: it is the GitHub repository that **Open in T3 Code** opens. If your site sets a Content Security Policy, allow the Console origin in `script-src` and `frame-src`, and allow inline styles in `style-src`: the embed adds its styles inside its shadow root.
 
 Open the site with `?vitehub` and choose **Comments** to sign in. Team members can start threads, reply, and resolve them. Hosted Comments starts with its own thread history. Confirming an unlink permanently deletes that project's hosted threads and replies.
 
@@ -145,7 +146,7 @@ export const comments = defineComments({
 
 This policy does not grant access based on Console admission alone. Do not pass the entire `authorize` context as the gate: `console: true` means the Console admitted the request, but with `identify` the built-in policy does not treat that as permission for the app user.
 
-On pages, the user comes from `identify` when the app has one (`null` is anonymous), else the first of: the ViteHub [Auth](/docs/auth) session, the [Site access](#roles-from-site-access) cookie of an app without Auth, or [Sign in with GitHub](#sign-in-with-github). Comment operations through the Console, the CLI, and MCP use `identify`, else the [Console caller](#comments-through-the-console).
+On pages, the user comes from `identify` when the app has one (`null` is anonymous), else the first of: the [Site access](#roles-from-site-access) cookie, the ViteHub [Auth](/docs/auth) session, or [Sign in with GitHub](#sign-in-with-github). Comment operations through the Console, the CLI, and MCP use `identify`, else the [Console caller](#comments-through-the-console).
 
 Every Comments API route checks the policy again. A user that `read` denies gets `403` with [`COMMENTS_FORBIDDEN`](/docs/comments/limits-and-errors#comments_forbidden), and no overlay. Writes must come from a same-origin page.
 
@@ -328,7 +329,7 @@ A write over the limit fails with [`COMMENTS_GUEST_RATE_LIMITED`](/docs/comments
 
 ### Roles from Site access
 
-[Site access](/docs/console/site-access#sign-browsers-in) in the Console signs members and invited guests in to the app, with roles in the Better Auth `user.role`, or, in an app without Auth, roles in its sealed `vitehub_site` cookie: `comments-read`, `comments-write`, `comments-resolve`, and `comments-delete`. Any of the last three also lets the person read. Members get all four. A guest gets the ones the member picked, and comments under the name the member gave them.
+[Site access](/docs/console/site-access#sign-browsers-in) in the Console signs members and invited guests in to the app with a token that the app keeps in its site cookie. The token has their roles: `comments-read`, `comments-write`, `comments-resolve`, and `comments-delete`. The app does not keep the person or the roles in Auth. Any of the last three also lets the person read. Members get all four. A guest gets the ones the member picked, and comments under the name the member gave them.
 
 Without `authorize`, these roles decide. With `authorize`, your policy decides, so check the roles there with `commentsRoleAllows()` from `vite-hub/comments`:
 
@@ -728,7 +729,7 @@ export default defineConfig({
 | <kbd>Esc</kbd> | Close the open thread, or turn comment mode, **Highlight**, and **Edit** off. In a label, put the label down. |
 | <kbd>Enter</kbd> | Send the comment. <kbd>Shift</kbd> <kbd>Enter</kbd> starts a new line. With **Highlight** on, comment on the ink. In a label, put the label down. |
 
-**Highlight** draws on the page. Pick a tip and one of four colors, draw on the page, and select **Done**. The overlay takes a picture of the screen with the ink on it, and opens a comment on the area that the ink covers with the picture attached. The ink stays on the page while you write. The page does not scroll while you draw, and <kbd>Cmd</kbd> <kbd>Z</kbd> or <kbd>Ctrl</kbd> <kbd>Z</kbd> takes back the last stroke or label. The picture uploads like any attachment, so it needs attachments: the Blob store of the app or a [`storeAttachment`](#attach-files) hook. When the page cannot be drawn as a picture, for example because an image from another origin blocks it, the comment marks the area without one.
+**Highlight** draws on the page. Pick a tip and one of four colors, draw on the page, and select **Done**. A comment opens at once on the area that the ink covers, and the overlay takes a picture of the screen with the ink on it in the background. The picture goes with the comment: one sent before the picture is ready shows as sending and goes out with it. The ink stays on the page while you write. The page does not scroll while you draw, and <kbd>Cmd</kbd> <kbd>Z</kbd> or <kbd>Ctrl</kbd> <kbd>Z</kbd> takes back the last stroke or label. The picture uploads like any attachment, so it needs attachments: the Blob store of the app or a [`storeAttachment`](#attach-files) hook. When the page cannot be drawn as a picture, for example because an image from another origin blocks it, the comment marks the area without one.
 
 | Tip | What a drag or a click does |
 | --- | --- |
@@ -737,7 +738,7 @@ export default defineConfig({
 | Arrow | An arrow from where the drag starts to where it ends. Its shaft bows a little, and <kbd>Shift</kbd> draws it straight. |
 | Text | A click types a label there. A click on a label edits it, a drag moves it, and a label with no words goes. <kbd>Cmd</kbd> <kbd>Enter</kbd> or <kbd>Ctrl</kbd> <kbd>Enter</kbd> puts the label down and comments on the ink. |
 
-When Comments or the [Console link](/docs/console/site-access#open-the-console-from-your-pages) is on, every HTML page gets the page tools bootstrap, a short inline script before `</body>`. It is the same for every visitor, so the page keeps its cache headers. It loads the loader only with a hint: the `?vitehub` query, `vitehub-tools=1`, or the [Auth session marker](/docs/auth/configure#session-marker-cookie) of someone who just signed in. Without a hint, the page makes no request. With the hint, the server instead adds `<script type="module" src="/_vitehub/page/assets/loader.js?v=22">` and sends `cache-control: private, no-store`. The loader imports the overlay only for people the session route allows. With an application base such as `/portal/`, the loader and session URLs start with `/portal/_vitehub/page/`. Paths under `/_vitehub` and `/api` never get the page tools.
+When Comments is on, every HTML page gets the page tools bootstrap, a short inline script before `</body>`. It is the same for every visitor, so the page keeps its cache headers. It loads the loader only with a hint: the `?vitehub` query, `vitehub-tools=1`, or the [Auth session marker](/docs/auth/configure#session-marker-cookie) of someone who just signed in. Without a hint, the page makes no request. With the hint, the server instead adds `<script type="module" src="/_vitehub/page/assets/loader.js?v=22">` and sends `cache-control: private, no-store`. The loader imports the overlay only for people the session route allows. With an application base such as `/portal/`, the loader and session URLs start with `/portal/_vitehub/page/`. Paths under `/_vitehub` and `/api` never get the page tools.
 
 - Nitro 3 apps, including Nuxt 5, get the script from the server response.
 - A single-page app whose `index.html` Vite serves or builds gets the bootstrap in `index.html`.
@@ -866,6 +867,20 @@ The Comments section of the [Console](/docs/console) lists the 500 threads with 
 ## Fix comments with an Agent
 
 Connect the Agent to the [ViteHub MCP](/docs/console/mcp) of the Console. It runs the Comments operations of your app, such as `comments.threads` and `comments.reply`: it lists open threads, reads their page context and source files, and changes the code. Then it resolves every thread that it handled with one `comments.resolve` call, each with a reply that says what changed, such as the commit or a link, so the threads leave the page. It acts as you, and `authorize` applies to each call. The `page` filter takes a path such as `/pricing` or a full URL of the page. When `authorize` hides threads, the list says how many and why, and `hidden` counts them.
+
+Each open thread has **Open in T3 Code** and **Copy** in its header. The list of open threads has **Open in T3 Code** and **Copy open** in its top row, for all the open threads of the page. Both buttons give the same prompt: the page URL, the text and replies of each thread, the element, the version, and the URLs of its files. Every person who may read the comments gets them. When the person is a Console team member whose MCP access allows `comments.get`, the prompt also tells the Agent to check the linked app and team and read the threads through the ViteHub MCP. It asks the Agent to resolve them only if that access allows `comments.resolve`. For other people, it asks the Agent to report what it changed.
+
+**Open in T3 Code** opens `https://app.t3.codes/new` with the prompt, and with `repo=owner/name` when Comments knows the GitHub repository of the app: `forge.repository`, else the repository of the build. On a Hosted Comments site, add `data-vitehub-repo="owner/name"` to the script tag. A link is at most 8,000 characters. A long prompt keeps its steps: first its messages and anchors get shorter, then each thread keeps only its ID and a short title. With MCP access, the link can keep just the IDs and instructions. If the link still does not fit, use **Copy** or **Copy open** for the full prompt. Build the full text with `commentsAgentPrompt({ url, threads, agent })` and the link with `commentsT3CodeLink(input, repository)` from `@vite-hub/comments/client`. The link function returns `undefined` when no link fits. `agent` is `{ mcp, project, resolve }`, where `project` is the linked app's `{ id, teamId, url }`.
+
+```txt [Prompt]
+Fix this comment on https://app.example.com/portal/pricing
+"The title wraps on a phone. Keep it on one line." — Max, on main > h1 (version 4)
+Files: https://app.example.com/_vitehub/comments/files/f_8k2
+In the ViteHub MCP (https://console.vitehub.dev/mcp/account), use list_apps to verify team team-1 and app https://app.example.com/portal (id: app-1). If the team is different, ask me to switch to that team in the Console; if the app is missing, ask me to check the link. Only after both match, call read_operation with the app id, operation "comments.get", and input { threadId } for thread thread-1.
+When the fix is live, use run_operation with the app id, operation "comments.resolve", and input { threadId, reply }. In the reply, say what you changed.
+```
+
+To hand the comments over without a paste, turn on [Send](/docs/comments/send): it posts them to your Agent's thread through a signed webhook.
 
 Your own MCP server can register the same tools. `commentsMcpTools(comments)` from `vite-hub/comments/runtime` returns them, each with a JSON Schema and a `call(input, { user })` function. Pass the answer of a call to `mcpToolResult()` from the same import to get the MCP result. `comments_get_thread` sends the images attached to the thread as `image` blocks, so the Agent sees the screenshots, up to 4 MB in one answer.
 

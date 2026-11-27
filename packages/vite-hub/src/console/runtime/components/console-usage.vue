@@ -6,7 +6,7 @@ import * as v from "valibot";
 
 import { useRoute, useRouter } from "vue-router";
 import { encodeAgentRouteParam, resolveConsoleRouteName } from "../console-route";
-import { requestConsole } from "../client/request";
+import { requestConsole, requestConsoleUsage } from "../client/request";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleState from "./console-state.vue";
 import ConsoleUsageChart from "./console-usage-chart.vue";
@@ -448,7 +448,7 @@ async function loadPage(page: { cursor: string | undefined; previous: Array<stri
   try {
     const result = v.parse(
       usageSummarySchema,
-      await requestConsole(props.base, {
+      await requestConsoleUsage(props.base, {
         query: {
           window: requestedWindow,
           ...(agent.value ? { agent: agent.value } : {}),

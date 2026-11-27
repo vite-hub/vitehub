@@ -21,6 +21,7 @@ import * as ownerBlobMedia from "@vite-hub/blob/media";
 import * as ownerBlobVue from "@vite-hub/blob/vue";
 import { setActiveCloudflareEnv as ownerCloudflareEnvSetter } from "@vite-hub/database/runtime/cloudflare-env";
 import { setActiveCloudflareEnv as ownerDatabaseStateSetter } from "@vite-hub/database/runtime/state";
+import * as ownerEnvVite from "@vite-hub/env/vite";
 import * as ownerRateLimit from "@vite-hub/rate-limit";
 import * as ownerWebContainer from "@vite-hub/web-container";
 import * as ownerWebContainerConnect from "@vite-hub/web-container/connect";
@@ -37,6 +38,7 @@ import * as frameworkAuthVue from "vite-hub/auth/vue";
 import * as frameworkBlobClient from "vite-hub/blob/client";
 import * as frameworkBlobMedia from "vite-hub/blob/media";
 import * as frameworkBlobVue from "vite-hub/blob/vue";
+import * as frameworkEnvVite from "vite-hub/env/vite";
 import * as frameworkRateLimit from "vite-hub/rate-limit";
 import * as frameworkWebContainer from "vite-hub/web-container";
 import * as frameworkWebContainerConnect from "vite-hub/web-container/connect";
@@ -101,6 +103,7 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/agent/env-identity",
   "@vite-hub/agent/observability/host",
   "@vite-hub/agent/observability/posthog",
+  "@vite-hub/agent/usage",
   "@vite-hub/blob/served",
   "@vite-hub/comments/client",
   "@vite-hub/sandbox/ssh",
@@ -108,7 +111,6 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/database/connect",
   "@vite-hub/database/connect/node",
   "@vite-hub/env/seal",
-  "@vite-hub/kv/runtime/database",
   // Build tools and page scripts read a preview's repository and commit; apps call useForge() from vite-hub/forge.
   "@vite-hub/forge/build",
   "@vite-hub/forge/build/node",
@@ -257,6 +259,24 @@ describe("framework package contract", () => {
     expect(frameworkCapabilities.nodeRuntimeResources).toBe(ownerRuntimeNode.nodeRuntimeResources);
   });
 
+  it("exports envSchema from vite-hub/env/vite with the same declarations", async () => {
+    expect(Object.keys(frameworkEnvVite).sort()).toEqual(Object.keys(ownerEnvVite).sort());
+    expect(frameworkEnvVite.envSchema).toBe(ownerEnvVite.envSchema);
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-env-schema-"));
+    try {
+      const file = join(directory, ".env.example");
+      await writeFile(file, "# @public\nNUXT_PUBLIC_SITE_URL=https://example.com\n\n# @type=number\nNUXT_RETRIES=3\n");
+      const url = pathToFileURL(file);
+      const declarations = frameworkEnvVite.envSchema(url, { prefix: "NUXT_" });
+      expect(Object.keys(declarations.public ?? {})).toEqual(["siteUrl"]);
+      expect(Object.keys(declarations.server ?? {})).toEqual(["retries"]);
+      expect(JSON.stringify(declarations)).toBe(JSON.stringify(ownerEnvVite.envSchema(url, { prefix: "NUXT_" })));
+    }
+    finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("keeps the Database environment setter on its owner runtime instance", () => {
     expect(ownerCloudflareEnvSetter).toBe(ownerDatabaseStateSetter);
   });
@@ -298,7 +318,6 @@ describe("framework package contract", () => {
       "./cache",
       "./console",
       "./console/auth",
-      "./console/mcp-client",
       "./console/server",
       "./console/ui",
       "./doctor",
@@ -614,7 +633,7 @@ describe("framework package contract", () => {
     );
     expect(consoleSessionCss).toContain("padding: 0.75rem 0 1.5rem;");
     expect(consolePage).not.toContain("/api/health");
-    expect(existsSync(`${packageRoot}/dist/console/runtime/server/status.get.js`)).toBe(true);
+    expect(existsSync(`${packageRoot}/dist/agent/console/status.get.js`)).toBe(true);
     expect(consolePage).toContain("agentInvocationTitle");
     expect(consoleSessionNavbar).toContain("<UDashboardNavbar");
     expect(consoleSessionNavbar).toContain('class="md:hidden"');
@@ -780,31 +799,23 @@ describe("framework package contract", () => {
 
       const nitro = Reflect.get(config, "nitro");
       const handlers = Reflect.get(Object(nitro), "handlers");
-      const publicAssets = Reflect.get(Object(nitro), "publicAssets");
-      if (!Array.isArray(handlers) || !Array.isArray(publicAssets)) {
+      if (!Array.isArray(handlers)) {
         throw new TypeError("Expected the distributed Console Nitro configuration.");
       }
-      // Apps serve the Console RPC and the page tools session of the Console link only: no Console page, client script,
-      // MCP, or Env management.
-      expect(handlers.map((registration) => Reflect.get(Object(registration), "route"))).toEqual([
-        "/_vitehub/rpc",
-        "/_vitehub",
-        "/_vitehub/**",
-        "/_vitehub/page/tools",
-      ]);
+      expect(handlers.map((registration) => Reflect.get(Object(registration), "route"))).toEqual(["/_vitehub/**", "/_vitehub", "/_vitehub/rpc", "/_vitehub/site"]);
       for (const registration of handlers) {
         const handler = Reflect.get(Object(registration), "handler");
         if (String(handler) !== handler) throw new TypeError("Expected a Console handler path.");
         expect(handler).toContain("/dist/console/runtime/server/");
         expect(existsSync(handler), handler).toBe(true);
       }
-      expect(publicAssets.map((asset) => Reflect.get(Object(asset), "baseURL"))).toEqual(["/_vitehub/.well-known/skills", "/_vitehub/console/assets", "/_vitehub/page/assets"]);
-      // The Console segment of the pill and the page tools loader are built files of the package.
-      expect(existsSync(`${Reflect.get(Object(publicAssets[1]), "dir")}/page-tool.js`)).toBe(true);
-      expect(existsSync(`${Reflect.get(Object(publicAssets[2]), "dir")}/loader.js`)).toBe(true);
-      const skillsDir = Reflect.get(Object(publicAssets[0]), "dir");
-      if (String(skillsDir) !== skillsDir) throw new TypeError("Expected the Console skills path.");
-      // The skills CLI reads this index from `<app>/_vitehub/.well-known/skills/index.json`.
+      expect(Reflect.get(Object(nitro), "publicAssets")).toBeUndefined();
+      // The ViteHub Console serves the Console segment of the pill and the account menu from these built files.
+      expect(existsSync(`${packageRoot}/dist/console/runtime/page-tool/page-tool.js`)).toBe(true);
+      expect(existsSync(`${packageRoot}/dist/console/runtime/page-tool/account.js`)).toBe(true);
+      // The ViteHub Console serves these skills to `npx skills add <console>`.
+      const skillsDir = `${packageRoot}/dist/console-skills`;
+      expect(existsSync(`${packageRoot}/dist/console/runtime/public`)).toBe(false);
       const skillsIndex: { skills: Array<{ name: string, files: string[] }> } = JSON.parse(readFileSync(`${skillsDir}/index.json`, "utf8"));
       expect(skillsIndex.skills.map((skill) => skill.name)).toEqual(["vitehub"]);
       for (const file of skillsIndex.skills[0].files) expect(existsSync(`${skillsDir}/vitehub/${file}`), file).toBe(true);

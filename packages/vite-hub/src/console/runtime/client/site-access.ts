@@ -3,23 +3,56 @@ import { renderSVG } from "uqr"
 import { isRecord } from "@vite-hub/internal/object"
 import { siteAccessOperation } from "@vite-hub/internal/site-token"
 
-import { siteAccessOperations } from "../site-access"
 import { useConsoleProjects } from "./project-session"
 import { ConsoleRequestError, consoleResponseError, requestConsoleOperation } from "./request"
-import { openConsoleTicket } from "./ticket"
+import { openConsoleLink } from "./site-link"
 
-import type { SiteGrant, SiteInvite, SiteSession } from "../site-access"
-import type { ConsoleTicketLink } from "./ticket"
+import type { ConsoleLink } from "./site-link"
 
-export type { SiteGrant, SiteInvite, SiteSession } from "../site-access"
+export const siteAccessOperations = {
+  link: "site.link",
+  sessions: "site.sessions",
+  revokeSession: "site.revoke-session",
+  invite: "site.invite",
+  invites: "site.invites",
+  revokeInvite: "site.revoke-invite",
+  grants: "site.grants",
+} as const
+
+export interface SiteSession {
+  id: string
+  kind: "member" | "guest"
+  person: { id: string, name: string, email?: string, image?: string }
+  grants: string[]
+  device: string
+  createdAt: string
+  lastSeenAt: string
+  expiresAt: string
+}
+
+export interface SiteInvite {
+  id: string
+  name: string
+  grants: string[]
+  path: string
+  expiresAt: string
+  createdBy: { id: string, name: string }
+}
+
+export interface SiteGrant {
+  id: string
+  label: string
+  description?: string
+  membersOnly?: true
+}
 
 /**
- * Whether the Console keeps the Site access of the open project: the account Console, with an app that answers
+ * Whether the Console keeps the Site access of the open project: an app that answers
  * `site.access`. Else the app keeps it, and the Console calls its `site.*` operations.
  */
 export function usesConsoleSiteAccess(): boolean {
   const projects = useConsoleProjects()
-  return projects.mode === "account" && Boolean(projects.current.value) && Boolean(projects.info.value?.operations.includes(siteAccessOperation))
+  return Boolean(projects.current.value && projects.info.value?.operations.includes(siteAccessOperation))
 }
 
 /**
@@ -58,7 +91,7 @@ async function siteApi(method: "GET" | "POST" | "DELETE", path: string, input: {
   return body
 }
 
-function linkOf(body: Record<string, unknown>): ConsoleTicketLink {
+function linkOf(body: Record<string, unknown>): ConsoleLink {
   const { url, expiresAt } = body
   if (typeof url !== "string" || typeof expiresAt !== "string") throw new ConsoleRequestError(502, "The Console answered without a link.")
   return { url, expiresAt }
@@ -119,20 +152,20 @@ export async function readSiteAccess(signal?: AbortSignal): Promise<{ sessions: 
  */
 export async function openSite(path?: string): Promise<void> {
   if (!usesConsoleSiteAccess()) {
-    await openConsoleTicket(() => appOperation(siteAccessOperations.link, path ? { path } : {}))
+    await openConsoleLink(() => appOperation(siteAccessOperations.link, path ? { path } : {}))
     return
   }
   const { id, url } = currentProject()
-  await openConsoleTicket(async () => ({ url: `${url.replace(/\/+$/, "")}/_vitehub/site?${new URLSearchParams({ return: path ?? "/", project: id })}` }))
+  await openConsoleLink(async () => ({ url: `${url.replace(/\/+$/, "")}/_vitehub/site?${new URLSearchParams({ return: path ?? "/", project: id })}` }))
 }
 
 /** A one-time link for a phone, such as `/go/<code>` of the Console: it lasts 10 minutes, so there is time to scan it. */
-export async function phoneLink(): Promise<ConsoleTicketLink> {
+export async function phoneLink(): Promise<ConsoleLink> {
   return linkOf(usesConsoleSiteAccess() ? await siteApi("POST", "/codes", { body: {} }) : await appOperation(siteAccessOperations.link, { qr: true }))
 }
 
 /** Invites a guest. The answer has the link, which the Console shows once: the Console or the app keeps only its hash. */
-export async function inviteGuest(input: { name: string, grants: string[], expiresInDays: 1 | 7 | 30 }): Promise<ConsoleTicketLink & { invite: SiteInvite }> {
+export async function inviteGuest(input: { name: string, grants: string[], expiresInDays: 1 | 7 | 30 }): Promise<ConsoleLink & { invite: SiteInvite }> {
   const body = usesConsoleSiteAccess() ? await siteApi("POST", "/invites", { body: input }) : await appOperation(siteAccessOperations.invite, input)
   if (!isInvite(body.invite)) throw new ConsoleRequestError(502, "The answer has no invite.")
   return { ...linkOf(body), invite: body.invite }
@@ -154,7 +187,7 @@ export async function readHostedCommentsAccess(commentsProject: string): Promise
   return { sessions: listOf(body, "sessions", isSession), invites: listOf(body, "invites", isInvite), grants: listOf(body, "grants", isGrant) }
 }
 
-export async function inviteHostedCommentsGuest(commentsProject: string, input: { name: string, grants: string[], expiresInDays: number }): Promise<ConsoleTicketLink & { invite: SiteInvite }> {
+export async function inviteHostedCommentsGuest(commentsProject: string, input: { name: string, grants: string[], expiresInDays: number }): Promise<ConsoleLink & { invite: SiteInvite }> {
   const body = await siteApi("POST", "/invites", { body: input, commentsProject })
   if (!isInvite(body.invite)) throw new ConsoleRequestError(502, "The answer has no invite.")
   return { ...linkOf(body), invite: body.invite }

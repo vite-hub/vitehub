@@ -80,6 +80,7 @@ import {
   internalRequestHeader,
   isDurableSockets,
   isRealtimeDurableObjectNamespace,
+  localNotifiers,
   localRequesters,
   roomRequestError,
   routePrefix,
@@ -105,8 +106,8 @@ export { isRealtimeWorkspaceDocument, readRealtimeWorkspaceDocument, workspaceDo
 export type { RealtimeWorkspaceDocumentAdapter } from "../workspace-document.ts"
 
 export type { RealtimeBus, RealtimeBusMessage, RealtimeRoomRecord } from "../bus-protocol.ts"
-export { requestRealtimeRoom } from "../request.ts"
-export type { RealtimeDurableObjectNamespace, RealtimeRoomRequestOptions, RealtimeRoomRequestResult } from "../request.ts"
+export { notifyRealtimeRoom, requestRealtimeRoom } from "../request.ts"
+export type { RealtimeDurableObjectNamespace, RealtimeRoomNotifyOptions, RealtimeRoomRequestOptions, RealtimeRoomRequestResult } from "../request.ts"
 
 export interface RealtimeHandler {
   (event: unknown): Promise<unknown>
@@ -1804,6 +1805,27 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
   }
   localRequesters().add(new WeakRef(requestRoom))
 
+  async function notifyRoom(definitionName: string, documentId: string, body: unknown, user: string | null | undefined, durable?: DurableSockets): Promise<void> {
+    const definition = await getDefinition(definitionName).catch(() => undefined)
+    if (definition?.document !== false || (definition.scope === "user" && user === undefined)) return
+    const key = realtimeRoomKey(definitionName, documentId, roomScope(definition, user ?? null))
+    const frame = encodeRealtimeRequestFrame({ kind: "notice", body })
+    for (const target of requestTargets(key, durable)) {
+      try {
+        target.send(frame)
+      }
+      catch {}
+    }
+    if (durable) return
+    try {
+      await (await sharedBus())?.publish({ type: "frame", room: key, epoch: eventsEpoch, data: frame })
+    }
+    catch (error) {
+      logRealtime("warn", "Realtime could not send a notice to the other instances.", { ...realtimeRoomFields(key, true), failed: "bus-publish" }, error, { privateRoom: true })
+    }
+  }
+  localNotifiers().add(new WeakRef(notifyRoom))
+
   function settleRequest(peer: WebSocketPeer, data: Uint8Array): void {
     const decoder = decoding.createDecoder(data)
     let frame: RealtimeRequestFrame | undefined
@@ -1875,7 +1897,8 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     const access = (mode: "read" | "write", id: string | null = workspaceEvents ? null : documentId) =>
       allows(definition, { definition: definitionName, documentId: id, event, mode, request: event.req, user })
     const scope = roomScope(definition, user?.id ?? null)
-    return { access, definitionName, documentId, fields, resolved, scope, searchParams, user, workspaceEvents }
+    const awareness = definition.document !== false || definition.awareness !== false
+    return { access, awareness, definitionName, documentId, fields, resolved, scope, searchParams, user, workspaceEvents }
   }
 
   function logRefusal(event: H3Event, error: unknown, upgrade: boolean): void {
@@ -2158,6 +2181,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
           return
         }
         if (messageType === messageAwareness) {
+          if (!request.awareness) return
           let update: Uint8Array
           try {
             update = decoding.readVarUint8Array(decoder)
@@ -2237,13 +2261,17 @@ export function createRealtimeHandler(registry: RealtimeRegistry, options: Realt
     }
     if (event.req.headers.has(internalRequestHeader) && resolveRealtimeRoomSql(event)) {
       redactRealtimePath(event)
-      const { definitionName, documentId } = parseRoomPath(event.req.url)
+      const { definitionName, documentId, searchParams } = parseRoomPath(event.req.url)
       const input: unknown = await event.req.json().catch(() => undefined)
       const field = (name: string) => input && typeof input === "object" && name in input ? (input as Record<string, unknown>)[name] : undefined
       const timeout = field("timeout")
       const wait = field("wait")
       const user = field("user")
       const context = resolveCloudflare(event)?.context
+      if (searchParams.has("notice")) {
+        await notifyRoom(definitionName, documentId, field("body"), typeof user === "string" || user === null ? user : undefined, isDurableSockets(context) ? context : undefined)
+        return { ok: true }
+      }
       return toDurableRequestReply(await requestRoom(definitionName, documentId, field("body"), {
         timeout: typeof timeout === "number" && timeout > 0 ? timeout : defaultRequestTimeout,
         wait: typeof wait === "number" && wait >= 0 ? wait : defaultRequestWait,

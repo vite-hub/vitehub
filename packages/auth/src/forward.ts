@@ -1,8 +1,10 @@
+import { APIError } from "better-auth"
 import { createAuthMiddleware } from "better-auth/api"
 import { applySetCookies, deleteSessionCookie, setSessionCookie } from "better-auth/cookies"
 import { handleOAuthUserInfo, setTokenUtil } from "better-auth/oauth2"
 
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
+import { forwardSignIns } from "./forward-sign-ins.ts"
 
 import type { BetterAuthPlugin } from "better-auth"
 
@@ -36,6 +38,26 @@ export interface ForwardAuthVerifyContext {
   request?: Request
 }
 
+/** Why Better Auth refused an identity that `verify` returned, in `code` of {@link ForwardAuthRefusal}. */
+export const forwardAuthRefusalCodes = ["account_not_linked", "unable_to_link_account", "unable_to_update_account", "signup_disabled", "unable_to_create_user", "email_not_verified", "unable_to_create_session", "denied", "refused"] as const
+
+export type ForwardAuthRefusalCode = typeof forwardAuthRefusalCodes[number]
+
+/** What `onRefused` gets when Better Auth refuses to sign in an identity that `verify` returned. */
+export interface ForwardAuthRefusal {
+  /**
+   * Why Better Auth refused, such as `account_not_linked` for an existing user whose email the identity does not prove.
+   * `denied` when Better Auth threw a client error, such as a `user.validateUserInfo` refusal or an `APIError` from a
+   * session hook, which is in `error`. `refused` for a reason this version does not know.
+   */
+  code: ForwardAuthRefusalCode
+  /** The `APIError` that Better Auth threw, when `code` is `denied`. */
+  error?: unknown
+  identity: ForwardedIdentity
+  headers: Headers
+  request?: Request
+}
+
 export interface ForwardAuthOptions {
   /** The request header that the proxy sets, such as `x-auth-request-access-token` or `cf-access-jwt-assertion`. */
   header: string
@@ -46,9 +68,21 @@ export interface ForwardAuthOptions {
    * so cache slow checks in it.
    */
   verify: (context: ForwardAuthVerifyContext) => ForwardedIdentity | null | Promise<ForwardedIdentity | null>
+  /**
+   * Runs when Better Auth refuses to sign in an identity that `verify` returned, for a log or a metric. A refusal that
+   * Better Auth returns leaves the request signed out; a client error that it throws, such as the `403` of
+   * `user.validateUserInfo`, still answers the request. Auth calls it on each such request, before the response, and a
+   * thrown error fails the request.
+   */
+  onRefused?: (refusal: ForwardAuthRefusal) => void | Promise<void>
 }
 
 export const forwardAuthPluginId = "vitehub-forward-auth"
+
+const refusalCode = (error: unknown): ForwardAuthRefusalCode => {
+  const code = typeof error === "string" ? error.trim().toLowerCase().replaceAll(" ", "_") : ""
+  return forwardAuthRefusalCodes.find(entry => entry === code) ?? "refused"
+}
 
 const nonEmpty = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0
 
@@ -71,7 +105,7 @@ export function forwardAuth(options: ForwardAuthOptions): BetterAuthPlugin {
   if (!nonEmpty(header) || typeof options.verify !== "function") {
     throw authErrorDiagnostics.AUTH_C0067({ message: "`forwardAuth()` needs a `header` name and a `verify` function. Auth never trusts a forwarded header without `verify`." })
   }
-  const verify = options.verify
+  const { onRefused, verify } = options
   // The session that this process made for each identity. The browser does not have its cookie when the first
   // requests come from server code, such as a guard, so later requests reuse the session instead of making another.
   const sessions = new Map<string, { token: string, userId: string, expiresAt: number }>()
@@ -129,7 +163,7 @@ export function forwardAuth(options: ForwardAuthOptions): BetterAuthPlugin {
             let session = reusable ? await live(reusable.token) : null
             if (!session || session.session.userId !== reusable?.userId) {
               sessions.delete(key)
-              const { data } = await handleOAuthUserInfo(ctx, {
+              const signIn = () => handleOAuthUserInfo(ctx, {
                 userInfo: {
                   id: identity.accountId,
                   email: identity.email,
@@ -144,8 +178,18 @@ export function forwardAuth(options: ForwardAuthOptions): BetterAuthPlugin {
                 },
                 overrideUserInfo: true,
               })
+              let result: Awaited<ReturnType<typeof signIn>>
+              try {
+                result = await forwardSignIns.run(true, signIn)
+              }
+              catch (error) {
+                if (error instanceof APIError && error.statusCode < 500) await onRefused?.({ code: "denied", error, identity, headers, ...(ctx.request ? { request: ctx.request } : {}) })
+                throw error
+              }
+              const { data, error } = result
               // Better Auth refused the sign-in, for example a database hook or an unverified email of an existing user.
               if (!data) {
+                await onRefused?.({ code: refusalCode(error), identity, headers, ...(ctx.request ? { request: ctx.request } : {}) })
                 deleteSessionCookie(ctx)
                 applySetCookies(headers, ctx.responseHeaders?.getSetCookie() ?? [])
                 ctx.context.session = null

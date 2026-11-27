@@ -16,7 +16,7 @@ export function installConsoleBlob(
   installedStores.unshift("default")
   return consoleState().blob = {
     // Blob can be enabled without a document editor, whose media library stays out of that build.
-    ...(import.meta.viteHubConsoleDocuments === false ? {} : { media: () => import("./media.ts") }),
+    ...(import.meta.viteHubConsoleDocuments === false ? {} : { media: () => import("../../../blob/console/media.ts") }),
     storage,
     stores: installedStores,
   }

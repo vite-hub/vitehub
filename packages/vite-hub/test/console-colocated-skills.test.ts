@@ -6,7 +6,7 @@ import { expect, it, vi } from "vitest"
 import { codexDriver, defineAgent } from "@vite-hub/agent"
 import { agentRuntimeModule } from "@vite-hub/agent/vite"
 import { agentWithColocatedSkills } from "../../agent/dist/runtime/workflow.js"
-import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
+import { writeConsoleAppModule } from "../src/console/app-module.ts"
 import { generatedModules } from "../src/internal/generated-modules.ts"
 
 it("loads colocated Skills into the production Console definition", async () => {
@@ -20,7 +20,7 @@ it("loads colocated Skills into the production Console definition", async () => 
     await writeFile(join(root, "bot", "skills", "review", "references", "evidence.md"), "Use the mounted evidence.\n")
     await symlink("../bot/skills", join(root, "bot-dev", "skills"))
     const plugin = join(root, "plugin.mjs")
-    await writeConsoleNitroPlugin({ file: plugin, projectRoot: root, sections: ["agents"], catalog: { agents: [{ name: "bot-dev", handler }], content: {} }, blobStores: [], invoke: true })
+    await writeConsoleAppModule({ file: plugin, projectRoot: root, sections: ["agents"], catalog: { agents: [{ name: "bot-dev", handler }], content: {} }, blobStores: [], invoke: true })
     const generated = await readFile(plugin, "utf8")
     const agentUrl = pathToFileURL(handler).href
     const skillsImport = agentRuntimeModule("runtime/workflow")
@@ -36,6 +36,7 @@ it("loads colocated Skills into the production Console definition", async () => 
     const source = generated
       .replace(/^import .+$/gm, "")
       .replace(`import(${JSON.stringify(generatedModules.consoleOperations)})`, "Promise.resolve({ installConsoleOperations: installOperations })")
+      .replace(`import(${JSON.stringify(generatedModules.consoleAgentOperations)})`, "Promise.resolve({ agentConsoleOperations: [] })")
       .replace(`import("vite-hub/console/server")`, "Promise.resolve({ installConsoleAgentDefinitions: installAgents })")
       .replace(`import(${JSON.stringify(skillsImport)})`, "Promise.resolve({ agentWithColocatedSkills: withSkills })")
       .replace(`import(${JSON.stringify(agentUrl)})`, "Promise.resolve(agentModule)")
@@ -49,7 +50,7 @@ it("loads colocated Skills into the production Console definition", async () => 
     expect(installOperations).not.toHaveBeenCalled()
     expect(install).not.toHaveBeenCalled()
     installRuntime?.()
-    expect(installOperations).toHaveBeenCalledWith([], { invoke: true })
+    expect(installOperations).toHaveBeenCalledWith([expect.objectContaining({ plugin: "vite-hub" })], { invoke: true })
     expect(install).toHaveBeenCalledWith([expect.objectContaining({ fallbackName: "bot-dev" })], expect.objectContaining({ invoke: true, projectRoot: root }))
     const installed = install.mock.calls[0]?.[0]?.[0]?.definition
     expect(installed?.[Symbol.for("vitehub.agent.colocatedSkills")]).toMatchObject({

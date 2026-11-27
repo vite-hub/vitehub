@@ -74,7 +74,7 @@ describe("docs page actions", () => {
       ["https://vitehub.dev", "vitehub", "github-copilot"],
       ["https://vitehub.dev", "vitehub", "windsurf"],
       ["https://vitehub.dev", "vitehub", "codex"],
-      ["http://localhost:3000/_vitehub", "vitehub", "claude-code"],
+      ["https://console.example.com", "vitehub", "claude-code"],
     ]);
     expect(read("skills/vitehub/SKILL.md")).toMatch(/^---\nname: vitehub\n/);
   });
