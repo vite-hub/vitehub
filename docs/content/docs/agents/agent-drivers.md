@@ -1,6 +1,6 @@
 ---
 title: Agent Drivers
-description: Run an Agent with an AI SDK model, Codex, Claude Code, Gemini CLI, OpenCode, another coding agent CLI, typed questions, or your own function. Each Driver decides how one Invocation runs.
+description: Run an Agent with an AI SDK model, Codex, Claude Code, Gemini CLI, OpenCode, another coding agent CLI, or your own function.
 seo.title: "Agent Drivers: Codex, Claude Code, AI SDK"
 navigation.order: 11
 navigation.group: Define and run
