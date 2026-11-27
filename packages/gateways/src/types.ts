@@ -33,9 +33,10 @@ export type AiGatewayDriver = "claude-code" | "codex"
  * The model APIs that a gateway can serve, keyed in `baseURL`:
  * - `codex`: OpenAI Responses for the Codex Driver, at `<url>/responses`.
  * - `claude-code`: Anthropic Messages for the Claude Code Driver and AI SDK models, at `<url>/v1/messages`.
+ * - `gemini`: the Gemini API for the Gemini CLI, at `<url>/v1beta/models/<model>:generateContent`, with the key in `x-goog-api-key`.
  * - `openai-compatible`: OpenAI Chat Completions and Responses for AI SDK models, at `<url>/chat/completions` and `<url>/responses`.
  */
-export type AiGatewayRoute = AiGatewayDriver | "openai-compatible"
+export type AiGatewayRoute = AiGatewayDriver | "gemini" | "openai-compatible"
 
 /** What an AI gateway can do. A preset sets its capabilities, so the type rejects a Driver or a model API that it does not serve. */
 export interface AiGatewayCapabilities {
@@ -91,6 +92,7 @@ export interface AiGatewayDefinition {
   /**
    * Base URL for each model API. Codex sends OpenAI Responses requests to `<url>/responses`.
    * Claude Code sends Anthropic Messages requests to `<url>/v1/messages`.
+   * The Gemini CLI sends Gemini API requests to `<url>/v1beta/models/<model>:generateContent`.
    * AI SDK models send OpenAI Chat Completions requests to `<openai-compatible url>/chat/completions`.
    * A Driver or model API without an entry cannot use this gateway.
    */
@@ -99,7 +101,10 @@ export interface AiGatewayDefinition {
   apiKey?: AiGatewaySecret
   /** Process environment variables that supply the API key, in lookup order. */
   apiKeyEnv?: readonly string[]
-  /** How the gateway receives the API key. `"bearer"` (default) sends `Authorization: Bearer`. `"x-api-key"` sends `x-api-key`. */
+  /**
+   * How the gateway receives the API key. `"bearer"` (default) sends `Authorization: Bearer`. `"x-api-key"` sends
+   * `x-api-key`. The `gemini` route always sends `x-goog-api-key`, because the Gemini CLI sends the key only there.
+   */
   auth?: "bearer" | "x-api-key"
   /** Extra request headers, such as Cloudflare Access service-token headers. Values are treated as secrets. */
   headers?: Record<string, AiGatewaySecret>
