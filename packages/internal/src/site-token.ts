@@ -72,6 +72,8 @@ export interface SiteCommentsAgent {
   projectId: string
   teamId: string
   resolve: boolean
+  /** The app's name in the Console, such as `Acme Docs`. */
+  name?: string
 }
 
 /** Whether a value is a {@link SiteTokenKind}. */
@@ -333,7 +335,7 @@ function readClaims(value: unknown): SiteTokenClaims | undefined {
     ...(typeof image === "string" ? { image } : {}),
     roles: roles.filter(role => typeof role === "string"),
     ...(isRecord(commentsAgent) && text(commentsAgent.projectId) && text(commentsAgent.teamId) && typeof commentsAgent.resolve === "boolean"
-      ? { commentsAgent: { projectId: commentsAgent.projectId, teamId: commentsAgent.teamId, resolve: commentsAgent.resolve } }
+      ? { commentsAgent: { projectId: commentsAgent.projectId, teamId: commentsAgent.teamId, resolve: commentsAgent.resolve, ...(text(commentsAgent.name) ? { name: commentsAgent.name } : {}) } }
       : {}),
     // SAFETY: verifySiteToken() checks the kind against the kinds that the app accepts.
     kind: kind as SiteTokenKind,
