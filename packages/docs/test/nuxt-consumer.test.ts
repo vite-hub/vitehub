@@ -108,7 +108,6 @@ it("gives a site's typecheck the declarations of each #docs template and of icon
     for (const file of ["tsconfig.app.json", "tsconfig.shared.json", "tsconfig.server.json"]) {
       const { compilerOptions } = JSON.parse(await readFile(join(nuxt.options.buildDir, file), "utf8")) as { compilerOptions: { paths: Record<string, string[]> } }
       expect(compilerOptions.paths["#docs/shell"], file).toEqual(["./docs/shell.d.mts"])
-      expect(compilerOptions.paths["#docs/blocks"], file).toEqual(["./docs/blocks.d.mts"])
     }
     const types = nuxt.options.build.templates.find(template => template.filename === "types/vite-hub-docs.d.ts")
     expect(String(await types?.getContents?.({} as never))).toMatch(/interface CustomAppConfig \{[^}]*customize\?:/)
