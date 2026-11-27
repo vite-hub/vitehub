@@ -207,8 +207,7 @@ Load Tailwind, Nuxt UI, and the package styles in that order:
 
 The parts render the ui-sdk components, also in a Nuxt UI app. To render Nuxt UI's, register them as global components in a plugin. A part uses a global component with its name before the ui-sdk one:
 
-```ts
-// app/plugins/vitehub-ui.ts
+```ts [app/plugins/vitehub-ui.ts] fragment
 import { UButton, UDropdownMenu, UIcon, UInput, UModal, UTabs, UTooltip } from "#components";
 
 export default defineNuxtPlugin((nuxtApp) => {
