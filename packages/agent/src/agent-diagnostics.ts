@@ -476,6 +476,7 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_PRESET_OPTION_UNSUPPORTED",
   "AGENT_PRESET_UNKNOWN",
   "AGENT_QUEUED_INPUT_NOT_JSON",
+  "AGENT_SKILL_DELIVERY_UNSUPPORTED",
   "AGENT_SKILL_NAME_INVALID",
   "AGENT_SLACK_CONNECTOR_ADAPTER_MISSING",
   "AGENT_TASK_AGENT_NAME_MISSING",
@@ -4793,6 +4794,10 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_ROUTE_NOT_STATIC: {
       why: ({ label }: { label: string }) => `[vitehub] Agent ${label} requires a static route path.`,
       fix: "Use a fixed path without `:name`, `[name]`, `*`, `?`, or `#`, such as `/hooks/github`, as each key of `vitehub({ agent: { routes: { aliases } } })`.",
+    },
+    AGENT_SKILL_DELIVERY_UNSUPPORTED: {
+      why: ({ provider }: { provider: string }) => `[vitehub] ${provider} cannot load Agent-owned Skills.`,
+      fix: "Use Codex or Claude Code for bundled Skills, or install the Skills in the harness's native Skills directory instead.",
     },
     AGENT_SKILL_NAME_INVALID: {
       why: ({ name }: { name: string }) => `[vitehub] Invalid Skill name "${name}". Use letters, digits, ".", "_", or "-".`,

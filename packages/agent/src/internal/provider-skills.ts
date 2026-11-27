@@ -1,11 +1,24 @@
 import { invariantError } from "@vite-hub/internal/invariant"
 import { cp, lstat, mkdir, readdir, readFile, symlink, writeFile } from "node:fs/promises"
 import { dirname, join, posix, relative } from "node:path"
+import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { providerHarnessProfile } from "./provider-profiles.ts"
 import type { ProviderHarness } from "./provider-profiles.ts"
 import { isRuntimeRecord } from "./runtime-type.ts"
 
 const skillRoots = [".agents/skills", ".codex/skills", ".claude/skills"] as const
+
+export function assertProviderSkillDelivery(provider: ProviderHarness, colocated: unknown): void {
+  const harness = providerHarnessProfile(provider)
+  if ((harness.skills && harness.skills.extra.kind !== "none") || !isRuntimeRecord(colocated)) return
+  for (const source of Object.values(colocated)) {
+    if (!isRuntimeRecord(source) || typeof source.workspacePath !== "string") continue
+    const path = posix.normalize(source.workspacePath)
+    if (skillRoots.some(root => path.startsWith(`${root}/`))) {
+      throw agentDiagnostics.AGENT_SKILL_DELIVERY_UNSUPPORTED({ provider: harness.displayName })
+    }
+  }
+}
 
 /** One Skill folder: a Workspace directory to link, or Agent-owned files to write. */
 export type ProviderSkill = { directory: string } | { files: Map<string, string | Uint8Array> }
@@ -54,6 +67,7 @@ export async function selectProviderSkills(input: {
 }): Promise<Map<string, ProviderSkill>> {
   const profile = providerHarnessProfile(input.provider).skills
   if (!profile || profile.extra.kind === "none") return new Map()
+  const colocated = Object.values(isRuntimeRecord(input.colocated) ? input.colocated : {})
   const native: readonly string[] = profile.workspace
   const nativeNames = new Set<string>()
   for (const skillRoot of native) {
@@ -68,7 +82,7 @@ export async function selectProviderSkills(input: {
     for (const name of await skillDirectories(input.cwd, skillRoot)) add(name, { directory: join(input.cwd, skillRoot, name) })
   }
   const owned = new Map<string, Map<string, string | Uint8Array>>()
-  for (const source of Object.values(isRuntimeRecord(input.colocated) ? input.colocated : {})) {
+  for (const source of colocated) {
     if (!isRuntimeRecord(source)
       || !(typeof source.content === "string" || source.content instanceof Uint8Array)
       || typeof source.workspacePath !== "string") continue

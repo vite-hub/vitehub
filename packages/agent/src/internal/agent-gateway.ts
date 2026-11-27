@@ -29,13 +29,12 @@ export interface ResolvedAgentDriverGateway {
   launchArgs?: string
   /** Files for a folder that ViteHub creates and names in `env`. They reference secrets through the environment and hold none. */
   home?: { env: string, files: Readonly<Record<string, string>> }
-  /** The model id the session selects when the gateway configuration renames `driver.model`, or null when `environment` selects it. */
-  model?: string | null
+  /** The model id the session selects when the gateway configuration renames `driver.model`. */
+  model?: string
 }
 
-/** The model the provider session selects. ACP agents reject a model id outside their own list, so the gateway environment selects it instead. */
+/** The model the provider session selects. */
 export function agentDriverSessionModel(gateway: ResolvedAgentDriverGateway | undefined, model: string | undefined): string | undefined {
-  if (gateway?.model === null) return
   return gateway?.model ?? model
 }
 
@@ -45,8 +44,14 @@ export function normalizeAgentDriverGateway(value: unknown): AiGatewayDefinition
 }
 
 /** Fail at definition time when a gateway cannot serve the selected Driver. Returns the route that serves it. */
-export function assertAgentDriverGatewaySupports(gateway: AiGatewayDefinition | ChatGPTGateway, driver: BuiltInAgentDriverName): AiGatewayRoute | undefined {
+export function assertAgentDriverGatewaySupports(gateway: AiGatewayDefinition | ChatGPTGateway, driver: BuiltInAgentDriverName, settings?: Record<string, unknown>): AiGatewayRoute | undefined {
   const profile = providerHarnessProfile(driver)
+  if (driver === "gemini" || driver === "kimi") {
+    throw agentDiagnostics.AGENT_R0976({ message: `[vitehub] ${profile.displayName} cannot isolate gateway credentials from its native sign-in. Remove driver.gateway.` })
+  }
+  if (driver === "opencode" && settings?.serverUrl !== undefined) {
+    throw agentDiagnostics.AGENT_R0976({ message: "[vitehub] OpenCode cannot apply driver.gateway to an attached server. Remove providerSettings.serverUrl to let the Driver start its own server." })
+  }
   if (profile.signInOnly) {
     const credentials = profile.authEnv.length ? ` or set ${profile.authEnv.join(" or ")} in driver.env` : ""
     throw agentDiagnostics.AGENT_R0976({ message: `[vitehub] ${profile.displayName} signs in to its own service, so no gateway serves the ${driver} Driver. Remove driver.gateway and sign in to ${profile.displayName}${credentials}.` })
@@ -108,25 +113,6 @@ function claudeGateway({ apiKey, auth, baseURL, headers }: AiGatewayResolvedRout
   }
 }
 
-function geminiGateway({ apiKey, baseURL, headers }: AiGatewayResolvedRoute, model: string | undefined): ResolvedAgentDriverGateway {
-  return {
-    environment: {
-      GOOGLE_GEMINI_BASE_URL: baseURL,
-      GEMINI_API_KEY: apiKey,
-      GEMINI_CLI_CUSTOM_HEADERS: headers.map(([name, value]) => `${name}: ${value}`).join(", "),
-      ...(model ? { GEMINI_MODEL: model } : {}),
-    },
-    ...(model ? { model: null } : {}),
-  }
-}
-
-function kimiGateway(gateway: AiGatewayDefinition, { apiKey, auth, baseURL, headers }: AiGatewayResolvedRoute, model: string | undefined): ResolvedAgentDriverGateway {
-  if (auth === "x-api-key" || headers.length) {
-    throw agentDiagnostics.AGENT_R0976({ message: `[vitehub] Gateway "${gateway.name}" needs ${auth === "x-api-key" ? "an x-api-key header" : "extra headers"}, which Kimi CLI cannot send. Use a gateway that takes a bearer key.` })
-  }
-  return { environment: { KIMI_BASE_URL: baseURL, KIMI_API_KEY: apiKey, ...(model ? { KIMI_MODEL_NAME: model } : {}) }, ...(model ? { model: null } : {}) }
-}
-
 function opencodeGateway(gateway: AiGatewayDefinition, { apiKey, auth, baseURL, headers }: AiGatewayResolvedRoute, model: string | undefined): ResolvedAgentDriverGateway {
   const extra = headerVariables(headers)
   const optionHeaders = Object.fromEntries([
@@ -185,9 +171,9 @@ export async function resolveAgentDriverGateway(
   gateway: AiGatewayDefinition | ChatGPTGateway,
   driver: BuiltInAgentDriverName,
   context: AgentProviderCredentialContext,
-  options: { model?: string } = {},
+  options: { model?: string, providerSettings?: Record<string, unknown> } = {},
 ): Promise<ResolvedAgentDriverGateway> {
-  const routeKey = assertAgentDriverGatewaySupports(gateway, driver)
+  const routeKey = assertAgentDriverGatewaySupports(gateway, driver, options.providerSettings)
   if (isChatGPTGateway(gateway)) return await resolveChatGPTGateway(gateway, context)
   const profile = providerHarnessProfile(driver)
   if (profile.signInOnly || !routeKey) throw agentDiagnostics.AGENT_R0976({ message: `[vitehub] Gateway "${gateway.name}" does not serve the ${driver} Driver.` })
@@ -198,8 +184,6 @@ export async function resolveAgentDriverGateway(
   switch (profile.gateway.delivery) {
     case "codex-config": return codexGateway(gateway, route)
     case "anthropic-env": return claudeGateway(route)
-    case "gemini-env": return geminiGateway(route, options.model)
-    case "kimi-env": return kimiGateway(gateway, route, options.model)
     case "opencode-config": return opencodeGateway(gateway, route, options.model)
     case "pi-models": return piGateway(gateway, route, options.model)
   }

@@ -2042,10 +2042,7 @@ export interface SignInAgentDriverOptions<TOutput = unknown> extends Omit<AgentP
   gateway?: never
 }
 
-export interface GeminiDriverOptions<TOutput = unknown> extends Omit<AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>, "gateway"> {
-  /** A gateway with a `gemini` URL, such as `cliproxy()` or `google()`. */
-  gateway?: AiGateway<{ routes: "gemini" }>
-}
+export type GeminiDriverOptions<TOutput = unknown> = SignInAgentDriverOptions<TOutput>
 
 /** Options of a Driver whose harness reaches a gateway through its `openai-compatible` URL. `model` is required with a gateway. */
 export interface OpenAICompatibleAgentDriverOptions<TOutput = unknown> extends Omit<AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>, "gateway"> {
@@ -2055,7 +2052,7 @@ export interface OpenAICompatibleAgentDriverOptions<TOutput = unknown> extends O
 
 export type OpenCodeDriverOptions<TOutput = unknown> = OpenAICompatibleAgentDriverOptions<TOutput>
 export type PiDriverOptions<TOutput = unknown> = OpenAICompatibleAgentDriverOptions<TOutput>
-export type KimiDriverOptions<TOutput = unknown> = OpenAICompatibleAgentDriverOptions<TOutput>
+export type KimiDriverOptions<TOutput = unknown> = SignInAgentDriverOptions<TOutput>
 export type AntigravityDriverOptions<TOutput = unknown> = SignInAgentDriverOptions<TOutput>
 export type CursorDriverOptions<TOutput = unknown> = SignInAgentDriverOptions<TOutput>
 export type GrokDriverOptions<TOutput = unknown> = SignInAgentDriverOptions<TOutput>

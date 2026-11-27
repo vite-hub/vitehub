@@ -15,7 +15,7 @@ import { agentDefinitionSourceSymbol } from "./internal/agent-definition-source.
 import { asUnknownBoundary, isRuntimeObject, isRuntimeRecord } from "./internal/runtime-type.ts"
 import agentRegistry, { loadAgentHost } from "#vitehub/agent/registry"
 import { acquireAgentCapacity, configureAgentCapacity, inspectAgentCapacity } from "./internal/agent-capacity.ts"
-import { normalizeAgentDriver, normalizeAgentDriverCapacity } from "./internal/agent-driver.ts"
+import { assertProviderExecutionOptions, normalizeAgentDriver, normalizeAgentDriverCapacity } from "./internal/agent-driver.ts"
 import { providerAgentRuntime } from "./internal/provider-driver-runtime.ts"
 import type { ProviderAgentRuntimeLoader } from "./internal/provider-driver-runtime.ts"
 import { createAgentHealthHandler } from "./health.ts"
@@ -2341,6 +2341,7 @@ function defineBaseAgent<
     hasWorkspace: false,
   })
   // Capabilities and Channels that contribute a Workspace reach this point through createWorkspaceAgentDefinition.
+  if (driver.kind === "provider") assertProviderExecutionOptions(driver.provider, { ...driver, sandbox })
   if (sandbox !== undefined) validateAgentSandbox(sandbox, driver, { hasWorkspace: Boolean(workspace) })
   const modelGateway = driver.kind === "model" ? driver.gateway : undefined
   const inheritedModel: AgentModelResolver<TRuntimeConfig> | undefined = driver.kind === "model"
@@ -2762,7 +2763,7 @@ export function piDriver<TOutput = unknown>(options: PiDriverOptions<TOutput> = 
   return { ...options, kind: "pi", [providerAgentRuntime]: loadProviderAgentRuntime }
 }
 
-/** Run the Agent with Kimi CLI over ACP. With a gateway, set `model` to a model the gateway serves. Needs a Node.js host. */
+/** Run the Agent with Kimi CLI over ACP using native sign-in. Needs a Node.js host. */
 export function kimiDriver<TOutput = unknown>(options: KimiDriverOptions<TOutput> = {}): KimiDriver<unknown, TOutput> {
   return { ...options, kind: "kimi", [providerAgentRuntime]: loadProviderAgentRuntime }
 }

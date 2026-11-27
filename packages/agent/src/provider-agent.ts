@@ -43,9 +43,9 @@ import { appendLatestFinalText, streamAgentOutputToEvents } from "./agent-output
 import { composeInstructionDocument } from "./instruction-composition.ts"
 import { agentInvocationCallbackContextValues } from "./invocation-context.ts"
 import { colocatedAgentSkillsContextKey } from "./internal/colocated-agent-skills.ts"
-import { addProviderSandboxSkills, hasSafeProviderPath, materializeProviderSkills, selectProviderSkills } from "./internal/provider-skills.ts"
+import { addProviderSandboxSkills, assertProviderSkillDelivery, hasSafeProviderPath, materializeProviderSkills, selectProviderSkills } from "./internal/provider-skills.ts"
 import { sourceSkillMounts } from "./internal/source-skills.ts"
-import { defaultAgentProviderPermissions } from "./internal/agent-driver.ts"
+import { assertProviderExecutionOptions, defaultAgentProviderPermissions } from "./internal/agent-driver.ts"
 import { resolveInstalledProviderExecutable } from "./internal/provider-runtime-packages.ts"
 import { providerHarnessProfile, providerHarnessProfiles } from "./internal/provider-profiles.ts"
 import type { ProviderHarness } from "./internal/provider-profiles.ts"
@@ -388,9 +388,9 @@ export function providerRuntimeSettings(provider: ProviderHarness, agentId: stri
   const { binaryPath } = settings
   return {
     enabled: true,
+    ...Object.fromEntries(Object.entries(settings).filter(([key]) => !["binaryPath", "homePath", "launchArgs", "shadowHomePath"].includes(key))),
     source: "registry",
     agentId: profile.agentId ?? agentId,
-    ...Object.fromEntries(Object.entries(settings).filter(([key]) => !["binaryPath", "homePath", "launchArgs", "shadowHomePath"].includes(key))),
     ...(typeof binaryPath === "string" && binaryPath.trim() ? { commandPath: binaryPath } : {}),
   }
 }
@@ -1427,7 +1427,7 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
     }
     const configuredOverrides = options.env === undefined ? undefined : normalizedProviderEnvironment(await waitForProviderOperation(resolveRuntimeValue(options.env, context), signal))
     signal?.throwIfAborted()
-    const resolvedGateway = options.gateway === undefined ? undefined : await waitForProviderOperation(resolveAgentDriverGateway(options.gateway, options.provider, context, { model: options.model }), signal)
+    const resolvedGateway = options.gateway === undefined ? undefined : await waitForProviderOperation(resolveAgentDriverGateway(options.gateway, options.provider, context, options), signal)
     signal?.throwIfAborted()
     if (resolvedGateway?.home) root ??= await mkdtemp(join(tmpdir(), "vitehub-provider-inspection-"))
     const gateway = resolvedGateway && root ? await materializeAgentDriverGatewayHome(resolvedGateway, join(root, "gateway-home")) : resolvedGateway
@@ -2881,6 +2881,7 @@ async function* runProvider<
   if (context.providerTools?.length) {
     throw agentDiagnostics.AGENT_R0710({ message: "[vitehub] Provider Agent Drivers do not accept model-specific Provider Tools. Use Capability tools or native provider tools." })
   }
+  assertProviderSkillDelivery(options.provider, context.context.get(colocatedAgentSkillsContextKey))
   if (context.input.timeout !== undefined && context.input.timeout > 2_147_483_647) {
     throw agentDiagnostics.AGENT_R0711({ message: "[vitehub] Provider Agent timeout must be no greater than 2,147,483,647 milliseconds." })
   }
@@ -2916,8 +2917,8 @@ async function* runProvider<
   // SAFETY: The provider runtime accepts the transport thread ID or a generated non-empty UUID.
   const threadId = (transportSessionId || crypto.randomUUID()) as ThreadId
   const auxiliary = isAuxiliaryAgentAdapterContext(context)
-  // Sandbox, ChatGPT, and emulator homes last one invocation; conversation history is replayed on the next one.
-  const preservesProviderSession = !auxiliary && !options.sandbox && !chatgptExpiry && !emulated && (options.provider !== "codex"
+  // Sandbox, ChatGPT, Pi gateway, and emulator homes last one invocation; replay history on the next one.
+  const preservesProviderSession = !auxiliary && !options.sandbox && !chatgptExpiry && !emulated && !(options.provider === "pi" && options.gateway) && (options.provider !== "codex"
     || options.credentials === undefined
     || Boolean(options.credentialProfile?.trim()))
   const releaseSessionLock = sessionKey && !auxiliary
@@ -3241,7 +3242,7 @@ async function* runProvider<
       gateway = await waitForProviderOperation(emulatedCodexGateway(resolverContext, { cwd: providerCwd, root: temporaryRoot.root }), effectiveSignal)
     }
     else if (options.gateway !== undefined) {
-      gateway = await waitForProviderOperation(resolveAgentDriverGateway(options.gateway, options.provider, resolverContext, { model: options.model }), effectiveSignal)
+      gateway = await waitForProviderOperation(resolveAgentDriverGateway(options.gateway, options.provider, resolverContext, options), effectiveSignal)
       if (gateway.home) {
         if (!temporaryRoot) throw agentDiagnostics.AGENT_R0976({ message: `[vitehub] ${providerHarnessProfile(options.provider).displayName} reads its gateway configuration from a folder, which a Sandbox run cannot receive yet. Run the Agent without a Sandbox, or sign in inside the Sandbox and remove driver.gateway.` })
         gateway = await materializeAgentDriverGatewayHome(gateway, join(temporaryRoot.root, "gateway-home"))
@@ -4288,6 +4289,7 @@ export function createProviderAgentAdapter<
   CALL_OPTIONS = unknown,
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
 >(configuredOptions: ProviderAgentAdapterOptions<TRuntimeConfig, CALL_OPTIONS>): AgentAdapter<CALL_OPTIONS, TRuntimeConfig> {
+  assertProviderExecutionOptions(configuredOptions.provider, configuredOptions)
   const options = withoutReplacedCredentials(configuredOptions)
   const resumeCursors = new Map<string, ProviderResumeState>()
   const sessionLocks = new Map<string, Promise<void>>()

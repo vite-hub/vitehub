@@ -28,9 +28,9 @@ export interface ProviderHarnessGateway {
   chatgpt: boolean
   /**
    * How the provider process receives the route: Codex `-c` launch arguments, the `ANTHROPIC_*` variables,
-   * the Gemini CLI or Kimi CLI variables, an OpenCode config in `OPENCODE_CONFIG_CONTENT`, or a Pi `models.json`.
+   * an OpenCode config in `OPENCODE_CONFIG_CONTENT`, or a Pi `models.json`.
    */
-  delivery: "anthropic-env" | "codex-config" | "gemini-env" | "kimi-env" | "opencode-config" | "pi-models"
+  delivery: "anthropic-env" | "codex-config" | "opencode-config" | "pi-models"
   /** The `driver.env` names that a gateway sets. */
   ownedEnv: readonly string[]
 }
@@ -190,8 +190,7 @@ export const providerHarnessProfiles: Readonly<Record<AiGatewayHarness, Provider
     skills: { workspace: [".gemini/skills", ".agents/skills"], home: ".gemini/skills", extra: { kind: "none" } },
     instructionFile: "GEMINI.md",
     homeInstructionFile: ".gemini/GEMINI.md",
-    signInOnly: false,
-    gateway: { chatgpt: false, delivery: "gemini-env", ownedEnv: ["GEMINI_API_KEY", "GEMINI_CLI_CUSTOM_HEADERS", "GEMINI_MODEL", "GOOGLE_GEMINI_BASE_URL"] },
+    signInOnly: true,
     pricing: { providers: ["google"], requiresCacheReadTokens: false },
     ...per,
   },
@@ -281,8 +280,7 @@ export const providerHarnessProfiles: Readonly<Record<AiGatewayHarness, Provider
     install: "uv tool install kimi-cli",
     authEnv: ["KIMI_API_KEY"],
     instructionFile: "AGENTS.md",
-    signInOnly: false,
-    gateway: { chatgpt: false, delivery: "kimi-env", ownedEnv: ["KIMI_API_KEY", "KIMI_BASE_URL", "KIMI_MODEL_NAME"] },
+    signInOnly: true,
     pricing: { providers: ["moonshotai"], requiresCacheReadTokens: false },
     ...per,
   },

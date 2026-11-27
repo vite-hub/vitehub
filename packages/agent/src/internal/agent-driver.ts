@@ -247,6 +247,20 @@ function normalizeProviderLaunch(value: unknown): AgentProviderLaunchResolver | 
 
 export const defaultAgentProviderPermissions: AgentProviderPermissions = "ask"
 
+export function assertProviderExecutionOptions(provider: ProviderHarness, options: { permissions?: AgentProviderPermissions, sandbox?: unknown, launch?: unknown }): void {
+  if (provider === "codex" || provider === "claude-code") return
+  const profile = providerHarnessProfile(provider)
+  if (options.sandbox !== undefined) {
+    throw agentDiagnostics.AGENT_R0955({ message: `[vitehub] ${profile.displayName} does not support Sandbox execution. Use Codex or Claude Code for this Sandbox.` })
+  }
+  if (provider === "cursor" && options.launch !== undefined) {
+    throw agentDiagnostics.AGENT_R0956({ message: "[vitehub] Cursor runs through its SDK and cannot honor driver.launch. Remove driver.launch or choose another Driver." })
+  }
+  if ((options.permissions ?? defaultAgentProviderPermissions) !== "allow-all") {
+    throw agentDiagnostics.AGENT_R0470({ message: `[vitehub] ${profile.displayName} does not enforce driver.permissions ${JSON.stringify(options.permissions ?? defaultAgentProviderPermissions)}. Use Codex or Claude Code for restricted execution. Set permissions: "allow-all" only if you trust the harness to run native actions without ViteHub approval.` })
+  }
+}
+
 function normalizeProviderPermissions(value: unknown): AgentProviderPermissions {
   if (value === undefined) return defaultAgentProviderPermissions
   if (value !== "ask" && value !== "allow-edits" && value !== "allow-edits-unattended" && value !== "allow-all") {
@@ -309,12 +323,12 @@ function normalizeProviderDriver(provider: ProviderHarness, value: Record<string
       ? "[vitehub] acpDriver({ agentId }) needs the agent's id in the ACP registry, such as \"cline\"."
       : `[vitehub] defineAgent({ driver: { kind: "${provider}" } }) does not take agentId. Use acpDriver({ agentId }) for another ACP agent.` })
   }
+  const settings = isPlainRecord(value.providerSettings) ? value.providerSettings : undefined
   const gateway = value.gateway === undefined ? undefined : normalizeAgentDriverGateway(value.gateway)
-  if (gateway) assertAgentDriverGatewaySupports(gateway, provider)
-  if (gateway && !profile.signInOnly && ["kimi-env", "opencode-config", "pi-models"].includes(profile.gateway.delivery) && value.model === undefined) {
+  if (gateway) assertAgentDriverGatewaySupports(gateway, provider, settings)
+  if (gateway && (provider === "opencode" || provider === "pi") && value.model === undefined) {
     throw agentDiagnostics.AGENT_R0976({ message: `[vitehub] ${profile.driverFactory}({ gateway }) needs driver.model, a model that the gateway serves, because ${profile.displayName} selects the model in the gateway configuration.` })
   }
-  const settings = isPlainRecord(value.providerSettings) ? value.providerSettings : undefined
   if (isChatGPTGateway(gateway) && (value.launch !== undefined || ["launchArgs", "binaryPath", "homePath", "shadowHomePath"].some(key => settings?.[key] !== undefined))) throw agentDiagnostics.AGENT_R1015()
   // A gateway replaces Codex sign-in. Layers cannot unset inherited credentials, so the gateway wins
   // and credential-only rules no longer apply.

@@ -83,13 +83,14 @@ import * as chatgptGateway from "../src/internal/chatgpt-gateway.ts"
 import { codexConfigArg } from "../src/internal/codex-launch-args.ts"
 import type { AiGatewayContext } from "@vite-hub/gateways"
 import { grantWorkspaceAccessScope } from "../src/access-runtime.ts"
-import { claudeCodeDriver, codexDriver, defineAgent } from "../src/index.ts"
+import { agentWithSkills, claudeCodeDriver, codexDriver, defineAgent, geminiDriver } from "../src/index.ts"
 import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
 import { executeWorkspaceCommand, workspaceCommandTools } from "../src/capabilities/workspace-command.ts"
 import { agentInvocationInputSupport, sendAgentInvocationInput, sendAgentInvocationInputResult } from "../src/internal/agent-invocation-control.ts"
 import { withAgentInvocationResponseOwner } from "../src/internal/agent-invocation-response-owner.ts"
 import { markAuxiliaryMessageChannelInstructionContext } from "../src/internal/channels.ts"
+import { colocatedAgentSkillsContextKey, colocatedAgentSkillsSymbol } from "../src/internal/colocated-agent-skills.ts"
 import { isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { getAgentTelemetryConfiguration, setAgentTelemetryConfiguration } from "../src/internal/agent-telemetry.ts"
 import { provideBrowserRuntimeEnvironment } from "../src/internal/browser-runtime.ts"
@@ -4168,6 +4169,42 @@ cli_auth_credentials_store = "keyring"
 
     expect(first.sendTurn).toHaveBeenCalledWith(expect.objectContaining({ input: "hello", threadId }))
     expect(second.startSession).toHaveBeenCalledWith(expect.objectContaining({ model: "gpt-5.6-codex", resumeCursor: "turn-1-cursor", threadId }))
+  })
+
+  it("rejects bundled Skills before starting Gemini", async () => {
+    const launch = vi.fn(() => ({ command: "gemini" }))
+    const agent = agentWithSkills(defineAgent({ driver: geminiDriver({ launch, permissions: "allow-all" }) }), { review: "Review changes." })
+    const invocation = context("thread-gemini-skills")
+    invocation.context.set(colocatedAgentSkillsContextKey, Reflect.get(agent, colocatedAgentSkillsSymbol))
+    const adapter = createProviderAgentAdapter({ launch, permissions: "allow-all", provider: "gemini" })
+    await expect(adapter.generate(invocation as never)).rejects.toThrow("cannot load Agent-owned Skills")
+    expect(launch).not.toHaveBeenCalled()
+  })
+
+  it("replays a Pi gateway thread after disposing its gateway home", async () => {
+    const threadId = "thread-pi-gateway"
+    runtime(threadId, [
+      event("content.delta", threadId, { delta: "one", streamKind: "assistant_text" }, { turnId: "turn-1" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ], { resumeCursor: "deleted-session", turnResumeCursor: "deleted-session" })
+    const second = runtime(threadId, [
+      event("content.delta", threadId, { delta: "two", streamKind: "assistant_text" }, { turnId: "turn-1" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    const adapter = createProviderAgentAdapter({ gateway: cliproxy({ url: "https://proxy.example", apiKey: "proxy-key" }), model: "test-model", permissions: "allow-all", provider: "pi" })
+    await expect(adapter.generate(context(threadId) as never)).resolves.toMatchObject({ text: "one" })
+    await expect(adapter.generate(context(threadId, {
+      messages: [
+        { parts: [{ text: "hello", type: "text" }], role: "user" },
+        { parts: [{ text: "one", type: "text" }], role: "assistant" },
+        { parts: [{ text: "continue", type: "text" }], role: "user" },
+      ],
+      prompt: "continue",
+    }) as never)).resolves.toMatchObject({ text: "two" })
+    expect(second.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
+    expect(second.sendTurn).toHaveBeenCalledWith(expect.objectContaining({
+      input: '<message role="user">\nhello\n</message>\n<message role="assistant">\none\n</message>\n<message role="user">\ncontinue\n</message>',
+    }))
   })
 
   it.each([

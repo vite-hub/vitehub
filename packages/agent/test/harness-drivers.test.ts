@@ -2,9 +2,9 @@ import { mkdtemp, readFile, rm, stat } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
-import { cliproxy } from "@vite-hub/gateways"
+import { cliproxy, cloudflare, emulate } from "@vite-hub/gateways"
 import { acpDriver, antigravityDriver, claudeCodeDriver, codexDriver, cursorDriver, defineAgent, fxDriver, geminiDriver, grokDriver, kimiDriver, kiroDriver, museDriver, opencodeDriver, piDriver } from "../src/index.ts"
 import { normalizeAgentDriver } from "../src/internal/agent-driver.ts"
 import { agentDriverSessionModel, materializeAgentDriverGatewayHome, resolveAgentDriverGateway } from "../src/internal/agent-gateway.ts"
@@ -54,7 +54,27 @@ describe("harness drivers", () => {
   })
 
   it("accepts a driver in defineAgent", () => {
-    expect(() => defineAgent({ driver: opencodeDriver({ gateway: gateway(), model: "gpt-oss-120b" }) })).not.toThrow()
+    expect(() => defineAgent({ driver: opencodeDriver({ gateway: gateway(), model: "gpt-oss-120b", permissions: "allow-all" }) })).not.toThrow()
+  })
+
+  it.each([cursorDriver(), geminiDriver(), acpDriver({ agentId: "cline" })])("rejects the default approval mode for $kind", (driver) => {
+    expect(() => defineAgent({ driver })).toThrow("does not enforce driver.permissions")
+  })
+
+  it.each([cursorDriver(), opencodeDriver(), piDriver(), acpDriver({ agentId: "cline" })])("rejects an unsupported Sandbox for $kind", (driver) => {
+    expect(() => defineAgent({ driver, sandbox: { runtime: "trusted-host" } })).toThrow("does not support Sandbox execution")
+  })
+
+  it("rejects a Cursor launch wrapper", () => {
+    expect(() => defineAgent({ driver: cursorDriver({ launch: { command: "wrapper" }, permissions: "allow-all" }) })).toThrow("cannot honor driver.launch")
+  })
+
+  it.each([cloudflare(), emulate()])("rejects SDK-only gateway $name through defineAgent", (gateway) => {
+    expect(() => defineAgent({ driver: opencodeDriver({ gateway, model: "example", permissions: "allow-all" }) })).toThrow("does not serve the opencode Driver")
+  })
+
+  it("rejects a gateway configured for an attached OpenCode server", () => {
+    expect(() => defineAgent({ driver: opencodeDriver({ gateway: gateway(), model: "example", permissions: "allow-all", providerSettings: { serverUrl: "http://localhost:4000" } }) })).toThrow("cannot apply driver.gateway to an attached server")
   })
 
   it.each([
@@ -71,24 +91,19 @@ describe("harness drivers", () => {
     expect(() => normalized(driver())).toThrow(`${profile.displayName} signs in to its own service, so no gateway serves the ${harness} Driver. Remove driver.gateway`)
   })
 
-  it.each(["opencode", "pi", "kimi"] as const)("requires a model for a %s gateway", (harness) => {
-    const factories = { kimi: kimiDriver, opencode: opencodeDriver, pi: piDriver }
+  it.each(["opencode", "pi"] as const)("requires a model for a %s gateway", (harness) => {
+    const factories = { opencode: opencodeDriver, pi: piDriver }
     expect(() => normalized(factories[harness]({ gateway: gateway() }))).toThrow(`${providerHarnessProfile(harness).driverFactory}({ gateway }) needs driver.model`)
   })
 })
 
 describe("harness gateway environments", () => {
-  it("sends Gemini CLI to the gemini route and selects the model in its environment", async () => {
-    const resolved = await resolveAgentDriverGateway(cliproxy({ url: "http://proxy", apiKey: "k", headers: { "X-Team": "a" } }), "gemini", context, { model: "gemini-x" })
-    expect(resolved.environment).toEqual({ GOOGLE_GEMINI_BASE_URL: "http://proxy", GEMINI_API_KEY: "k", GEMINI_CLI_CUSTOM_HEADERS: "X-Team: a", GEMINI_MODEL: "gemini-x" })
-    expect(agentDriverSessionModel(resolved, "gemini-x")).toBeUndefined()
-    expect(resolved.home).toBeUndefined()
-  })
-
-  it("sends Kimi to the OpenAI-compatible route with its model", async () => {
-    const resolved = await resolveAgentDriverGateway(gateway(), "kimi", context, { model: "kimi-k3" })
-    expect(resolved.environment).toEqual({ KIMI_BASE_URL: "http://proxy/v1", KIMI_API_KEY: "k", KIMI_MODEL_NAME: "kimi-k3" })
-    expect(agentDriverSessionModel(resolved, "kimi-k3")).toBeUndefined()
+  it.each([["gemini", geminiDriver], ["kimi", kimiDriver]] as const)("rejects a %s gateway before reading its credentials", async (harness, driver) => {
+    const apiKey = vi.fn(() => "not-read")
+    const gateway = cliproxy({ url: "http://proxy", apiKey })
+    expect(() => defineAgent({ driver: driver({ gateway, permissions: "allow-all" } as never) })).toThrow("cannot isolate gateway credentials")
+    await expect(resolveAgentDriverGateway(gateway, harness, context)).rejects.toThrow("cannot isolate gateway credentials")
+    expect(apiKey).not.toHaveBeenCalled()
   })
 
   it("configures an OpenCode provider without writing the key into the config", async () => {
@@ -139,5 +154,7 @@ describe("harness runtime settings", () => {
   it("runs ACP harnesses from the registry with a local command", () => {
     expect(providerRuntimeSettings("gemini", undefined, { binaryPath: "/bin/gemini", launchArgs: "--x" })).toEqual({ enabled: true, source: "registry", agentId: "gemini", commandPath: "/bin/gemini" })
     expect(providerRuntimeSettings("acp", "cline", {})).toEqual({ enabled: true, source: "registry", agentId: "cline" })
+    expect(providerRuntimeSettings("gemini", undefined, { source: "custom", agentId: "cline" })).toMatchObject({ source: "registry", agentId: "gemini" })
+    expect(providerRuntimeSettings("acp", "cline", { agentId: "gemini" })).toMatchObject({ source: "registry", agentId: "cline" })
   })
 })

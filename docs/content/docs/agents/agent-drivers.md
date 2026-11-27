@@ -211,6 +211,10 @@ pnpm add @openai/codex@0.169.0
 pnpm add @anthropic-ai/claude-agent-sdk@0.3.321
 ```
 
+For the other provider Drivers, set `permissions: 'allow-all'` only if you trust the harness to run native actions without ViteHub approval. These Drivers do not support ViteHub Sandboxes or Agent-owned Skills; install Skills in the harness's native directory instead.
+
+`opencodeDriver()` and `piDriver()` can use a gateway's `openai-compatible` route with an explicit `model`. OpenCode must start its own server rather than attach to `providerSettings.serverUrl`. Pi replays the Agent's conversation history on each Invocation when a gateway is configured. Gemini and Kimi use native sign-in; ViteHub rejects `driver.gateway` because those adapters cannot isolate gateway credentials from saved sign-ins.
+
 Declare the Codex credentials in Server Env:
 
 ::tabs{sync="framework"}

@@ -6,7 +6,7 @@ import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 
 import { cliproxy } from "@vite-hub/gateways"
-import { defineAgent, geminiDriver, opencodeDriver } from "../src/index.ts"
+import { defineAgent, opencodeDriver } from "../src/index.ts"
 import { runAgentForTest } from "../src/test.ts"
 
 const prompt = "Write hello.txt containing the word hi, then run cat hello.txt."
@@ -16,7 +16,6 @@ function binary(command: string): string {
 }
 
 const harnesses = [
-  ["gemini", (cwd: string) => geminiDriver({ cwd, gateway: cliproxy(), model: "gemini-3.8-flash-high", permissions: "allow-all", providerSettings: { binaryPath: binary("gemini") } })],
   ["opencode", (cwd: string) => opencodeDriver({ cwd, gateway: cliproxy(), model: process.env.VITEHUB_LIVE_OPENCODE_MODEL ?? "gpt-oss-120b-medium", permissions: "allow-all", providerSettings: { binaryPath: binary("opencode") } })],
 ] as const
 
