@@ -549,8 +549,6 @@ export function defineContent<
   const customPlugins = markdownOptions.plugins ?? []
   const replaced = new Set(customPlugins.filter(Boolean).map(plugin => plugin.name))
   const presetPlugins = preset === false ? [] : comarkUi(contentMarkdownPreset).plugins.filter(plugin => !replaced.has(plugin.name))
-  // comark-ui's typeset puts its styles node first in the tree, so it runs after the app's plugins, which may read the
-  // first heading and paragraph.
   const typeset = presetPlugins.filter(plugin => plugin.name === "comark-ui-typeset")
   sharedOptions.markdown = { ...markdownOptions, plugins: [...presetPlugins.filter(plugin => !typeset.includes(plugin)), ...customPlugins, ...typeset] }
   sharedOptions.logger = contentRouteLogger(sharedOptions.logger)
