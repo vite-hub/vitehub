@@ -4236,8 +4236,8 @@ cli_auth_credentials_store = "keyring"
     await expect(access(home)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
-  it("replays a Pi gateway thread after disposing its gateway home", async () => {
-    const threadId = "thread-pi-gateway"
+  it.each(["pi", "gemini", "kimi"] as const)("replays a %s gateway thread after disposing its gateway home", async (provider) => {
+    const threadId = `thread-${provider}-gateway`
     runtime(threadId, [
       event("content.delta", threadId, { delta: "one", streamKind: "assistant_text" }, { turnId: "turn-1" }),
       event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
@@ -4246,7 +4246,7 @@ cli_auth_credentials_store = "keyring"
       event("content.delta", threadId, { delta: "two", streamKind: "assistant_text" }, { turnId: "turn-1" }),
       event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
     ])
-    const adapter = createProviderAgentAdapter({ gateway: cliproxy({ url: "https://proxy.example", apiKey: "proxy-key" }), model: "test-model", permissions: "allow-all", provider: "pi" })
+    const adapter = createProviderAgentAdapter({ gateway: cliproxy({ url: "https://proxy.example", apiKey: "proxy-key" }), model: "test-model", permissions: "allow-all", provider })
     await expect(adapter.generate(context(threadId) as never)).resolves.toMatchObject({ text: "one" })
     await expect(adapter.generate(context(threadId, {
       messages: [

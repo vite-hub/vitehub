@@ -457,6 +457,7 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_OBSERVABILITY_INSTALLED",
   "AGENT_OBSERVABILITY_MAX_PENDING_INVALID",
   "AGENT_OPENAPI_CONNECTION_BODY_INVALID",
+  "AGENT_OPENCODE_SERVER_GATEWAY_UNSUPPORTED",
   "AGENT_PAPERCUTS_BACKEND_MISSING",
   "AGENT_PAPERCUTS_CLI_INVALID",
   "AGENT_PAPERCUTS_DEDUPE_INVALID",
@@ -4653,6 +4654,10 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_OPENAPI_CONNECTION_BODY_INVALID: {
       why: "[vitehub] OpenAPI requests through a Connection require a string body. Serialize the request hook body before dispatch.",
       fix: "Return a string body from the OpenAPI request hook, such as `JSON.stringify(body)`, when the request goes through a Connection.",
+    },
+    AGENT_OPENCODE_SERVER_GATEWAY_UNSUPPORTED: {
+      why: "[vitehub] OpenCode cannot apply driver.gateway to an attached server, because the server already has its own providers.",
+      fix: "Remove `providerSettings.serverUrl` so `opencodeDriver({ gateway, model })` starts its own server with the gateway, or remove `gateway` and configure the provider on the attached server.",
     },
     AGENT_PAPERCUTS_BACKEND_MISSING: {
       why: "[vitehub] papercuts() requires a report callback or backend.",

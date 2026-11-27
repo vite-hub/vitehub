@@ -76,7 +76,7 @@ describe("harness drivers", () => {
   })
 
   it("rejects a gateway configured for an attached OpenCode server", () => {
-    expect(() => defineAgent({ driver: opencodeDriver({ gateway: gateway(), model: "example", permissions: "allow-all", providerSettings: { serverUrl: "http://localhost:4000" } }) })).toThrow("cannot apply driver.gateway to an attached server")
+    expect(() => defineAgent({ driver: opencodeDriver({ gateway: gateway(), model: "example", permissions: "allow-all", providerSettings: { serverUrl: "http://localhost:4000" } }) })).toThrow(expect.objectContaining({ code: "AGENT_OPENCODE_SERVER_GATEWAY_UNSUPPORTED" }))
   })
 
   it.each([

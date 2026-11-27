@@ -10,7 +10,7 @@ import { copyProviderCallbackMetadata, providerCallbackMetadata, withProviderCal
 import { protectGeneratedProviderGitFiles, unmergedProviderGitFiles } from "./internal/generated-provider-git-files.ts"
 import { preparedProviderCheckoutHead } from "./internal/prepared-provider-checkout.ts"
 import { codexConfigArg, codexDeveloperInstructionsArg, codexDeveloperInstructionsMaxBytes, codexLaunchArgs } from "./internal/codex-launch-args.ts"
-import { agentDriverSessionModel, materializeAgentDriverGatewayHome, resolveAgentDriverGateway, withAgentDriverGatewayEnvironment, withAgentDriverGatewayModel } from "./internal/agent-gateway.ts"
+import { agentDriverGatewayReplacesHome, agentDriverSessionModel, materializeAgentDriverGatewayHome, resolveAgentDriverGateway, withAgentDriverGatewayEnvironment, withAgentDriverGatewayModel } from "./internal/agent-gateway.ts"
 import type { ResolvedAgentDriverGateway } from "./internal/agent-gateway.ts"
 import { emulatedGateway, resolveModelEmulation } from "./internal/agent-emulation.ts"
 import { assertProviderEmulationSupported, emulatedCodexGateway, emulatedProviderStatus } from "./internal/codex-emulation.ts"
@@ -2926,8 +2926,8 @@ async function* runProvider<
   // SAFETY: The provider runtime accepts the transport thread ID or a generated non-empty UUID.
   const threadId = (transportSessionId || crypto.randomUUID()) as ThreadId
   const auxiliary = isAuxiliaryAgentAdapterContext(context)
-  // Sandbox, ChatGPT, Pi gateway, and emulator homes last one invocation; replay history on the next one.
-  const preservesProviderSession = !auxiliary && !options.sandbox && !chatgptExpiry && !emulated && !(options.provider === "pi" && options.gateway) && (options.provider !== "codex"
+  // Sandbox, ChatGPT, gateway, and emulator homes last one invocation; replay history on the next one.
+  const preservesProviderSession = !auxiliary && !options.sandbox && !chatgptExpiry && !emulated && !(options.gateway && agentDriverGatewayReplacesHome(options.provider)) && (options.provider !== "codex"
     || options.credentials === undefined
     || Boolean(options.credentialProfile?.trim()))
   const releaseSessionLock = sessionKey && !auxiliary
