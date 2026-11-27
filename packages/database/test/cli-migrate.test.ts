@@ -922,6 +922,31 @@ describe("vitehub database migrate", () => {
     expect(spawn).not.toHaveBeenCalled()
   }, 120_000)
 
+  it("shows and runs a `-- vitehub:no-transaction` migration outside a transaction on PGlite", async () => {
+    const project = await createProject()
+    Object.assign(project.database, { connection: undefined, dialect: "postgresql" })
+    const init = "CREATE TABLE \"notes\" (\"id\" serial PRIMARY KEY NOT NULL, \"title\" text);"
+    const index = "-- vitehub:no-transaction\nCREATE INDEX CONCURRENTLY IF NOT EXISTS \"notes_title\" ON \"notes\" (\"title\");\nVACUUM \"notes\";\n"
+    await folder(project.database.migrationsDir, "20260101000000_init", init)
+    await folder(project.database.migrationsDir, "20260102000000_index", index)
+    const spawn = vi.fn(realSpawn)
+
+    const dryRun = await project.run("migrate", ["--dry-run"], {}, spawn)
+    expect(dryRun).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(dryRun.stdout).toContain("  20260101000000_init\n")
+    expect(dryRun.stdout).toContain("  20260102000000_index (outside a transaction, one statement at a time)\n")
+
+    const migrated = await project.run("migrate", [], {}, spawn)
+    expect(migrated).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(migrated.stdout).toContain("[vitehub] Database \"default\": applied 20260102000000_index.")
+    expect(spawn).not.toHaveBeenCalled()
+    await expect(pgliteRows(project.rootDir, "select indisvalid from pg_index where indexrelid = 'notes_title'::regclass")).resolves.toEqual([{ indisvalid: true }])
+    await expect(pgliteLedger(project.rootDir)).resolves.toEqual([
+      { applied: true, created_at: String(Date.UTC(2026, 0, 1)), hash: sha256(init), name: "20260101000000_init" },
+      { applied: true, created_at: String(Date.UTC(2026, 0, 2)), hash: sha256(index), name: "20260102000000_index" },
+    ])
+  }, 120_000)
+
   it("refuses conflicting generated PGlite migrations before writing a database", async () => {
     const project = await createProject()
     Object.assign(project.database, { connection: undefined, dialect: "postgresql" })

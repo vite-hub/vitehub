@@ -1226,7 +1226,7 @@ function writeMigrationPlan(plan: MigrationPlan, context: ViteHubCliContext) {
     lines.push(`  Not in the migrations folder, as ${from} lists: ${names.join(", ")}`)
   }
   for (const migration of plan.pending) {
-    lines.push("", `  ${migration.name}`)
+    lines.push("", `  ${migration.name}${migration.noTransaction ? " (outside a transaction, one statement at a time)" : ""}`)
     for (const statement of migration.statements) lines.push(...statement.split("\n").map(line => `    ${line}`))
     for (const loss of migration.dataLoss) lines.push(`    ! Data loss: ${loss.reason}.`)
   }

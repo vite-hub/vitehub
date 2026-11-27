@@ -263,7 +263,7 @@ function connectMigrationPostgres(target: { url?: string }, projectRoot: string,
     return { ...toPostgresMigrationClient(pool), end: () => pool.end() }
   }
   const sql = connectPostgres(target, projectRoot, env)
-  return { begin: run => sql.begin(run), end: () => sql.end({ timeout: 5 }), unsafe: (query, parameters) => sql.unsafe(query, parameters) }
+  return { begin: run => sql.begin(run), end: () => sql.end({ timeout: 5 }), reserve: () => sql.reserve(), unsafe: (query, parameters) => sql.unsafe(query, parameters) }
 }
 
 async function readPostgresLedger(sql: PostgresMigrationSql, scope: PostgresLedgerScope): Promise<LedgerRow[]> {

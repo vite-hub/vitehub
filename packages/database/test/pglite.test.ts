@@ -12,7 +12,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
 import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setup"
 
 import { readMigrationPlan } from "../src/internal/migration-plan.ts"
-import { migrateOnStart } from "../src/runtime/migrate-on-start.ts"
+import { migrateOnStart, migratePostgres, toPgliteMigrationClient } from "../src/runtime/migrate-on-start.ts"
 import { defineDatabase } from "../src/definition.ts"
 import { hubDatabase as hubDatabaseNuxt } from "../src/nuxt.ts"
 import { createDevPostgresDatabase } from "../src/runtime/pglite.ts"
@@ -450,6 +450,61 @@ describe("NuxtHub's _hub_migrations on PGlite", () => {
   })
 
   it.each([
+    { case: "the marked file comes first", order: ["index", "body"] },
+    { case: "a stretch comes before the marked file", order: ["body", "index"] },
+  ])("writes the queued migrationsSchema ledger rows before a marked file on PGlite when $case", async ({ order }) => {
+    const { PGlite } = await import("@electric-sql/pglite")
+    const client = new PGlite("memory://")
+    const log = vi.fn()
+    const files = {
+      body: { dataLoss: [], hash: "hash-body", name: "", statements: ["ALTER TABLE \"notes\" ADD COLUMN \"body\" text;"], when: 0 },
+      index: { dataLoss: [], hash: "hash-index", name: "", noTransaction: true as const, statements: ["CREATE INDEX CONCURRENTLY IF NOT EXISTS \"notes_title\" ON \"notes\" (\"title\");"], when: 0 },
+    }
+    const pending = order.map((key, index) => ({ ...files[key as keyof typeof files], name: `2026010${index + 2}000000_${key}`, when: 1_767_312_000_000 + index * 86_400_000 }))
+    try {
+      await client.exec(nuxtHubHistory)
+      await migratePostgres([{ client: toPgliteMigrationClient(client), createSchema: true, database: { migrations: [
+        { dataLoss: [], hash: "hash-init", name: "20260101000000_init", statements: ["CREATE TABLE \"notes\" (\"id\" serial PRIMARY KEY, \"title\" text NOT NULL);"], when: 1_767_225_600_000 },
+        ...pending,
+      ], migrationsSchema: "app", name: "default" } }], { log })
+
+      expect(log.mock.calls.map(([message]) => message)).toEqual([
+        "[vitehub] Database \"default\": recorded 20260101000000_init as applied, as _hub_migrations lists it.",
+        ...pending.map(migration => `[vitehub] Database "default": applied ${migration.name}.`),
+      ])
+      await expect(client.query("select name from app.__drizzle_migrations order by id")).resolves.toMatchObject({ rows: [{ name: "20260101000000_init" }, ...pending.map(migration => ({ name: migration.name }))] })
+      await expect(client.query("select to_regclass('drizzle.__drizzle_migrations') as ledger")).resolves.toMatchObject({ rows: [{ ledger: null }] })
+    }
+    finally {
+      await client.close()
+    }
+  })
+
+  it("adopts on PGlite, then runs only the pending marked file outside the transaction", async () => {
+    const { PGlite } = await import("@electric-sql/pglite")
+    const { drizzle } = await import("drizzle-orm/pglite")
+    const client = new PGlite("memory://")
+    const log = vi.fn()
+    try {
+      await client.exec(nuxtHubHistory)
+      await migrateOnStart([{ db: drizzle({ client }), dialect: "postgresql", migrations: [
+        { dataLoss: [], hash: "hash-init", name: "20260101000000_init", statements: ["CREATE TABLE \"notes\" (\"id\" serial PRIMARY KEY, \"title\" text NOT NULL);"], when: 1_767_225_600_000 },
+        { dataLoss: [], hash: "hash-index", name: "20260102000000_index", noTransaction: true, statements: ["CREATE INDEX CONCURRENTLY IF NOT EXISTS \"notes_title\" ON \"notes\" (\"title\");", "VACUUM \"notes\";"], when: 1_767_312_000_000 },
+      ], name: "default" }], { log })
+
+      expect(log.mock.calls.map(([message]) => message)).toEqual([
+        "[vitehub] Database \"default\": recorded 20260101000000_init as applied, as _hub_migrations lists it.",
+        "[vitehub] Database \"default\": applied 20260102000000_index.",
+      ])
+      await expect(client.query("select name from drizzle.__drizzle_migrations order by id")).resolves.toMatchObject({ rows: [{ name: "20260101000000_init" }, { name: "20260102000000_index" }] })
+      await expect(client.query("select indisvalid from pg_index where indexrelid = 'notes_title'::regclass")).resolves.toMatchObject({ rows: [{ indisvalid: true }] })
+    }
+    finally {
+      await client.close()
+    }
+  })
+
+  it.each([
     ["20260101000000_init", "0000_init"],
     ["20260101000000_bootstrap", "bootstrap"],
     ["20260101000000_0001_create-users.postgresql", "0001_create-users"],
@@ -529,6 +584,150 @@ describe("migrationsSchema on PGlite", () => {
     expect(reset).toMatchObject({ exitCode: 0, stderr: "" })
     expect(await readFolder()).toEqual(ready)
   }, 60_000)
+})
+
+describe("-- vitehub:no-transaction migrations on PGlite", () => {
+  const migration = (name: string, when: number, statements: string[], noTransaction?: true) => ({ dataLoss: [], hash: name, name, statements, when, ...noTransaction && { noTransaction } })
+  const init = migration("init", 1, ["CREATE TABLE \"notes\" (\"id\" serial PRIMARY KEY, \"title\" text)", "INSERT INTO \"notes\" (\"title\") VALUES ('a'), ('b')"])
+
+  it("runs a marked migration outside the transaction, statement by statement, and records it after its last statement", async () => {
+    const { PGlite } = await import("@electric-sql/pglite")
+    const { drizzle } = await import("drizzle-orm/pglite")
+    const client = new PGlite("memory://")
+    const log = vi.fn()
+    try {
+      await migrateOnStart([{ db: drizzle({ client }), dialect: "postgresql", migrations: [
+        init,
+        migration("index", 2, ["CREATE INDEX CONCURRENTLY IF NOT EXISTS \"notes_title\" ON \"notes\" (\"title\")", "VACUUM \"notes\""], true),
+        migration("body", 3, ["ALTER TABLE \"notes\" ADD COLUMN \"body\" text"]),
+      ], name: "default" }], { log })
+
+      const { rows } = await client.query("select name from drizzle.__drizzle_migrations order by id")
+      expect(rows).toEqual([{ name: "init" }, { name: "index" }, { name: "body" }])
+      await expect(client.query("select indisvalid from pg_index where indexrelid = 'notes_title'::regclass")).resolves.toMatchObject({ rows: [{ indisvalid: true }] })
+      expect(log.mock.calls.map(([message]) => message)).toEqual(["init", "index", "body"].map(name => `[vitehub] Database "default": applied ${name}.`))
+    }
+    finally {
+      await client.close()
+    }
+  })
+
+  it("names the marker when Postgres refuses a statement in the transaction", async () => {
+    const { PGlite } = await import("@electric-sql/pglite")
+    const { drizzle } = await import("drizzle-orm/pglite")
+    const client = new PGlite("memory://")
+    try {
+      await expect(migrateOnStart([{ db: drizzle({ client }), dialect: "postgresql", migrations: [init, migration("index", 2, ["CREATE INDEX CONCURRENTLY \"notes_title\" ON \"notes\" (\"title\")"])], name: "default" }], { log: () => {} }))
+        .rejects.toMatchObject({ code: "DATABASE_MIGRATION_FAILED", fix: expect.stringContaining("first line is `-- vitehub:no-transaction`"), why: expect.stringContaining("cannot run inside a transaction block") })
+      await expect(client.query("select to_regclass('drizzle.__drizzle_migrations') as ledger")).resolves.toMatchObject({ rows: [{ ledger: null }] })
+    }
+    finally {
+      await client.close()
+    }
+  })
+
+  it("runs BEGIN, COMMIT, and an unnamed CREATE INDEX CONCURRENTLY in a marked migration", async () => {
+    const { PGlite } = await import("@electric-sql/pglite")
+    const { drizzle } = await import("drizzle-orm/pglite")
+    const client = new PGlite("memory://")
+    try {
+      await migrateOnStart([{ db: drizzle({ client }), dialect: "postgresql", migrations: [
+        init,
+        migration("marked", 2, ["BEGIN", "INSERT INTO \"notes\" (\"title\") VALUES ('c')", "COMMIT", "CREATE INDEX CONCURRENTLY ON \"notes\" (\"title\")"], true),
+      ], name: "default" }], { log: () => {} })
+
+      await expect(client.query("select count(*)::int as count from notes")).resolves.toMatchObject({ rows: [{ count: 3 }] })
+      await expect(client.query("select indisvalid from pg_index where indrelid = 'notes'::regclass and not indisprimary")).resolves.toMatchObject({ rows: [{ indisvalid: true }] })
+      await expect(client.query("select name from drizzle.__drizzle_migrations order by id")).resolves.toMatchObject({ rows: [{ name: "init" }, { name: "marked" }] })
+    }
+    finally {
+      await client.close()
+    }
+  })
+
+  it("lists only the invalid index that a marked file left, and keeps the file pending while that index is invalid", async () => {
+    const { PGlite } = await import("@electric-sql/pglite")
+    const { drizzle } = await import("drizzle-orm/pglite")
+    const client = new PGlite("memory://")
+    const run = () => migrateOnStart([{ db: drizzle({ client }), dialect: "postgresql", migrations: [
+      init,
+      migration("unique", 2, ["INSERT INTO \"notes\" (\"title\") VALUES ('a')", "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS \"notes_title\" ON \"notes\" (\"title\")"], true),
+    ], name: "default" }], { log: () => {} })
+    try {
+      await client.exec("create table other (id integer); insert into other values (1), (1)")
+      await expect(client.exec("create unique index concurrently other_id on other (id)")).rejects.toThrow()
+
+      const failed = run()
+      await expect(failed).rejects.toMatchObject({ code: "DATABASE_MIGRATION_PARTLY_APPLIED", why: expect.stringMatching(/statement 2 failed[\s\S]*Invalid indexes:\n {2}- public\.notes_title$/) })
+      await client.exec("delete from notes where title = 'a'")
+      const retried = run()
+      await expect(retried).rejects.toMatchObject({ code: "DATABASE_MIGRATION_PARTLY_APPLIED", why: expect.stringMatching(/The index "public\.notes_title" is invalid[\s\S]*Invalid indexes:\n {2}- public\.notes_title$/) })
+      await expect(client.query("select name from drizzle.__drizzle_migrations order by id")).resolves.toMatchObject({ rows: [{ name: "init" }] })
+
+      await client.exec("delete from notes where title = 'a'")
+      await client.exec("drop index concurrently notes_title")
+      await expect(run()).resolves.toBeUndefined()
+      await expect(client.query("select indisvalid from pg_index where indexrelid = 'notes_title'::regclass")).resolves.toMatchObject({ rows: [{ indisvalid: true }] })
+    }
+    finally {
+      await client.close()
+    }
+  })
+
+  it("rolls back a failed BEGIN block of a marked file, so the next run on the same client applies the fixed file", async () => {
+    const { PGlite } = await import("@electric-sql/pglite")
+    const { drizzle } = await import("drizzle-orm/pglite")
+    const client = new PGlite("memory://")
+    const db = drizzle({ client })
+    const run = (statement: string) => migrateOnStart([{ db, dialect: "postgresql", migrations: [init, migration("marked", 2, ["BEGIN", "INSERT INTO \"notes\" (\"title\") VALUES ('c')", statement, "COMMIT"], true)], name: "default" }], { log: () => {} })
+    try {
+      await expect(run("INSERT INTO \"missing_table\" VALUES (1)")).rejects.toMatchObject({ code: "DATABASE_MIGRATION_PARTLY_APPLIED", why: expect.stringContaining("ViteHub rolled back the transaction that the file opened with BEGIN.") })
+      await expect(client.query("select count(*)::int as count from notes")).resolves.toMatchObject({ rows: [{ count: 2 }] })
+      await expect(run("INSERT INTO \"notes\" (\"title\") VALUES ('d')")).resolves.toBeUndefined()
+      await expect(client.query("select count(*)::int as count from notes")).resolves.toMatchObject({ rows: [{ count: 4 }] })
+      await expect(client.query("select name from drizzle.__drizzle_migrations order by id")).resolves.toMatchObject({ rows: [{ name: "init" }, { name: "marked" }] })
+    }
+    finally {
+      await client.close()
+    }
+  }, 15_000)
+
+  it("does not record a marked file that ends inside an open transaction", async () => {
+    const { PGlite } = await import("@electric-sql/pglite")
+    const { drizzle } = await import("drizzle-orm/pglite")
+    const client = new PGlite("memory://")
+    const db = drizzle({ client })
+    const run = (statements: string[]) => migrateOnStart([{ db, dialect: "postgresql", migrations: [init, migration("marked", 2, statements, true)], name: "default" }], { log: () => {} })
+    try {
+      await expect(run(["BEGIN", "INSERT INTO \"notes\" (\"title\") VALUES ('c')"])).rejects.toMatchObject({ code: "DATABASE_MIGRATION_PARTLY_APPLIED", why: expect.stringContaining("ends inside a transaction that it opened with BEGIN") })
+      await expect(client.query("select count(*)::int as count from notes")).resolves.toMatchObject({ rows: [{ count: 2 }] })
+      await expect(client.query("select name from drizzle.__drizzle_migrations order by id")).resolves.toMatchObject({ rows: [{ name: "init" }] })
+      await expect(run(["BEGIN", "INSERT INTO \"notes\" (\"title\") VALUES ('c')", "COMMIT"])).resolves.toBeUndefined()
+      await expect(client.query("select count(*)::int as count from notes")).resolves.toMatchObject({ rows: [{ count: 3 }] })
+    }
+    finally {
+      await client.close()
+    }
+  }, 15_000)
+
+  it("reports that marked SQL stays applied when its ledger write fails", async () => {
+    const { PGlite } = await import("@electric-sql/pglite")
+    const { drizzle } = await import("drizzle-orm/pglite")
+    const client = new PGlite("memory://")
+    const db = drizzle({ client })
+    const run = (migrations: ReturnType<typeof migration>[]) => migrateOnStart([{ db, dialect: "postgresql", migrations, name: "default" }], { log: () => {} })
+    try {
+      await run([init])
+      await client.exec("alter table drizzle.__drizzle_migrations add constraint only_init check (name = 'init')")
+      await expect(run([init, migration("body", 2, ["ALTER TABLE notes ADD COLUMN body text"], true)]))
+        .rejects.toMatchObject({ code: "DATABASE_MIGRATION_PARTLY_APPLIED", why: expect.stringContaining("the ledger write failed after all its statements ran") })
+      await expect(client.query("select body from notes")).resolves.toMatchObject({ rows: [{ body: null }, { body: null }] })
+      await expect(client.query("select name from drizzle.__drizzle_migrations")).resolves.toMatchObject({ rows: [{ name: "init" }] })
+    }
+    finally {
+      await client.close()
+    }
+  })
 })
 
 describe("a Postgres Database on PGlite in app tests", () => {

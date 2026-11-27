@@ -143,8 +143,8 @@ export function readStartMigrations(migrationsDir: string, dialect: DatabaseDial
 
 function startMigrationsFromEntries(migrationsDir: string, entries: ReturnType<typeof readMigrations>, dialect: DatabaseDialect): StartMigration[] {
   return entries.map((entry) => {
-    const { dataLoss, statements } = readPendingMigration(migrationsDir, entry.tag, entries, dialect)
-    return { dataLoss, hash: entry.hash, name: entry.tag, statements, when: entry.when }
+    const { dataLoss, noTransaction, statements } = readPendingMigration(migrationsDir, entry.tag, entries, dialect)
+    return { dataLoss, hash: entry.hash, name: entry.tag, ...noTransaction && { noTransaction }, statements, when: entry.when }
   })
 }
 
