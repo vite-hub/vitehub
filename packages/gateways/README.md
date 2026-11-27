@@ -136,21 +136,31 @@ result?.category.choice // 'groceries'
 
 ## Presets
 
-| Preset | Codex | Claude Code | OpenAI-compatible | `ask()` | Variables |
-| --- | --- | --- | --- | --- | --- |
-| `vercel()` | `https://ai-gateway.vercel.sh/codex/v1` | `https://ai-gateway.vercel.sh/claude-code` | `https://ai-gateway.vercel.sh/v1` | `typesafe-ai/jev` at `https://ai-gateway.vercel.sh/v4/ai` | `AI_GATEWAY_API_KEY`, then `VERCEL_OIDC_TOKEN` |
-| `cloudflare()` | | | `.../<account>/<gateway>/compat` | `jev-latest` through a [custom provider](#typesafe-through-cloudflare-ai-gateway) | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_AI_GATEWAY_ID`, `CLOUDFLARE_AI_GATEWAY_TOKEN`, `CLOUDFLARE_AI_GATEWAY_API_KEY`, `TYPESAFE_API_KEY`, `CLOUDFLARE_AI_GATEWAY_SLUG` (see [Cloudflare AI Gateway](#cloudflare-ai-gateway)) |
-| `openrouter()` | `https://openrouter.ai/api/v1` | `https://openrouter.ai/api` | `https://openrouter.ai/api/v1` | | `OPENROUTER_API_KEY` |
-| `litellm()` | `<url>/v1` | `<url>` | `<url>/v1` | | `LITELLM_URL`, `LITELLM_API_KEY` |
-| `cliproxy()` | `<url>/v1` | `<url>` | `<url>/v1` | | `CLIPROXY_URL`, `CLIPROXY_API_KEY` |
-| `ollama()` | `<url>/v1` | `<url>` | `<url>/v1` | | `OLLAMA_URL` (default `http://localhost:11434`), `OLLAMA_API_KEY` (default `ollama`) |
-| `emulate()` | | `<url>` (AI SDK `messages` only) | `<url>/v1` | | `VITEHUB_EMULATE_URL` (default `http://localhost:4014`). No key. |
-| `openai()` | `https://api.openai.com/v1` | | `https://api.openai.com/v1` | | `OPENAI_API_KEY` |
-| `chatgpt()` | `https://api.openai.com/v1` through a ChatGPT Connection | | | | None |
-| `anthropic()` | | `https://api.anthropic.com` | | | `ANTHROPIC_API_KEY` |
-| `typesafe()` | | | | `jev-latest` at `https://api.typesafe.ai` | `TYPESAFE_API_KEY`, `TYPESAFE_DEFAULT_MODEL` |
+| Preset | Codex | Claude Code | Gemini | OpenAI-compatible | `ask()` | Variables |
+| --- | --- | --- | --- | --- | --- | --- |
+| `vercel()` | `https://ai-gateway.vercel.sh/codex/v1` | `https://ai-gateway.vercel.sh/claude-code` | | `https://ai-gateway.vercel.sh/v1` | `typesafe-ai/jev` at `https://ai-gateway.vercel.sh/v4/ai` | `AI_GATEWAY_API_KEY`, then `VERCEL_OIDC_TOKEN` |
+| `cloudflare()` | | | | `.../<account>/<gateway>/compat` | `jev-latest` through a [custom provider](#typesafe-through-cloudflare-ai-gateway) | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_AI_GATEWAY_ID`, `CLOUDFLARE_AI_GATEWAY_TOKEN`, `CLOUDFLARE_AI_GATEWAY_API_KEY`, `TYPESAFE_API_KEY`, `CLOUDFLARE_AI_GATEWAY_SLUG` (see [Cloudflare AI Gateway](#cloudflare-ai-gateway)) |
+| `openrouter()` | `https://openrouter.ai/api/v1` | `https://openrouter.ai/api` | | `https://openrouter.ai/api/v1` | | `OPENROUTER_API_KEY` |
+| `litellm()` | `<url>/v1` | `<url>` | `<url>` | `<url>/v1` | | `LITELLM_URL`, `LITELLM_API_KEY` |
+| `cliproxy()` | `<url>/v1` | `<url>` | `<url>` | `<url>/v1` | | `CLIPROXY_URL`, `CLIPROXY_API_KEY` |
+| `ollama()` | `<url>/v1` | `<url>` | | `<url>/v1` | | `OLLAMA_URL` (default `http://localhost:11434`), `OLLAMA_API_KEY` (default `ollama`) |
+| `emulate()` | | `<url>` (AI SDK `messages` only) | | `<url>/v1` | | `VITEHUB_EMULATE_URL` (default `http://localhost:4014`). No key. |
+| `google()` | | | `https://generativelanguage.googleapis.com` | `https://generativelanguage.googleapis.com/v1beta/openai` (`api: 'chat'` only) | | `GEMINI_API_KEY` |
+| `moonshot()` | `https://api.moonshot.ai/v1` | `https://api.moonshot.ai/anthropic` | | `https://api.moonshot.ai/v1` | | `MOONSHOT_API_KEY`, then `KIMI_API_KEY` |
+| `zai()` | `https://api.z.ai/api/v1` | `https://api.z.ai/api/anthropic` | | `https://api.z.ai/api/paas/v4` (no `api: 'responses'`) | | `ZAI_API_KEY` |
+| `deepseek()` | | `https://api.deepseek.com/anthropic` | | `https://api.deepseek.com` (no `api: 'responses'`) | | `DEEPSEEK_API_KEY` |
+| `minimax()` | `https://api.minimax.io/v1` | `https://api.minimax.io/anthropic` | | `https://api.minimax.io/v1` | | `MINIMAX_API_KEY` |
+| `alibaba()` | `<workspace>/compatible-mode/v1`, only with `workspaceId` | `<domain>/apps/anthropic` | | `<domain>/compatible-mode/v1` (`api: 'responses'` only with `workspaceId`) | | `DASHSCOPE_API_KEY` |
+| `openai()` | `https://api.openai.com/v1` | | | `https://api.openai.com/v1` | | `OPENAI_API_KEY` |
+| `chatgpt()` | `https://api.openai.com/v1` through a ChatGPT Connection | | | | | None |
+| `anthropic()` | | `https://api.anthropic.com` | | | | `ANTHROPIC_API_KEY` |
+| `typesafe()` | | | | | `jev-latest` at `https://api.typesafe.ai` | `TYPESAFE_API_KEY`, `TYPESAFE_DEFAULT_MODEL` |
 
 The type of a preset lists the model APIs that it serves: `AiGateway<{ routes: "codex" }>` accepts only gateways with a Codex URL, so a ViteHub Codex Driver with `anthropic()` and `languageModel(typesafe(), ...)` are type errors. `vercel()`, `typesafe()`, and `cloudflare()` return `AiGateway<{ ask: true }>`. `chatgpt()` returns a `ChatGPTGateway` descriptor for the Agent runtime. The other presets have no `ask()`, so `ask()` on them is a type error. CLIProxyAPI, LiteLLM, Ollama, the AI emulator, OpenRouter, OpenAI, Anthropic, and the Cloudflare OpenAI-compatible endpoint forward model APIs only, not TypeSafe's `/v1/systemone`.
+
+The `gemini` route serves the Gemini CLI, which reads `GOOGLE_GEMINI_BASE_URL` and `GEMINI_API_KEY` and sends the key in `x-goog-api-key`. `aiGatewayHarnessRoute(gateway, harness)` returns the route that a coding agent CLI (`claude-code`, `codex`, `gemini`, `kimi`, `opencode`, or `pi`) uses on a gateway, or `undefined`.
+
+`moonshot()`, `zai()`, and `minimax()` take `region: 'china'` for a key from the China platform. `zai({ codingPlan: true })` uses the GLM Coding Plan endpoint. `alibaba({ region, workspaceId })` selects the Model Studio region and, with `workspaceId`, the workspace domain, which also serves Codex. See [Model providers](https://vitehub.dev/docs/gateways/configure#model-providers).
 
 `cloudflareAccess()` returns the `CF-Access-Client-Id` and `CF-Access-Client-Secret` headers for a gateway behind Cloudflare Access, from `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`. Pass it as `headers`, for example `cliproxy({ headers: cloudflareAccess() })`.
 

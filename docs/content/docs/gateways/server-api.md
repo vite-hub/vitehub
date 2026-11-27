@@ -196,10 +196,10 @@ export const codexThroughCloudflare = defineAiGateway({
 | Option | Description |
 | --- | --- |
 | `name` | Shown in inspection and diagnostics. |
-| `baseURL` | One URL per model API: `codex` (OpenAI Responses at `<url>/responses`, for the Codex Driver), `claude-code` (Anthropic Messages at `<url>/v1/messages`, for the Claude Code Driver and `api: 'messages'`), and `openai-compatible` (Chat Completions at `<url>/chat/completions` and Responses at `<url>/responses`, for AI SDK models). A function runs per request. |
+| `baseURL` | One URL per model API: `codex` (OpenAI Responses at `<url>/responses`, for the Codex Driver), `claude-code` (Anthropic Messages at `<url>/v1/messages`, for the Claude Code Driver and `api: 'messages'`), `gemini` (the Gemini API at `<url>/v1beta/models/<model>:generateContent`, for the Gemini CLI), and `openai-compatible` (Chat Completions at `<url>/chat/completions` and Responses at `<url>/responses`, for AI SDK models). A function runs per request. |
 | `apiKey` | A string, a sealed value, or a function. |
 | `apiKeyEnv` | Host variables that supply the key, in order. |
-| `auth` | `'bearer'` (default) sends `Authorization: Bearer <key>`. `'x-api-key'` sends `x-api-key: <key>`. |
+| `auth` | `'bearer'` (default) sends `Authorization: Bearer <key>`. `'x-api-key'` sends `x-api-key: <key>`. The `gemini` route always sends `x-goog-api-key: <key>`. |
 | `headers` | Extra headers. Each value is a secret, like `apiKey`. |
 
 ## Other exports
@@ -208,4 +208,6 @@ export const codexThroughCloudflare = defineAiGateway({
 | --- | --- |
 | `cloudflareAccess()` | Headers for a gateway behind Cloudflare Access. See [Presets](/docs/gateways/configure#presets). |
 | `aiGatewayEnv` | The variables that each preset reads. |
+| `aiGatewayHarnessRoute(gateway, harness)` | The route that a coding agent CLI uses on `gateway`, or `undefined`. See [Gemini CLI](/docs/gateways/configure#gemini-cli). |
+| `aiGatewayHarnessRoutes` | The routes of each coding agent CLI: `claude-code`, `codex`, `gemini`, `kimi`, `opencode`, and `pi`. |
 | `chatgpt({ connection? })` | A gateway without a key for a Codex Driver or a model-backed Driver. It uses the `chatgpt` Connection by default. See [ChatGPT plan usage](/docs/connections/chatgpt). |
