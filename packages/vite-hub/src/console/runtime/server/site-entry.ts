@@ -5,6 +5,8 @@ import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import { configuredPublicOrigins } from "@vite-hub/runtime/internal/public-url"
 
 import { installedConsoleAccessPolicy } from "./access-policy.ts"
+import { consoleRequestEnv } from "./console-signature.ts"
+import { hostedCommentsKeys } from "./hosted-comments.ts"
 import { consoleRequestError, consoleRoute, isConsoleDevelopmentRuntime } from "./request.ts"
 import { isConsoleLoopbackRequest } from "./loopback.ts"
 import { withPageTools } from "./site.ts"
@@ -21,8 +23,10 @@ import type { ConsoleRequestEvent, ConsoleRoute } from "./request.ts"
  *   development server, and for a browser with a good site cookie, the route goes to the page at once. Another visitor
  *   goes to `<base>/_vitehub/site?return=<page>`, which sends the browser through the ViteHub Console for a Site access
  *   token. See `siteEntryRoute`.
- * - An app without Comments has no pill. The browser goes to that page of the app in the ViteHub Console. See
- *   `consoleEntryRoute`.
+ * - An app without Comments that the ViteHub Console links has the Hosted Comments pill of the Console. The browser
+ *   comes back to the page with `?vitehub`, which loads that pill. See `hostedCommentsEntryRoute`.
+ * - Any other app has no pill. The browser goes to that page of the app in the ViteHub Console. See
+ *   `consoleEntryRoute`. This is also the way on a development server, and in an app without Console keys.
  *
  * The route answers only on the origins of `vitehub({ publicUrl })`, when it is set. Another hostname of the same
  * deployment, such as a content origin, gets 404.
@@ -156,10 +160,26 @@ export const siteEntryRoute: ConsoleRoute = consoleRoute(async (event) => {
   return seeOther(`${base}/_vitehub/site?${new URLSearchParams({ return: page })}`)
 })
 
-/** `/_vitehub` in an app without Comments: the page of the app in the ViteHub Console. */
-export const consoleEntryRoute: ConsoleRoute = consoleRoute(async (event) => {
-  const { origin, request } = await enterRequest(event)
+function consoleLocation(request: Request, origin: string): Response {
   const location = siteEntryConsoleUrl(request, origin)
   if (!location) throw consoleRequestError(404, "The ViteHub Console opens only apps on https:, or on http: at localhost. Open the app on such an origin.")
   return seeOther(location)
+}
+
+/** `/_vitehub` in an app without the pill: the page of the app in the ViteHub Console. */
+export const consoleEntryRoute: ConsoleRoute = consoleRoute(async (event) => {
+  const { origin, request } = await enterRequest(event)
+  return consoleLocation(request, origin)
+})
+
+/**
+ * `/_vitehub` in an app without Comments, which gets the Hosted Comments pill: the page of the app with `?vitehub`, when
+ * the app has a `VITEHUB_CONSOLE_KEY_<NAME>` variable. Without one, on a development server, or for a name in
+ * `siteEntryReservedNames` such as `/_vitehub/agents`, the Console page of the app, as `consoleEntryRoute`.
+ */
+export const hostedCommentsEntryRoute: ConsoleRoute = consoleRoute(async (event) => {
+  const { development, origin, request } = await enterRequest(event)
+  if (development || !hostedCommentsKeys(consoleRequestEnv(request)).length) return consoleLocation(request, origin)
+  const target = siteEntryTarget(request, origin)
+  return target ? seeOther(withPageTools(`${target.base}${target.page}`)) : consoleLocation(request, origin)
 })

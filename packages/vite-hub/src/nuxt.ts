@@ -50,7 +50,7 @@ import { resolveConsoleProjectName } from "./console/project.ts"
 import { insertConsoleSection, resolveConsoleSectionIds, type ConsoleSectionId } from "./console/runtime/sections.ts"
 import { consoleContributedSections, consoleDocumentEditorSectionIds, discoverConsoleEntrySections, isConsoleContributedSectionId } from "./console/contributions.ts"
 import { addConsoleRpcHandler } from "./console/nitro.ts"
-import { resolveConsoleSiteAccess } from "./console/site-access.ts"
+import { resolveConsoleHostedComments, resolveConsoleSiteAccess } from "./console/site-access.ts"
 import { serializeConsoleRefresh } from "./console/refresh.ts"
 import { assertConsoleAccess, assertConsoleProductionAuth, resolveConsoleOptions, resolveConsoleUrl, consoleInvocationRootPlugin, consoleAppModuleId, consoleOperationContributions, resolveConsoleAccessBuild, resolveGeneratedConsoleApp, type ConsoleInvocationRootState } from "./console/vite.ts"
 
@@ -518,6 +518,7 @@ interface NuxtConsoleInstallOptions {
   canDiscoverDefinitions: () => boolean
   access?: ConsoleAccessBuild
   siteAccess: boolean
+  hostedComments: boolean
   /** Writes the generated Console app module. The `nitro:config` hook writes it with the same writer. */
   writeApp: (file: string, catalog: ConsoleBuildCatalog) => Promise<void>
 }
@@ -532,6 +533,7 @@ async function installConsole({
   canDiscoverDefinitions,
   access,
   siteAccess,
+  hostedComments,
   writeApp,
 }: NuxtConsoleInstallOptions): Promise<string> {
   const { discoveryRoot, serverDirs } = discovery
@@ -559,7 +561,7 @@ async function installConsole({
   installConsoleSections(projectRoot, [...sections, ...entrySections, ...documentEditorSections])
   const nitro = (nuxt.options.nitro ??= {}) as Parameters<typeof addConsoleRpcHandler>[0] & { alias?: Record<string, string> }
   // Nitro adds its `baseURL`, which Nuxt sets to `app.baseURL`, to every route, asset, and route rule.
-  addConsoleRpcHandler(nitro, consoleRuntimeRoot, undefined, { siteAccess })
+  addConsoleRpcHandler(nitro, consoleRuntimeRoot, undefined, { siteAccess, hostedComments })
   nitro.alias = { ...nitro.alias, [consoleAppModuleId]: app }
   const refreshAgentDefinitions = serializeConsoleRefresh(async () => {
     const discoverySections = canDiscoverDefinitions()
@@ -1138,6 +1140,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     }
   }
   const consoleSiteAccess = resolveConsoleSiteAccess(options.comments, { projectRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) })
+  const consoleHostedComments = resolveConsoleHostedComments(options.comments, { projectRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) })
   // Module setup and the `nitro:config` hook write the same Console app module. Only the file and the catalog differ.
   let consoleDocumentEditors: boolean | undefined
   const writeNuxtConsoleApp = (file: string, catalog: ConsoleBuildCatalog) => {
@@ -1526,7 +1529,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       )
       installConsoleSections(projectRoot, consoleSections)
       installConsoleProjectName(projectRoot, resolveConsoleProjectName(projectRoot, options.name))
-      addConsoleRpcHandler(config, consoleRuntimeRoot, undefined, { siteAccess: consoleSiteAccess })
+      addConsoleRpcHandler(config, consoleRuntimeRoot, undefined, { siteAccess: consoleSiteAccess, hostedComments: consoleHostedComments })
       // CLI discovery resolves no Console access, so its plugin would differ from the running dev server's and make
       // that server rebuild. The Vite Console plugin skips this write in CLI discovery too.
       if (!nuxt.options.vitehubCliDiscovery) {
@@ -1674,6 +1677,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       name: options.name,
       sections: consoleSections,
       siteAccess: consoleSiteAccess,
+      hostedComments: consoleHostedComments,
       discovery: {
         contentImportBase: "vite-hub/content",
         databaseDiscoveryRoot: configuredDatabaseDiscoveryRoot,

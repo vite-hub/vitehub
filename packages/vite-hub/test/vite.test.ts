@@ -480,7 +480,7 @@ describe("vitehub", () => {
     await expect(callHook(plugin.config, [{}, { command: "build", mode: "production" }]))
       .rejects.toMatchObject({ code: "VITE_HUB_B0022" })
     await expect(callHook(plugin.config, [{}, { command: "serve", mode: "development" }]))
-      .resolves.toBeUndefined()
+      .resolves.toEqual({ define: { __VITEHUB_APP_BASE_URL__: JSON.stringify("/") } })
   })
 
   it("derives Console KV registration from the resolved Vite KV configuration", async () => {
