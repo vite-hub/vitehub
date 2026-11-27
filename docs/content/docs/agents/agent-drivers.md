@@ -606,6 +606,8 @@ export default defineAgent({
 
 `geminiDriver()` runs the Gemini CLI over ACP. It reads `GEMINI.md` and `.gemini/skills`. With a gateway, it sends requests to the gateway's `gemini` route, which `cliproxy()`, `google()`, and `litellm()` serve. `model` is optional. Set it to an ID that the gateway serves.
 
+With a gateway, the Agent's Skills go to `<GEMINI_CLI_HOME>/.gemini/skills` in the private Home, so `agentWithSkills()` and `server/agents/<name>/skills/` reach Gemini CLI. Without a gateway, Agent-owned Skills fail with `AGENT_SKILL_DELIVERY_UNSUPPORTED`.
+
 ```ts [server/agents/review/agent.ts]
 import { defineAgent, geminiDriver } from 'vite-hub/agent'
 import { cliproxy } from 'vite-hub/gateways'
@@ -705,6 +707,8 @@ export default defineAgent({
 ### Kimi Code
 
 `kimiDriver()` runs [Kimi Code](https://moonshotai.github.io/kimi-code/) over ACP, with `kimi acp`. With a gateway, it sends Chat Completions requests to the gateway's `openai-compatible` route and needs `model`, an ID that the gateway serves. Without `model`, it fails with `AGENT_R0976`.
+
+With a gateway, the Agent's Skills go to `<KIMI_CODE_HOME>/skills` in the private Home. Without a gateway, Agent-owned Skills fail with `AGENT_SKILL_DELIVERY_UNSUPPORTED`.
 
 ```ts [server/agents/review/agent.ts]
 import { defineAgent, kimiDriver } from 'vite-hub/agent'
