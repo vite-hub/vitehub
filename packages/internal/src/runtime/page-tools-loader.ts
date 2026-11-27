@@ -288,6 +288,7 @@ function mountOffMark(pill: PageToolsPill, stopped: AbortSignal, turnOn: () => v
   const button = document.createElement("button")
   button.type = "button"
   button.title = `Turn on ${pill.label}`
+  button.dataset.motionPress = ""
   button.setAttribute("aria-label", button.title)
   button.append(viteHubPageSvgIcon("0 0 20 18", markPath, {}))
   shadow.append(style, button)
@@ -602,6 +603,7 @@ async function startViteHubPageTools(options: LoadViteHubPageToolsOptions, turne
     const launch = document.createElement("button")
     launch.type = "button"
     launch.textContent = tool.label
+    launch.dataset.motionPress = ""
     launch.addEventListener("click", () => void run())
     for (const intent of ["pointerenter", "pointerdown", "focus"]) launch.addEventListener(intent, () => void preload())
     activators.set(tool.id, run)

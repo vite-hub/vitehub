@@ -124,6 +124,7 @@ export function mountViteHubPageAccount(options: ViteHubPageAccountOptions): voi
   const button = document.createElement("button")
   button.type = "button"
   button.className = "who"
+  button.dataset.motionPress = ""
   button.title = account.email ? `${account.name} (${account.email})` : account.name
   button.setAttribute("aria-label", `Account: ${account.name}`)
   button.setAttribute("aria-haspopup", "menu")

@@ -139,7 +139,7 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
       </template>
 
       <template #body>
-        <div v-if="isDocsRoute" class="vh-docs-menu -mx-4 -my-2">
+        <div v-if="isDocsRoute" class="vh-docs-menu -mx-4 -my-2" data-motion-press="none">
           <nav class="flex shrink-0 flex-wrap items-center gap-1 border-b border-default px-2 py-1.5" aria-label="Site">
             <UButton
               v-for="link in docsMobileLinks"
