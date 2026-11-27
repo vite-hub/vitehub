@@ -330,19 +330,33 @@ Provider cursors resume a thread while the process runs. Set `sessionStorePath` 
 
 ### Keep the session log
 
-The provider runtime writes an NDJSON event log for each Invocation: a `meta` line, then every runtime event. By default it lives in the Invocation's temporary directory and is removed with it. Set `sessionLog` to a file path, or to a per-Invocation resolver, to keep it. ViteHub creates the parent directory, the runtime appends to the file, and ViteHub never deletes it. The run result reports the path as `sessionLog`, so `readAgentSession()` can read it after the Invocation ends.
+The provider runtime writes an NDJSON event log for each Invocation: a `meta` line, then every runtime event. By default it lives in the Invocation's temporary directory and is removed with it. Set `sessionLog` to a file path, or to a per-Invocation resolver, to keep it. ViteHub creates the parent directory, the runtime appends to the file, and ViteHub never deletes it. It works with every [harness Driver](#harness-drivers).
 
-```ts
-const agent = defineAgent({
+```ts [server/agents/review/agent.ts]
+import { defineAgent, opencodeDriver } from 'vite-hub/agent'
+import { cliproxy } from 'vite-hub/gateways'
+
+export default defineAgent({
   driver: opencodeDriver({
     gateway: cliproxy(),
     model: 'claude-haiku-5-5',
+    permissions: 'allow-all',
     sessionLog: () => `.data/sessions/${crypto.randomUUID()}.ndjson`,
   }),
 })
+```
 
-const [error, result] = await runAgent(agent, { prompt: 'Write hello.txt' })
-if (!error) console.log(result.sessionLog)
+The run result reports the path as `sessionLog`, so you can read or [import the session](/docs/agents/invocations#import-a-session-that-ran-elsewhere) after the Invocation ends:
+
+```ts [server/lib/review.ts]
+import { runAgent } from 'vite-hub/agent'
+import review from '../agents/review/agent'
+
+export async function reviewSessionLog() {
+  const [error, result] = await runAgent(review, { prompt: 'Write hello.txt' })
+  if (error) throw error
+  return result.sessionLog
+}
 ```
 
 - A relative path resolves from the process working directory.
