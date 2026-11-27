@@ -130,6 +130,7 @@ export function resolveInstalledProviderExecutable(provider: ProviderHarness, op
     ? [options.resolveFrom]
     : [appRoot && join(appRoot, "package.json"), join(process.cwd(), "package.json"), import.meta.url].filter((candidate): candidate is string => Boolean(candidate))
   const { runtimePackage } = providerHarnessProfile(provider)
+  if (!runtimePackage) return
   if (runtimePackage.executable.kind === "package-file") {
     for (const candidate of candidates) {
       try {
@@ -167,7 +168,7 @@ export function resolveProviderRuntimePackages(options: {
   const platform = options.platform ?? process.platform
   const arch = options.arch ?? process.arch
   const resolveFrom = join(options.rootDir, "package.json")
-  return Object.values(providerHarnessProfiles).flatMap(({ runtimePackage }: ProviderHarnessProfile) => resolveRuntimePackages({
+  return Object.values(providerHarnessProfiles).flatMap(({ runtimePackage }: ProviderHarnessProfile) => runtimePackage === undefined ? [] : resolveRuntimePackages({
     allowMissingTarget: runtimePackage.allowMissingTarget,
     displayName: runtimePackage.displayName,
     includePeerDependencies: runtimePackage.includePeerDependencies,

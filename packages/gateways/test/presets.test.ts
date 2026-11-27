@@ -113,6 +113,9 @@ describe("AI gateway presets", () => {
       expect(aiGatewayHarnessRoute(cloudflare(), harness)).toBeUndefined()
       expect(aiGatewayHarnessRoute(anthropic(), harness)).toBeUndefined()
     }
+    for (const harness of ["acp", "antigravity", "cursor", "fx", "grok", "kiro", "muse"] as const) {
+      expect(aiGatewayHarnessRoute(cliproxy({ url: "http://proxy" }), harness)).toBeUndefined()
+    }
     // @ts-expect-error The type rejects an unknown harness too.
     expect(aiGatewayHarnessRoute(openai(), "toString")).toBeUndefined()
   })

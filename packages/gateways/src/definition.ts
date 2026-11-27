@@ -134,7 +134,7 @@ export function normalizeAiGateway(value: unknown): AiGatewayDefinition {
       headers[header] = item as AiGatewaySecret
     }
   }
-  return Object.freeze({
+  const normalized: AiGatewayDefinition = {
     name,
     baseURL: Object.freeze(baseURL),
     // SAFETY: isSecretInput validated the secret input shape above.
@@ -142,7 +142,9 @@ export function normalizeAiGateway(value: unknown): AiGatewayDefinition {
     ...(apiKeyEnv === undefined ? {} : { apiKeyEnv: Object.freeze(apiKeyEnv) }),
     ...(value.auth === undefined ? {} : { auth: value.auth }),
     ...(headers === undefined ? {} : { headers: Object.freeze(headers) }),
-  })
+  }
+  if (Reflect.get(value, aiGatewaySdkOnly) === true) Object.defineProperty(normalized, aiGatewaySdkOnly, { value: true })
+  return Object.freeze(normalized)
 }
 
 /** A value or the result of its resolver. */
