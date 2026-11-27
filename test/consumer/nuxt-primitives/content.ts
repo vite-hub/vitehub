@@ -53,14 +53,14 @@ export const content: PrimitiveRow[] = [
 
         export default defineEventHandler(async () => {
           const document = await content.get("/intro")
-          return { path: document?.path ?? null, nodes: document?.nodes.slice(0, 2) ?? null }
+          return { path: document?.path ?? null, nodes: document?.nodes.slice(0, 3) ?? null }
         })
       `,
     },
     async probe({ fetch }) {
       await expectJson(await fetch("/api/primitives/content"), {
         path: "/intro",
-        nodes: [["h1", { id: "hello-from-content" }, "Hello from Content"], ["p", {}, "This page came from a local Source."]],
+        nodes: [["typeset-styles", {}], ["h1", { id: "hello-from-content" }, "Hello from Content"], ["p", {}, "This page came from a local Source."]],
       })
     },
   },

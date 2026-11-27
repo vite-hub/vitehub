@@ -7,7 +7,7 @@ import type { QueueClient } from "../../types.ts"
 import type { QueueRuntimeOptions, QueueRuntimeDriverOptions } from "./types.ts"
 import { queueErrorDiagnostics } from "../../error-diagnostics.ts"
 
-/** The Databases of the app, as `@vite-hub/database/drizzle` exports them. */
+/** The Databases of the app, as `@vite-hub/database/runtime/registry` exports them. */
 export type PostgresQueueDatabases = Readonly<Record<string, { db: object } | undefined>>
 
 /** Loads the Databases of the app. The generated server passes it when the jobs use the connection of a Database. */

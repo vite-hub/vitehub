@@ -549,7 +549,8 @@ export function defineContent<
   const customPlugins = markdownOptions.plugins ?? []
   const replaced = new Set(customPlugins.filter(Boolean).map(plugin => plugin.name))
   const presetPlugins = preset === false ? [] : comarkUi(contentMarkdownPreset).plugins.filter(plugin => !replaced.has(plugin.name))
-  sharedOptions.markdown = { ...markdownOptions, plugins: [...presetPlugins, ...customPlugins] }
+  const typeset = presetPlugins.filter(plugin => plugin.name === "comark-ui-typeset")
+  sharedOptions.markdown = { ...markdownOptions, plugins: [...presetPlugins.filter(plugin => !typeset.includes(plugin)), ...customPlugins, ...typeset] }
   sharedOptions.logger = contentRouteLogger(sharedOptions.logger)
   const seo = normalizeSeoOptions(seoOptions)
   const presetDefaults = options.extends === undefined ? {} : resolveContentPreset(options.extends)

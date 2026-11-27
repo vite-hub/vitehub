@@ -47,7 +47,7 @@ export interface RealtimeContribution {
 }
 
 export interface RealtimeVitePluginOptions extends RealtimeOptions {
-  /** Module that exports the app's `databases`, for the Postgres bus. Defaults to `@vite-hub/database/drizzle`. */
+  /** Module that exports the app's `databases`, for the Postgres bus. Defaults to `@vite-hub/database/runtime/registry`. */
   databaseImport?: string
   importBase?: string
   /**
@@ -204,7 +204,7 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
   let inspectionContributed: DiscoveredRealtimeDefinition[] = []
   let hasRoomDriver = false
   let noticeBase = ""
-  const databaseImport = options.databaseImport ?? "@vite-hub/database/drizzle"
+  const databaseImport = options.databaseImport ?? "@vite-hub/database/runtime/registry"
   let databasePlugin: DatabaseVitePlugin | undefined
   let postgresDatabase = false
   let nodeWrite: { busPlugin?: string, handlerFile: string, namespace: string, nodeDriver: RealtimeNodeDriver, postgres: boolean, registryFile: string } | undefined

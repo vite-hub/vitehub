@@ -52,6 +52,7 @@ export default defineConfig({
       "src/mcp.ts",
       "src/index.ts",
       "src/internal/server.ts",
+      "src/runtime/client-request-plugin.ts",
       "src/runtime/empty-abilities.ts",
       "src/runtime/empty-client.ts",
       "src/runtime/empty-definition.ts",
@@ -69,7 +70,7 @@ export default defineConfig({
     exports: {
       customExports(exports) {
         return normalizePackageExports(Object.fromEntries(
-          Object.entries(exports).filter(([key]) => !["./runtime/empty-abilities", "./runtime/empty-client", "./runtime/empty-definition", "./runtime/nuxt", "./runtime/vue-nuxt"].includes(key)),
+          Object.entries(exports).filter(([key]) => !["./runtime/client-request-plugin", "./runtime/empty-abilities", "./runtime/empty-client", "./runtime/empty-definition", "./runtime/nuxt", "./runtime/vue-nuxt"].includes(key)),
         ))
       },
       inlinedDependencies: false,

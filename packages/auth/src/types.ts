@@ -69,7 +69,12 @@ export interface AuthRuntimeEnv extends ViteHub.AuthRuntimeEnv {}
 
 export interface AuthRuntimeContext<TEnv extends Record<string, unknown> = AuthRuntimeEnv> {
   env: TEnv
+  /**
+   * The request that Auth serves. A request that the server sends to itself during server rendering has the URL
+   * `http://localhost/...`, so read the origin from `requestOrigin`.
+   */
   request?: Pick<Request, "headers" | "url">
+  /** The origin of the request that the client sent, or `http://localhost` outside a request. */
   requestOrigin: string
 }
 

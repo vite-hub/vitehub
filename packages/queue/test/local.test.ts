@@ -11,7 +11,7 @@ import { normalizeQueueOptions } from "../src/config.ts"
 import { queueErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { closeLocalQueues, startLocalQueue, useLocalQueueEngine } from "../src/internal/runtime/local-client.ts"
 import { missingQueueDefinitionError, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/internal/runtime/state.ts"
-import { createLocalQueueClient, createLocalQueueEngine, localQueueDeadLimit, localQueueDeliveryRules, localQueueMaxAttempts } from "../src/providers/local.ts"
+import { createLocalQueueClient, createLocalQueueEngine as newLocalQueueEngine, localQueueDeadLimit, localQueueDeliveryRules, localQueueMaxAttempts } from "../src/providers/local.ts"
 import { dynamicQueue } from "../src/runtime/client.ts"
 import { createQueueClient } from "../src/runtime/create-client.ts"
 import { listQueues } from "../src/runtime/operations.ts"
@@ -25,6 +25,13 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 })
 
 let base: string
+const engines = new Set<ReturnType<typeof newLocalQueueEngine>>()
+
+function createLocalQueueEngine(options: Parameters<typeof newLocalQueueEngine>[0]) {
+  const engine = newLocalQueueEngine(options)
+  engines.add(engine)
+  return engine
+}
 
 beforeEach(async () => {
   base = await mkdtemp(join(tmpdir(), "vitehub-queue-local-"))
@@ -34,6 +41,8 @@ beforeEach(async () => {
 
 afterEach(async () => {
   closeLocalQueues()
+  for (const engine of engines) engine.close()
+  engines.clear()
   setQueueRuntimeConfig(undefined)
   setQueueRuntimeRegistry(undefined)
   vi.restoreAllMocks()
@@ -703,12 +712,18 @@ describe("local queue delivery with hosted provider rules", () => {
     const handler = vi.fn(async (_job: QueueJob) => { throw new Error("SMTP down") })
     const engine = rulesEngine("cloudflare", { welcome: { handler } })
 
-    await engine.enqueue("welcome", [{ id: "job-1", payload: { email: "ada@example.com" } }])
-
-    await vi.waitFor(async () => expect((await engine.status()).queues.welcome?.dead).toBe(1), { timeout: 500 })
-    expect(handler.mock.calls.map(([job]) => job.attempts)).toEqual([1, 2, 3, 4])
-    expect(await engine.job("job-1")).toMatchObject({ attempts: 4, payload: { email: "ada@example.com" }, state: "dead" })
-  })
+    vi.useFakeTimers({ toFake: ["Date"] })
+    try {
+      await engine.enqueue("welcome", [{ id: "job-1", payload: { email: "ada@example.com" } }])
+      await vi.waitFor(async () => expect((await engine.status()).queues.welcome).toEqual({ dead: 1, pending: 0, running: 0 }), { timeout: 5_000 })
+      expect(handler.mock.calls.map(([job]) => job.attempts)).toEqual([1, 2, 3, 4])
+      expect(await engine.job("job-1")).toMatchObject({ attempts: 4, payload: { email: "ada@example.com" }, state: "dead" })
+    }
+    finally {
+      engine.close()
+      vi.useRealTimers()
+    }
+  }, 10_000)
 
   it("waits longer after each failed write of the job file, also with the Cloudflare retry at once", async () => {
     const handler = vi.fn(async () => {})

@@ -83,6 +83,14 @@ Do not add the `comments()` plugin next to `vitehub()`. The dev server and the b
 
 Hosted Comments works on any site that can load a script. The Console signs reviewers in and stores threads in its database. The embed runs entirely in the browser.
 
+Use Hosted Comments or the app's own Comments on a page, not both. When the app's Comments start, Hosted Comments stay off or stop after you send or discard any draft and pending sends finish. The browser console shows `COMMENTS_HOSTED_CONFLICT`. To use the Hosted Comments script on a connected app with its own Comments API, set `comments: { overlay: false }`. This turns off the app's overlay but keeps its Comments API. Add the script tag manually as shown below.
+
+A ViteHub app that the Console links and that has no app Comments gets Hosted Comments without a script tag. Its pages get a short inline loader, which loads `hosted-comments.js` only with `?vitehub`, `?comment`, a sign-in code, or an earlier pill in the tab. The loader uses the Console-generated `VITEHUB_CONSOLE_KEY_CONSOLE_<ID>` variables to find the project at the app's public URL, including its base path. If multiple teams link the same app URL, choose a team in the pill; the choice stays in that tab. `/_vitehub` and `/_vitehub/<page>` send the browser back to the page with `?vitehub`. The pill links to the selected project in the Console, or offers a Console link if the key no longer matches. CLI and CI signing keys alone do not enable the pill.
+
+The app needs no Comments, Database, or project ID. Set `comments: false` to turn the pill off; `/_vitehub` then opens the Console. A prerendered page gets the loader only when the build has the Console-generated variables, because a static page does not reach the server. A development server, and a host that is not the `publicUrl`, get no loader.
+
+To add the script manually:
+
 1. In the Console, open **Apps** > **Link app**, select **Hosted Comments only**, and enter the site's URL. For a connected app, open **Settings** > **Connection** > **Hosted Comments**.
 2. Copy the script into the HTML at the registered URL and on the pages you want to review. The registered page completes sign-in for the review tab.
 
@@ -92,7 +100,9 @@ Hosted Comments works on any site that can load a script. The Console signs revi
   data-vitehub-repo="OWNER/NAME"></script>
 ```
 
-Use the project ID from the Console. `data-vitehub-repo` is optional: it is the GitHub repository that **Open in T3 Code** opens. If your site sets a Content Security Policy, allow the Console origin in `script-src` and `frame-src`, and allow inline styles in `style-src`: the embed adds its styles inside its shadow root.
+Use the project ID from the Console. `data-vitehub-repo` is optional: it is the GitHub repository that **Open in T3 Code** opens. If your site sets a Content Security Policy, allow the Console origin in `script-src`, `frame-src`, and `connect-src`, and allow inline styles in `style-src`: the embed adds its styles inside its shadow root.
+
+For automatic injection, also authorize the inline loader. ViteHub uses the page's script nonce when one is available. Without a nonce, add `'sha256-QN3vOPFNF4N34TjoyRt7mEGXSq1o76L7o2kIzzmWCUA='` to the directive that governs script elements (`script-src-elem` if set, otherwise `script-src`). If you cannot add a nonce or hash, use the explicit script tag above. That tag does not need the inline loader.
 
 Open the site with `?vitehub` and choose **Comments** to sign in. Team members can start threads, reply, and resolve them. Hosted Comments starts with its own thread history. Confirming an unlink permanently deletes that project's hosted threads and replies.
 
@@ -738,7 +748,7 @@ export default defineConfig({
 | Arrow | An arrow from where the drag starts to where it ends. Its shaft bows a little, and <kbd>Shift</kbd> draws it straight. |
 | Text | A click types a label there. A click on a label edits it, a drag moves it, and a label with no words goes. <kbd>Cmd</kbd> <kbd>Enter</kbd> or <kbd>Ctrl</kbd> <kbd>Enter</kbd> puts the label down and comments on the ink. |
 
-When Comments is on, every HTML page gets the page tools bootstrap, a short inline script before `</body>`. It is the same for every visitor, so the page keeps its cache headers. It loads the loader only with a hint: the `?vitehub` query, `vitehub-tools=1`, or the [Auth session marker](/docs/auth/configure#session-marker-cookie) of someone who just signed in. Without a hint, the page makes no request. With the hint, the server instead adds `<script type="module" src="/_vitehub/page/assets/loader.js?v=22">` and sends `cache-control: private, no-store`. The loader imports the overlay only for people the session route allows. With an application base such as `/portal/`, the loader and session URLs start with `/portal/_vitehub/page/`. Paths under `/_vitehub` and `/api` never get the page tools.
+When Comments is on, every HTML page gets the page tools bootstrap, a short inline script before `</body>`. It is the same for every visitor, so the page keeps its cache headers. It loads the loader only with a hint: the `?vitehub` query, `vitehub-tools=1`, or the [Auth session marker](/docs/auth/configure#session-marker-cookie) of someone who just signed in. Without a hint, the page makes no request. With the hint, the server instead adds `<script type="module" src="/_vitehub/page/assets/loader.js?v=23">` and sends `cache-control: private, no-store`. The loader imports the overlay only for people the session route allows. With an application base such as `/portal/`, the loader and session URLs start with `/portal/_vitehub/page/`. Paths under `/_vitehub` and `/api` never get the page tools.
 
 - Nitro 3 apps, including Nuxt 5, get the script from the server response.
 - A single-page app whose `index.html` Vite serves or builds gets the bootstrap in `index.html`.

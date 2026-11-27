@@ -292,7 +292,7 @@ describe("hubRealtime", () => {
     const { hubRealtime } = await import("../src/vite.ts")
     let dialect: string | undefined
     const databasePlugin = { name: "@vite-hub/database/vite", api: { getConfig: () => dialect ? { databases: { default: { dialect } } } : undefined } }
-    const plugin = hubRealtime({ databaseImport: "vite-hub/database/drizzle", importBase: "vite-hub/realtime" })
+    const plugin = hubRealtime({ databaseImport: "@vite-hub/database/runtime/registry", importBase: "vite-hub/realtime" })
     const config = { root, nitro: { preset: "node-server" }, plugins: [[databasePlugin]] } as Record<string, unknown>
     const hook = plugin.config as unknown as (config: Record<string, unknown>, environment: { command: string }) => Promise<void>
     await hook(config, { command: "build" })
@@ -304,7 +304,7 @@ describe("hubRealtime", () => {
 
     dialect = "postgresql"
     await (plugin.buildStart as unknown as () => Promise<void>)()
-    expect(await readFile(handlerFile, "utf8")).toContain(`useRealtimeBus("auto", { databases: () => import("vite-hub/database/drizzle").then(module => module.databases), namespace: "my-app" })`)
+    expect(await readFile(handlerFile, "utf8")).toContain(`useRealtimeBus("auto", { databases: () => import("@vite-hub/database/runtime/registry").then(module => module.databases), namespace: "my-app" })`)
     expect(await readFile(busFile, "utf8")).toContain(`logRealtimeNodeDriver("auto", { database: true, namespace: "my-app" })`)
   })
 

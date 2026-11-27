@@ -3,7 +3,9 @@ import { resolve } from "node:path"
 import { runInNewContext } from "node:vm"
 
 import { MarkdownDocument } from "@comark/vue"
-import { components as blocks } from "comark-ui/vue"
+import * as viteHubUI from "@vite-hub/ui"
+import { components as eagerBlocks } from "comark-ui/vue"
+import { components as lazyBlocks } from "comark-ui/vue/lazy"
 import { ModuleKind, ScriptTarget, transpileModule } from "typescript"
 import { describe, expect, it, vi } from "vitest"
 import * as vue from "vue"
@@ -19,15 +21,16 @@ const script = compileScript(descriptor, { id: "docs-markdown", inlineTemplate: 
 const { outputText } = transpileModule(script, { compilerOptions: { module: ModuleKind.CommonJS, target: ScriptTarget.ESNext } })
 const parseMarkdown = createDocsParser()
 
-function renderer(content: Record<string, () => Promise<{ default: vue.Component }>> = {}, custom: Record<string, vue.Component> = {}, blockMap: Record<string, vue.Component> = blocks) {
+function renderer(content: Record<string, () => Promise<{ default: vue.Component }>> = {}, custom: Record<string, vue.Component> = {}, blockMap: Record<string, vue.Component> = lazyBlocks) {
   const exports: { default?: vue.Component } = {}
   runInNewContext(outputText, {
     ...vue,
     exports,
     require: (id: string) => {
       if (id === "vue") return vue
+      if (id === "@vite-hub/ui") return viteHubUI
       if (id === "@comark/vue/components/MarkdownDocument") return { MarkdownDocument }
-      if (id === "#docs/blocks") return { __esModule: true, default: blockMap }
+      if (id === "comark-ui/vue/lazy") return { components: blockMap }
       if (id === "#docs/components") return { __esModule: true, default: content }
       if (id === "#docs/custom-components") return { __esModule: true, default: custom }
       throw new Error(`Unexpected component import: ${id}`)
@@ -43,6 +46,19 @@ function block(name: string) {
 }
 
 describe("DocsMarkdown", () => {
+  it.each([undefined, false])("respects the app's motion setting (%s) without changing parsed nodes", async (motion) => {
+    const loadMotion = vi.fn(async () => block("motion-runtime"))
+    const component = renderer({}, {}, { ...lazyBlocks, MotionRuntime: vue.defineAsyncComponent(loadMotion) })
+    const document = await parseMarkdown("# Ready")
+    const app = vue.createSSRApp(component, { document })
+    if (motion === false) app.use(viteHubUI.createViteHubUI({ motion }))
+
+    const html = await renderToString(app)
+    expect(document.nodes).toContainEqual(["motion-runtime", {}])
+    expect(html).toContain("Ready</h1>")
+    expect(loadMotion).toHaveBeenCalledTimes(motion === false ? 0 : 1)
+  })
+
   it.each(["callout", "note", "tip", "github-callout", "tabs-item", "code-tree"])("loads an app's %s content component before the built-in block", async (tag) => {
     const load = vi.fn(async () => ({ default: block("app") }))
     const component = renderer({ [tag]: load })
@@ -143,13 +159,12 @@ describe("DocsMarkdown", () => {
 
   it("renders the same HTML when each block loads on first use", async () => {
     const document = await parseMarkdown("# Page\n\n::tabs\n:::tabs-item{label=One}\n```ts [one.ts]\nconst one = 1\n```\n:::\n:::tabs-item{label=Two}\nSecond\n:::\n::\n\n::note\nA note.\n::\n")
-    const lazy = Object.fromEntries(Object.entries(blocks).map(([tag, block]) => [tag, vue.defineAsyncComponent(async () => block)]))
     // An async component adds a level to the ids that `useId()` makes. The server and the client both render it.
     const render = async (map: Record<string, vue.Component>) => (await renderToString(vue.createSSRApp(renderer({}, {}, map), { document }))).replace(/\bv-[\d-]+/g, "v-id")
-    const eager = await render(blocks)
+    const eager = await render(eagerBlocks)
     expect(eager).toContain('class="ct-tab"')
     expect(eager).toMatch(/<div\b(?=[^>]*\bclass="cgc")(?=[^>]*\bdata-type="note")[^>]*>/)
-    expect(await render(lazy)).toBe(eager)
+    expect(await render(lazyBlocks)).toBe(eager)
   })
 
   it("keeps short inline code on one line and lets long inline code wrap", async () => {

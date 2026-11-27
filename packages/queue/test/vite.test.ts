@@ -621,7 +621,7 @@ describe("hubQueue", () => {
     expect(nitroPlugin).toContain('"driver": "postgres"')
     expect(nitroPlugin).toContain('"database": "default"')
     expect(nitroPlugin).toContain('"cache": false')
-    expect(nitroPlugin).toContain("startPostgresQueue(queueConfig, () => import(\"@vite-hub/database/drizzle\").then(module => module.databases))")
+    expect(nitroPlugin).toContain("startPostgresQueue(queueConfig, () => import(\"@vite-hub/database/runtime/registry\").then(module => module.databases))")
     expect(nitroPlugin).toContain("internal/runtime/postgres-client")
     expect(nitroPlugin).toContain("setQueueRuntimeConfig(queueConfig, createPostgresQueueRuntimeClient)")
     expect(nitroPlugin).toContain("nitro.hooks.hook('close', closePostgresQueues)")
