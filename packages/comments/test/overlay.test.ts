@@ -25,7 +25,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  for (const element of document.querySelectorAll("vitehub-comments, vitehub-pill")) element.remove()
+  for (const element of document.querySelectorAll("vitehub-comments, vitehub-hosted-comments, vitehub-pill")) element.remove()
   document.documentElement.className = ""
   Reflect.deleteProperty(document, "elementsFromPoint")
   vi.unstubAllGlobals()
@@ -48,6 +48,34 @@ async function site(user: CommentsUser | null = ada, options: Parameters<typeof 
 const composer = (root: ParentNode, label: string) => root.querySelector<HTMLTextAreaElement>(`textarea[aria-label="${label}"]`)
 
 describe("the Comments overlay on the comment parts", () => {
+  it("waits for a Hosted Comments draft before starting the app overlay", async () => {
+    const { comments } = await serveComments({ identify: () => ada })
+    const { default: startAppOverlay, startHostedOverlay } = await import("../src/overlay/index.ts")
+    const hosted = pageTools()
+    const stopHosted = startHostedOverlay(hosted.context)
+    const root = document.querySelector("vitehub-hosted-comments")!.shadowRoot!
+    await vi.waitFor(() => expect(commentsButton(hosted.bar)).not.toBeNull())
+    commentsButton(hosted.bar)!.click()
+    await vi.waitFor(() => expect(tool(hosted.bar, "Comment on the whole page")).not.toBeNull())
+    tool(hosted.bar, "Comment on the whole page")!.click()
+    await vi.waitFor(() => expect(composer(root, "Comment")).not.toBeNull())
+    const draft = composer(root, "Comment")!
+    await type(draft, "Keep this hosted draft")
+    const app = pageTools({ open: true })
+    const stopApp = startAppOverlay(app.context)
+    try {
+      expect(document.querySelector("vitehub-comments")).toBeNull()
+      expect(draft.value).toBe("Keep this hosted draft")
+      press(draft, "Enter")
+      await vi.waitFor(() => expect(document.querySelector("vitehub-comments")).not.toBeNull())
+      await vi.waitFor(async () => expect((await comments.list())[1]?.[0]?.messages[0]?.body).toBe("Keep this hosted draft"))
+    }
+    finally {
+      stopApp?.()
+      stopHosted?.()
+    }
+  })
+
   it("posts text with attachments and Highlight disabled by the session", async () => {
     const { comments } = await serveComments({ identify: () => ada }, { attachments: false })
     const tools = pageTools()

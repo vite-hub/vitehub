@@ -20,9 +20,9 @@ afterEach(() => {
 })
 
 describe("gateway presets", () => {
-  it("maps each preset to the base URL that each Driver expects", () => {
-    expect(cliproxy({ url: "https://proxy.example/v1/" }).baseURL).toEqual({ "codex": "https://proxy.example/v1", "claude-code": "https://proxy.example", "openai-compatible": "https://proxy.example/v1" })
-    expect(litellm({ url: "http://litellm:4000" }).baseURL).toEqual({ "codex": "http://litellm:4000/v1", "claude-code": "http://litellm:4000", "openai-compatible": "http://litellm:4000/v1" })
+  it("maps each preset to the base URLs its routes expect", () => {
+    expect(cliproxy({ url: "https://proxy.example/v1/" }).baseURL).toEqual({ "codex": "https://proxy.example/v1", "claude-code": "https://proxy.example", "gemini": "https://proxy.example", "openai-compatible": "https://proxy.example/v1" })
+    expect(litellm({ url: "http://litellm:4000" }).baseURL).toEqual({ "codex": "http://litellm:4000/v1", "claude-code": "http://litellm:4000", "gemini": "http://litellm:4000", "openai-compatible": "http://litellm:4000/v1" })
     expect(ollama({ url: "http://gpu:11434" }).baseURL).toEqual({ "codex": "http://gpu:11434/v1", "claude-code": "http://gpu:11434", "openai-compatible": "http://gpu:11434/v1" })
     expect(openrouter().baseURL).toEqual({ "codex": "https://openrouter.ai/api/v1", "claude-code": "https://openrouter.ai/api", "openai-compatible": "https://openrouter.ai/api/v1" })
     expect(vercel().baseURL).toEqual({ "codex": "https://ai-gateway.vercel.sh/codex/v1", "claude-code": "https://ai-gateway.vercel.sh/claude-code", "openai-compatible": "https://ai-gateway.vercel.sh/v1" })
@@ -35,7 +35,7 @@ describe("gateway presets", () => {
   })
 
   it("validates custom gateways", () => {
-    expect(() => defineAiGateway({ name: "x", baseURL: {} })).toThrow('must set a baseURL for "codex", "claude-code", "openai-compatible"')
+    expect(() => defineAiGateway({ name: "x", baseURL: {} })).toThrow('must set a baseURL for "codex", "claude-code", "gemini", "openai-compatible"')
     expect(() => defineAiGateway({ name: "x", baseURL: { codex: "ftp://proxy" }, apiKey: "k" })).toThrow("http or https URL")
     expect(() => defineAiGateway({ name: "x", baseURL: { codex: "https://proxy" } })).toThrow("needs apiKey or apiKeyEnv")
     expect(() => defineAiGateway({ name: "x", baseURL: { codex: "https://proxy" }, apiKey: "k", headers: { "bad header": "v" } })).toThrow("not a valid HTTP header name")

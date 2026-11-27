@@ -36,7 +36,6 @@ interface Cursor {
   y: number
 }
 
-/** Text that the reader selected on the page, and where it is, in client coordinates. */
 interface Selected {
   left: number
   top: number
@@ -83,6 +82,7 @@ export interface OverlayControl {
   app: App
   /** Whether a box holds text that was not sent. */
   hasUnsentComment: () => boolean
+  waitForPendingComment: () => Promise<void> | undefined
   showPanel: () => void
   setMode: (mode: Mode) => void
   /** Saves or drops the inline edit, when one is open. */
@@ -125,10 +125,6 @@ function style(text: string): HTMLStyleElement {
 
 type RealtimePerson = ReturnType<RealtimeRoom["people"]>[number]
 
-/**
- * The other people on the page, one entry per person with the number of tabs they have open. The overlay leaves out
- * `me` whatever the sign-in, so a person never sees themselves.
- */
 function others(people: readonly RealtimePerson[], me: string | undefined): { person: RealtimePerson, tabs: number }[] {
   const byId = new Map<string, { person: RealtimePerson, tabs: number }>()
   for (const person of people) {
@@ -191,7 +187,6 @@ const commentIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24"
 
 const highlightIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "m9 11-6 6v3h9l3-3M22 12l-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4" }))
 
-/** The Marker's tips: the highlighter, a pen, an arrow, and a T for a text label. */
 const tipIcons: Record<MarkerTip, () => VNode> = {
   marker: highlightIcon,
   pen: () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" })),
@@ -199,7 +194,6 @@ const tipIcons: Record<MarkerTip, () => VNode> = {
   text: () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M4 7V4h16v3M9 20h6M12 4v16" })),
 }
 
-/** The tip whose key this is, as Drop's Marker keys: B, P, A, and T. */
 function tipOfKey(event: KeyboardEvent): MarkerTip | undefined {
   if (event.metaKey || event.ctrlKey || event.altKey) return undefined
   return (Object.keys(markerTips) as MarkerTip[]).find(tip => markerTips[tip].key === event.key.toUpperCase())
@@ -217,7 +211,6 @@ const eyeIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fi
 
 const eyeOffIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M10.73 5.08A10.43 10.43 0 0 1 12 5c4.97 0 8.9 3.06 9.94 6.65a1 1 0 0 1 0 .7 10.8 10.8 0 0 1-1.44 2.49M14.08 14.16a3 3 0 0 1-4.24-4.24M17.48 17.5a10.75 10.75 0 0 1-15.42-5.15 1 1 0 0 1 0-.7 10.75 10.75 0 0 1 4.45-5.14M2 2l20 20" }))
 
-/** Whether this reader hid the comments on the page with the eye of the pill. It stays across pages and visits. */
 const visibilityKey = "vitehub-comments-visibility"
 function readVisibility(): CommentVisibility {
   try {
@@ -239,11 +232,6 @@ const copyIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", f
 const checkIcon = () => h("svg", { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M20 6 9 17l-5-5" }))
 const listIcon = () => h("svg", { width: 15, height: 15, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, h("path", { d: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" }))
 
-/**
- * The element of the page that holds the box: the innermost one under its center whose box contains it, as an area drawn
- * in comment mode finds it. `slack` lets the box reach a little past the element, such as the half width of a highlighter
- * stroke along the edge of a paragraph.
- */
 function areaContainer(box: MarkerBox, slack = 1): Element | undefined {
   const under = document.elementsFromPoint(box.left + box.width / 2, box.top + box.height / 2).find(element => !ignored(element) && element !== document.documentElement)
   for (let element: Element | null = under ?? null; element && element !== document.documentElement; element = element.parentElement) {
@@ -253,7 +241,6 @@ function areaContainer(box: MarkerBox, slack = 1): Element | undefined {
   return undefined
 }
 
-/** The part of `box` inside `element`. */
 function clip(box: MarkerBox, element: Element): MarkerBox {
   const rect = element.getBoundingClientRect()
   const left = Math.max(box.left, rect.left)
@@ -261,7 +248,6 @@ function clip(box: MarkerBox, element: Element): MarkerBox {
   return { left, top, width: Math.min(box.left + box.width, rect.right) - left, height: Math.min(box.top + box.height, rect.bottom) - top }
 }
 
-/** Elements of the overlay, the pill, and its windows. Anchors skip them, as they skip the comment parts. */
 function ignored(element: Element): boolean {
   for (let node: Element | null = element; node;) {
     if (node.closest("[data-comments-ui], vitehub-pill, vitehub-window")) return true
@@ -282,27 +268,16 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const root = document.createElement("div")
   root.className = "root"
   shadow.replaceChildren(style(shadowCss(overlayStyles)), root)
-  // The motion layer of @vite-hub/ui/motion moves what the overlay draws, in each of its shadow roots: its own, the
-  // toolbar's segment in the pill, the areas, and the list in the pill's window. The page around it does not move.
   const stopMotion = [shadow, options.toolbar?.getRootNode(), options.areas].filter((node): node is ShadowRoot => node instanceof ShadowRoot).map(node => installMotion(node))
 
   const page = ref(normalizeCommentPage(location.pathname))
-  /** The server decides the subject of a page. Without its answer, it is the page itself. */
   const subject = shallowRef<CommentSubject>(session?.subject ?? { kind: "page", id: page.value })
-  /** The version of the subject that `/session` gave with it. New threads send it, so they start on the version shown. */
   let revision = session?.revision
-  /**
-   * After a navigation, until the server names the subject of the new page. The overlay then shows no threads and
-   * starts no comment, so a draft is not lost when the subject changes.
-   */
   const resolving = ref(false)
-  /** Whether comment mode was on when the navigation started, so it comes back once the subject is known. */
   const paused = ref(false)
-  /** Counts the navigations, so only the answer for the latest one applies. */
   let navigations = 0
   const search = ref(location.search)
   const toast = shallowRef<Toast>()
-  /** A key for each toast, so a new toast is a new item of the notifications list. */
   const toastKeys = new WeakMap<Toast, number>()
   let toastCount = 0
   const toastKey = (value: Toast) => {
@@ -319,15 +294,12 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const marks = ref(0)
   const markTip = ref<MarkerTip>("marker")
   const markColor = ref<MarkerColor>("pink")
-  /** Strokes that stay on the page while their comment is written, and that comment. */
   let ink: { session: MarkerSession, draft: unknown } | undefined
   const pictures = new WeakMap<CommentAnchor, { files: Promise<File[]>, sent: boolean }>()
   const hover = shallowRef<Element>()
   const drafted = ref(new Set<string>())
   const naming = ref(false)
-  /** The action to resume after a first-time guest gives their name. */
   const namedMode = ref<"comment" | "mark" | "page">("comment")
-  /** The text a first-time guest selected before the name card took the focus, so the comment starts on it after. */
   let namedQuote: Range | undefined
   const guest = ref(readGuest())
   const tick = ref(0)
@@ -335,13 +307,10 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const panelStatus = ref<CommentStatus>("open")
   const panelThread = ref<string | null>(null)
   const selected = shallowRef<Selected>()
-  /** Counts the DOM changes of the page, so the highlights find their text again after one. */
   const pageChanges = ref(0)
-  /** The eye of the pill. Writing or opening a comment does not change it. */
   const hidden = ref(readVisibility() === "hidden")
   let room: RealtimeRoom | undefined
   let noticeRoom: RealtimeRoom | undefined
-  // Counts the joins, so a join whose Realtime client loads after a newer join or `destroy()` drops itself.
   let joins = 0
   let pageWindow: ReturnType<ViteHubPageToolContext["createWindow"]> | undefined
   let toastTimer: ReturnType<typeof setTimeout> | undefined
@@ -355,19 +324,15 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   }
   const failed = (error: CommentsApiError) => showToast({ text: error.fix ? `${error.why} ${error.fix}` : error.why, kind: "error" })
 
-  /** The server-identified person. */
   const account = (): CommentUser | undefined => session?.user ?? undefined
-  /** `false` when the app shows its own presence: no faces in the toolbar and no cursors on the page. */
   const showPresence = session?.presence !== false
   const me = computed<CommentUser | undefined>(() => account() ?? (guest.value ? { id: `guest:${guest.value.id}`, name: guest.value.name, guest: true } : undefined))
-  /** What this person may do on the current page. The answer of `/session` for each new page replaces it. */
   const pageCan = shallowRef(session?.can)
   const pageAgent = shallowRef(session?.agent)
   const pageRepository = shallowRef(session?.repository)
   const canComment = computed(() => Boolean(pageCan.value?.comment))
   const canAttach = computed(() => canComment.value && session?.attachments !== false)
   const needsName = computed(() => canComment.value && !me.value)
-  /** Only people who may comment get the eye, so a reader always sees every comment. */
   const visibility = computed<CommentVisibility>({
     get: () => hidden.value && canComment.value ? "hidden" : "all",
     set: (value) => {
@@ -376,24 +341,16 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     },
   })
 
-  /**
-   * What this person may do in a thread, for the parts' controls. Each thread from the API carries `can` for its own
-   * policy check, and the session's answer stands in until it does. The server checks every change again.
-   */
   const can: CommentCan = (action, { thread, message }) => {
     const user = me.value
     if (!user || needsName.value) return false
-    // A comment that waits in this browser's outbox is this person's, also a guest's, until it reaches the server.
     if (message?.delivery && (action === "edit" || action === "delete")) return true
     const allowed = (thread as RestCommentThread).can ?? { comment: canComment.value, resolve: Boolean(pageCan.value?.resolve), delete: Boolean(pageCan.value?.delete) }
     if (action === "reply") return thread.status === "open" && allowed.comment
     if (action === "resolve") return allowed.resolve
-    // A guest id proves nothing, so a guest owns no message.
     const own = (entry: CommentMessage) => !user.guest && !entry.author.guest && entry.author.id === user.id
     if (!message || pageCan.value?.change === false) return false
     if (action === "edit") return own(message)
-    // People delete their own messages, and a thread when every message in it is theirs. Moderators, with `delete`,
-    // delete anyone's.
     const owns = thread.messages[0]?.id === message.id ? thread.messages.every(own) : own(message)
     return owns ? allowed.comment : allowed.delete === true && !user.guest
   }
@@ -406,10 +363,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     },
     onChange: () => room?.setLocal("commentsChange", crypto.randomUUID()),
   })
-  /**
-   * A client for the person who writes. Its outbox shows a comment at once and sends it in the background, so it keeps
-   * the comments of that person only: a guest who gives a name gets a new client.
-   */
   function createClient(user: CommentUser | undefined) {
     const namespace = overlayOutboxNamespace()
     const next = createCommentsClient({
@@ -423,7 +376,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       user,
       ...(user ? { outbox: { account: user.id, namespace } } : {}),
     })
-    // The outbox may send a saved copy later, so a new thread takes the page context and the version shown at Send.
     const create = next.create
     next.create = (input) => {
       const shown = input.revision ?? revision
@@ -510,7 +462,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const threads = deliveredOpenThreads.value
     return panelStatus.value === "open" && threads.length ? promptActions(threads, { label: "Copy open", action: "copy-open-prompt" }) : []
   }
-  /** How a comment that has not reached the server is doing, with Retry when the server refused it. */
   const delivery = ({ delivery: { status, error }, retry }: CommentStatusSlotScope): VNode[] => {
     const failed = status === "failed"
     const held = error?.status === 401 || error?.status === 402
@@ -534,8 +485,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
 
   function setMode(next: Mode) {
     if (next !== "mark") stopMarking()
-    // While the new page loads, the last choice wins: any mode but comment ends the paused comment mode. Edit and view
-    // need no subject, so they apply now.
     if (resolving.value) paused.value = next === "comment" && canComment.value
     if (resolving.value && next !== "edit" && next !== "view") return
     if (next === "mark") {
@@ -580,7 +529,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     hover.value = undefined
   }
   const mode = computed<Mode>(() => marking.value ? "mark" : editing.value ? "edit" : state?.active.value ? "comment" : "view")
-  /** Whether comment mode is on, waiting for a guest name, or paused until the new page is known. */
   const commentOn = computed(() => mode.value === "comment" || (resolving.value && paused.value) || (naming.value && namedMode.value !== "mark"))
 
   function startMarking() {
@@ -604,14 +552,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     ink?.session.remove()
     ink = undefined
   }
-  /**
-   * Done: a new comment on the area the strokes cover, as in Drop, and a screenshot of the screen with the strokes on
-   * it. The box opens at once and the strokes stay on the page while it is written. The screenshot reads the page as
-   * it is at Done and draws the strokes from their points, and the comment sends with it once it is taken.
-   */
   function finishMarking() {
     const session = marker
-    // A label being typed goes down as it is.
     session?.commit()
     const strokes = session?.strokes() ?? []
     const box = markerBox(strokes)
@@ -630,9 +572,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       }
       else state.startDraft("page")
     }
-    catch {
-      // The area is outside the page.
-    }
+    catch {}
     const draft = state.draft.value
     if (!draft || draft === before) {
       session.remove()
@@ -649,11 +589,9 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     })
   }
 
-  // The Realtime client, with Yjs, is a chunk of its own: only a site with presence loads it, after the threads.
   async function joinRoom(reconnect = false) {
     if (!session?.realtime || !host.isConnected || context?.signal.aborted || (room && !reconnect)) return
     const join = ++joins
-    // Presence is extra: when its chunk does not load, the comments still work without it.
     const realtime = await import("@vite-hub/realtime/client").catch(() => undefined)
     if (!realtime || join !== joins || !host.isConnected || context?.signal.aborted) return
     room?.destroy()
@@ -716,7 +654,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     namedMode.value = "comment"
     const quote = namedQuote
     namedQuote = undefined
-    // A first name gives the guest an account, so the overlay starts again on its client before the action resumes.
     await nextTick()
     if (quote?.startContainer.isConnected) {
       const selection = getSelection()
@@ -733,7 +670,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     location.reload()
   }
 
-  /** Why this person cannot comment, with **Sign in with GitHub** when the site offers it. */
   function denied(current: CommentsSession) {
     const signIn = current.signIn
     const hosted = signIn?.provider === "console"
@@ -756,7 +692,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     else showToast({ text: "Comments are only for the site's team. Sign in with an account that may comment.", kind: "error", action: ["Close", options.exit] }, true)
   }
 
-  /** The text that the reader selected on the page, when they may comment on it. */
   function pageSelection(): Range | undefined {
     const selection = getSelection()
     if (!canComment.value || editing.value || resolving.value || !selection || selection.isCollapsed || selection.rangeCount === 0 || !selection.toString().trim()) return
@@ -766,21 +701,14 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     if (!element?.isConnected || ignored(element) || element.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])")) return
     return range.cloneRange()
   }
-  /**
-   * The text under the bar. The bar comments on it, not on the live selection: on a phone, a tap on the bar can clear the
-   * selection before the click.
-   */
   let barRange: Range | undefined
-  /** Whether a press on the bar is in progress, so the selection change that it causes keeps the bar. */
   let pressingBar = false
-  /** Shows or moves the bar over the selected text. */
   function trackSelection() {
     if (pressingBar) return
     barRange = state?.draft.value ? undefined : pageSelection()
     const rect = barRange?.getBoundingClientRect()
     selected.value = rect && (rect.width || rect.height) ? { left: rect.left + rect.width / 2, top: rect.top, bottom: rect.bottom } : undefined
   }
-  /** Starts a comment on the selected text, as Drop does: the composer opens at the end of the quote. */
   function commentOnSelection(range = pageSelection()): boolean {
     pressingBar = false
     if (!range) return false
@@ -804,10 +732,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     return true
   }
 
-  /**
-   * Colors the commented text with the CSS Custom Highlight API, so the page's DOM stays as it is: open threads, resolved
-   * ones when they show, and the thread that is open, hovered, or being written, darker.
-   */
   const highlights = typeof CSS !== "undefined" && "highlights" in CSS && typeof Highlight === "function"
   function paintHighlights() {
     if (!highlights) return
@@ -815,7 +739,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const active = new Set([state.openId.value, state.hoverId.value].filter(Boolean))
     const threads = state.threads.value.filter(thread => state.isShown(thread.id))
     for (const thread of threads) {
-      // Hidden comments lose their highlight too, as their pins.
       if (thread.anchor.kind !== "text" || !state.isShown(thread.id)) continue
       const range = anchorRange(thread.anchor)
       if (range) groups[active.has(thread.id) ? "active" : thread.status === "resolved" ? "resolved" : "open"].push(range)
@@ -867,15 +790,11 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         autoStart: Boolean(session?.can.read),
         visibility,
       })
-      // Page styles read the mode class at once, as the toolbar button changes it.
       watch(mode, value => options.onMode(value), { immediate: true, flush: "sync" })
-      // Presence starts once the page's threads are listed, as on each new page.
       watch(() => state.status.value, (status) => {
         if (status === "ready" && !room) void joinRoom()
       })
       watch(() => state.counts.value.open, () => tick.value++)
-      // Each cursor moves to its next place with the list mover of the motion layer. It reads the places after each
-      // render, for the next one.
       let cursorList: { element: HTMLElement; motion: MotionList } | undefined
       const moveCursors = () => {
         const element = cursorLayer.value
@@ -892,25 +811,19 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       onUpdated(moveCursors)
       onBeforeUnmount(() => cursorList?.motion.destroy())
       if (session?.send) watch(() => state.threads.value, () => void send.value?.refresh().catch(() => undefined))
-      // The list's Open and Resolved switch also shows resolved pins, as Show resolved did.
       watch(panelStatus, (status) => {
         state.filters.resolved = status === "resolved"
       })
       watch(() => state.filters.resolved, (resolved) => {
         if (resolved) panelStatus.value = "resolved"
       })
-      // A new comment keeps the hints of the overlay's anchors, such as the Content field and a fallback point, and
-      // the page context: the element, its Vue components, and the browser.
       watch(() => state.draft.value, (draft) => {
         if (!draft || draft.anchor.kind === "page") return
         const target = document.elementsFromPoint(draft.point.x, draft.point.y).find(element => !ignored(element) && element !== document.documentElement)
         if (!target) return
         if (draft.anchor.kind === "element") draft.anchor = createAnchor(target, draft.point.x, draft.point.y)
-        // The state sends the raw anchor, so the context is kept by it, not by its reactive proxy.
         contexts.set(toRaw(draft.anchor), captureContext(target))
       }, { flush: "sync" })
-      // A range follows its text when the page scrolls. A change to the page's DOM can replace the text, so the ranges
-      // are found again then.
       watch([pageChanges, state.pageThreads, state.openId, state.hoverId, () => state.draft.value?.anchor, state.shown], paintHighlights, { flush: "post" })
       watch(() => state.draft.value, trackSelection)
       watch(() => state.draft.value, (draft) => {
@@ -926,9 +839,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
           nodes.push(options.areas ? h(Teleport, { to: options.areas }, areas()) : h("div", { class: "areas" }, areas()))
           const bar = selected.value
           if (bar && !state.draft.value) {
-            // Near the top of the screen there is no room above. On a touch screen the system's own menu takes that place,
-            // and the selection handles hang under the text, so the bar goes above only when its 38px do not fit below.
-            // Above the text on a touch screen, it leaves 64px for the system's menu, which on Android is about 48px tall and 8px above the text.
             const touch = matchMedia("(pointer: coarse)").matches
             const under = bar.bottom + (touch ? 20 : 8)
             const below = bar.top < (touch ? 102 : 56) || (touch && under <= innerHeight - 46)
@@ -937,11 +847,9 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
               class: "selection",
               "data-below": below ? "true" : undefined,
               style: { left: `${Math.min(Math.max(64, bar.left), innerWidth - 64)}px`, top: `${top}px` },
-              // A press here must not take the selection away from the page, nor hide the bar before the click.
               onPointerdown: (event: PointerEvent) => {
                 event.preventDefault()
                 pressingBar = true
-                // The click comes right after the release. A press that ends without one lets the bar follow the page again.
                 addEventListener("pointerup", () => setTimeout(() => {
                   if (!pressingBar) return
                   pressingBar = false
@@ -961,7 +869,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
               "onUpdate:status": (value: CommentStatus) => (panelStatus.value = value),
               title: page.value,
               queueFiles: canAttach.value,
-              // The thread opens in the list. Its spot on the page comes into view.
               onSelect: (thread: { id: string }) => {
                 const position = state.positions.value.get(thread.id)
                 if (position && !position.detached) position.element?.scrollIntoView({ block: "center", behavior: "smooth" })
@@ -969,10 +876,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
             }, { status: delivery, actions: threadActions, "list-actions": listActions })))
           }
         }
-        // The toolbar stays while the subject of a new page loads, so its buttons do not jump.
         if (pageCan.value?.read && options.toolbar) nodes.push(h(Teleport, { to: options.toolbar }, toolbar()))
         if (naming.value) nodes.push(h(NameCard))
-        // The toast is the item of a notifications region, so the toast effect of the motion layer moves it in and out.
         const current = toast.value
         nodes.push(h("section", { role: "region", "aria-label": "Comments notifications" }, h("ol", { class: "toasts" }, current
           ? [h("li", { class: "toast", role: "status", "data-kind": current.kind, key: toastKey(current) }, [
@@ -991,9 +896,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     marker?.restyle()
   }
 
-  /** While the person highlights: the tips, the colors, Undo, Cancel, and Done, as Drop's Marker controls. */
   function markerToolbar(): VNode {
-    // A press on a color keeps the focus in the label being typed, so the color goes to that label.
     const keepFocus = (event: MouseEvent) => event.preventDefault()
     return h("div", { class: "toolbar", role: "group", "aria-label": "Highlight" }, [
       h("div", { class: "swatches" }, (Object.keys(markerTips) as MarkerTip[]).map(tip => h("button", {
@@ -1026,7 +929,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     ])
   }
 
-  /** Starts a comment on the whole page, as Drop's **Whole page**. Its box opens near the top. */
   function commentOnPage() {
     if (!canComment.value || resolving.value) return
     if (needsName.value) {
@@ -1039,12 +941,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     state.startDraft("page")
   }
 
-  /**
-   * Drop's Comments segment: one **Comments** button with the open count, and the eye that hides the comments beside it.
-   * For people who may comment it turns comment mode on (C) and says **Click anywhere**. For people who may only read, it
-   * opens the list. **Copy prompt** follows while threads are open. The tools that people use less, **Whole page** and
-   * **All comments** in comment mode, **Highlight**, and **Edit**, wait behind **+**, as in Drop's own bar.
-   */
   function toolbar(): VNode {
     void tick.value
     if (marking.value) return markerToolbar()
@@ -1128,16 +1024,11 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     ])
   }
 
-  /**
-   * The areas that threads point at, and the one being written, as `comment-mark-area` of
-   * `@vite-hub/ui/comment-marks.css`: the open or hovered one is active, and resolved ones are dashed.
-   */
   function areas(): VNode[] {
     const nodes: VNode[] = []
     const box = (key: string, kind: CommentAnchor["kind"], marks: { status?: string, active?: boolean, draft?: boolean }) => {
       const position = state.positions.value.get(key)
       if (!position || position.detached || position.clipped || (kind !== "area" && kind !== "image") || !position.width || !position.height) return
-      // While comments are hidden, only the ones that still show, and for a moment the ones that stop showing.
       const leaving = key !== "draft" && state.leaving.value.has(key)
       if (key !== "draft" && !leaving && !state.isShown(key)) return
       nodes.push(h("div", {
@@ -1197,7 +1088,6 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     return nodes
   }
 
-  // A new client is a new comments state, so the overlay mounts again for each person who writes.
   const app = createApp({ render: () => h(Overlay, { key: me.value?.id ?? "" }) })
   registerStandaloneUI(app)
   app.mount(root)
@@ -1211,17 +1101,12 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     if (toast.value === retryToast) toast.value = undefined
     retryToast = undefined
   }
-  /**
-   * Asks `/session` for the subject and the permissions of a new page. Until it answers, comments stay paused. A failed
-   * answer keeps them paused, because the subject is not known, and offers Retry.
-   */
   function resolvePage(next: string) {
     const current = ++navigations
     void api.session(next).then(async ([error, answer]) => {
       if (current !== navigations || page.value !== next) return
       if (error) {
         retryToast = { text: `${error.why} Comments are paused on this page.`, kind: "error", action: ["Retry", () => {
-          // The Retry of a page that the person left must not cancel the request for the page they are on now.
           if (page.value === next) resolvePage(next)
         }] }
         showToast(retryToast, true)
@@ -1234,25 +1119,46 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       revision = answer.revision
       const mapped = answer.subject ?? { kind: "page", id: next }
       if (mapped.kind !== subject.value.kind || mapped.id !== subject.value.id) subject.value = mapped
-      // The same subject lists no threads again, so the new page joins its room here.
       else if (!room && state.status.value === "ready") void joinRoom()
-      // A new subject cancels the draft of the old one. Comment mode turns a selected text into a draft, so it waits.
       await nextTick()
       if (current !== navigations) return
       resolving.value = false
       const resume = paused.value
       paused.value = false
-      // Through setMode, so comment mode ends edit mode, and a guest without a name gets the name card first.
       if (resume) setMode("comment")
     })
   }
 
-  const hasUnsentComment = () => [shadow, panelTarget.value?.getRootNode()].some(node =>
-    node instanceof ShadowRoot && node.querySelector("[data-slot='comment-composer'][data-dirty='true']") !== null)
+  const composerRoots = () => [shadow, panelTarget.value?.getRootNode()].filter(node => node instanceof ShadowRoot)
+  const hasUnsentComment = () => composerRoots().some(root => root.querySelector("[data-slot='comment-composer'][data-dirty='true']") !== null)
+  const hasPendingComment = () => hasUnsentComment() || Boolean(client.value.outbox?.entries.length)
+  let finishHandoff: (() => void) | undefined
+  let pendingHandoff: Promise<void> | undefined
+  const waitForPendingComment = () => {
+    if (pendingHandoff || !hasPendingComment()) return pendingHandoff
+    showToast({ text: "Send or discard your Hosted Comments draft to switch to the app's Comments.", kind: "info" })
+    pendingHandoff = new Promise<void>((resolve) => {
+      const check = () => {
+        if (!hasPendingComment()) finishHandoff?.()
+      }
+      const observer = new MutationObserver(check)
+      const unsubscribe = client.value.onChange(check)
+      finishHandoff = () => {
+        observer.disconnect()
+        unsubscribe()
+        finishHandoff = undefined
+        pendingHandoff = undefined
+        resolve()
+      }
+      for (const root of composerRoots()) observer.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-dirty"] })
+    })
+    return pendingHandoff
+  }
 
   return {
     app,
     hasUnsentComment,
+    waitForPendingComment,
     showPanel,
     setMode,
     finishEdit: edit.finish,
@@ -1261,10 +1167,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         search.value = location.search
         return
       }
-      // Routers may already have swapped the page. Keep the previous comments and draft until the person agrees.
       if (hasUnsentComment()) {
         if (!window.confirm("Discard your unsent comment and show comments for the new page?")) return
-        // The new page can have the same subject, which keeps the state's draft. The person said to discard it.
         state.cancelDraft()
       }
       naming.value = false
@@ -1277,12 +1181,10 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       if (marking.value) setMode("view")
       dropInk()
       clearRetry()
-      // Comment mode pauses until the subject is known: in it, Enter on an element starts a comment.
       paused.value = paused.value || state.active.value
       state.active.value = false
       resolving.value = true
       resolvePage(next)
-      // The state lists the threads of the new page. The page then joins its room.
       leaveRoom()
     },
     refresh,
@@ -1317,23 +1219,19 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         setMode("view")
         return
       }
-      // B with the marker in hand turns Highlight off, below. With another tip in hand it takes the marker.
       if (marking.value && !(event.key === "b" && markTip.value === "marker")) {
         const tip = tipOfKey(event)
         if (tip) pickTip(tip)
         else if (event.key === "Escape") setMode("view")
         else if (event.key === "Enter") finishMarking()
         else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") marker?.undo()
-        // The ink stays where it was drawn, so the keys do not scroll the page either.
         else if (![" ", "PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown"].includes(event.key)) return
         event.preventDefault()
         return
       }
       if (isTyping(event) || event.metaKey || event.ctrlKey || event.altKey) return
-      // The key acts here only. Without preventDefault it would also type into the name box that comment mode opens.
       if (event.key === "c" && canComment.value) {
         event.preventDefault()
-        // With text selected, C comments on it and leaves the mode as it is, like Drop's selection bar.
         if (!commentOnSelection()) setMode(commentOn.value ? "view" : "comment")
       }
       if (event.key === "b" && canAttach.value) {
@@ -1346,6 +1244,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       }
     },
     destroy() {
+      finishHandoff?.()
       stopMarking()
       dropInk()
       clearHighlights()

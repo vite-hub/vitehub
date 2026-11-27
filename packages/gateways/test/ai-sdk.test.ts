@@ -1,7 +1,7 @@
 import { generateText, streamText } from "ai"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { anthropic, chatgpt, cloudflare, cloudflareAccess, defineAiGateway, ollama, openai, openrouter, typesafe, vercel } from "../src/index.ts"
+import { anthropic, chatgpt, cloudflare, cloudflareAccess, deepseek, defineAiGateway, ollama, openai, openrouter, typesafe, vercel, zai } from "../src/index.ts"
 import { languageModel } from "../src/ai-sdk.ts"
 
 import type { AiGatewayContext } from "../src/types.ts"
@@ -94,11 +94,33 @@ describe("languageModel()", () => {
     await expect(generateText({ model: languageModel(openai({ apiKey: "oa-key" }), "gpt-5", { api: "responses", fetch }), prompt: "Hello" })).resolves.toMatchObject({ text: "Hi" })
     const codexOnly = defineAiGateway({ apiKey: "proxy-key", baseURL: { codex: "https://proxy.example/v1" }, name: "internal" })
     await generateText({ model: languageModel(codexOnly, "gpt-5", { fetch }), prompt: "Hello" })
+    await generateText({ model: languageModel(vercel({ apiKey: "vercel-key" }), "gpt-5", { api: "responses", fetch }), prompt: "Hello" })
 
     expect(sent(fetch, 0)).toMatchObject({ url: "https://api.openai.com/v1/responses" })
     expect(sent(fetch, 0).headers.get("authorization")).toBe("Bearer oa-key")
     expect(sent(fetch, 1)).toMatchObject({ url: "https://proxy.example/v1/responses" })
     expect(sent(fetch, 1).headers.get("authorization")).toBe("Bearer proxy-key")
+    expect(sent(fetch, 2).url).toBe("https://ai-gateway.vercel.sh/v1/responses")
+  })
+
+  it.each([
+    { options: {}, root: "https://api.z.ai/api", chatPath: "/paas/v4" },
+    { options: { region: "china", codingPlan: true } as const, root: "https://open.bigmodel.cn/api", chatPath: "/coding/paas/v4" },
+  ])("uses separate Z.ai URLs for Responses and Chat Completions ($root)", async ({ options, root, chatPath }) => {
+    const gateway = zai({ ...options, apiKey: "zai-key" })
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementationOnce(async () => openaiResponse()).mockImplementationOnce(async () => chatCompletion())
+    await generateText({ model: languageModel(gateway, "glm-5", { api: "responses", fetch }), prompt: "Hello" })
+    await generateText({ model: languageModel(gateway, "glm-5", { fetch }), prompt: "Hello" })
+
+    expect(sent(fetch, 0).url).toBe(`${root}/v1/responses`)
+    expect(sent(fetch, 1).url).toBe(`${root}${chatPath}/chat/completions`)
+  })
+
+  it("calls DeepSeek Responses at its API root", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => openaiResponse())
+    await generateText({ model: languageModel(deepseek({ apiKey: "deepseek-key" }), "deepseek-v4-pro", { api: "responses", fetch }), prompt: "Hello" })
+
+    expect(sent(fetch).url).toBe("https://api.deepseek.com/responses")
   })
 
   it.each(["openai-compatible", "codex"] as const)("keeps the gateway x-api-key authoritative for Responses through %s", async (route) => {

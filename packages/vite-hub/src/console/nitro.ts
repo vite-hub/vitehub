@@ -53,7 +53,9 @@ function isConsoleRouteGuard(value: unknown): boolean {
 /**
  * Add the Console route of the app: lazy handlers under `<base>/_vitehub`. The ViteHub Console and the CLI `POST` signed
  * calls to `/_vitehub/rpc`. A browser that opens `/_vitehub` or `/_vitehub/<page>` goes to the page of the app with the
- * pill, or, in an app without Comments, to that page of the app in the ViteHub Console. See `server/site-entry.ts`.
+ * pill. In an app without Comments, `hostedComments` adds the Hosted Comments pill of the ViteHub Console to the pages,
+ * and the browser goes back to the page with it. Without either, the browser goes to that page of the app in the ViteHub
+ * Console. See `server/site-entry.ts`.
  * `/_vitehub/site` takes the tokens of the Console: impersonation and Content preview in every app, and with
  * `siteAccess`, in an app with Comments, Site access. See `server/site.ts`.
  */
@@ -61,15 +63,17 @@ export function addConsoleRpcHandler(
   nitro: { handlers?: Array<{ handler: string; route?: string }>; modules?: unknown[]; plugins?: string[]; routes?: Record<string, unknown> },
   consoleRuntimeRoot: string,
   base?: string,
-  options: { siteAccess?: boolean } = {},
+  options: { siteAccess?: boolean, hostedComments?: boolean } = {},
 ): void {
   const kit = createNitroServerKit(nitro)
   // SAFETY: The Console adds Nitro handlers with a string handler and an optional route.
   const handlers = kit.config.handlers as NitroHandler[]
   const consoleEntry = join(consoleRuntimeRoot, "server/entry.js")
   const siteAccessEntry = join(consoleRuntimeRoot, "server/entry-site-access.js")
-  const entries = [consoleEntry, siteAccessEntry]
-  const handler = options.siteAccess ? siteAccessEntry : consoleEntry
+  const hostedCommentsEntry = join(consoleRuntimeRoot, "server/entry-hosted-comments.js")
+  const entries = [consoleEntry, siteAccessEntry, hostedCommentsEntry]
+  const hostedComments = !options.siteAccess && options.hostedComments === true
+  const handler = options.siteAccess ? siteAccessEntry : hostedComments ? hostedCommentsEntry : consoleEntry
   const suffixes = ["/_vitehub/**", "/_vitehub", "/_vitehub/rpc", "/_vitehub/site"]
   const retainedHandlers = handlers.filter(candidate => !entries.includes(candidate.handler) || !suffixes.some(suffix => candidate.route?.endsWith(suffix)))
   handlers.splice(0, handlers.length, ...retainedHandlers)
@@ -86,7 +90,9 @@ export function addConsoleRpcHandler(
   }
   for (const route of routes) kit.addHandler({ handler, lazy: true, meta: { ...consoleRouteMeta }, route }, "end")
   const operationLoader = join(consoleRuntimeRoot, "operation-loader.js")
-  nitro.plugins = [...new Set([...nitro.plugins ?? [], operationLoader])]
+  const hostedCommentsLoader = join(consoleRuntimeRoot, "hosted-comments-loader.js")
+  const plugins = (nitro.plugins ?? []).filter(plugin => plugin !== hostedCommentsLoader)
+  nitro.plugins = [...new Set([...hostedComments ? [hostedCommentsLoader] : [], ...plugins, operationLoader])]
 
   // SAFETY: The kit preserves the caller's Nitro handler array while adding the Console routes.
   nitro.handlers = kit.config.handlers as Array<{ handler: string; route?: string }>

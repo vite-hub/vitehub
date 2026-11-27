@@ -3,6 +3,7 @@ import { createHash } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import { createServer } from "node:http"
 import { test } from "node:test"
+import { hostedCommentsLoader } from "@vite-hub/internal/runtime/page-tools-shared"
 import { fileURLToPath } from "node:url"
 import { chromium } from "playwright-core"
 import { createServer as createViteServer } from "vite"
@@ -12,10 +13,17 @@ const sitePort = Number(process.env.COMMENTS_HOSTED_SITE_PORT ?? 4799)
 const consoleOrigin = `http://127.0.0.1:${consolePort}`
 const siteOrigin = `http://localhost:${sitePort}`
 const hosted = new URL("../../dist/hosted/", import.meta.url)
+const appOverlay = new URL("../../dist/overlay/", import.meta.url)
+const appAssets = "/_vitehub/comments/assets/"
+const pageToolsLoader = "/_vitehub/page/assets/loader.js"
 const harness = fileURLToPath(new URL("../harness.ts", import.meta.url))
 const handlerFile = fileURLToPath(new URL("../../src/runtime/handler.ts", import.meta.url))
-const projects = { "p-1": siteOrigin, "p-2": "http://localhost:1", "p-3": siteOrigin }
-const signInLanding = { "p-3": "/app/" }
+const projects = { "p-1": siteOrigin, "p-2": "http://localhost:1", "p-3": siteOrigin, "p-4": siteOrigin, "p-5": siteOrigin }
+const signInLanding = { "p-3": "/app/", "p-4": "/linked/", "p-5": "/linked/" }
+const consoleKey = "k".repeat(43)
+const secondKey = "t".repeat(43)
+const staleKey = "x".repeat(43)
+const projectKeys = { [consoleKey]: { id: "p-4", team: "First team" }, [secondKey]: { id: "p-5", team: "Second team" } }
 const token = "token-1"
 
 const sitePage = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Guide</title></head><body>
@@ -30,6 +38,56 @@ const vueRouterHashHistoryPage = `<!doctype html><html lang="en"><head><meta cha
 <main><h1>App</h1><p>Each route lives in the fragment.</p></main>
 <script type="module" src="${consoleOrigin}/hosted-comments.js" data-vitehub-comments="p-3"></script>
 </body></html>`
+
+const startAppComments = `import start from "${appAssets}overlay.js"
+const pill = document.createElement("vitehub-pill")
+const bar = document.createElement("vitehub-tool")
+bar.slot = "comments"
+pill.append(bar)
+document.documentElement.append(pill)
+start({
+  tool: { id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "${appAssets}overlay.js" },
+  bar,
+  signal: new AbortController().signal,
+  open: false,
+  exit() {},
+  onOpen() {},
+  beforeExit() {},
+  openTool: async () => false,
+  createWindow() { throw new Error("Unexpected window") },
+})`
+
+const appCommentsPage = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>App</title></head><body>
+<main><h1>App</h1><p>The app runs its own Comments.</p></main>
+<script type="module">${startAppComments}</script>
+<script type="module" src="${consoleOrigin}/hosted-comments.js" data-vitehub-comments="p-1"></script>
+</body></html>`
+
+const appCommentsLaterPage = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>App</title></head><body>
+<main><h1>App</h1><p>The app starts its own Comments later.</p></main>
+<script type="module" src="${consoleOrigin}/hosted-comments.js" data-vitehub-comments="p-1"></script>
+</body></html>`
+
+const lazyAppCommentsPage = appCommentsLaterPage.replace("</body>", `<script type="module" src="${pageToolsLoader}"></script></body>`)
+
+async function appComments(req, res) {
+  const url = new URL(req.url, siteOrigin)
+  if (url.pathname.startsWith(appAssets)) {
+    const file = await readFile(new URL(url.pathname.slice(appAssets.length), appOverlay)).catch(() => undefined)
+    return file ? send(res, 200, { "content-type": "text/javascript; charset=utf-8" }, file) : send(res, 404, {}, "")
+  }
+  if (url.pathname === "/_vitehub/comments/session") {
+    if (url.searchParams.get("page") === "/app-comments-lazy") {
+      return send(res, 200, { "content-type": "application/json" }, JSON.stringify({ data: { user: null, can: { read: false, comment: false, resolve: false }, realtime: false, content: false, signIn: { provider: "github", url: "/sign-in" } }, people: [] }))
+    }
+    return send(res, 200, { "content-type": "application/json" }, JSON.stringify({ data: { user: { id: "u1", name: "Maxi" }, can: { read: true, comment: true, resolve: true }, realtime: false, content: false }, people: [] }))
+  }
+  return send(res, 200, { "content-type": "application/json" }, JSON.stringify({ data: [], people: [] }))
+}
+
+const linkedPage = (base, keys) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Recipe</title>
+</head><body><main><h1>Recipe</h1><p>Black garlic aioli.</p></main>${hostedCommentsLoader(consoleOrigin, keys, base)}</body></html>`
+const linkedCsp = `default-src 'none'; script-src ${consoleOrigin} 'sha256-QN3vOPFNF4N34TjoyRt7mEGXSq1o76L7o2kIzzmWCUA='; frame-src ${consoleOrigin}; connect-src ${consoleOrigin}; style-src 'unsafe-inline'`
 
 const base64url = value => createHash("sha256").update(value).digest("base64url")
 
@@ -49,7 +107,7 @@ async function fakeConsole() {
   const [{ createComments }, { createCommentsHandler }] = await Promise.all([vite.ssrLoadModule(harness), vite.ssrLoadModule(handlerFile)])
   const comments = await createComments()
   const handler = createCommentsHandler({ comments, realtime: false, session: async () => ({ id: "u1", name: "Maxi" }) })
-  const seen = { challenges: [], codes: new Map(), api: [] }
+  const seen = { challenges: [], codes: new Map(), api: [], projects: [] }
   const hold = { threads: undefined }
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, consoleOrigin)
@@ -59,6 +117,16 @@ async function fakeConsole() {
       if (!file) return send(res, 404, {}, "")
       return send(res, 200, { "content-type": "text/javascript; charset=utf-8", "access-control-allow-origin": "*", "cross-origin-resource-policy": "cross-origin" }, file)
     }
+    if (url.pathname === "/comments/project") {
+      const keys = url.searchParams.getAll("key")
+      const base = url.searchParams.get("base")
+      seen.projects.push({ keys, base, origin: req.headers.origin, cookie: req.headers.cookie })
+      const matches = keys.map(key => projectKeys[key]).filter(entry => entry && projects[entry.id] === req.headers.origin && base === "/linked")
+      const headers = { "content-type": "application/json", ...req.headers.origin ? { "access-control-allow-origin": req.headers.origin } : {} }
+      if (!matches.length) return send(res, 404, headers, JSON.stringify({ error: "No project." }))
+      return send(res, 200, headers, JSON.stringify({ projects: matches }))
+    }
+    if (url.pathname === "/open") return send(res, 200, { "content-type": "text/plain" }, "Console project")
     const route = /^\/comments\/([^/]+)\/(embed|authorize|redeem|api\/.*)$/.exec(url.pathname)
     const project = route && projects[route[1]]
     if (!project) return send(res, 404, {}, "")
@@ -74,7 +142,10 @@ async function fakeConsole() {
       const challenge = url.searchParams.get("challenge")
       const code = `code-${seen.challenges.push(challenge)}`
       seen.codes.set(code, challenge)
-      return send(res, 302, { location: `${project}${signInLanding[route[1]] ?? "/guide/"}#vhc=${code}` }, "")
+      const target = new URL(signInLanding[route[1]] ?? "/guide/", project)
+      if (url.searchParams.has("linked")) target.searchParams.set("vhp", route[1])
+      target.hash = `vhc=${code}`
+      return send(res, 302, { location: target.href }, "")
     }
     if (route[2] === "redeem") {
       const input = JSON.parse((await body(req)).toString())
@@ -96,7 +167,16 @@ async function fakeConsole() {
 }
 
 async function fakeSite() {
-  const server = createServer((req, res) => send(res, 200, { "content-type": "text/html; charset=utf-8" }, req.url.startsWith("/app/") ? vueRouterHashHistoryPage : sitePage))
+  const pages = { "/app/": vueRouterHashHistoryPage, "/app-comments/": appCommentsPage, "/app-comments-later/": appCommentsLaterPage, "/app-comments-lazy/": lazyAppCommentsPage }
+  const server = createServer(async (req, res) => {
+    if (req.url === pageToolsLoader) return send(res, 200, { "content-type": "text/javascript; charset=utf-8" }, await readFile(new URL("../../dist/page/loader.js", import.meta.url)))
+    if (req.url.startsWith("/_vitehub/page/tools?")) return send(res, 200, { "content-type": "application/json" }, JSON.stringify({ tools: [{ id: "comments", label: "Comments", script: `${appAssets}overlay.js`, lazy: true }] }))
+    if (req.url.startsWith("/_vitehub/comments/")) return void appComments(req, res)
+    const base = req.url.startsWith("/linked/") ? "/linked" : req.url.startsWith("/stale/") ? "/stale" : ""
+    const headers = { "content-type": "text/html; charset=utf-8", ...(base ? { "content-security-policy": linkedCsp } : {}) }
+    const page = base ? linkedPage(base, base === "/linked" ? [consoleKey, secondKey] : [staleKey]) : Object.entries(pages).find(([path]) => req.url.startsWith(path))?.[1] ?? sitePage
+    send(res, 200, headers, page)
+  })
   await new Promise(resolve => server.listen(sitePort, "localhost", resolve))
   return server
 }
@@ -117,7 +197,7 @@ test("hosted Comments sign in through a new tab and comment through the Console 
 
   await page.goto(`${siteOrigin}/guide/?vitehub`)
   await page.getByRole("button", { name: "Comments", exact: true, disabled: false }).click({ timeout: 20_000 })
-  const signIn = page.locator("vitehub-comments a", { hasText: "Sign in to ViteHub" })
+  const signIn = page.locator("vitehub-hosted-comments a", { hasText: "Sign in to ViteHub" })
   await signIn.waitFor({ timeout: 20_000 })
   assert.equal(await signIn.getAttribute("target"), "_blank")
   assert.equal(await signIn.getAttribute("rel"), "noopener noreferrer")
@@ -142,16 +222,16 @@ test("hosted Comments sign in through a new tab and comment through the Console 
   })
 
   await t.test("the signed-in person comments on selected text, with the token only in the frame", async () => {
-    await page.locator("vitehub-comments [data-slot='comment-layer']").waitFor({ state: "attached", timeout: 20_000 })
+    await page.locator("vitehub-hosted-comments [data-slot='comment-layer']").waitFor({ state: "attached", timeout: 20_000 })
     const box = await page.locator("#first").boundingBox()
     await page.mouse.move(box.x + 2, box.y + 10)
     await page.mouse.down()
     await page.mouse.move(box.x + 120, box.y + 10, { steps: 10 })
     await page.mouse.up()
-    const bar = page.locator("vitehub-comments [data-slot='comment-selection-bar']")
+    const bar = page.locator("vitehub-hosted-comments [data-slot='comment-selection-bar']")
     await bar.waitFor({ timeout: 10_000 })
     await bar.getByRole("button", { name: /Comment/ }).click()
-    const composer = page.locator("vitehub-comments textarea[aria-label='Comment']")
+    const composer = page.locator("vitehub-hosted-comments textarea[aria-label='Comment']")
     await composer.waitFor({ timeout: 5000 })
     await composer.fill("Say which airport")
     let release
@@ -207,15 +287,15 @@ test("hosted Comments sign in through a new tab and comment through the Console 
 
   await t.test("the person replies and resolves through the frame, and may not edit or delete", async () => {
     await page.keyboard.press("Escape")
-    await page.locator("vitehub-comments [data-slot='comment-pin']").first().click()
-    const reply = page.locator("vitehub-comments textarea[aria-label='Reply']")
+    await page.locator("vitehub-hosted-comments [data-slot='comment-pin']").first().click()
+    const reply = page.locator("vitehub-hosted-comments textarea[aria-label='Reply']")
     await reply.waitFor({ timeout: 5000 })
-    assert.equal(await page.locator("vitehub-comments").getByRole("button", { name: "Edit" }).count(), 0)
-    assert.equal(await page.locator("vitehub-comments").getByRole("button", { name: "Delete" }).count(), 0)
+    assert.equal(await page.locator("vitehub-hosted-comments").getByRole("button", { name: "Edit" }).count(), 0)
+    assert.equal(await page.locator("vitehub-hosted-comments").getByRole("button", { name: "Delete" }).count(), 0)
     await reply.fill("Terminal 2")
     await reply.press("Enter")
-    await page.locator("vitehub-comments").getByText("Terminal 2").waitFor({ timeout: 5000 })
-    await page.locator("vitehub-comments").getByRole("button", { name: "Resolve" }).click()
+    await page.locator("vitehub-hosted-comments").getByText("Terminal 2").waitFor({ timeout: 5000 })
+    await page.locator("vitehub-hosted-comments").getByRole("button", { name: "Resolve" }).click()
     let thread
     for (let attempt = 0; attempt < 50 && thread?.status !== "resolved"; attempt++) {
       await new Promise(resolve => setTimeout(resolve, 100));
@@ -257,12 +337,127 @@ test("hosted Comments sign in on a site whose router rewrites the fragment first
 
   await page.goto(`${siteOrigin}/app/?vitehub`)
   await page.getByRole("button", { name: "Comments", exact: true, disabled: false }).click({ timeout: 20_000 })
-  const signIn = page.locator("vitehub-comments a", { hasText: "Sign in to ViteHub" })
+  const signIn = page.locator("vitehub-hosted-comments a", { hasText: "Sign in to ViteHub" })
   await signIn.waitFor({ timeout: 20_000 })
   const [callback] = await Promise.all([context.waitForEvent("page"), signIn.click()])
   await callback.waitForEvent("close", { timeout: 20_000 })
   assert.equal(api.seen.codes.size, 0, "the code was redeemed once")
   assert.equal(new URL(page.url()).hash, "#/", "the first tab keeps its route")
   assert.equal(await page.locator("vitehub-hosted-comments-pill").count(), 1)
+  assert.deepEqual(errors, [])
+})
+
+async function openSite(t, path) {
+  const api = await fakeConsole()
+  t.after(() => Promise.all([close(api.server), api.vite.close()]))
+  const site = await fakeSite()
+  t.after(() => close(site))
+  const browser = await chromium.launch()
+  t.after(() => browser.close())
+  const page = await browser.newPage({ viewport: { width: 1024, height: 720 } })
+  const errors = []
+  const warnings = []
+  page.on("pageerror", error => errors.push(error.message))
+  page.on("console", message => message.type() === "warning" && warnings.push(message.text()))
+  await page.goto(`${siteOrigin}${path}?vitehub`)
+  return { page, errors, warnings, api }
+}
+
+const appToolbar = page => page.locator("vitehub-pill").getByTitle("Comment on the page (C)")
+
+async function conflictWarned(warnings) {
+  for (let tries = 0; !warnings.some(text => text.includes("COMMENTS_HOSTED_CONFLICT")) && tries < 100; tries++) await new Promise(resolve => setTimeout(resolve, 100))
+  return warnings.filter(text => text.includes("COMMENTS_HOSTED_CONFLICT"))
+}
+
+test("hosted Comments stay off on a page that already runs the app's own Comments", { timeout: 120_000 }, async (t) => {
+  const { page, errors, warnings } = await openSite(t, "/app-comments/")
+  await appToolbar(page).waitFor({ timeout: 20_000 })
+  assert.equal((await conflictWarned(warnings)).length, 1)
+  assert.equal(await page.locator("vitehub-hosted-comments-pill").count(), 0)
+  assert.equal(await page.locator("vitehub-hosted-comments").count(), 0)
+  assert.equal(await page.locator("vitehub-comments").count(), 1)
+  assert.deepEqual(warnings.filter(text => text.includes("COMMENTS_OVERLAY_ELEMENT_TAKEN")), [])
+  assert.deepEqual(errors, [])
+})
+
+test("hosted Comments stop when the app starts its own Comments after them", { timeout: 120_000 }, async (t) => {
+  const { page, errors, warnings } = await openSite(t, "/app-comments-later/")
+  await page.locator("vitehub-hosted-comments-pill").getByRole("button", { name: "Comments", exact: true, disabled: false }).waitFor({ timeout: 20_000 })
+  await page.addScriptTag({ type: "module", content: startAppComments })
+  await appToolbar(page).waitFor({ timeout: 20_000 })
+  assert.equal((await conflictWarned(warnings)).length, 1)
+  await page.locator("vitehub-hosted-comments-pill").waitFor({ state: "detached", timeout: 5000 })
+  assert.equal(await page.locator("vitehub-hosted-comments").count(), 0)
+  assert.equal(await page.locator("vitehub-comments").count(), 1)
+  assert.deepEqual(warnings.filter(text => text.includes("COMMENTS_OVERLAY_ELEMENT_TAKEN")), [])
+  assert.deepEqual(errors, [])
+})
+
+test("lazy app sign-in waits for an unsent Hosted Comments draft", { timeout: 120_000 }, async (t) => {
+  const { page, errors, warnings, api } = await openSite(t, "/app-comments-lazy/")
+  const hostedPill = page.locator("vitehub-hosted-comments-pill")
+  const hostedOverlay = page.locator("vitehub-hosted-comments")
+  await hostedPill.getByRole("button", { name: "Comments", exact: true, disabled: false }).click({ timeout: 20_000 })
+  const [callback] = await Promise.all([page.context().waitForEvent("page"), hostedOverlay.getByRole("link", { name: "Sign in to ViteHub" }).click()])
+  await callback.waitForEvent("close", { timeout: 20_000 })
+  await hostedPill.getByTitle("Comment on the page (C)").click({ timeout: 20_000 })
+  await hostedPill.getByTitle("Comment on the whole page").click()
+  const composer = hostedOverlay.getByRole("textbox", { name: "Comment", exact: true })
+  await composer.fill("Keep this hosted draft")
+
+  await page.locator("vitehub-pill").getByRole("button", { name: "Comments", exact: true }).press("Enter")
+  await hostedOverlay.getByText("Send or discard your Hosted Comments draft", { exact: false }).waitFor({ timeout: 5000 })
+  assert.equal(await page.locator("vitehub-comments").count(), 0)
+  assert.equal(await composer.inputValue(), "Keep this hosted draft")
+  await composer.press("Enter")
+
+  await page.locator("vitehub-comments").getByRole("link", { name: "Sign in with GitHub" }).waitFor({ timeout: 20_000 })
+  await hostedPill.waitFor({ state: "detached", timeout: 5000 })
+  assert.equal((await conflictWarned(warnings)).length, 1)
+  for (let tries = 0; (await api.threads()).length === 0 && tries < 100; tries++) await new Promise(resolve => setTimeout(resolve, 100))
+  assert.equal((await api.threads())[0]?.messages[0]?.body, "Keep this hosted draft")
+  assert.deepEqual(errors, [])
+})
+
+test("the Hosted Comments pill of a ViteHub app finds its project from the Console keys of the page", { timeout: 120_000 }, async (t) => {
+  const api = await fakeConsole()
+  t.after(() => Promise.all([close(api.server), api.vite.close()]))
+  const site = await fakeSite()
+  t.after(() => close(site))
+  const browser = await chromium.launch()
+  t.after(() => browser.close())
+  const context = await browser.newContext({ viewport: { width: 1024, height: 720 } })
+  const page = await context.newPage()
+  const errors = []
+  page.on("pageerror", error => errors.push(error.message))
+
+  await page.goto(`${siteOrigin}/linked/`)
+  await page.waitForLoadState("networkidle")
+  assert.deepEqual(api.seen.projects, [], "a page without a hint asks the Console nothing")
+  assert.equal(await page.locator("vitehub-hosted-comments-pill").count(), 0)
+
+  await page.goto(`${siteOrigin}/linked/?vitehub`)
+  await page.getByRole("combobox", { name: "Choose a team for Comments" }).selectOption({ label: "Second team" }, { timeout: 20_000 })
+  await page.getByRole("button", { name: "Comments", exact: true, disabled: false }).click({ timeout: 20_000 })
+  assert.deepEqual(api.seen.projects, [{ keys: [consoleKey, secondKey], base: "/linked", origin: siteOrigin, cookie: undefined }])
+  const signIn = page.locator("vitehub-hosted-comments a", { hasText: "Sign in to ViteHub" })
+  await signIn.waitFor({ timeout: 20_000 })
+  assert.equal(new URL(await signIn.getAttribute("href")).pathname, "/comments/p-5/authorize")
+  const [callback] = await Promise.all([context.waitForEvent("page"), signIn.click()])
+  await callback.waitForEvent("close", { timeout: 20_000 })
+  assert.equal(api.seen.codes.size, 0, "the sign-in tab on the linked page redeemed the code")
+  await page.getByTitle("Comment on the page (C)").waitFor({ timeout: 20_000 })
+
+  await page.goto(`${siteOrigin}/linked/other`)
+  const consoleLink = page.getByRole("link", { name: "Console", exact: true })
+  await consoleLink.click({ timeout: 20_000 })
+  assert.equal(new URL(page.url()).searchParams.get("app"), "p-5")
+  assert.equal(new URL(page.url()).searchParams.get("project"), `${siteOrigin}/linked`)
+
+  await page.goto(`${siteOrigin}/stale/?vitehub`)
+  await consoleLink.click({ timeout: 20_000 })
+  assert.equal(new URL(page.url()).searchParams.get("app"), null)
+  assert.equal(new URL(page.url()).searchParams.get("project"), `${siteOrigin}/stale`)
   assert.deepEqual(errors, [])
 })
