@@ -1,5 +1,5 @@
 import { aiGatewayHarnessRoute, aiGatewayHarnessRoutes } from "@vite-hub/gateways"
-import { isChatGPTGateway, normalizeAiGateway, resolveAiGatewayRoute } from "@vite-hub/gateways/internal"
+import { aiGatewaySupports, isChatGPTGateway, normalizeAiGateway, resolveAiGatewayRoute } from "@vite-hub/gateways/internal"
 import { mkdir, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { resolveChatGPTGateway } from "./chatgpt-gateway.ts"
@@ -79,7 +79,11 @@ export function assertAgentDriverGatewaySupports(gateway: AiGatewayDefinition | 
   }
   const route = aiGatewayHarnessRoute(gateway, driver)
   if (!route) {
-    const keys = aiGatewayHarnessRoutes[driver].map(key => `baseURL["${key}"]`).join(" or ")
+    const routeKeys = aiGatewayHarnessRoutes[driver]
+    if (routeKeys.some(key => aiGatewaySupports(gateway, key))) {
+      throw agentDiagnostics.AGENT_R0976({ message: `[vitehub] Gateway "${gateway.name}" serves AI SDK models only, so it does not serve the ${driver} Driver. Choose a gateway that serves the Driver.` })
+    }
+    const keys = routeKeys.map(key => `baseURL["${key}"]`).join(" or ")
     throw agentDiagnostics.AGENT_R0976({ message: `[vitehub] Gateway "${gateway.name}" does not serve the ${driver} Driver. Set ${keys} or choose another gateway.` })
   }
   return route
