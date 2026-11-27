@@ -105,9 +105,12 @@ describe.skipIf(!url)("one Agent process host across servers on a Postgres serve
     const [lease] = await sql.unsafe(`SELECT owner FROM vitehub_leases WHERE key = '${agentProcessHostLeaseKey(agent)}'`)
     expect(lease).toMatchObject({ owner: holder!.name })
 
-    standbys[0]!.process.send({ deliver: "delivery-1" })
-    expect(await standbys[0]!.next(line => line.delivered === "delivery-1")).toMatchObject({ status: 202 })
-    await holder!.next(line => line.handled === "delivery-1")
+    const deliveries = standbys.map((standby, index) => ({ standby, id: `first-${index}` }))
+    for (const { standby, id } of deliveries) standby.process.send({ deliver: id })
+    for (const { standby, id } of deliveries) {
+      expect(await standby.next(line => line.delivered === id)).toMatchObject({ status: 202 })
+      await holder!.next(line => line.handled === id)
+    }
 
     holder!.process.kill("SIGKILL")
     const killedAt = Date.now()

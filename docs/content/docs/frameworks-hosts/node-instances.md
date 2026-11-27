@@ -135,7 +135,7 @@ After you turn on Database, generate the first migration with
 | Schedule | A lease in the `vitehub_leases` table lets one instance run an occurrence at a time. Keep handlers idempotent in case a lease expires. | None |
 | Workflow | OpenWorkflow in the `openworkflow` schema. Each server with discovered Workflows or Agents starts a worker | `OPENWORKFLOW_POSTGRES_URL` comes before the Database |
 | Realtime | Each instance keeps its rooms in memory and shares them through Redis pub/sub with `REDIS_URL`, else Postgres `LISTEN`/`NOTIFY` | `REDIS_URL`, `REALTIME_POSTGRES_URL` |
-| Agent State | The `vitehub_agent_state_*` tables. Chat History, locks, the Chat queue, and queued webhook deliveries expire on the database clock | `VITEHUB_AGENT_STATE_URL` selects libSQL instead |
+| Agent State | The `vitehub_agent_state_*` tables. Chat History, locks, the Chat queue, and queued webhook deliveries expire on the database clock | `VITEHUB_AGENT_STATE_URL` selects libSQL. An explicit State URL or non-`auto` driver overrides the default. Setting `dataDir` supplies a local `agent-state.sqlite` unless you configure another State store. |
 | Blob | Not shared by default. Use `driver: 's3'` or another [S3-compatible driver](/docs/blob/hosts#s3-compatible-object-storage) | The driver's credentials |
 
 Queue, Realtime, and Workflow do not use `DATABASE_URL` to select Postgres.

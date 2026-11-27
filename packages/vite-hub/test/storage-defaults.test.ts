@@ -326,11 +326,15 @@ describe("Default Agent State on a Node Postgres Database", () => {
     ["development", node, "serve", postgres],
     ["no Database", { host: "node", agent: true }, "build", postgres],
     ["an explicit state URL", { ...node, agent: { providers: { state: { driver: "libsql", url: "libsql://state.example.com" } } } }, "build", postgres],
+    ["a data directory", { ...node, dataDir: "persistent" }, "build", postgres],
+    ["an explicit libSQL driver without a URL", { ...node, agent: { providers: { state: { driver: "libsql" } } } }, "build", postgres],
+    ["an explicit SQLite driver without a URL", { ...node, agent: { providers: { state: { driver: "sqlite" } } } }, "build", postgres],
     ["another host", { ...node, host: "vercel" }, "build", postgres],
   ] satisfies Array<[string, ViteHubOptions, "build" | "serve", Record<string, string>]>)("keeps libSQL Agent State with %s", async (_, options, command, files) => {
-    const { durability, route } = await generatedStatePlugin(options, command, files)
+    const { durability, info, route } = await generatedStatePlugin(options, command, files)
     expect(stateRow(durability)).toMatchObject({ input: { provider: "libsql" } })
     expect(route).not.toContain("createDatabaseAgentState")
+    expect(info.join("\n")).not.toContain("Agent State: the Postgres")
   })
 })
 

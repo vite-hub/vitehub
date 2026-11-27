@@ -766,6 +766,7 @@ function resolveLibsqlAgentState(
 
 async function postgresAgentStateDatabase(options: false | ResolvedAgentModuleOptions, config: ResolvedConfig): Promise<string | undefined> {
   if (!options || options.runtime === "deno" || config.command !== "build") return
+  if (options.providers.state.driver !== "auto") return
   const state = resolveLibsqlAgentState(options, config)
   if (!state?.durableUrlRequired || state.ephemeralHosting) return
   const owner = config.plugins.find((plugin): plugin is DBVitePlugin => plugin.name === "@vite-hub/database/vite")

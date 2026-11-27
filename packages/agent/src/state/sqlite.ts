@@ -48,6 +48,10 @@ export interface AgentStateSqlDialect {
   readonly time: string
   /** Reads the string `field` of the JSON text in `column`. */
   json(column: string, field: string): string
+  serializeWebhook(delivery: AgentWebhookQueueDelivery): string
+  webhookPayload(value: string): string
+  encodeWebhookKey(value: string): string
+  decodeWebhookKey(value: string): string
   /** Keeps only the journal identity of a completed webhook delivery. */
   readonly supersededValue: string
   /** Matches the keys of Chat user transcript lists. */
@@ -309,6 +313,10 @@ export const sqliteAgentStateDialect: AgentStateSqlDialect = {
   now: DB_NOW,
   time: `MIN(${DB_NOW} + ?, ${Number.MAX_SAFE_INTEGER})`,
   json: (column, field) => `json_extract(${column}, '$.${field}')`,
+  serializeWebhook: delivery => JSON.stringify(delivery),
+  webhookPayload: value => value,
+  encodeWebhookKey: value => value,
+  decodeWebhookKey: value => value,
   supersededValue: `CASE WHEN json_extract(value, '$.channelDeliveryId') IS NULL THEN '{}'
   ELSE json_object('channelDeliveryId', json_extract(value, '$.channelDeliveryId')) END`,
   transcriptKeys: "key GLOB 'chat:*:transcripts:user:*' OR key GLOB 'transcripts:user:*'",
@@ -489,7 +497,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
         )
         if (claimed.length === 0 || typeof candidate.value !== "string") continue
         return {
-          ...parseAgentWebhookQueueDelivery(candidate.value),
+          ...this.parseWebhook(candidate.value),
           attempts: numberValue(candidate.attempts) + (candidate.status === "running" || candidate.status === "steering" ? 1 : 0),
           leaseExpiresAt: hostNow + leaseTtlMs,
           leaseToken,
@@ -521,7 +529,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
             [
               delivery.scope,
               delivery.deliveryId,
-              JSON.stringify(delivery),
+              this.dialect.serializeWebhook(delivery),
               delivery.concurrencyGroup,
               delivery.concurrencyKey || null,
               delivery.concurrencyLimit,
@@ -562,7 +570,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
       const current = await this.sql(tx, `SELECT value FROM ${this.tables.webhookQueue}
         WHERE scope = ? AND delivery_id = ? AND status IN ('running', 'steering') AND lease_token = ?`, [scope, deliveryId, leaseToken])
       if (current.length === 0 || typeof current[0]?.value !== "string") return []
-      const delivery = parseAgentWebhookQueueDelivery(current[0].value)
+      const delivery = this.parseWebhook(current[0].value)
       if (!delivery.failure || delivery.failure.notificationStarted) return []
       delivery.failure.notificationStarted = true
       // Fence dispatch permanently, but retain the lease so finalization can
@@ -570,7 +578,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
       return await this.sql(tx, `UPDATE ${this.tables.webhookQueue}
         SET status = 'notifying', value = ?
         WHERE scope = ? AND delivery_id = ? AND status IN ('running', 'steering') AND lease_token = ?
-        RETURNING delivery_id`, [JSON.stringify(delivery), scope, deliveryId, leaseToken])
+        RETURNING delivery_id`, [this.dialect.serializeWebhook(delivery), scope, deliveryId, leaseToken])
     }))
     return claimed.length > 0
   }
@@ -582,12 +590,12 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
         const current = await this.sql(tx, `SELECT value FROM ${this.tables.webhookQueue}
           WHERE scope = ? AND delivery_id = ? AND status IN ('running', 'steering') AND lease_token = ?`, [scope, deliveryId, leaseToken])
         if (current.length === 0 || typeof current[0]?.value !== "string") return []
-        const delivery = parseAgentWebhookQueueDelivery(current[0].value)
+        const delivery = this.parseWebhook(current[0].value)
         delivery.failure = failure
         return await this.sql(tx, `UPDATE ${this.tables.webhookQueue}
           SET value = ?
           WHERE scope = ? AND delivery_id = ? AND status IN ('running', 'steering') AND lease_token = ?
-          RETURNING delivery_id`, [JSON.stringify(delivery), scope, deliveryId, leaseToken])
+          RETURNING delivery_id`, [this.dialect.serializeWebhook(delivery), scope, deliveryId, leaseToken])
       })
     })
     return marked.length > 0
@@ -665,7 +673,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
         WHERE scope = ? AND status = 'completed' AND ${this.dialect.json("value", "channelDeliveryId")} IS NOT NULL
         ORDER BY id ASC`, [scope])
     return rows.flatMap(row => typeof row.delivery_id === "string" && typeof row.channel_delivery_id === "string"
-      ? [{ channelDeliveryId: row.channel_delivery_id, deliveryId: row.delivery_id }]
+      ? [{ channelDeliveryId: this.dialect.decodeWebhookKey(row.channel_delivery_id), deliveryId: row.delivery_id }]
       : [])
   }
 
@@ -707,16 +715,16 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
           tx,
           `SELECT value FROM ${this.tables.webhookQueue}
             WHERE scope = ? AND status = 'queued' AND ${this.dialect.json("value", "debounceKey")} = ?`,
-          [scope, debounceKey],
+          [scope, this.dialect.encodeWebhookKey(debounceKey)],
         )
         await this.sql(
           tx,
           `UPDATE ${this.tables.webhookQueue}
             SET status = 'completed', value = ${this.dialect.supersededValue}, lease_token = NULL, lease_expires_at = NULL
             WHERE scope = ? AND status = 'queued' AND ${this.dialect.json("value", "debounceKey")} = ?`,
-          [scope, debounceKey],
+          [scope, this.dialect.encodeWebhookKey(debounceKey)],
         )
-        return cancelled.flatMap(row => typeof row.value === "string" ? [parseAgentWebhookQueueDelivery(row.value)] : [])
+        return cancelled.flatMap(row => typeof row.value === "string" ? [this.parseWebhook(row.value)] : [])
       })
     })
   }
@@ -733,7 +741,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
           SET status = 'completed', value = ${this.dialect.supersededValue}, lease_token = NULL, lease_expires_at = NULL
           WHERE scope = ? AND delivery_id != ? AND ${this.dialect.json("value", "debounceKey")} = ?
             AND (status = 'queued' OR (status IN ('running', 'steering', 'notifying') AND lease_expires_at <= ${this.dialect.now}))`,
-        [delivery.scope, delivery.deliveryId, debounceKey],
+        [delivery.scope, delivery.deliveryId, this.dialect.encodeWebhookKey(debounceKey)],
       )
     }
     const availableAt = delivery.availableAt ?? delivery.enqueuedAt
@@ -746,7 +754,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
       [
         delivery.scope,
         delivery.deliveryId,
-        JSON.stringify(delivery),
+        this.dialect.serializeWebhook(delivery),
         delivery.concurrencyGroup,
         delivery.concurrencyKey || null,
         delivery.concurrencyLimit,
@@ -976,7 +984,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
         ORDER BY id ASC`,
       [scope],
     )
-    return rows.flatMap((row) => (typeof row.value === "string" ? [parseAgentWebhookQueueDelivery(row.value)] : []))
+    return rows.flatMap((row) => (typeof row.value === "string" ? [this.parseWebhook(row.value)] : []))
   }
 
   async queuedWebhookDeliveries(scope: string): Promise<AgentWebhookQueueDelivery[]> {
@@ -988,7 +996,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
         ORDER BY id ASC`,
       [scope],
     )
-    return rows.flatMap((row) => (typeof row.value === "string" ? [parseAgentWebhookQueueDelivery(row.value)] : []))
+    return rows.flatMap((row) => (typeof row.value === "string" ? [this.parseWebhook(row.value)] : []))
   }
 
   async webhookDeliveryScopes(): Promise<string[]> {
@@ -1062,15 +1070,21 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
   }
 
   private async deleteExpiredRows(): Promise<void> {
-    await this.serialize(async () => {
-      await this.sql(this.driver, `DELETE FROM ${this.tables.locks} WHERE expires_at <= ${this.dialect.now}`)
-      await this.sql(this.driver, `DELETE FROM ${this.tables.cache} WHERE expires_at IS NOT NULL AND expires_at <= ${this.dialect.now}`)
-      await this.sql(this.driver, `DELETE FROM ${this.tables.queue} WHERE expires_at <= ${this.dialect.now}`)
-      await this.sql(this.driver, `DELETE FROM ${this.tables.lists} WHERE key IN (
+    const cleanup = async (tx: SqliteAgentStateExecutor) => {
+      await this.sql(tx, `DELETE FROM ${this.tables.locks} WHERE expires_at <= ${this.dialect.now}`)
+      await this.sql(tx, `DELETE FROM ${this.tables.cache} WHERE expires_at IS NOT NULL AND expires_at <= ${this.dialect.now}`)
+      await this.sql(tx, `DELETE FROM ${this.tables.queue} WHERE expires_at <= ${this.dialect.now}`)
+      await this.sql(tx, `DELETE FROM ${this.tables.lists} WHERE key IN (
         SELECT expired.key FROM ${this.tables.lists} AS expired WHERE expired.expires_at IS NOT NULL AND expired.expires_at <= ${this.dialect.now}
           AND expired.id = (SELECT MAX(id) FROM ${this.tables.lists} WHERE key = expired.key)
       )`)
-    })
+    }
+    if (this.dialect.name === "postgresql") await this.transaction(cleanup)
+    else await this.serialize(() => cleanup(this.driver))
+  }
+
+  private parseWebhook(value: string): AgentWebhookQueueDelivery {
+    return parseAgentWebhookQueueDelivery(this.dialect.webhookPayload(value))
   }
 
   /**

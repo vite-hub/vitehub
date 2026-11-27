@@ -72,6 +72,35 @@ describe("Postgres Agent State on PGlite", () => {
     rmSync(dataDir, { force: true, recursive: true })
   })
 
+  it("claims queued deliveries with opaque input and settles superseded deliveries", async () => {
+    const state = createPostgresAgentState({ client: pglite, tablePrefix: "opaque_" })
+    await state.connect()
+    const opaque = "null\0, literal \\u0000, and lone surrogate \ud800"
+    const superseded = { ...webhookDelivery("superseded", undefined, opaque), channelDeliveryId: opaque, invocation: { input: opaque } }
+    const affected = { ...superseded, deliveryId: "affected" }
+    const ordinary = webhookDelivery("ordinary")
+    for (const delivery of [superseded, affected, ordinary]) await expect(state.enqueueWebhookDelivery(delivery)).resolves.toBe(true)
+    await expect(state.claimWebhookDelivery(affected.scope)).resolves.toMatchObject({ deliveryId: "affected", invocation: { input: opaque } })
+    await expect(state.claimWebhookDelivery(affected.scope)).resolves.toMatchObject({ deliveryId: "ordinary" })
+    await expect(state.pendingWebhookDeliverySettlements(affected.scope)).resolves.toEqual([{ channelDeliveryId: opaque, deliveryId: "superseded" }])
+  })
+
+  it("opens a provisioned schema without schema CREATE privileges", async () => {
+    const provisioner = createPostgresAgentState({ client: pglite, tablePrefix: "provisioned_" })
+    await pglite.exec("CREATE SCHEMA provisioned; SET search_path TO provisioned; CREATE ROLE state_runtime")
+    try {
+      await provisioner.connect()
+      await pglite.exec("GRANT USAGE ON SCHEMA provisioned TO state_runtime; GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA provisioned TO state_runtime; SET ROLE state_runtime")
+      const state = createPostgresAgentState({ client: pglite, tablePrefix: "provisioned_" })
+      await state.connect()
+      await state.set("key", "value")
+      await expect(state.get("key")).resolves.toBe("value")
+    }
+    finally {
+      await pglite.exec("RESET ROLE; SET search_path TO public; DROP SCHEMA provisioned CASCADE; DROP ROLE state_runtime")
+    }
+  })
+
   describeAgentStateBehavior({
     name: "PGlite",
     fakeTimers: { toFake: ["Date"] },
@@ -207,6 +236,55 @@ describe.skipIf(!url)("Postgres Agent State on a Postgres server", () => {
       await expect(b.acquireLock("thread", 1_000)).resolves.toMatchObject({ threadId: "thread" })
 
       await Promise.all([a.disconnect(), b.disconnect()])
+    })
+
+    it("shares one concurrency limit across scopes with repeatable-read client defaults and mixed-case prefixes", async () => {
+      const schema = await freshSchema()
+      const first = await connection(schema, 1)
+      const second = await connection(schema, 1)
+      for (const sql of [first, second]) await sql.unsafe("SET default_transaction_isolation = 'repeatable read'")
+      const a = createPostgresAgentState({ client: first, tablePrefix: "Mixed_" })
+      const b = createPostgresAgentState({ client: second, tablePrefix: "mixed_" })
+      await Promise.all([a.connect(), b.connect()])
+      const delivery = { ...webhookDelivery("first", "shared"), concurrencyLimit: 1 }
+      await a.enqueueWebhookDelivery(delivery)
+      await b.enqueueWebhookDelivery({ ...delivery, deliveryId: "second", scope: "other" })
+      await expect(first.unsafe("SHOW default_transaction_isolation")).resolves.toMatchObject([{ default_transaction_isolation: "repeatable read" }])
+      const claims = await Promise.all([a.claimWebhookDelivery(delivery.scope), b.claimWebhookDelivery("other")])
+      expect(claims.filter(Boolean)).toHaveLength(1)
+    })
+
+    it("waits for an uncommitted list tail before cleaning up an expired list", async () => {
+      const schema = await freshSchema()
+      const writer = await connection(schema, 1)
+      const cleaner = await connection(schema, 1)
+      const a = createPostgresAgentState({ client: writer })
+      const b = createPostgresAgentState({ client: cleaner })
+      await Promise.all([a.connect(), b.connect()])
+      const [cleanerBackend] = await cleaner`SELECT pg_backend_pid() AS pid`
+      await writer`INSERT INTO vitehub_agent_state_lists (key, value, expires_at) VALUES ('list', '"old"', 0)`
+
+      const inserted = Promise.withResolvers<void>()
+      const release = Promise.withResolvers<void>()
+      const append = a.extension("test").transaction(async (tx) => {
+        await tx.execute(`INSERT INTO vitehub_agent_state_lists (key, value, expires_at) VALUES ('list', '"fresh"', NULL)`)
+        inserted.resolve()
+        await release.promise
+      })
+      await Promise.race([inserted.promise, append])
+      let finished = false
+      const cleanup = b.cleanupExpiredState().finally(() => { finished = true })
+      try {
+        await vi.waitFor(async () => {
+          const locks = await admin`SELECT 1 FROM pg_locks WHERE pid = ${cleanerBackend!.pid} AND locktype = 'advisory' AND NOT granted`
+          expect(finished || locks.length > 0).toBe(true)
+        }, { timeout: 5_000 })
+      }
+      finally {
+        release.resolve()
+        await Promise.all([append, cleanup])
+      }
+      await expect(b.getList("list")).resolves.toEqual(["old", "fresh"])
     })
   })
 })

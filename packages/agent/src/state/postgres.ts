@@ -47,7 +47,8 @@ async function rows(tx: SqliteAgentStateExecutor, statement: string): Promise<Sq
 
 async function migratePostgresTables({ tables, transaction }: Parameters<AgentStateSqlDialect["migrate"]>[0]): Promise<void> {
   await transaction(async (tx) => {
-    await rows(tx, `CREATE TABLE IF NOT EXISTS ${tables.schemaVersion} (version INTEGER PRIMARY KEY)`)
+    const [relation] = await rows(tx, `SELECT to_regclass('${tables.schemaVersion}') IS NOT NULL AS present`)
+    if (!relation?.present) await rows(tx, `CREATE TABLE IF NOT EXISTS ${tables.schemaVersion} (version INTEGER PRIMARY KEY)`)
     const [current] = await rows(tx, `SELECT COALESCE(MAX(version), 0) AS version FROM ${tables.schemaVersion}`)
     if (Number(current?.version ?? 0) >= 5) return
     for (const statement of postgresSchema(tables)) await rows(tx, statement)
@@ -97,6 +98,14 @@ const postgresAgentStateDialect: AgentStateSqlDialect = {
   now: DB_NOW,
   time: `LEAST(${DB_NOW} + CAST(LEAST(ROUND(CAST(? AS DOUBLE PRECISION)), ${MAX_TIME}) AS BIGINT), ${MAX_TIME})`,
   json: (column, field) => `(${column}::jsonb ->> '${field}')`,
+  serializeWebhook: delivery => JSON.stringify({
+    payload: JSON.stringify(delivery),
+    channelDeliveryId: JSON.stringify(delivery.channelDeliveryId),
+    debounceKey: JSON.stringify(delivery.debounceKey),
+  }),
+  webhookPayload: value => (JSON.parse(value) as { payload: string }).payload,
+  encodeWebhookKey: value => JSON.stringify(value),
+  decodeWebhookKey: value => JSON.parse(value) as string,
   supersededValue: `CASE WHEN (value::jsonb ->> 'channelDeliveryId') IS NULL THEN '{}'
   ELSE jsonb_build_object('channelDeliveryId', value::jsonb ->> 'channelDeliveryId')::text END`,
   transcriptKeys: "key LIKE 'chat:%:transcripts:user:%' OR key LIKE 'transcripts:user:%'",
@@ -113,6 +122,7 @@ function postgresDriver(client: () => AgentInvocationPostgresClient, tablePrefix
     connect: () => { client() },
     execute: async (statement, args) => await executor(client()).execute(statement, args),
     transaction: async run => await client().begin(async (sql) => {
+      await sql.unsafe("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
       await sql.unsafe("SELECT pg_advisory_xact_lock(hashtext($1))", [lockKey])
       return await run(executor(sql))
     }),
@@ -120,7 +130,7 @@ function postgresDriver(client: () => AgentInvocationPostgresClient, tablePrefix
 }
 
 function postgresAgentState(client: () => AgentInvocationPostgresClient, options: Omit<PostgresAgentStateOptions, "client">): ViteHubSqliteAgentStateAdapter {
-  const tablePrefix = options.tablePrefix ?? "vitehub_agent_state_"
+  const tablePrefix = (options.tablePrefix ?? "vitehub_agent_state_").replace(/[A-Z]/g, letter => letter.toLowerCase())
   if (tablePrefix.length > MAX_TABLE_PREFIX_LENGTH) {
     throw agentDiagnostics.AGENT_R0849({ message: `[vitehub] The Postgres Agent State tablePrefix "${tablePrefix}" is longer than ${MAX_TABLE_PREFIX_LENGTH} characters. Postgres cuts longer table and index names.` })
   }

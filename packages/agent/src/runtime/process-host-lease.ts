@@ -218,8 +218,12 @@ function createForwardedIntake(agentName: string, state: () => { extension(name:
   const parameter = (index: number) => postgres() ? `$${index}` : "?"
   async function open(): Promise<SqliteAgentStateExtension> {
     storage ??= state().extension("process_host")
-    ready ??= storage.execute(`CREATE TABLE IF NOT EXISTS ${table()} (agent TEXT NOT NULL, delivery_id TEXT NOT NULL, event TEXT NOT NULL,
-      payload TEXT NOT NULL, received_at ${postgres() ? "BIGINT" : "INTEGER"} NOT NULL, PRIMARY KEY (agent, delivery_id))`).then(() => undefined, (error: unknown) => {
+    const ddl = `CREATE TABLE IF NOT EXISTS ${table()} (agent TEXT NOT NULL, delivery_id TEXT NOT NULL, event TEXT NOT NULL,
+      payload TEXT NOT NULL, received_at ${postgres() ? "BIGINT" : "INTEGER"} NOT NULL, PRIMARY KEY (agent, delivery_id))`
+    ready ??= (postgres() ? storage.transaction(async (tx) => {
+      const [relation] = await tx.execute(`SELECT to_regclass($1) IS NOT NULL AS present`, [table()])
+      if (!relation?.present) await tx.execute(ddl)
+    }) : storage.execute(ddl)).then(() => undefined, (error: unknown) => {
       ready = undefined
       throw error
     })

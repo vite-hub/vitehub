@@ -857,6 +857,7 @@ describe("vitehub", () => {
     })
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith({
       kvImport: "vite-hub/kv",
+      postgresStateDatabase: true,
       processDiscordGateway: true,
       providerImportAliases: {
         "@vite-hub/kv/runtime/redis-driver": expect.stringMatching(/packages\/vite-hub\/(?:src|dist)\/internal\/disabled-redis-driver\.(?:ts|js)$/),
