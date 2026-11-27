@@ -11,7 +11,7 @@ import { access } from "./nuxt-primitives/access.ts"
 import { content } from "./nuxt-primitives/content.ts"
 import { jobs } from "./nuxt-primitives/jobs.ts"
 import { ops } from "./nuxt-primitives/ops.ts"
-import { ConfigSource, modes, type Mode, type PrimitiveRow, type Target } from "./nuxt-primitives/row.ts"
+import { ConfigSource, modes, withNitroReadiness, type Mode, type PrimitiveRow, type Target } from "./nuxt-primitives/row.ts"
 import { storage } from "./nuxt-primitives/storage.ts"
 import {
   availablePort,
@@ -226,9 +226,10 @@ describe("Nuxt primitives", () => {
       }
       const failures: string[] = []
       await serve(mode, port, async () => {
+        const probeFetch = withNitroReadiness(mode, (path, init) => fetch(`${origin}${path}`, { ...init, signal: AbortSignal.timeout(60_000) }))
         for (const row of active) {
           try {
-            await row.probe({ appDir, fetch: (path, init) => fetch(`${origin}${path}`, { ...init, signal: AbortSignal.timeout(60_000) }), mode, origin, target })
+            await row.probe({ appDir, fetch: probeFetch, mode, origin, target })
           }
           catch (error) {
             failures.push(`${row.id}: ${error instanceof Error ? error.message : String(error)}`)
