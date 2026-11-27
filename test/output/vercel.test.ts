@@ -10,6 +10,7 @@ import { buildHints, outputFileExists, providerEnabled, readOutputFile, repoRoot
 const SERVER_FUNC = "playground/vite/.vercel/output/functions/__server.func/index.mjs"
 const CONFIG = "playground/vite/.vercel/output/config.json"
 const SCHEDULE_FUNC = "playground/vite/.vercel/output/functions/api/vitehub/schedules/vercel/daily-marker.func/index.mjs"
+const WORKFLOW_MANIFEST = "playground/vite/.vercel/output/functions/.well-known/workflow/v1/manifest.json"
 
 const bundle = () => readOutputFile(SERVER_FUNC, buildHints.vercel)
 const config = () => JSON.parse(readOutputFile(CONFIG, buildHints.vercel))
@@ -35,6 +36,12 @@ describe.runIf(providerEnabled("vercel"))("vercel provider output", () => {
   it("emits the generated schedule function executing the static handler", () => {
     expect(outputFileExists(SCHEDULE_FUNC), `missing ${SCHEDULE_FUNC}`).toBe(true)
     expect(readOutputFile(SCHEDULE_FUNC, buildHints.vercel)).toContain("executeStaticSchedule")
+  })
+
+  it("registers the same welcome Workflow ID that the server starts", () => {
+    const workflowId = bundle().match(/workflow\/\/\.\/[^"\s]+\/\/ViteHubWelcome\w+WorkflowNative/)?.[0]
+    expect(workflowId).toBeDefined()
+    expect(readOutputFile(WORKFLOW_MANIFEST, buildHints.vercel)).toContain(JSON.stringify(workflowId))
   })
 
   it("server function imports cleanly offline", async () => {

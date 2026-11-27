@@ -735,7 +735,7 @@ export async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
 
   let workflowRegistryFile: string | undefined
   const workflowVercelNativeFiles = workflowDefinitions.length && resolveHostedProvider(options.hosting) === "vercel"
-    ? await writeVercelNativeWorkflowFiles(generatedDir, workflowDefinitions)
+    ? await writeVercelNativeWorkflowFiles(ensureGeneratedDir(options.rootDir, "workflow"), workflowDefinitions)
     : {}
   if (workflowDefinitions.length) {
     workflowRegistryFile = resolve(generatedDir, "workflow-registry.mjs")
