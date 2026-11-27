@@ -876,8 +876,8 @@ Outside comment mode, the pill shows **Copy prompt** when the page has open thre
 
 ```txt
 I left 2 comments on https://docs.acme.dev/pricing
-In the ViteHub Console, open app "Acme Docs" (docs.acme.dev) through the ViteHub MCP (https://console.vitehub.dev/mcp/account): find it with list_apps (id: prj_1, team team_1; if it is missing, ask me to switch team), then call read_operation with operation "comments.threads" and input {"page":"/pricing"}.
-Fix each comment, then resolve it with run_operation, operation "comments.resolve", and a reply that says what you changed.
+In the ViteHub Console, open app "Acme Docs" (docs.acme.dev) through the ViteHub MCP (https://console.vitehub.dev/mcp/account): find it with list_apps (id: prj_1, team team_1; if it is missing, ask me to switch team), then call read_operation with the app id, operation "comments.get", and input { threadId } for each ID in ["thr_1","thr_2"].
+Fix each comment, then resolve it with run_operation, the app id, operation "comments.resolve", and input { threadId, reply }. Say what you changed in the reply.
 ```
 
 The app name is the label of the app in the Console, else the name that the app reports. Without a name, the prompt uses the domain. Other people get the same full text as **Copy open**. Build the text with `commentsPagePrompt({ url, threads, agent })` from `@vite-hub/comments/client`.

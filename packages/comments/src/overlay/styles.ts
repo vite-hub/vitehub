@@ -168,12 +168,10 @@ button[aria-pressed="true"] .count, button[aria-expanded="true"] .count { displa
 /* The tips and the colors stay rows of square buttons, also when the pill docks to a side and stacks the other controls. */
 .swatches { display: flex; gap: 2px; }
 .swatch, .icon, .eye, .toggle { width: 28px; padding: 0; justify-content: center; }
-/* + turns into × while the tools behind it show, as in Drop. */
-.toggle .plus { transition: rotate 200ms cubic-bezier(.23, 1, .32, 1); }
+.eye[data-comments-hidden="true"] { background: var(--vitehub-pill-on); color: var(--vitehub-pill-on-text); }
 .toggle[aria-expanded="true"] .plus { rotate: 45deg; }
 /* Open, the toggle keeps a plain fill, so its × does not look like a second pill close button. */
 .toggle[aria-expanded="true"]:not(:hover) { background: none; color: inherit; }
-@media (prefers-reduced-motion: reduce) { .toggle .plus { transition: none; } }
 /* Both labels share one cell, so the button and the pill keep their width when Copy prompt turns to Copied. */
 .swap { display: inline-grid; justify-items: start; }
 .swap > span { grid-area: 1 / 1; display: inline-flex; align-items: center; gap: 4px; }

@@ -136,11 +136,12 @@ export function commentsPagePrompt(input: CommentsAgentPromptInput): string {
   const page = new URL(url)
   const count = threads.length === 1 ? "a comment" : `${threads.length} comments`
   const app = agent.project.name ? `"${agent.project.name}" (${new URL(agent.project.url).host})` : new URL(agent.project.url).host
+  const ids = threads.map(thread => thread.id)
   return [
     `I left ${count} on ${page.href}`,
-    `In the ViteHub Console, open app ${app} through the ViteHub MCP (${agent.mcp}): find it with list_apps (id: ${agent.project.id}, team ${agent.project.teamId}; if it is missing, ask me to switch team), then call read_operation with operation "comments.threads" and input ${JSON.stringify({ page: page.pathname })}.`,
+    `In the ViteHub Console, open app ${app} through the ViteHub MCP (${agent.mcp}): find it with list_apps (id: ${agent.project.id}, team ${agent.project.teamId}; if it is missing, ask me to switch team), then call read_operation with the app id, operation "comments.get", and input { threadId } for each ID in ${JSON.stringify(ids)}.`,
     agent.resolve
-      ? "Fix each comment, then resolve it with run_operation, operation \"comments.resolve\", and a reply that says what you changed."
+      ? "Fix each comment, then resolve it with run_operation, the app id, operation \"comments.resolve\", and input { threadId, reply }. Say what you changed in the reply."
       : "Fix each comment and tell me what you changed.",
   ].join("\n")
 }

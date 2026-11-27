@@ -473,13 +473,16 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const copied = await navigator.clipboard?.writeText(commentsAgentPrompt(promptInput(threads))).then(() => true, () => false)
     showToast(copied ? { text: "Prompt copied. Paste it in your agent.", kind: "info" } : { text: "Could not copy the prompt. Allow clipboard access and try again.", kind: "error" })
   }
-  /** `true` for 1.5 s after **Copy prompt** in the pill copied, while the button says Copied. */
+  const deliveredOpenThreads = computed(() => state.openThreads.value.filter(thread => !thread.delivery))
+  const canCopyPagePrompt = computed(() => !resolving.value && !commentOn.value && deliveredOpenThreads.value.length > 0)
   const pageCopied = ref(false)
   const moreOpen = ref(false)
   let pageCopiedTimer: ReturnType<typeof setTimeout> | undefined
   async function copyPagePrompt() {
-    const threads = state.openThreads.value.filter(thread => !thread.delivery)
-    const copied = await navigator.clipboard?.writeText(commentsPagePrompt(promptInput(threads))).then(() => true, () => false)
+    if (!canCopyPagePrompt.value) return
+    const navigation = navigations
+    const copied = await navigator.clipboard?.writeText(commentsPagePrompt(promptInput(deliveredOpenThreads.value))).then(() => true, () => false)
+    if (navigation !== navigations) return
     if (!copied) return showToast({ text: "Could not copy the prompt. Allow clipboard access and try again.", kind: "error" })
     pageCopied.value = true
     clearTimeout(pageCopiedTimer)
@@ -504,7 +507,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const threadActions = ({ thread }: { thread: CommentThread }): VNode[] =>
     thread.status === "open" && !thread.delivery ? promptActions([thread], { label: "Copy", action: "copy-prompt" }) : []
   const listActions = (): VNode[] => {
-    const threads = state.openThreads.value.filter(thread => !thread.delivery)
+    const threads = deliveredOpenThreads.value
     return panelStatus.value === "open" && threads.length ? promptActions(threads, { label: "Copy open", action: "copy-open-prompt" }) : []
   }
   /** How a comment that has not reached the server is doing, with Retry when the server refused it. */
@@ -1053,6 +1056,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const peopleLabel = `${people.length} other ${people.length === 1 ? "person" : "people"} on this page`
     const open = state.counts.value.open
     const commenting = commentOn.value
+    const commentsHidden = visibility.value === "hidden"
+    const visibilityLabel = commentsHidden ? "Show comments" : "Hide comments"
     const badge = (shown: boolean) => shown && open > 0 ? h(OpenCount, { value: open }) : null
     const togglePanel = () => (panelOpen.value ? pageWindow?.hide() : showPanel())
     const more = [
@@ -1079,20 +1084,19 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
               title: "Show comments",
               type: "button",
             }, [commentIcon(), "Comments", badge(true)]),
-        // Against Comments, the thing it hides. Pressed means hidden: the state that changes the page.
         canComment.value
           ? h("button", {
-              "aria-label": "Hide comments",
-              "aria-pressed": String(visibility.value === "hidden"),
+              "aria-label": visibilityLabel,
               class: "eye",
-              onClick: () => (visibility.value = visibility.value === "hidden" ? "all" : "hidden"),
-              title: visibility.value === "hidden" ? "Show comments" : "Hide comments",
+              "data-comments-hidden": String(commentsHidden),
+              onClick: () => (visibility.value = commentsHidden ? "all" : "hidden"),
+              title: visibilityLabel,
               type: "button",
-            }, visibility.value === "hidden" ? eyeOffIcon() : eyeIcon())
+            }, commentsHidden ? eyeOffIcon() : eyeIcon())
           : null,
       ]),
       send.value && canComment.value ? h(CommentSend, { client: send.value, key: `send:${page.value}` }) : null,
-      !commenting && open > 0
+      canCopyPagePrompt.value
         ? h("button", {
             "data-action": "copy-page-prompt",
             onClick: () => void copyPagePrompt(),
@@ -1266,6 +1270,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       naming.value = false
       namedQuote = undefined
       page.value = next
+      clearTimeout(pageCopiedTimer)
+      pageCopied.value = false
       search.value = location.search
       panelThread.value = null
       if (marking.value) setMode("view")
