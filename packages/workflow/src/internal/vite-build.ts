@@ -275,7 +275,7 @@ async function loadVercelWorkflowBuilders(): Promise<VercelWorkflowBuilders | un
 }
 
 /** Workflow and step IDs are source paths relative to `idRoot`, which is `rootDir` unless a copy of the sources must keep the IDs of another path. */
-export async function createVercelWorkflowTransformPlugin(rootDir: string, idRoot = rootDir, include: (id: string) => boolean = () => true): Promise<Rolldown.Plugin | undefined> {
+export async function createVercelWorkflowTransformPlugin(rootDir: string, idRoot = rootDir, include: (id: string) => boolean = () => true, mode: "step" | "workflow" = "step"): Promise<Rolldown.Plugin | undefined> {
   const builders = await loadVercelWorkflowBuilders()
   if (!builders) return undefined
   const workingDir = idRoot.replace(/\\/g, "/").replace(/\/$/, "")
@@ -288,7 +288,7 @@ export async function createVercelWorkflowTransformPlugin(rootDir: string, idRoo
       const file = id.replace(/\\/g, "/")
       const filename = relative(workingDir, file).replace(/\\/g, "/").split("/").filter(segment => segment !== "..").join("/")
       const code = source.replace(/require\(\s*(['"])(?:server|client)-only\1\s*\)/g, "void 0")
-      const result = await builders.applySwcTransform(filename, code, "step", id, rootDir)
+      const result = await builders.applySwcTransform(filename, code, mode, id, rootDir)
       return { code: result.code, moduleType: id.endsWith(".tsx") ? "tsx" : id.endsWith(".jsx") ? "jsx" : "js" }
     },
   }

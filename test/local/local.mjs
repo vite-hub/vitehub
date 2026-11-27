@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process"
 import { existsSync } from "node:fs"
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import { parseArgs } from "node:util"
 import { resolve } from "node:path"
 import { manageChild } from "./process.mjs"
@@ -88,6 +90,8 @@ async function runVercel() {
   }
   const databaseUrl = process.env.TURSO_DATABASE_URL || `file:${resolve(repoRoot, ".vitehub/local-e2e.db")}`
   const hasRemoteDatabase = !databaseUrl.startsWith("file:")
+  const url = `http://127.0.0.1:${VERCEL_PORT}`
+  const workflowDataDir = await mkdtemp(resolve(tmpdir(), "vitehub-vercel-workflow-"))
   const bridgeEnv = {
     VERCEL: "1",
     VERCEL_ENV: "development",
@@ -96,9 +100,11 @@ async function runVercel() {
     KV_REST_API_URL: process.env.KV_REST_API_URL || "https://localhost.invalid",
     TURSO_AUTH_TOKEN: process.env.TURSO_AUTH_TOKEN || "local-placeholder",
     TURSO_DATABASE_URL: databaseUrl,
+    WORKFLOW_LOCAL_BASE_URL: url,
+    WORKFLOW_LOCAL_DATA_DIR: workflowDataDir,
+    WORKFLOW_TARGET_WORLD: "local",
   }
   const hasUpstash = Boolean(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN)
-  const url = `http://127.0.0.1:${VERCEL_PORT}`
   log(`starting vercel function bridge on ${url}`)
   const bridge = spawn("node", [resolve(import.meta.dirname, "vercel-bridge-server.mjs"), "--output-dir", outputDir, "--port", String(VERCEL_PORT)], {
     detached: process.platform !== "win32",
@@ -129,6 +135,7 @@ async function runVercel() {
   }
   finally {
     await stop()
+    await rm(workflowDataDir, { recursive: true, force: true })
   }
 }
 

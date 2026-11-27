@@ -735,7 +735,7 @@ export async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
 
   let workflowRegistryFile: string | undefined
   const workflowVercelNativeFiles = workflowDefinitions.length && resolveHostedProvider(options.hosting) === "vercel"
-    ? await writeVercelNativeWorkflowFiles(generatedDir, workflowDefinitions)
+    ? await writeVercelNativeWorkflowFiles(ensureGeneratedDir(options.rootDir, "workflow"), workflowDefinitions)
     : {}
   if (workflowDefinitions.length) {
     workflowRegistryFile = resolve(generatedDir, "workflow-registry.mjs")
@@ -1393,7 +1393,7 @@ async function writeVercelOutput(options: ViteE2EComposerOptions, artifacts: Gen
   const nativeWorkflowFiles = Object.values(artifacts.workflowVercelNativeFiles)
   const nativeWorkflowIds = new Set(nativeWorkflowFiles.map(file => file.replaceAll("\\", "/")))
   const workflowTransformPlugin = nativeWorkflowIds.size
-    ? await createVercelWorkflowTransformPlugin(options.rootDir, options.rootDir, id => nativeWorkflowIds.has(id))
+    ? await createVercelWorkflowTransformPlugin(options.rootDir, options.rootDir, id => nativeWorkflowIds.has(id), "step")
     : undefined
 
   await writeFile(sourceEntry, renderVercelEntry(sourceEntry, options, artifacts), "utf8")

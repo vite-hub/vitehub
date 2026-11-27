@@ -7,9 +7,9 @@ async function loadFunction(outputDir, funcPath) {
   const entry = resolve(outputDir, "functions", funcPath, "index.mjs")
   if (!existsSync(entry)) throw new Error(`[e2e:local] Missing Vercel function entry: ${entry}`)
   const mod = await import(pathToFileURL(entry).href)
-  const handler = mod.default ?? mod.handler ?? mod.fetch
+  const handler = mod.default ?? mod.handler ?? mod.fetch ?? mod.POST
   if (typeof handler !== "function") {
-    throw new Error(`[e2e:local] Vercel function at ${entry} has no callable default/handler/fetch export.`)
+    throw new Error(`[e2e:local] Vercel function at ${entry} has no callable default/handler/fetch/POST export.`)
   }
   return handler
 }
@@ -41,6 +41,14 @@ export async function createVercelBridge({ outputDir, port, env = {} }) {
   Object.assign(process.env, env)
   const serverHandler = await loadFunction(outputDir, "__server.func")
   const functionRoutes = []
+  const workflowPath = "/.well-known/workflow/v1/flow"
+  const workflowFunc = `${workflowPath.slice(1)}.func`
+  if (existsSync(resolve(outputDir, "functions", workflowFunc, "index.mjs"))) {
+    functionRoutes.push({
+      load: () => loadFunction(outputDir, workflowFunc),
+      match: path => path === workflowPath,
+    })
+  }
   const scheduleFuncRoot = resolve(outputDir, "functions/api/vitehub/schedules")
   if (existsSync(scheduleFuncRoot)) {
     functionRoutes.push({
