@@ -11,7 +11,7 @@ navigation.kind: Concepts
 
 An agent harness is the software that runs an AI model as an agent. The model chooses the next step. The harness sends the context, runs the tools that the model asks for, asks a person for approval when needed, and keeps the session between turns.
 
-ViteHub is an open source agent harness for TypeScript, under the Apache-2.0 license on [GitHub](https://github.com/vite-hub/vitehub). You define an Agent in one file on your server. Its Driver selects who runs the loop: ViteHub with a model, or the Codex or Claude Code harness. ViteHub adds tools, files, a Sandbox, approvals, entry points, and a record of each run.
+ViteHub is an open source agent harness for TypeScript, under the Apache-2.0 license on [GitHub](https://github.com/vite-hub/vitehub). You define an Agent in one file on your server. Its Driver selects who runs the loop: ViteHub with a model, or a harness such as Codex, Claude Code, Gemini CLI, or OpenCode. ViteHub adds tools, files, a Sandbox, approvals, entry points, and a record of each run.
 
 ::agent-only
 Use this page to find the ViteHub API for each part of an agent harness. Read the linked page before you change that part.
@@ -101,10 +101,11 @@ An [Agent Driver](/docs/agents/agent-drivers) decides who runs the loop for one 
 | `{ model }` | ViteHub, with an AI SDK model | Answers, classification, extraction, structured output, and bounded tool use. |
 | `codexDriver()` | The Codex harness | Code changes, shell commands, and coding sessions over many turns. |
 | `claudeCodeDriver()` | Claude Code, through the Claude Agent SDK | Code changes, shell commands, and coding sessions over many turns. |
+| `geminiDriver()`, `opencodeDriver()`, `piDriver()`, and the other [harness Drivers](/docs/agents/agent-drivers#harness-drivers) | Gemini CLI, OpenCode, Pi, Cursor, Grok, Kimi CLI, or an ACP agent | Coding sessions in the harness that you already use, without ViteHub approvals. |
 | `{ run }` | Your function | Work that does not need a model loop. |
 | `{ ask }` | TypeSafe Jev | A few typed answers, such as a label or a score. |
 
-Use Codex or Claude Code for work on a repository, because they already handle file edits, shell commands, approvals, and context. Use a model Driver for small tasks where ViteHub should run every tool call. The model loop stops after 20 steps by default. An [AI gateway](/docs/gateways) sends Codex and Claude Code model requests through your own proxy.
+Use Codex or Claude Code for work on a repository, because they already handle file edits, shell commands, approvals, and context. The other harnesses need `permissions: 'allow-all'` and do not run in a Sandbox. Use a model Driver for small tasks where ViteHub should run every tool call. The model loop stops after 20 steps by default. An [AI gateway](/docs/gateways) sends Codex, Claude Code, OpenCode, and Pi model requests through your own proxy.
 
 ### Capabilities
 
@@ -151,7 +152,7 @@ An in-memory trace does not survive a restart. Keep records with [Invocation sto
 
 ViteHub builds Agents for Node, Docker, Cloudflare, Vercel, Netlify, and Deno. Model and `run` Drivers skip the Node-only provider code, so they also run in a Cloudflare Worker.
 
-Codex and Claude Code start local processes, so provider Drivers need a Node.js host. Provider Workspaces and Sandboxes also need POSIX, not Windows. A Worker build that selects a provider Driver fails with `AGENT_B0019`. The [support matrix](/docs/frameworks-hosts/support-matrix) lists what each host supports.
+Provider Drivers start local processes, so they need a Node.js host. Provider Workspaces and Sandboxes also need POSIX, not Windows. A Worker build that selects a provider Driver fails with `AGENT_B0019`. The [support matrix](/docs/frameworks-hosts/support-matrix) lists what each host supports.
 
 ## Start building
 
