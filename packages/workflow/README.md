@@ -22,7 +22,7 @@ Then install the dependency required by the selected driver:
 | Provider             | Additional dependency                                              | Durable state                                                            |
 | -------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------ |
 | Cloudflare Workflows | None in application code                                           | Cloudflare owns run state. Without the binding, only `vite dev` runs inline; a Worker fails with `WORKFLOW_R0036`. |
-| Vercel Workflow      | `@vercel/functions`; add `workflow@5.2.3` and `@workflow/builders@5.0.6` for native durable definitions ([versions](#make-a-vercel-workflow-durable)) | Native definitions survive function restarts; plain handlers run inline. |
+| Vercel Workflow      | `@vercel/functions`, `workflow@5.2.3`, and `@workflow/builders@5.0.6` ([versions](#make-a-vercel-workflow-durable)) | Workflow DevKit runs every discovered Workflow file. Agent turns and `createWorkflow()` run inline. |
 | OpenWorkflow         | None. `@vite-hub/workflow` depends on `openworkflow` and `postgres` | Postgres Default Database, else a local SQLite file.                     |
 
 Importing the provider-neutral package root does not load OpenWorkflow types. Worker lifecycle helpers live at `@vite-hub/workflow/openworkflow`.
@@ -222,15 +222,15 @@ const [error, run] = await startWorkflow("send-reminder", { email }, { delay: "3
 | --- | --- | --- |
 | OpenWorkflow | The run stays pending in storage until its start time (`availableAt`). | `queued` |
 | Cloudflare | The run sleeps with `step.sleepUntil()` before the handler. A waiting instance does not count toward the concurrency limit. | `running` |
-| Vercel, generated native entry for numbered steps without an index handler | The generated entry calls Workflow DevKit `sleep()` before the first step. | `running` |
+| Vercel, generated native entry for a single file or for numbered steps without an index handler | The generated entry calls Workflow DevKit `sleep()` before the first step. | `running` |
 | Vercel `native` entry that you wrote | Not supported. `startWorkflow()` returns the error `WORKFLOW_OPERATION_UNSUPPORTED`. | |
-| Inline runs (`vite dev`, normal Vercel handlers) | A timer in the process. It is not durable: a restart loses the run. Outside `vite dev`, the first delayed run of each Workflow logs a warning. | `queued` |
+| Inline runs (`vite dev`, Agent turns and `createWorkflow()` on Vercel) | A timer in the process. It is not durable: a restart loses the run. Outside `vite dev`, the first delayed run of each Workflow logs a warning. | `queued` |
 
 For a recurring run, call `startWorkflow()` from a [Schedule](https://vitehub.dev/docs/schedule) handler.
 
 ## Make a Vercel workflow durable
 
-A plain Vercel definition executes inline and does not survive a function restart. Install `@vercel/functions` as shown in the provider table above for all Vercel definitions. For durable execution, also install the Workflow DevKit packages, keep the same handler, and register a native entry:
+A Vercel build never runs a discovered Workflow file inline. It generates a Workflow DevKit entry for a single file, which runs the handler as one step, and for a folder of numbered steps without an index file. A folder with an index handler needs a native entry that you write, or the build fails with `WORKFLOW_VERCEL_INDEX_NOT_NATIVE`. Install `@vercel/functions` and the Workflow DevKit packages, keep the same handler, and register the native entry:
 
 ```sh
 pnpm add --save-exact workflow@5.2.3 @workflow/builders@5.0.6
@@ -323,7 +323,7 @@ export default defineWorkflow<{ email: string, remindAt: string }>({
 });
 ```
 
-The sleep is durable on Cloudflare (`step.sleep` and `step.sleepUntil`, at most 365 days) and OpenWorkflow. Inline runs, in `vite dev` and in normal Vercel handlers, wait with a timer. That wait is not durable: a restart loses the run. A Vercel `native` entry uses Workflow DevKit's `sleep()`.
+The sleep is durable on Cloudflare (`step.sleep` and `step.sleepUntil`, at most 365 days) and OpenWorkflow. Inline runs, in `vite dev` and for Agent turns and `createWorkflow()` on Vercel, wait with a timer. That wait is not durable: a restart loses the run. A Vercel `native` entry uses Workflow DevKit's `sleep()`.
 
 After a sleep, the provider runs `index.ts` again from the start, and completed step files return their stored results. ViteHub names each sleep by call order (`sleep-1`, `sleep-2`), so `index.ts` must call `sleep()` in the same order on each replay. Put each side effect and each value that changes, such as `Date.now()`, in a step file. `getWorkflowRun()` lists a sleep as a step with the name `sleep-1` and the wake time in `sleepUntil` on OpenWorkflow. A sleeping Cloudflare run reports `running` with `metadata.status: "waiting"`.
 
@@ -350,7 +350,7 @@ ViteHub makes the token from the Workflow name, the run id, and the call order (
 
 ## Production checklist
 
-- Confirm that the selected provider is durable enough for the work; inline Vercel handlers are not durable.
+- Confirm that the selected provider is durable enough for the work; Agent turns and `createWorkflow()` on Vercel run inline and are not durable.
 - Make side-effecting steps idempotent so retries do not duplicate work.
 - Keep provider credentials and database URLs in Server Env.
 - Configure durable OpenWorkflow storage and run its migrations before serving traffic.

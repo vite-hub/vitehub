@@ -540,6 +540,7 @@ export function hubWorkflow(workflow?: WorkflowOptions, internalOptions: Interna
         if (!options) return []
         const input = {
           driver: options.driver,
+          ...(options.driver === "vercel" && resolveOutputs(workflow).vercel ? { native: true } : {}),
           defaultDatabase: options.driver === "openworkflow" && readPostgresDefaultDatabase(databasePlugin) === true,
           ...(options.driver === "openworkflow" && options.postgres?.url !== undefined ? { postgresUrl: workflowDurabilityUrl(options.postgres.url) } : {}),
           ...(options.driver === "openworkflow" && options.sqlite?.path !== undefined ? { sqlitePath: options.sqlite.path } : {}),

@@ -63,7 +63,7 @@ const nitroServerStubs: EsbuildPlugin = {
   },
 }
 
-it("installs the Workflow registry in Nitro's Vercel server function", async () => {
+it("installs the Workflow registry in Nitro's Vercel server function, so a Workflow file starts a Workflow DevKit run", async () => {
   const root = await createApp({
     "server/workflows/welcome.ts": [
       "import { defineWorkflow } from '@vite-hub/workflow'",
@@ -82,9 +82,8 @@ it("installs the Workflow registry in Nitro's Vercel server function", async () 
     "export async function handleRequest() {",
     "  startup()",
     "  const [, run] = await startWorkflow('welcome', { name: 'Ada' })",
-    "  await Promise.all(globalThis.__vitehubWaitUntil)",
-    "  const [, settled] = await getWorkflowRun('welcome', run.id)",
-    "  return { run, settled }",
+    "  const [, stored] = await getWorkflowRun('welcome', run.id)",
+    "  return { run, stored }",
     "}",
     "",
   ].join("\n"))
@@ -103,12 +102,12 @@ it("installs the Workflow registry in Nitro's Vercel server function", async () 
 
   Reflect.set(globalThis, "__vitehubWaitUntil", [])
   try {
-    const server = await import(pathToFileURL(outfile).href) as { handleRequest: () => Promise<{ run: { id: string, status: string }, settled: { result: unknown, status: string } }> }
-    const { run, settled } = await server.handleRequest()
-    expect(run.status).toBe("queued")
-    expect(Reflect.get(globalThis, "__vitehubWaitUntil")).toHaveLength(1)
-    expect(settled.status).toBe("completed")
-    expect(settled.result).toEqual({ greeting: "Hello Ada" })
+    const server = await import(pathToFileURL(outfile).href) as { handleRequest: () => Promise<{ run: { id: string, metadata: Record<string, unknown>, status: string }, stored: { id: string } }> }
+    const { run, stored } = await server.handleRequest()
+    expect(run).toMatchObject({ id: expect.stringMatching(/^wrun_/), metadata: { workflow: "welcome" }, status: "queued" })
+    expect(run.metadata).not.toHaveProperty("mode")
+    expect(Reflect.get(globalThis, "__vitehubWaitUntil")).toHaveLength(0)
+    expect(stored.id).toBe(run.id)
   }
   finally {
     Reflect.deleteProperty(globalThis, "__vitehubWaitUntil")
@@ -151,7 +150,13 @@ it("leaves Nitro's Vercel server function to Nitro", async () => {
 
   await expect(readFile(nitroServer, "utf8")).resolves.toBe("export default 'nitro'\n")
   expect(existsSync(join(outputRoot, "functions", "__workflow.func"))).toBe(false)
-  await expect(readFile(join(outputRoot, "config.json"), "utf8").then(JSON.parse)).resolves.toEqual({ routes: [{ dest: "/__server", src: "/(.*)" }], version: 3 })
+  await expect(readFile(join(outputRoot, "config.json"), "utf8").then(JSON.parse)).resolves.toEqual({
+    routes: [
+      { dest: "/.well-known/workflow/v1/webhook/[token]", src: "^\\/\\.well-known\\/workflow\\/v1\\/webhook\\/([^\\/]+)$" },
+      { dest: "/__server", src: "/(.*)" },
+    ],
+    version: 3,
+  })
 })
 
 it("gives Nitro the Workflow DevKit webhook route of a native entry, because Nitro writes the Vercel config last", async () => {
@@ -175,8 +180,8 @@ it("gives Nitro the Workflow DevKit webhook route of a native entry, because Nit
   })
 })
 
-it("adds no webhook route without a native entry, because only a native entry has a webhook function", async () => {
-  const { nitroOptions } = await configureNitroVercelBuild(await createApp({ "server/workflows/welcome.ts": "export default async () => 'ok'\n" }))
+it("adds no webhook route without a Workflow file, because only a native entry has a webhook function", async () => {
+  const { nitroOptions } = await configureNitroVercelBuild(await createApp({ "server/routes/index.ts": "export default () => 'ok'\n" }))
 
   expect(nitroOptions.vercel).toBeUndefined()
 })

@@ -55,13 +55,13 @@ Use Workflow Steps only when you need parts that the provider can retry or inspe
 | Option | Type | Description |
 | --- | --- | --- |
 | `native` | `(context: WorkflowProviderContext) => unknown` | Durable entry for Vercel Workflow DevKit. |
-| `rootStep` | `boolean` | Wraps the handler in a root Workflow Step when the provider supports steps. `context.sleep()` in a root step throws `WORKFLOW_ROOT_STEP_SLEEP`, and `signal.wait()` throws `WORKFLOW_ROOT_STEP_SIGNAL`. A folder Workflow's `index.ts` has no root step, so it can [sleep](/docs/workflows/limits-and-errors#retries-and-sleeps) and [wait for a signal](/docs/workflows/limits-and-errors#wait-for-a-signal). |
+| `rootStep` | `boolean` | Wraps the handler in a root Workflow Step when the provider supports steps. `context.sleep()` in a root step throws `WORKFLOW_ROOT_STEP_SLEEP`, and `signal.wait()` throws `WORKFLOW_ROOT_STEP_SIGNAL`. A Vercel build always runs a single file as one root step. A folder Workflow's `index.ts` has no root step, so it can [sleep](/docs/workflows/limits-and-errors#retries-and-sleeps) and [wait for a signal](/docs/workflows/limits-and-errors#wait-for-a-signal). |
 
 The handler gets one object, a `WorkflowExecutionContext`, with `payload`, `name`, `provider`, an optional run `id`, the provider `step` when there is one, `sleep`, `createSignal`, and a `steps` runner. Pass the payload type as the type argument: `defineWorkflow<{ email: string }>({ handler })`. It also types `startWorkflow()` for this Workflow. `steps` has one function per numbered file in the workflow folder, typed from `.vitehub/workflow.d.ts`, and is empty when there are no step files.
 
 ### Add a durable Vercel entry
 
-Without `native`, Vercel runs the normal handler inline, and the work stops if the function restarts. First [install `@vercel/functions`](/docs/workflows/hosts#install-vercel-dependencies), which all Vercel definitions require. For durable execution on Vercel, also install the Workflow DevKit packages and add a native entry:
+A Vercel build makes a Workflow DevKit entry for a single file and for a folder of numbered steps, so they need no `native`. A folder with an index file needs one: without it, the build stops with `WORKFLOW_VERCEL_INDEX_NOT_NATIVE`. Write `native` when the Workflow runs code between its steps, or to control each step yourself. First [install the Vercel dependencies](/docs/workflows/hosts#install-vercel-dependencies), then add the native entry:
 
 ```bash pm [Terminal]
 pnpm add --save-exact workflow@5.2.3 @workflow/builders@5.0.6

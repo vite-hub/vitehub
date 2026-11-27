@@ -342,6 +342,17 @@ export async function runWorkflowHandler<TPayload, TResult>(
   return toResponse(await runInRootStep(context, definition, value => value))
 }
 
+/**
+ * Runs the handler of a single-file Workflow as its root step. The generated Vercel native entry calls it inside its one
+ * `"use step"`, so Workflow DevKit stores the result as the Cloudflare root step does.
+ */
+export async function runWorkflowRootStep<TPayload, TResult>(
+  context: WorkflowProviderContext<TPayload>,
+  definition: WorkflowDefinition<TPayload, TResult>,
+): Promise<TResult> {
+  return await runInRootStep(context, { ...definition, rootStep: true }, value => value)
+}
+
 async function toStoredWorkflowResult(value: unknown): Promise<unknown> {
   if (isResponse(value)) return await serializeResponse(value)
   const json = JSON.stringify(value)

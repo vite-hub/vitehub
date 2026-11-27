@@ -514,9 +514,13 @@ it("preserves staged Workflow imports from configured external server directorie
   const registryContents = await readFile(registryRuntimeFile(artifacts.registryFile), "utf8")
   expect(registryContents).toContain(pathToFileURL(externalHandler).href)
   expect(registryContents).toContain(pathToFileURL(externalStep).href)
-  const [vercelNativeFile] = artifacts.vercelNativeFiles
-  await expect(readFile(vercelNativeFile!, "utf8")).resolves.toContain(externalStep)
-  expect(() => buildSync({ bundle: true, entryPoints: [vercelNativeFile!], platform: "node", write: false })).not.toThrow()
+  const nativeContents = await Promise.all(artifacts.vercelNativeFiles.map(async file => await readFile(file, "utf8")))
+  expect(nativeContents).toHaveLength(2)
+  expect(nativeContents.filter(contents => contents.includes(externalStep))).toHaveLength(1)
+  expect(nativeContents.filter(contents => contents.includes(externalHandler))).toHaveLength(1)
+  for (const file of artifacts.vercelNativeFiles) {
+    expect(() => buildSync({ bundle: true, entryPoints: [file], platform: "node", write: false })).not.toThrow()
+  }
 })
 
 it("bundles only the host-inferred Cloudflare output with Cloudflare Email imports", async () => {
@@ -554,6 +558,73 @@ it("keeps generated native step imports scoped to each directory Workflow", asyn
   expect(nativeContents.filter(contents => contents.includes("01-alpha.ts"))).toHaveLength(1)
   expect(nativeContents.filter(contents => contents.includes("01-beta.ts"))).toHaveLength(1)
   expect(nativeContents.every(contents => !(contents.includes("01-alpha.ts") && contents.includes("01-beta.ts")))).toBe(true)
+})
+
+it("generates one native Vercel root step for a single-file Workflow", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-native-single-file-")
+  const workflowDir = join(rootDir, "server", "workflows")
+  await mkdir(workflowDir, { recursive: true })
+  await writeFile(join(workflowDir, "double.ts"), "export default { handler: async ({ payload }) => ({ doubled: payload * 2 }) }\n")
+  await writeFile(join(workflowDir, "wait.ts"), "export default { handler: async ({ sleep }) => { await sleep('1 day') } }\n")
+
+  const artifacts = await writeProviderEntries(rootDir, { driver: "vercel" })
+  expect(artifacts.vercelNativeFiles).toHaveLength(2)
+  const nativeFile = artifacts.vercelNativeFiles.find(file => file.endsWith(`${createHash("sha256").update("double").digest("hex")}.mjs`))
+  expect(nativeFile).toBeDefined()
+  const contents = await readFile(nativeFile!, "utf8")
+  const exportName = `${getCloudflareWorkflowClassName("double")}Native`
+  expect(contents.match(/"use step"/g)).toHaveLength(1)
+  expect(contents).toContain(`export async function ${exportName}(context) {\n  "use workflow"`)
+  const registry = await readFile(registryRuntimeFile(artifacts.registryFile), "utf8")
+  expect(registry).toContain(`workflow//./.vitehub/workflow/vercel-native//${exportName}`)
+
+  const native = await import(pathToFileURL(nativeFile!).href)
+  await expect(native[exportName]({ name: "double", payload: 21, provider: "vercel" })).resolves.toEqual({ doubled: 42 })
+  const waitFile = artifacts.vercelNativeFiles.find(file => file !== nativeFile)!
+  const wait = await import(pathToFileURL(waitFile).href)
+  await expect(wait[`${getCloudflareWorkflowClassName("wait")}Native`]({ name: "wait", provider: "vercel" })).rejects.toMatchObject({ code: "WORKFLOW_ROOT_STEP_SLEEP" })
+})
+
+it("generates no native Vercel entry for a single file that brings its own", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-native-single-file-own-")
+  const workflowDir = join(rootDir, "server", "workflows")
+  await mkdir(workflowDir, { recursive: true })
+  await writeFile(join(workflowDir, "durable.ts"), 'export async function durable() {\n  "use workflow"\n  return "durable"\n}\n')
+  await writeFile(join(workflowDir, "welcome.ts"), 'import { durable } from "./durable.ts"\nexport default { handler: async () => "inline", native: durable }\n')
+
+  const artifacts = await writeProviderEntries(rootDir, { driver: "vercel" })
+  expect(artifacts.vercelNativeFiles).toEqual([])
+})
+
+it("builds a single-file Workflow as one Workflow DevKit step", { timeout: buildOutputTestTimeout }, async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-native-single-file-build-")
+  const workflowDir = join(rootDir, "server", "workflows")
+  await mkdir(workflowDir, { recursive: true })
+  await writeFile(join(workflowDir, "report.ts"), 'export default { handler: async ({ payload }) => `report for ${payload}` }\n')
+
+  await generateWorkflowProviderOutputs({ clientOutDir: join(rootDir, "dist"), rootDir, workflow: { driver: "vercel" } })
+
+  const outputDir = join(rootDir, ".vercel/output/functions/.well-known/workflow/v1")
+  const exportName = `${getCloudflareWorkflowClassName("report")}Native`
+  const manifest = await readFile(join(outputDir, "manifest.json"), "utf8")
+  expect(manifest).toContain(`workflow//./.vitehub/workflow/vercel-native/${createHash("sha256").update("report").digest("hex")}//${exportName}`)
+  expect(new Set(manifest.match(/"step\/\/\.\/\.vitehub\/workflow\/vercel-native\/[^"]+"/g))).toEqual(new Set([`"step//./.vitehub/workflow/vercel-native/${createHash("sha256").update("report").digest("hex")}//${exportName}Step"`]))
+  const output = await readFile(join(outputDir, "flow.func/index.mjs"), "utf8")
+  const vmStart = output.indexOf("workflowCode =")
+  expect(output.slice(0, vmStart)).toContain("report for ")
+  expect(output.slice(vmStart)).not.toContain("report for ")
+})
+
+it("fails a Vercel build for a folder Workflow with an index handler and no native entry", { timeout: buildOutputTestTimeout }, async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-vercel-index-")
+  const workflowDir = join(rootDir, "server", "workflows", "onboard")
+  await mkdir(workflowDir, { recursive: true })
+  await writeFile(join(workflowDir, "index.ts"), "export default { handler: async ({ payload, steps }) => await steps.createUser(payload) }\n")
+  await writeFile(join(workflowDir, "01.create-user.ts"), "export default async function createUser(input) { return input }\n")
+
+  await expect(generateWorkflowProviderOutputs({ clientOutDir: join(rootDir, "dist"), rootDir, workflow: { driver: "vercel" } }))
+    .rejects.toMatchObject({ code: "WORKFLOW_VERCEL_INDEX_NOT_NATIVE" })
+  await expect(generateWorkflowProviderOutputs({ clientOutDir: join(rootDir, "dist"), rootDir, workflow: { driver: "openworkflow" } })).resolves.toBeDefined()
 })
 
 it("keeps generated native module paths stable when discovery order changes", async () => {
@@ -1652,8 +1723,10 @@ describe("Vite workflow provider outputs", () => {
 
     expect(existsSync(join(rootDir, "dist", "vite"))).toBe(false)
     expect(existsSync(join(rootDir, ".vercel", "output", "config.json"))).toBe(true)
-    const [generatedNativeFile] = await readdir(join(rootDir, ".vitehub", "workflow", "vercel-native"))
-    const generatedNative = await readFile(join(rootDir, ".vitehub", "workflow", "vercel-native", generatedNativeFile), "utf8")
+    const nativeFileName = (name: string) => `${createHash("sha256").update(name).digest("hex")}.mjs`
+    await expect(readdir(join(rootDir, ".vitehub", "workflow", "vercel-native")).then(files => files.sort()))
+      .resolves.toEqual([nativeFileName("monthly-recap"), nativeFileName("welcome")].sort())
+    const generatedNative = await readFile(join(rootDir, ".vitehub", "workflow", "vercel-native", nativeFileName("monthly-recap")), "utf8")
     expect(generatedNative).toContain('"use workflow"')
     expect(generatedNative).toContain('"use step"')
     expect(generatedNative).not.toContain("vitehub.email.definition")
@@ -1677,7 +1750,7 @@ describe("Vite workflow provider outputs", () => {
       cwd: rootDir,
       env: { ...process.env, VITEHUB_HOST: "vercel", VITEHUB_VITE_MODE: "workflow" },
     })
-    expect(existsSync(join(rootDir, ".vitehub", "workflow", "vercel-native"))).toBe(false)
+    await expect(readdir(join(rootDir, ".vitehub", "workflow", "vercel-native"))).resolves.toEqual([nativeFileName("welcome")])
     await expect(readFile(join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.mjs"), "utf8"))
       .resolves.toMatch(/globalThis\[(?:\/\*.*?\*\/\s*)?Symbol\.for\(["']vitehub\.email\.definition["']\)\]\s*=/)
     const rebuiltConfig: unknown = JSON.parse(await readFile(join(rootDir, ".vercel", "output", "config.json"), "utf8"))

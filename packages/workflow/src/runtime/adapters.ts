@@ -328,9 +328,15 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
   return adapter
 }
 
-const warnedInlineOpenWorkflowNames = new Set<string>()
+const warnedInlineWorkflowNames = new Set<string>()
 
-function isDurableOpenWorkflowDefinition(name: string): boolean {
+function warnInlineWorkflow(name: string, runner: string): void {
+  if (warnedInlineWorkflowNames.has(name)) return
+  warnedInlineWorkflowNames.add(name)
+  console.warn(`[vitehub:workflow] The Workflow ${JSON.stringify(name)} is not a discovered file, so ${runner} cannot run it. Its runs execute inline in this process and are not durable. Move it to server/workflows/ to make it durable.`)
+}
+
+function isDiscoveredWorkflow(name: string): boolean {
   const registry = getWorkflowRuntimeRegistry()
   return Boolean(registry && Object.hasOwn(registry, name))
 }
@@ -338,10 +344,10 @@ function isDurableOpenWorkflowDefinition(name: string): boolean {
 function createOpenWorkflowAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter {
   const inline = inlineAdapter(config)
   return {
-    cancel: async ({ event, id, name }) => isDurableOpenWorkflowDefinition(name)
+    cancel: async ({ event, id, name }) => isDiscoveredWorkflow(name)
       ? await cancelOpenWorkflowRun(config, name, id)
       : await inline.cancel({ event, id, name }),
-    get: async ({ event, id, name }) => isDurableOpenWorkflowDefinition(name)
+    get: async ({ event, id, name }) => isDiscoveredWorkflow(name)
       ? await getOpenWorkflowRun(config, name, id)
       : await inline.get({ event, id, name }),
     resume: async (token, payload) => await resumeViteHubSignal(config, token, payload, async ({ run, workflow }) => {
@@ -349,12 +355,9 @@ function createOpenWorkflowAdapter(config: ResolvedWorkflowOptions): WorkflowRun
     }),
     run: async (context) => {
       const { definition, event, name, options, payload, startAt } = context
-      if (isDurableOpenWorkflowDefinition(name)) return await runOpenWorkflow(config, name, payload, definition, options, resolveDispatchObserver(event), startAt)
+      if (isDiscoveredWorkflow(name)) return await runOpenWorkflow(config, name, payload, definition, options, resolveDispatchObserver(event), startAt)
       if (definition?.internalAgentWorkflow || definition?.internalAgentInvocationRecovery) throw workflowErrorDiagnostics.WORKFLOW_AGENT_NOT_DISCOVERED({ name })
-      if (!warnedInlineOpenWorkflowNames.has(name)) {
-        warnedInlineOpenWorkflowNames.add(name)
-        console.warn(`[vitehub:workflow] The Workflow ${JSON.stringify(name)} is not a discovered file, so OpenWorkflow workers cannot run it. Its runs execute inline in this process and are not durable. Move it to server/workflows/ to make it durable.`)
-      }
+      warnInlineWorkflow(name, "OpenWorkflow workers")
       const run = await inline.run(context)
       return { ...run, metadata: { mode: "inline", workflow: name } }
     },
@@ -518,7 +521,11 @@ function createVercelAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAd
     },
     async run(context) {
       const { definition, event, name, payload, startAt } = context
+      const agentTurn = Boolean(definition?.internalAgentWorkflow || definition?.internalAgentInvocationRecovery)
       if (!runsNatively(definition)) {
+        if (!agentTurn && !isDiscoveredWorkflow(name) && !isDevelopmentServer()) {
+          warnInlineWorkflow(name, "Workflow DevKit")
+        }
         return await fallback.run(context)
       }
       return await startVercelWorkflow(name, definition, payload, resolveSettlementObserver(event), resolveDispatchObserver(event), startAt)
