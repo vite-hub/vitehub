@@ -9,6 +9,6 @@ The Postgres role cannot use the schema of Drizzle's migrations table. ViteHub c
 - The schema `drizzle` is missing, and the role has no `CREATE` on the database to create it.
 - The table is missing, and the role has no `CREATE` on its schema to create it.
 
-As a role that owns the database, run the `GRANT` in the fix in a SQL client. Or run it with `vitehub database sql --remote --database default 'GRANT CREATE ON DATABASE "app" TO "app_user"'`, with that role in `connection.url`. Or set [`migrationsSchema`](/docs/database/configure#keep-the-migrations-table-in-a-schema) to an existing schema where the role has `USAGE` and `CREATE`.
+Run the `GRANT` in the fix in a SQL client. `GRANT CREATE ON DATABASE` needs a role that owns the database. `GRANT USAGE` or `GRANT CREATE` on a schema needs the owner of that schema, or a role with the grant option on it. Or run it with `vitehub database sql --remote --database default 'GRANT CREATE ON DATABASE "app" TO "app_user"'`, with that role in `connection.url`. Or set [`migrationsSchema`](/docs/database/configure#keep-the-migrations-table-in-a-schema) to an existing schema where the role has `USAGE` and `CREATE`.
 
 A runtime role that only reads an existing table needs `USAGE` on its schema and `SELECT` on the table. It needs no `CREATE`. See [Several instances on Postgres](/docs/database/configure#several-instances-on-postgres).

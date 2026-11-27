@@ -1269,6 +1269,31 @@ describe.skipIf(!adminUrl)("a role without the privileges for the migration ledg
     expect(await owner`select count(*)::int as count from drizzle.__drizzle_migrations`).toEqual([{ count: 1 }])
   })
 
+  it("tells the role to ask the schema owner when another role owns drizzle", { timeout: 60_000 }, async () => {
+    const { migrationsDir, root } = await createProject([init])
+    const admin = connect(adminUrl!)
+    const [databaseOwner, schemaOwner] = ["db", "schema"].map(kind => `vitehub_${kind}_owner_${randomUUID().replaceAll("-", "").slice(0, 8)}`)
+    for (const owner of [databaseOwner, schemaOwner]) {
+      await admin.unsafe(`create role ${owner} login password 'owner'`)
+      cleanups.push(() => admin.unsafe(`drop role if exists ${owner}`))
+    }
+    const { name, owner, role, roleUrl, url } = await createRoleDatabase()
+    await owner.unsafe(`alter database ${name} owner to ${databaseOwner}`)
+    await owner.unsafe(`create schema drizzle authorization ${schemaOwner}`)
+    await owner.unsafe(`grant usage on schema drizzle to ${role}`)
+    const ownerUrl = (user: string) => Object.assign(new URL(url), { password: "owner", username: user }).href
+    const server = await buildNodeServer(root, {})
+    const grant = `GRANT CREATE ON SCHEMA "drizzle" TO "${role}"`
+
+    const failure = await startFailure(server, roleUrl)
+    expect(failure).toMatch(new RegExp(`DATABASE_MIGRATION_SCHEMA_DENIED[\\s\\S]*no CREATE on the schema "drizzle"[\\s\\S]*As the owner of the schema "drizzle" or a role with the grant option on it, run \`${grant}\``))
+    const asDatabaseOwner = await databaseCommand("sql", root, postgresDatabase(ownerUrl(databaseOwner), migrationsDir))(["--remote", "--database", "default", grant])
+    expect(asDatabaseOwner.exitCode).toBe(1)
+
+    await runPrintedSql(failure, root, migrationsDir, ownerUrl(schemaOwner))
+    expect((await server.start(roleUrl)).stdout.trim().split("\n")).toEqual([`[vitehub] Database "default": applied ${init.tag}.`, "[]"])
+  })
+
   it("fails when drizzle has no USAGE, on start and in --dry-run", { timeout: 60_000 }, async () => {
     const { migrationsDir, root } = await createProject([init, seed])
     const { owner, role, roleUrl, url } = await createRoleDatabase()
