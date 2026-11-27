@@ -8,6 +8,7 @@ export {
 export type {
   AgentSessionItem,
   AgentSessionSurface,
+  AgentSessionWorkDetailScope,
   AgentSessionWorkEntry,
   AgentSessionWorkKind,
 } from "./components/agent-session.ts";
