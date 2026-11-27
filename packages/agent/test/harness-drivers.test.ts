@@ -71,8 +71,19 @@ describe("harness drivers", () => {
     expect(() => defineAgent({ driver: cursorDriver({ launch: { command: "wrapper" }, permissions: "allow-all" }) })).toThrow("cannot honor driver.launch")
   })
 
-  it.each([cloudflare(), emulate()])("rejects SDK-only gateway $name through defineAgent", (gateway) => {
-    expect(() => defineAgent({ driver: opencodeDriver({ gateway, model: "example", permissions: "allow-all" }) })).toThrow("does not serve the opencode Driver")
+  it.each([
+    ["cloudflare", "opencode", () => opencodeDriver({ gateway: cloudflare(), model: "example", permissions: "allow-all" })],
+    ["cloudflare", "kimi", () => kimiDriver({ gateway: cloudflare(), model: "example", permissions: "allow-all" })],
+    ["cloudflare", "pi", () => piDriver({ gateway: cloudflare(), model: "example", permissions: "allow-all" })],
+    ["emulate", "claude-code", () => claudeCodeDriver({ gateway: emulate(), permissions: "allow-all" })],
+    ["emulate", "opencode", () => opencodeDriver({ gateway: emulate(), model: "example", permissions: "allow-all" })],
+    ["emulate", "kimi", () => kimiDriver({ gateway: emulate(), model: "example", permissions: "allow-all" })],
+    ["emulate", "pi", () => piDriver({ gateway: emulate(), model: "example", permissions: "allow-all" })],
+  ] as const)("rejects SDK-only gateway %s for the %s Driver through defineAgent", (name, harness, driver) => {
+    expect(() => defineAgent({ driver: driver() })).toThrow(expect.objectContaining({
+      code: "AGENT_R0976",
+      message: expect.stringContaining(`Gateway "${name}" serves AI SDK models only, so it does not serve the ${harness} Driver.`),
+    }))
   })
 
   it("rejects a gateway configured for an attached OpenCode server", () => {
