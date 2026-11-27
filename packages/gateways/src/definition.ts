@@ -134,7 +134,7 @@ export function normalizeAiGateway(value: unknown): AiGatewayDefinition {
       headers[header] = item as AiGatewaySecret
     }
   }
-  const normalized = {
+  const normalized: AiGatewayDefinition = {
     name,
     baseURL: Object.freeze(baseURL),
     // SAFETY: isSecretInput validated the secret input shape above.
