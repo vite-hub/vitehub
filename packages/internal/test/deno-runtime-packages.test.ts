@@ -828,27 +828,31 @@ await import("data-package", { with: { type: "json" } })
     await expect(finalize({ hasScheduleIntegration: true, rootDir: root })).resolves.toBeUndefined()
   })
 
-  it("rejects custom alias resolvers only when a staged entrypoint uses the alias", async () => {
+  it.each([
+    { scenario: "ignores an unused custom alias resolver", customResolver: false },
+    { scenario: "rejects a custom resolver for an imported alias", customResolver: true },
+  ])("$scenario when staging a Schedule entrypoint", async ({ customResolver }) => {
     const root = await temporaryDirectory("vitehub-deno-custom-alias-")
     await mkdir(join(root, ".output/server"), { recursive: true })
     await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
     await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
-
-    await expect(finalize({ rootDir: root })).resolves.toBeUndefined()
-
+    await writeRuntimePackage(root, "@types/node")
+    await writeFile(join(root, "node_modules/@types/node/index.d.ts"), "export {}\n", "utf8")
     await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), 'import "#server-only"\n', "utf8")
-    await writeFile(join(root, "main.ts"), 'await import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
-    await writeFile(join(root, "server.ts"), "void 0\n", "utf8")
+    await writeFile(join(root, "server.ts"), 'globalThis.scheduleValue = "aliased"\n', "utf8")
     const alias = [
       { customResolver: true, find: "#client-only", replacement: join(root, "client.ts") },
-      { find: "#server-only", replacement: join(root, "server.ts") },
+      { customResolver, find: "#server-only", replacement: join(root, "server.ts") },
     ]
-    await expect(finalize({ alias, hasScheduleIntegration: true, rootDir: root })).resolves.toBeUndefined()
 
-    alias[1]!.customResolver = true
-    await expect(finalize({ alias, hasScheduleIntegration: true, rootDir: root })).rejects.toThrow(
-      "uses customResolver",
-    )
+    const deployment = finalize({ alias, hasScheduleIntegration: true, rootDir: root })
+    if (customResolver) {
+      await expect(deployment).rejects.toThrow("uses customResolver")
+    }
+    else {
+      await deployment
+      await expect(readFile(join(root, ".output/schedule/deno-cron.mjs"), "utf8")).resolves.toContain("aliased")
+    }
   })
 
   it("stages external Schedule packages and their native optional dependencies", async () => {
