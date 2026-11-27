@@ -645,6 +645,71 @@ describe("-- vitehub:no-transaction migrations on PGlite", () => {
     }
   })
 
+  it("lists only the invalid index that a marked file left, and keeps the file pending while that index is invalid", async () => {
+    const { PGlite } = await import("@electric-sql/pglite")
+    const { drizzle } = await import("drizzle-orm/pglite")
+    const client = new PGlite("memory://")
+    const run = () => migrateOnStart([{ db: drizzle({ client }), dialect: "postgresql", migrations: [
+      init,
+      migration("unique", 2, ["INSERT INTO \"notes\" (\"title\") VALUES ('a')", "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS \"notes_title\" ON \"notes\" (\"title\")"], true),
+    ], name: "default" }], { log: () => {} })
+    try {
+      await client.exec("create table other (id integer); insert into other values (1), (1)")
+      await expect(client.exec("create unique index concurrently other_id on other (id)")).rejects.toThrow()
+
+      const failed = run()
+      await expect(failed).rejects.toMatchObject({ code: "DATABASE_MIGRATION_PARTLY_APPLIED", why: expect.stringMatching(/statement 2 failed[\s\S]*Invalid indexes:\n {2}- public\.notes_title$/) })
+      await client.exec("delete from notes where title = 'a'")
+      const retried = run()
+      await expect(retried).rejects.toMatchObject({ code: "DATABASE_MIGRATION_PARTLY_APPLIED", why: expect.stringMatching(/The index "public\.notes_title" is invalid[\s\S]*Invalid indexes:\n {2}- public\.notes_title$/) })
+      await expect(client.query("select name from drizzle.__drizzle_migrations order by id")).resolves.toMatchObject({ rows: [{ name: "init" }] })
+
+      await client.exec("delete from notes where title = 'a'")
+      await client.exec("drop index concurrently notes_title")
+      await expect(run()).resolves.toBeUndefined()
+      await expect(client.query("select indisvalid from pg_index where indexrelid = 'notes_title'::regclass")).resolves.toMatchObject({ rows: [{ indisvalid: true }] })
+    }
+    finally {
+      await client.close()
+    }
+  })
+
+  it("rolls back a failed BEGIN block of a marked file, so the next run on the same client applies the fixed file", async () => {
+    const { PGlite } = await import("@electric-sql/pglite")
+    const { drizzle } = await import("drizzle-orm/pglite")
+    const client = new PGlite("memory://")
+    const db = drizzle({ client })
+    const run = (statement: string) => migrateOnStart([{ db, dialect: "postgresql", migrations: [init, migration("marked", 2, ["BEGIN", "INSERT INTO \"notes\" (\"title\") VALUES ('c')", statement, "COMMIT"], true)], name: "default" }], { log: () => {} })
+    try {
+      await expect(run("INSERT INTO \"missing_table\" VALUES (1)")).rejects.toMatchObject({ code: "DATABASE_MIGRATION_PARTLY_APPLIED", why: expect.stringContaining("ViteHub rolled back the transaction that the file opened with BEGIN.") })
+      await expect(client.query("select count(*)::int as count from notes")).resolves.toMatchObject({ rows: [{ count: 2 }] })
+      await expect(run("INSERT INTO \"notes\" (\"title\") VALUES ('d')")).resolves.toBeUndefined()
+      await expect(client.query("select count(*)::int as count from notes")).resolves.toMatchObject({ rows: [{ count: 4 }] })
+      await expect(client.query("select name from drizzle.__drizzle_migrations order by id")).resolves.toMatchObject({ rows: [{ name: "init" }, { name: "marked" }] })
+    }
+    finally {
+      await client.close()
+    }
+  }, 15_000)
+
+  it("does not record a marked file that ends inside an open transaction", async () => {
+    const { PGlite } = await import("@electric-sql/pglite")
+    const { drizzle } = await import("drizzle-orm/pglite")
+    const client = new PGlite("memory://")
+    const db = drizzle({ client })
+    const run = (statements: string[]) => migrateOnStart([{ db, dialect: "postgresql", migrations: [init, migration("marked", 2, statements, true)], name: "default" }], { log: () => {} })
+    try {
+      await expect(run(["BEGIN", "INSERT INTO \"notes\" (\"title\") VALUES ('c')"])).rejects.toMatchObject({ code: "DATABASE_MIGRATION_PARTLY_APPLIED", why: expect.stringContaining("ends inside a transaction that it opened with BEGIN") })
+      await expect(client.query("select count(*)::int as count from notes")).resolves.toMatchObject({ rows: [{ count: 2 }] })
+      await expect(client.query("select name from drizzle.__drizzle_migrations order by id")).resolves.toMatchObject({ rows: [{ name: "init" }] })
+      await expect(run(["BEGIN", "INSERT INTO \"notes\" (\"title\") VALUES ('c')", "COMMIT"])).resolves.toBeUndefined()
+      await expect(client.query("select count(*)::int as count from notes")).resolves.toMatchObject({ rows: [{ count: 3 }] })
+    }
+    finally {
+      await client.close()
+    }
+  }, 15_000)
+
   it("reports that marked SQL stays applied when its ledger write fails", async () => {
     const { PGlite } = await import("@electric-sql/pglite")
     const { drizzle } = await import("drizzle-orm/pglite")

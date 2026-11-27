@@ -1396,22 +1396,34 @@ describe.skipIf(!adminUrl)("-- vitehub:no-transaction migrations on Postgres", (
     const sql = connect(url)
     await sql`create table users (id integer primary key, email text)`
     await sql`insert into users values (1, 'ada@example.com'), (2, 'ada@example.com')`
+    await sql`create table other (id integer)`
+    await sql`insert into other values (1), (1)`
+    await expect(sql`create unique index concurrently other_id on other (id)`).rejects.toThrow()
     const unique = entry("20231114221321_unique_email", seed.when, [
       "ALTER TABLE \"users\" ADD COLUMN IF NOT EXISTS \"note\" text;",
-      "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS \"users_email\" ON \"users\" (\"email\");",
+      "-- One email per user.\nCREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS \"users_email\" ON \"users\" (\"email\");",
     ], true)
     const run = () => migratePostgres([{ client: sql, database: { migrations: [unique], name: "default" } }], { log: () => {} })
 
-    await expect(run()).rejects.toMatchObject({
+    const failed = run()
+    await expect(failed).rejects.toMatchObject({
       code: "DATABASE_MIGRATION_PARTLY_APPLIED",
       fix: expect.stringContaining("`DROP INDEX CONCURRENTLY IF EXISTS <name>`"),
-      why: expect.stringMatching(/statement 2 failed: could not create unique index "users_email"[\s\S]*Statement: CREATE UNIQUE INDEX CONCURRENTLY[\s\S]*The 1 statement\(s\) before it stay applied[\s\S]*public\.users_email/),
+      why: expect.stringMatching(/statement 2 failed: could not create unique index "users_email"[\s\S]*Statement: -- One email per user\.\nCREATE UNIQUE INDEX CONCURRENTLY[\s\S]*The 1 statement\(s\) before it stay applied[\s\S]*public\.users_email/),
     })
+    await expect(failed).rejects.toMatchObject({ why: expect.not.stringContaining("other_id") })
     expect(await sql`select column_name from information_schema.columns where table_name = 'users' and column_name = 'note'`).toEqual([{ column_name: "note" }])
     expect(await readLedger(sql)).toEqual([])
     expect(await advisoryLocks(sql)).toEqual([{ count: 0 }])
 
+    // `IF NOT EXISTS` skips the invalid index, so the file must stay pending until it is dropped.
     await sql`delete from users where id = 2`
+    const retried = run()
+    await expect(retried).rejects.toMatchObject({ code: "DATABASE_MIGRATION_PARTLY_APPLIED", why: expect.stringMatching(/statement 2 failed: The index "public\.users_email" is invalid[\s\S]*Invalid indexes:\n {2}- public\.users_email$/) })
+    await expect(retried).rejects.toMatchObject({ why: expect.not.stringContaining("other_id") })
+    expect(await readLedger(sql)).toEqual([])
+    expect(await advisoryLocks(sql)).toEqual([{ count: 0 }])
+
     await sql`drop index concurrently if exists users_email`
     await expect(run()).resolves.toEqual([unique.name])
     expect(await sql`select indisvalid from pg_index where indexrelid = 'users_email'::regclass`).toEqual([{ indisvalid: true }])
@@ -1429,6 +1441,48 @@ describe.skipIf(!adminUrl)("-- vitehub:no-transaction migrations on Postgres", (
     expect(await sql`select indisvalid from pg_index where indrelid = 'items'::regclass`).toEqual([{ indisvalid: true }])
     expect((await readLedger(sql)).map(row => row.name)).toEqual([marked.name])
     expect(await advisoryLocks(sql)).toEqual([{ count: 0 }])
+  })
+
+  it("ends a failed BEGIN block and the lock, so the next run on the same client applies the fixed file", { timeout: 20_000 }, async () => {
+    const url = await createDatabase()
+    const sql = postgres(url, { max: 1, onnotice: () => {} })
+    cleanups.push(() => sql.end({ timeout: 1 }))
+    await sql`create table items (id integer)`
+    const marked = (statement: string) => entry("a1_marked", 1_000, ["INSERT INTO \"items\" VALUES (1);", "BEGIN;", "INSERT INTO \"items\" VALUES (2);", statement, "COMMIT;"], true)
+    const run = (statement: string) => migratePostgres([{ client: sql, database: { migrations: [marked(statement)], name: "default" } }], { log: () => {} })
+
+    await expect(run("INSERT INTO \"missing_table\" VALUES (3);")).rejects.toMatchObject({
+      code: "DATABASE_MIGRATION_PARTLY_APPLIED",
+      why: expect.stringContaining("relation \"missing_table\" does not exist ViteHub rolled back the transaction that the file opened with BEGIN."),
+    })
+    expect(await sql`select id from items order by id`).toEqual([{ id: 1 }])
+    expect(await advisoryLocks(sql)).toEqual([{ count: 0 }])
+
+    await sql`delete from items`
+    await expect(run("INSERT INTO \"items\" VALUES (3);")).resolves.toEqual(["a1_marked"])
+    expect(await sql`select id from items order by id`).toEqual([{ id: 1 }, { id: 2 }, { id: 3 }])
+    expect((await readLedger(sql)).map(row => row.name)).toEqual(["a1_marked"])
+    expect(await advisoryLocks(sql)).toEqual([{ count: 0 }])
+  })
+
+  it("does not record a marked file that ends inside an open transaction, and applies it once it commits", { timeout: 20_000 }, async () => {
+    const url = await createDatabase()
+    const sql = postgres(url, { max: 1, onnotice: () => {} })
+    cleanups.push(() => sql.end({ timeout: 1 }))
+    await sql`create table items (id integer)`
+    const run = (statements: string[]) => migratePostgres([{ client: sql, database: { migrations: [entry("a1_marked", 1_000, statements, true)], name: "default" } }], { log: () => {} })
+
+    await expect(run(["BEGIN;", "INSERT INTO \"items\" VALUES (1);"])).rejects.toMatchObject({
+      code: "DATABASE_MIGRATION_PARTLY_APPLIED",
+      why: expect.stringContaining("ends inside a transaction that it opened with BEGIN"),
+    })
+    expect(await readLedger(sql)).toEqual([])
+    expect(await sql`select count(*)::int as count from items`).toEqual([{ count: 0 }])
+    expect(await advisoryLocks(sql)).toEqual([{ count: 0 }])
+
+    await expect(run(["BEGIN;", "INSERT INTO \"items\" VALUES (1);", "COMMIT;"])).resolves.toEqual(["a1_marked"])
+    expect(await sql`select count(*)::int as count from items`).toEqual([{ count: 1 }])
+    expect((await readLedger(sql)).map(row => row.name)).toEqual(["a1_marked"])
   })
 
   it("names the marker when Postgres refuses a statement in the transaction, and keeps a marked file applied before a failure", { timeout: 30_000 }, async () => {

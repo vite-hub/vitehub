@@ -272,15 +272,15 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       },
     },
     DATABASE_MIGRATION_PARTLY_APPLIED: {
-      why: ({ applied, database, invalidIndexes, migration, problem, statement }: { applied: number, database: string, invalidIndexes?: readonly string[], migration: string, problem: string, statement?: string }) => [
-        `The migration "${migration}" of the database "${database}" runs outside a transaction (\`-- vitehub:no-transaction\`), and ${statement === undefined ? "the ledger write failed after all its statements ran" : `its statement ${applied + 1} failed`}: ${problem}`,
-        statement === undefined ? "Its statements stay applied." : `Statement: ${statement}\nThe ${applied} statement(s) before it stay applied.`,
+      why: ({ applied, database, invalidIndexes, migration, openTransaction, problem, statement }: { applied: number, database: string, invalidIndexes?: readonly string[], migration: string, openTransaction?: true, problem: string, statement?: string }) => [
+        `The migration "${migration}" of the database "${database}" runs outside a transaction (\`-- vitehub:no-transaction\`), and ${statement !== undefined ? `its statement ${applied + 1} failed` : openTransaction ? "ViteHub did not record it" : "the ledger write failed after all its statements ran"}: ${problem}`,
+        statement !== undefined ? `Statement: ${statement}\nThe ${applied} statement(s) before it stay applied.` : openTransaction ? "The statements before its open BEGIN stay applied." : "Its statements stay applied.",
         "The migration is not recorded, so the next run starts again at its first statement.",
         invalidIndexes === undefined ? "ViteHub could not list the invalid indexes." : invalidIndexes.length ? `Invalid indexes:${fileList(invalidIndexes)}` : "",
       ].filter(Boolean).join("\n"),
-      fix: ({ invalidIndexes, statement }: { invalidIndexes?: readonly string[], statement?: string }) => [
-        invalidIndexes?.length !== 0 ? "Drop each invalid index with `DROP INDEX CONCURRENTLY IF EXISTS <name>` in `vitehub database sql`, because `CREATE INDEX CONCURRENTLY IF NOT EXISTS` keeps an invalid index as it is." : "",
-        statement === undefined ? "Let the migration role insert into the migrations table." : "Fix the failed statement, or the data that it conflicts with.",
+      fix: ({ invalidIndexes, openTransaction, statement }: { invalidIndexes?: readonly string[], openTransaction?: true, statement?: string }) => [
+        invalidIndexes?.length !== 0 ? "Drop each invalid index that `why` lists with `DROP INDEX CONCURRENTLY IF EXISTS <name>` in `vitehub database sql`. `CREATE INDEX CONCURRENTLY IF NOT EXISTS` skips an invalid index, so the migration fails until you drop it." : "",
+        statement !== undefined ? "Fix the failed statement, or the data that it conflicts with." : openTransaction ? "End each BEGIN of the file with COMMIT." : "Let the migration role insert into the migrations table.",
         "Write every statement of the file so it can run again, for example with `IF NOT EXISTS`. Then run `vitehub database migrate` or start the server again.",
       ].filter(Boolean).join(" "),
     },

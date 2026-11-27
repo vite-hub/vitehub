@@ -863,6 +863,7 @@ async function withPostgresSessionLocks(groups: PostgresTarget[][], log: (messag
       let failure: Error | undefined
       try {
         if (locked) {
+          await rollbackOpenTransaction(session)
           try {
             await session.unsafe("reset client_min_messages")
           }
@@ -893,47 +894,77 @@ async function inSessionTransaction<T>(session: PostgresMigrationSession, run: (
   }
 }
 
+const noTransactionBlock = "25P01"
+const abortedTransaction = "25P02"
+
+async function rollbackOpenTransaction(session: PostgresMigrationSql): Promise<boolean> {
+  try {
+    await session.unsafe("savepoint vitehub_open_transaction")
+  }
+  catch (error) {
+    const code = Reflect.get(Object(error), "code")
+    if (code === noTransactionBlock) return false
+    if (code !== abortedTransaction) throw error
+  }
+  await session.unsafe("rollback")
+  return true
+}
+
+const invalidIndexesQuery = "select format('%I.%I', n.nspname, c.relname) as name from pg_index i join pg_class c on c.oid = i.indexrelid join pg_namespace n on n.oid = c.relnamespace where not i.indisvalid"
+
 async function readInvalidIndexes(sql: PostgresMigrationSql): Promise<string[] | undefined> {
   try {
-    const rows = await sql.unsafe("select format('%I.%I', n.nspname, c.relname) as name from pg_index i join pg_class c on c.oid = i.indexrelid join pg_namespace n on n.oid = c.relnamespace where not i.indisvalid order by 1")
-    return Array.from(rows).map(row => String(row.name))
+    return Array.from(await sql.unsafe(`${invalidIndexesQuery} order by 1`), row => String(row.name))
   }
   catch {
     return undefined
   }
 }
 
+const identifier = String.raw`(?:"(?:[^"]|"")+"|[a-z_][\w$]*)`
+const concurrentIndex = new RegExp(String.raw`^create\s+(?:unique\s+)?index\s+concurrently\s+(?:if\s+not\s+exists\s+)?(${identifier}(?:\s*\.\s*${identifier})?)\s+on\b`, "i")
+
+function concurrentIndexName(statement: string): string | undefined {
+  const sql = statement.replace(/^(?:\s+|--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)*/, "")
+  return concurrentIndex.exec(sql)?.[1]!.replace(/\s*\.\s*/, ".")
+}
+
+async function readInvalidIndex(sql: PostgresMigrationSql, name: string): Promise<string | undefined> {
+  const [row] = Array.from(await sql.unsafe(`${invalidIndexesQuery} and i.indexrelid = to_regclass($1)`, [name]))
+  return row && String(row.name)
+}
+
 async function runOutsideTransaction(session: PostgresMigrationSession, ledger: string, { migration, name }: PendingEntry) {
+  const before = await readInvalidIndexes(session)
+  const partlyApplied = (details: { applied: number, cause?: unknown, invalidIndexes?: string[], openTransaction?: true, problem: string, statement?: string }) => databaseErrorDiagnostics.DATABASE_MIGRATION_PARTLY_APPLIED({ ...details, database: name, migration: migration.name })
   for (const [index, statement] of migration.statements.entries()) {
+    const target = concurrentIndexName(statement)
     try {
       await session.unsafe(statement)
     }
     catch (error) {
-      const invalidIndexes = await readInvalidIndexes(session)
+      const rolledBack = await rollbackOpenTransaction(session).catch(() => false)
+      const after = await readInvalidIndexes(session)
+      const targetInvalid = target && after?.length ? await readInvalidIndex(session, target).catch(() => undefined) : undefined
+      const invalidIndexes = before && after && [...new Set([...after.filter(invalid => !before.includes(invalid)), ...targetInvalid ? [targetInvalid] : []])].sort()
       if (index === 0 && invalidIndexes?.length === 0) throw error
-      throw databaseErrorDiagnostics.DATABASE_MIGRATION_PARTLY_APPLIED({
-        applied: index,
-        cause: error,
-        database: name,
-        invalidIndexes,
-        migration: migration.name,
-        problem: error instanceof Error ? error.message : String(error),
-        statement,
-      })
+      const problem = error instanceof Error ? error.message : String(error)
+      throw partlyApplied({ applied: index, cause: error, invalidIndexes, problem: rolledBack ? `${problem} ViteHub rolled back the transaction that the file opened with BEGIN.` : problem, statement })
     }
+    const invalid = target && await readInvalidIndex(session, target)
+    if (invalid) {
+      throw partlyApplied({ applied: index, invalidIndexes: [invalid], problem: `The index "${invalid}" is invalid. It stays from an earlier failed build, and \`IF NOT EXISTS\` skips an index that exists.`, statement })
+    }
+  }
+  const applied = migration.statements.length
+  if (await rollbackOpenTransaction(session)) {
+    throw partlyApplied({ applied, invalidIndexes: [], openTransaction: true, problem: "The file ends inside a transaction that it opened with BEGIN and did not commit. ViteHub rolled it back." })
   }
   try {
     await session.unsafe(`insert into ${ledger} ("hash", "created_at", "name") values ($1, $2, $3)`, [migration.hash, migration.when, migration.name])
   }
   catch (error) {
-    throw databaseErrorDiagnostics.DATABASE_MIGRATION_PARTLY_APPLIED({
-      applied: migration.statements.length,
-      cause: error,
-      database: name,
-      invalidIndexes: [],
-      migration: migration.name,
-      problem: error instanceof Error ? error.message : String(error),
-    })
+    throw partlyApplied({ applied, cause: error, invalidIndexes: [], problem: error instanceof Error ? error.message : String(error) })
   }
 }
 
