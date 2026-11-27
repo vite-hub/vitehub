@@ -93,7 +93,7 @@ An edit reads the draft, changes one string field, and saves the document with `
 
 ### Add Hosted Comments
 
-Register your site in the Console with **Hosted Comments only**, then copy the script into your page HTML. For a connected app, copy it from **Settings** > **Connection** > **Hosted Comments**, and set `comments: false`: a page runs Hosted Comments or the app's own Comments, not both. On a page that runs the app's own Comments, the script does not start its overlay, or stops it when the app's Comments start later, and warns `COMMENTS_HOSTED_CONFLICT` in the browser console. The hosted overlay draws in `<vitehub-hosted-comments>`, so it never takes the element of the app's overlay. The Console signs reviewers in and stores their page threads. Send shows a comment at once and sends it in the background, with one outbox for each project. Confirming an unlink permanently deletes that project's hosted threads and replies.
+Register your site in the Console with **Hosted Comments only**, then copy the script into your page HTML. For a connected app, copy it from **Settings** > **Connection** > **Hosted Comments**, and set `comments: { overlay: false }`. This turns off the app's overlay but keeps its Comments API. When the app's Comments start, Hosted Comments stay off or stop after you send or discard any draft. The browser console shows `COMMENTS_HOSTED_CONFLICT`. The hosted overlay draws in `<vitehub-hosted-comments>`, so it never takes the element of the app's overlay. The Console signs reviewers in and stores their page threads. Send shows a comment at once and sends it in the background, with one outbox for each project. Confirming an unlink permanently deletes that project's hosted threads and replies.
 
 ## Server API
 

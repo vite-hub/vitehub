@@ -2,7 +2,7 @@ import { loadViteHubPageTools, stopViteHubPageTools } from "@vite-hub/internal/r
 
 import { commentsUnansweredError } from "../client-diagnostics.ts"
 import { apiError, useCommentsOverlayBackend } from "../overlay/api.ts"
-import { appCommentsRunning, appOverlayElement } from "../overlay/element.ts"
+import { appCommentsRunning, appOverlayElement, pendingHostedDraft } from "../overlay/element.ts"
 import { embedPath } from "./protocol.ts"
 
 import type { ViteHubPageSession } from "@vite-hub/internal/runtime/page-tools-shared"
@@ -84,9 +84,11 @@ let watchAppComments: Promise<void> | undefined
 export async function mountHostedComments(frame: Promise<EmbedFrame>, project: HostedProject): Promise<void> {
   stopViteHubPageTools()
   if (appCommentsRunning()) return
-  watchAppComments ??= customElements.whenDefined(appOverlayElement).then(() => {
-    stopViteHubPageTools()
+  watchAppComments ??= customElements.whenDefined(appOverlayElement).then(async () => {
     appCommentsRunning()
+    const draft = pendingHostedDraft()
+    if (draft) await draft.ready
+    stopViteHubPageTools()
   })
   useCommentsOverlayBackend(backendOf(frame, project))
   await loadViteHubPageTools({

@@ -14,6 +14,7 @@ const siteOrigin = `http://localhost:${sitePort}`
 const hosted = new URL("../../dist/hosted/", import.meta.url)
 const appOverlay = new URL("../../dist/overlay/", import.meta.url)
 const appAssets = "/_vitehub/comments/assets/"
+const pageToolsLoader = "/_vitehub/page/assets/loader.js"
 const harness = fileURLToPath(new URL("../harness.ts", import.meta.url))
 const handlerFile = fileURLToPath(new URL("../../src/runtime/handler.ts", import.meta.url))
 const projects = { "p-1": siteOrigin, "p-2": "http://localhost:1", "p-3": siteOrigin }
@@ -62,6 +63,8 @@ const appCommentsLaterPage = `<!doctype html><html lang="en"><head><meta charset
 <script type="module" src="${consoleOrigin}/hosted-comments.js" data-vitehub-comments="p-1"></script>
 </body></html>`
 
+const lazyAppCommentsPage = appCommentsLaterPage.replace("</body>", `<script type="module" src="${pageToolsLoader}"></script></body>`)
+
 async function appComments(req, res) {
   const url = new URL(req.url, siteOrigin)
   if (url.pathname.startsWith(appAssets)) {
@@ -69,6 +72,9 @@ async function appComments(req, res) {
     return file ? send(res, 200, { "content-type": "text/javascript; charset=utf-8" }, file) : send(res, 404, {}, "")
   }
   if (url.pathname === "/_vitehub/comments/session") {
+    if (url.searchParams.get("page") === "/app-comments-lazy") {
+      return send(res, 200, { "content-type": "application/json" }, JSON.stringify({ data: { user: null, can: { read: false, comment: false, resolve: false }, realtime: false, content: false, signIn: { provider: "github", url: "/sign-in" } }, people: [] }))
+    }
     return send(res, 200, { "content-type": "application/json" }, JSON.stringify({ data: { user: { id: "u1", name: "Maxi" }, can: { read: true, comment: true, resolve: true }, realtime: false, content: false }, people: [] }))
   }
   return send(res, 200, { "content-type": "application/json" }, JSON.stringify({ data: [], people: [] }))
@@ -139,8 +145,10 @@ async function fakeConsole() {
 }
 
 async function fakeSite() {
-  const pages = { "/app/": vueRouterHashHistoryPage, "/app-comments/": appCommentsPage, "/app-comments-later/": appCommentsLaterPage }
-  const server = createServer((req, res) => {
+  const pages = { "/app/": vueRouterHashHistoryPage, "/app-comments/": appCommentsPage, "/app-comments-later/": appCommentsLaterPage, "/app-comments-lazy/": lazyAppCommentsPage }
+  const server = createServer(async (req, res) => {
+    if (req.url === pageToolsLoader) return send(res, 200, { "content-type": "text/javascript; charset=utf-8" }, await readFile(new URL("../../dist/page/loader.js", import.meta.url)))
+    if (req.url.startsWith("/_vitehub/page/tools?")) return send(res, 200, { "content-type": "application/json" }, JSON.stringify({ tools: [{ id: "comments", label: "Comments", script: `${appAssets}overlay.js`, lazy: true }] }))
     if (req.url.startsWith("/_vitehub/comments/")) return void appComments(req, res)
     const page = Object.entries(pages).find(([path]) => req.url.startsWith(path))?.[1] ?? sitePage
     send(res, 200, { "content-type": "text/html; charset=utf-8" }, page)
@@ -326,7 +334,7 @@ async function openSite(t, path) {
   page.on("pageerror", error => errors.push(error.message))
   page.on("console", message => message.type() === "warning" && warnings.push(message.text()))
   await page.goto(`${siteOrigin}${path}?vitehub`)
-  return { page, errors, warnings }
+  return { page, errors, warnings, api }
 }
 
 const appToolbar = page => page.locator("vitehub-pill").getByTitle("Comment on the page (C)")
@@ -357,5 +365,31 @@ test("hosted Comments stop when the app starts its own Comments after them", { t
   assert.equal(await page.locator("vitehub-hosted-comments").count(), 0)
   assert.equal(await page.locator("vitehub-comments").count(), 1)
   assert.deepEqual(warnings.filter(text => text.includes("COMMENTS_OVERLAY_ELEMENT_TAKEN")), [])
+  assert.deepEqual(errors, [])
+})
+
+test("lazy app sign-in waits for an unsent Hosted Comments draft", { timeout: 120_000 }, async (t) => {
+  const { page, errors, warnings, api } = await openSite(t, "/app-comments-lazy/")
+  const hostedPill = page.locator("vitehub-hosted-comments-pill")
+  const hostedOverlay = page.locator("vitehub-hosted-comments")
+  await hostedPill.getByRole("button", { name: "Comments", exact: true, disabled: false }).click({ timeout: 20_000 })
+  const [callback] = await Promise.all([page.context().waitForEvent("page"), hostedOverlay.getByRole("link", { name: "Sign in to ViteHub" }).click()])
+  await callback.waitForEvent("close", { timeout: 20_000 })
+  await hostedPill.getByTitle("Comment on the page (C)").click({ timeout: 20_000 })
+  await hostedPill.getByTitle("Comment on the whole page").click()
+  const composer = hostedOverlay.getByRole("textbox", { name: "Comment", exact: true })
+  await composer.fill("Keep this hosted draft")
+
+  await page.locator("vitehub-pill").getByRole("button", { name: "Comments", exact: true }).press("Enter")
+  await hostedOverlay.getByText("Send or discard your Hosted Comments draft", { exact: false }).waitFor({ timeout: 5000 })
+  assert.equal(await page.locator("vitehub-comments").count(), 0)
+  assert.equal(await composer.inputValue(), "Keep this hosted draft")
+  await composer.press("Enter")
+
+  await page.locator("vitehub-comments").getByRole("link", { name: "Sign in with GitHub" }).waitFor({ timeout: 20_000 })
+  await hostedPill.waitFor({ state: "detached", timeout: 5000 })
+  assert.equal((await conflictWarned(warnings)).length, 1)
+  for (let tries = 0; (await api.threads()).length === 0 && tries < 100; tries++) await new Promise(resolve => setTimeout(resolve, 100))
+  assert.equal((await api.threads())[0]?.messages[0]?.body, "Keep this hosted draft")
   assert.deepEqual(errors, [])
 })

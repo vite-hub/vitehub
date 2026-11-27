@@ -3,7 +3,7 @@ import { defineDiagnostics, Diagnostic } from "nostics"
 export const commentsClientCodes = {
   COMMENTS_HOSTED_CONFLICT: {
     why: "This page runs the app's own Comments, so the Hosted Comments script does not start its overlay.",
-    fix: "Use one of them on a page: remove the Hosted Comments script from the pages of this app, or turn off the app's Comments with `comments: false` and keep the script. See https://vitehub.dev/docs/comments/configure#add-hosted-comments",
+    fix: "Remove the Hosted Comments script, or keep it and set `comments: { overlay: false }` to turn off the app's overlay. See https://vitehub.dev/docs/comments/configure#add-hosted-comments",
   },
   COMMENTS_OUTBOX_ACCOUNT_CHANGED: {
     why: "The current author is not the author of this queued comment.",
