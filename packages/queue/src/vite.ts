@@ -71,7 +71,7 @@ export interface QueueNitroConfigOptions {
 
 /** Options that a framework distribution passes to `hubQueue()`. */
 export interface QueueVitePluginInternalOptions {
-  /** Module that exports the app's `databases`, for the postgres driver. Defaults to `@vite-hub/database/drizzle`. */
+  /** Module that exports the app's `databases`, for the postgres driver. Defaults to `@vite-hub/database/runtime/registry`. */
   databaseImport?: string
   /** Module that the generated Queue types augment, for example `vite-hub/queue`. Defaults to `@vite-hub/queue`. */
   importBase?: string
