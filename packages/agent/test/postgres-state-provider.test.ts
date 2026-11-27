@@ -21,6 +21,12 @@ vi.mock("@vite-hub/database", () => ({ useDatabase }))
 const url = process.env.VITEHUB_TEST_POSTGRES_URL
 const tablePrefixDefault = "test_agent_state_"
 
+function deferred() {
+  let resolve!: () => void
+  const promise = new Promise<void>(done => { resolve = done })
+  return { promise, resolve }
+}
+
 type Parameters = Array<string | number | boolean | null>
 
 interface RowsQuery { query(text: string, values?: Parameters): Promise<{ rows: SqliteAgentStateRow[] }> }
@@ -264,8 +270,8 @@ describe.skipIf(!url)("Postgres Agent State on a Postgres server", () => {
       const [cleanerBackend] = await cleaner`SELECT pg_backend_pid() AS pid`
       await writer`INSERT INTO vitehub_agent_state_lists (key, value, expires_at) VALUES ('list', '"old"', 0)`
 
-      const inserted = Promise.withResolvers<void>()
-      const release = Promise.withResolvers<void>()
+      const inserted = deferred()
+      const release = deferred()
       const append = a.extension("test").transaction(async (tx) => {
         await tx.execute(`INSERT INTO vitehub_agent_state_lists (key, value, expires_at) VALUES ('list', '"fresh"', NULL)`)
         inserted.resolve()

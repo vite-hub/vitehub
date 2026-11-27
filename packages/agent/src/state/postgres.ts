@@ -93,6 +93,20 @@ function postgresSchema(tables: AgentStateTables): string[] {
   ]
 }
 
+function decodeWebhookPayload(value: string): string {
+  const decoded: unknown = JSON.parse(value)
+  if (typeof decoded !== "object" || decoded === null || !("payload" in decoded) || typeof decoded.payload !== "string") {
+    throw new TypeError("Invalid Postgres Agent State webhook payload.")
+  }
+  return decoded.payload
+}
+
+function decodeWebhookKey(value: string): string {
+  const decoded: unknown = JSON.parse(value)
+  if (typeof decoded !== "string") throw new TypeError("Invalid Postgres Agent State webhook key.")
+  return decoded
+}
+
 const postgresAgentStateDialect: AgentStateSqlDialect = {
   name: "postgresql",
   now: DB_NOW,
@@ -103,9 +117,9 @@ const postgresAgentStateDialect: AgentStateSqlDialect = {
     channelDeliveryId: JSON.stringify(delivery.channelDeliveryId),
     debounceKey: JSON.stringify(delivery.debounceKey),
   }),
-  webhookPayload: value => (JSON.parse(value) as { payload: string }).payload,
+  webhookPayload: decodeWebhookPayload,
   encodeWebhookKey: value => JSON.stringify(value),
-  decodeWebhookKey: value => JSON.parse(value) as string,
+  decodeWebhookKey,
   supersededValue: `CASE WHEN (value::jsonb ->> 'channelDeliveryId') IS NULL THEN '{}'
   ELSE jsonb_build_object('channelDeliveryId', value::jsonb ->> 'channelDeliveryId')::text END`,
   transcriptKeys: "key LIKE 'chat:%:transcripts:user:%' OR key LIKE 'transcripts:user:%'",

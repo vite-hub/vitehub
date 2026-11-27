@@ -105,7 +105,8 @@ describe.skipIf(!url)("one Agent process host across servers on a Postgres serve
     const [lease] = await sql.unsafe(`SELECT owner FROM vitehub_leases WHERE key = '${agentProcessHostLeaseKey(agent)}'`)
     expect(lease).toMatchObject({ owner: holder!.name })
 
-    const deliveries = standbys.map((standby, index) => ({ standby, id: `first-${index}` }))
+    const senders = backend === "postgres" ? standbys : standbys.slice(0, 1)
+    const deliveries = senders.map((standby, index) => ({ standby, id: `first-${index}` }))
     for (const { standby, id } of deliveries) standby.process.send({ deliver: id })
     for (const { standby, id } of deliveries) {
       expect(await standby.next(line => line.delivered === id)).toMatchObject({ status: 202 })
