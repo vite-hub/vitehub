@@ -53,6 +53,7 @@
     "vite-hub": "workspace:*",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
+    "vue": "catalog:ui",
     "wrangler": "catalog:"
   },
   "devEngines": {
