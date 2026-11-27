@@ -4,7 +4,7 @@ import type { MarkdownDocument, RendererOptions } from "comark"
 import type { PresetOptions } from "comark-ui/html"
 
 /** The Comark UI preset options that Content parses Markdown with. The Vue renderer omits the HTML-only `annotate`, `diff`, and `quiz` plugins, so they are off. */
-export const contentMarkdownPreset: PresetOptions = { annotate: false, diff: false, quiz: false, motion: false, chips: { download: false }, badge: { download: false } }
+export const contentMarkdownPreset: PresetOptions = { annotate: false, diff: false, quiz: false, chips: { download: false }, badge: { download: false } }
 
 let presetComponents: RendererOptions["components"] | undefined
 
