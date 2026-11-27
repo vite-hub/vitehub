@@ -629,7 +629,7 @@ export function addVercelWorkflowNitroRoutes(nitro: object): void {
   Reflect.set(nitro, "vercel", { ...vercel, config: { ...config, routes: [{ ...vercelWorkflowWebhookRoute }, ...routes] } })
 }
 
-async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: DiscoveredWorkflowDefinition[], aliases: Record<string, string> = {}, nativeFiles: string[] = [], previousState?: VercelNativeWorkflowState, bundleDefines: Record<string, string> = {}): Promise<void> {
+export async function buildVercelNativeWorkflowOutput(rootDir: string, definitions: DiscoveredWorkflowDefinition[], aliases: Record<string, string> = {}, nativeFiles: string[] = [], previousState?: VercelNativeWorkflowState, bundleDefines: Record<string, string> = {}): Promise<void> {
   if (!hasVercelNativeWorkflowEntry(rootDir, definitions, aliases, nativeFiles)) {
     await cleanVercelNativeWorkflowOutput(rootDir)
     return
@@ -1388,6 +1388,27 @@ function renderProviderEntry(
   ].filter(Boolean).join("\n")
 }
 
+/**
+ * Writes the native Vercel entry of each Workflow folder that has numbered steps and no index, into
+ * `<generatedDir>/vercel-native`. It returns the entry file of each Workflow name.
+ */
+export async function writeVercelNativeWorkflowFiles(generatedDir: string, definitions: DiscoveredWorkflowDefinition[]): Promise<Record<string, string>> {
+  const vercelNativeDir = resolve(generatedDir, "vercel-native")
+  const nativeDefinitions = definitions.filter(definition => getGeneratedVercelWorkflowExport(definition))
+  await rm(resolve(generatedDir, "vercel-native.mjs"), { force: true })
+  await rm(vercelNativeDir, { force: true, recursive: true })
+  const vercelNativeFiles = Object.fromEntries(nativeDefinitions.map(definition => [
+    definition.name,
+    resolve(vercelNativeDir, `${createHash("sha256").update(definition.name).digest("hex")}.mjs`),
+  ]))
+  if (nativeDefinitions.length) await mkdir(vercelNativeDir, { recursive: true })
+  await Promise.all(nativeDefinitions.map(async definition => {
+    const nativeFile = vercelNativeFiles[definition.name]
+    await writeFile(nativeFile, await createVercelNativeWorkflowContents(definition), "utf8")
+  }))
+  return vercelNativeFiles
+}
+
 export async function writeProviderEntries(
   rootDir: string,
   workflow: WorkflowOptions | undefined,
@@ -1407,19 +1428,7 @@ export async function writeProviderEntries(
   const userAppEntry = includeUserAppEntry ? resolveWorkflowUserAppEntry(definitionRootDir, includeUserAppEntry) : undefined
   const cloudflareWorkflowConfig = resolveWorkflowConfig(workflow, "cloudflare")
 
-  const vercelNativeDir = resolve(generatedDir, "vercel-native")
-  const nativeDefinitions = definitions.filter(definition => getGeneratedVercelWorkflowExport(definition))
-  await rm(resolve(generatedDir, "vercel-native.mjs"), { force: true })
-  await rm(vercelNativeDir, { force: true, recursive: true })
-  const vercelNativeFiles = Object.fromEntries(nativeDefinitions.map(definition => [
-    definition.name,
-    resolve(vercelNativeDir, `${createHash("sha256").update(definition.name).digest("hex")}.mjs`),
-  ]))
-  if (nativeDefinitions.length) await mkdir(vercelNativeDir, { recursive: true })
-  await Promise.all(nativeDefinitions.map(async definition => {
-    const nativeFile = vercelNativeFiles[definition.name]
-    await writeFile(nativeFile, await createVercelNativeWorkflowContents(definition), "utf8")
-  }))
+  const vercelNativeFiles = await writeVercelNativeWorkflowFiles(generatedDir, definitions)
   await Promise.all(definitions
     .filter(definition => !getGeneratedVercelWorkflowExport(definition))
     .flatMap(definition => definition.steps ?? [])

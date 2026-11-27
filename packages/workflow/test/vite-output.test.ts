@@ -1652,8 +1652,8 @@ describe("Vite workflow provider outputs", () => {
 
     expect(existsSync(join(rootDir, "dist", "vite"))).toBe(false)
     expect(existsSync(join(rootDir, ".vercel", "output", "config.json"))).toBe(true)
-    const [generatedNativeFile] = await readdir(join(rootDir, ".vitehub", "workflow", "vercel-native"))
-    const generatedNative = await readFile(join(rootDir, ".vitehub", "workflow", "vercel-native", generatedNativeFile), "utf8")
+    const generatedNativeFile = join(rootDir, ".vitehub", "workflow", "vercel-native", `${createHash("sha256").update("monthly-recap").digest("hex")}.mjs`)
+    const generatedNative = await readFile(generatedNativeFile, "utf8")
     expect(generatedNative).toContain('"use workflow"')
     expect(generatedNative).toContain('"use step"')
     expect(generatedNative).not.toContain("vitehub.email.definition")
@@ -1677,7 +1677,7 @@ describe("Vite workflow provider outputs", () => {
       cwd: rootDir,
       env: { ...process.env, VITEHUB_HOST: "vercel", VITEHUB_VITE_MODE: "workflow" },
     })
-    expect(existsSync(join(rootDir, ".vitehub", "workflow", "vercel-native"))).toBe(false)
+    expect(existsSync(generatedNativeFile)).toBe(false)
     await expect(readFile(join(rootDir, ".vercel", "output", "functions", ".well-known", "workflow", "v1", "flow.func", "index.mjs"), "utf8"))
       .resolves.toMatch(/globalThis\[(?:\/\*.*?\*\/\s*)?Symbol\.for\(["']vitehub\.email\.definition["']\)\]\s*=/)
     const rebuiltConfig: unknown = JSON.parse(await readFile(join(rootDir, ".vercel", "output", "config.json"), "utf8"))
