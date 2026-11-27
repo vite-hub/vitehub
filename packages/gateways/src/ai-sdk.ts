@@ -1,4 +1,4 @@
-import { aiGatewayLanguageModel, aiGatewayOpenAIChat, aiGatewayStructuredOutputs, aiGatewaySupports, isRecord, resolveAiGatewayModelRoute } from "./definition.ts"
+import { aiGatewayLanguageModel, aiGatewayOpenAIChat, aiGatewayResponsesRoute, aiGatewayStructuredOutputs, aiGatewaySupports, isRecord, resolveAiGatewayModelRoute } from "./definition.ts"
 import { gatewayDiagnostics } from "./diagnostics.ts"
 
 import type { LanguageModelV4, LanguageModelV4CallOptions } from "@ai-sdk/provider"
@@ -9,7 +9,8 @@ import type { AiGateway, AiGatewayCapabilities, AiGatewayRoute } from "./types.t
  * The model APIs that `languageModel()` can call, for the routes of a gateway:
  * - `chat`: OpenAI Chat Completions at the `openai-compatible` URL, with `@ai-sdk/openai-compatible`. The `openai()`
  *   preset uses `@ai-sdk/openai`.
- * - `responses`: OpenAI Responses at the `openai-compatible` URL, else at the `codex` URL, with `@ai-sdk/openai`.
+ * - `responses`: OpenAI Responses with `@ai-sdk/openai`. Uses the `openai-compatible` URL, else the `codex` URL,
+ *   unless the preset specifies a separate Responses endpoint.
  * - `messages`: Anthropic Messages at the `claude-code` URL, with `@ai-sdk/anthropic`.
  */
 export type AiGatewayModelApi<TRoutes extends AiGatewayRoute = AiGatewayRoute> =
@@ -49,7 +50,7 @@ function defaultApi(gateway: AiGateway): AiGatewayModelApi {
 
 function routeOf(gateway: AiGateway, api: AiGatewayModelApi): AiGatewayRoute {
   if (api === "messages") return "claude-code"
-  if (api === "responses" && !aiGatewaySupports(gateway, "openai-compatible")) return "codex"
+  if (api === "responses" && (Reflect.get(gateway, aiGatewayResponsesRoute) === "codex" || !aiGatewaySupports(gateway, "openai-compatible"))) return "codex"
   return "openai-compatible"
 }
 
