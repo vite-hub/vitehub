@@ -8,9 +8,12 @@ import {
   PatchDiff,
   UnresolvedFile,
   TraceRun,
+  createViteHubUI,
   getSingularPatch,
   type CodeViewItem,
   type FileContents,
+  type MotionPressMode,
+  type ViteHubUIMotionOptions,
   type TraceEventLogEntry,
   type TraceRunView,
   type TraceStepView,
@@ -54,4 +57,13 @@ test("types the diff views, chat messages and trace runs", () => {
   expectTypeOf(session).toExtend<ViteHubUISession<typeof message>>();
   expectTypeOf(traceRun).toExtend<InstanceType<typeof TraceRun>["$props"]["run"]>();
   expectTypeOf(traceRun.events).toExtend<TraceEventLogEntry[]>();
+});
+
+test("types the motion option of createViteHubUI", () => {
+  expectTypeOf(createViteHubUI).toBeCallableWith({ motion: { press: "opt-in" } });
+  expectTypeOf(createViteHubUI).toBeCallableWith({ motion: false });
+  expectTypeOf<NonNullable<ViteHubUIMotionOptions["press"]>>().toEqualTypeOf<MotionPressMode>();
+  expectTypeOf<MotionPressMode>().toEqualTypeOf<"buttons" | "opt-in" | "all">();
+  // @ts-expect-error A press mode is one of the three names.
+  createViteHubUI({ motion: { press: "links" } });
 });

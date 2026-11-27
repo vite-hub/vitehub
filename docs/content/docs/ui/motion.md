@@ -6,7 +6,7 @@ navigation.group: Parts
 icon: i-lucide-sparkles
 ---
 
-Most motion in `@vite-hub/ui` needs no code. The motion layer moves a control by its role: a press squashes a button, a switch knob travels, a tab indicator slides, a tooltip rises, the chevron of a `<details>` or an `aria-expanded` control turns. A sidebar that sets `data-motion-panel` follows a spring to its new width when it opens. The parts on this page are for changes that only your component knows about: a label, a count, or an icon that changes with state, a list that changes, work that runs, files that a person drags in, and a delete that can be undone. The rules behind them are in [docs/design/motion.md](https://github.com/vite-hub/vitehub/blob/main/docs/design/motion.md).
+Most motion in `@vite-hub/ui` needs no code. The motion layer moves controls by their element and role: a pointer press squashes a compact native button, a switch knob travels, a tab indicator slides, a tooltip rises, and the chevron of a `<details>` or an `aria-expanded` control turns. A sidebar that sets `data-motion-panel` follows a spring to its new width when it opens. The parts on this page are for changes that only your component knows about: a label, a count, or an icon that changes with state, a list that changes, work that runs, files that a person drags in, and a delete that can be undone. The rules behind them are in [docs/design/motion.md](https://github.com/vite-hub/vitehub/blob/main/docs/design/motion.md).
 
 ::example{name="MotionExample" height=8}
 ::
@@ -70,9 +70,40 @@ Use `Progress` for work that runs, `DropField` for files that a person drags in,
 
 Some motion comes from attributes, with no part:
 
+- `data-motion-press` on any element makes it squash on a pointer press. `data-motion-press="icon"` squashes only its icon. `data-motion-press="none"` turns press squash off on an element or a subtree.
 - `data-motion-appear="<trigger>"` on an element that appears next to its trigger, such as a bubble next to a pin, makes it come out of the trigger as a tooltip does. The value selects the trigger around the element or next to it.
 - `data-motion-chevron` on an element in a `<summary>` or in a control with `aria-expanded` turns it with a spring when the control opens or closes, as the layer does with an icon there. Set its angle for each state in CSS, with no transition.
 - `data-leaving="true"` on a mark that the page removes a moment later folds a copy of it away.
+
+### Press squash
+
+By default, only compact native buttons squash on a pointer press: a `<button>` with no other role or an `<input>` of type `button`, `submit`, or `reset` that is under 48px high and at most four times as wide as it is high. Links, tabs, radios, options, menu items, `<summary>`, checkboxes, wide buttons, and `[role="button"]` on other elements stay still.
+
+The shrink is capped at 6px over the longer side, so each edge moves by at most about 3px. An icon-only control squashes its icon by 15% and keeps its background still. Space and Enter do not squash controls; a switch still grows its knob on a key press.
+
+Use `data-motion-press` to opt another element in, `data-motion-press="icon"` to squash only its icon, or `data-motion-press="none"` to keep a button or a subtree still. An element's own `data-motion-press` beats `"none"` on an ancestor, and an opt-in does not pass down to children. `data-motion="none"` turns off all motion in a subtree.
+
+```vue
+<template>
+  <a href="/deploy" data-motion-press>Deploy</a>
+  <a href="/next" data-motion-press="icon">
+    <UIcon name="i-lucide-arrow-right" />
+    Next
+  </a>
+  <nav data-motion-press="none">
+    <UButton label="Overview" />
+    <UButton label="Publish" data-motion-press />
+  </nav>
+</template>
+```
+
+To change which controls squash across the app, pass `motion.press` to `createViteHubUI()`. `"buttons"` is the default, `"opt-in"` squashes only elements with `data-motion-press`, and `"all"` squashes every control role. Pass `motion: false` to turn the motion layer off.
+
+```ts
+import { createViteHubUI } from "vite-hub/ui";
+
+app.use(createViteHubUI({ motion: { press: "opt-in" } }));
+```
 
 ## Animation
 

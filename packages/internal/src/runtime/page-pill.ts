@@ -361,6 +361,7 @@ export function mountViteHubPagePill(options: ViteHubPagePillOptions): HTMLEleme
   // The mark collapses the pill to itself. The tools keep running: their windows, pins, and modes stay.
   const mark = document.createElement("button")
   mark.className = "mark"
+  mark.dataset.motionPress = ""
   mark.append(options.mark)
   const initiallyCollapsed = options.initial?.collapsed === true
   const collapse = (collapsed: boolean) => {
@@ -401,6 +402,7 @@ export function mountViteHubPagePill(options: ViteHubPagePillOptions): HTMLEleme
   if (exit) {
     button = document.createElement("button")
     button.className = "exit"
+    button.dataset.motionPress = ""
     button.setAttribute("aria-label", exit.label)
     button.title = exit.label
     button.append(viteHubPageSvgIcon("0 0 24 24", "M18 6 6 18M6 6l12 12", { width: "15", height: "15", fill: "none", stroke: "currentColor", "stroke-width": "2", "stroke-linecap": "round" }))

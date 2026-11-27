@@ -141,6 +141,34 @@ async function press(page, testId) {
   return { down, settled: await scaleOf(page, testId) }
 }
 
+function isCompact(page, testId) {
+  return page.locator(`[data-test="${testId}"]`).evaluate(node => node.offsetHeight < 48 && node.offsetWidth <= 4 * node.offsetHeight)
+}
+
+async function scaleWhileDown(page, testId) {
+  await pointerDown(page, testId)
+  await frames(page)
+  const down = await scaleOf(page, testId)
+  await page.mouse.up()
+  return down
+}
+
+function settledScale(locator) {
+  return locator.evaluate(node => new Promise((resolve) => {
+    let last = node.style.scale
+    let still = 0
+    let left = 300
+    const check = () => {
+      const value = node.style.scale
+      still = value && value === last ? still + 1 : 0
+      last = value
+      if (still >= 10 || !--left) resolve(value)
+      else requestAnimationFrame(check)
+    }
+    requestAnimationFrame(check)
+  }))
+}
+
 // A switch grows its knob instead of a press. test/browser/motion-toggle.browser.mjs checks it.
 const roles = ["button", "link", "tab", "radio", "menuitem", "menuitemradio", "menuitemcheckbox", "option", "checkbox"]
 
@@ -148,9 +176,9 @@ describe("press by role", async () => {
   test("a squashing button keeps native activation at its original edge, but a drag outside does not activate", async () => {
     const { context, page } = await open()
     try {
-      const control = page.getByRole("button", { name: "Publish", exact: true })
+      const control = page.locator("[data-test=button]")
       await control.evaluate((node) => {
-        node.style.width = "120px"
+        node.style.width = "100px"
         node.dataset.clicks = "0"
         node.addEventListener("click", () => { node.dataset.clicks = String(Number(node.dataset.clicks) + 1) })
       })
@@ -186,7 +214,7 @@ describe("press by role", async () => {
       await frames(page)
       assert.equal(await link.evaluate(node => node.style.scale), "")
       await page.mouse.up()
-      assert.equal(new URL(page.url()).hash, "#inline")
+      await page.waitForURL(url => url.hash === "#inline", { timeout: 5_000 })
     }
     finally {
       await context.close()
@@ -274,34 +302,6 @@ describe("press by role", async () => {
     assert.ok(Math.max(...steps) < 0.015, `the largest step between two frames is ${Math.max(...steps)}`)
   })
 
-  test("each Nuxt UI control and each role squashes", async () => {
-    const { context, page } = await open()
-    const ids = ["button-large", "button-link", ...roles.map(role => `role-${role}`), "plain-button", "plain-a", "plain-summary"]
-    for (const id of ids) {
-      const { down, settled } = await press(page, id)
-      assert.ok(down < 0.99, `${id} squashes (${down})`)
-      assert.equal(settled, 1, `${id} settles at rest`)
-    }
-    for (const selector of ["button[role=tab]", "button[role=checkbox]", "button[role=radio]"]) {
-      const element = page.locator(selector).first()
-      const box = await boxInView(element)
-      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
-      await page.mouse.down()
-      const squashed = await element.evaluate(node => new Promise((resolve) => {
-        let left = 120
-        const check = () => getComputedStyle(node).scale !== "none" ? resolve(true) : --left ? requestAnimationFrame(check) : resolve(false)
-        requestAnimationFrame(check)
-      }))
-      await page.mouse.up()
-      assert.ok(squashed, `${selector} squashes`)
-      await element.evaluate(node => new Promise((resolve) => {
-        const check = () => node.style.scale ? requestAnimationFrame(check) : resolve()
-        check()
-      }))
-    }
-    await context.close()
-  })
-
   test("an icon-only button squashes its icon by 15%", async () => {
     const { context, page } = await open()
     const trace = await sample(page, "button-icon")
@@ -317,22 +317,22 @@ describe("press by role", async () => {
     await context.close()
   })
 
-  test("Space and Enter press the control that has focus", async () => {
+  test("Space and Enter do not squash the control that has focus", async () => {
     const { context, page } = await open()
     for (const key of ["Space", "Enter"]) {
       await page.locator("[data-test=plain-button]").focus()
       await page.keyboard.down(key)
-      await waitForScale(page, "plain-button", scale => scale < 0.99)
-      const down = await scaleOf(page, "plain-button")
+      await frames(page)
+      const down = await page.locator("[data-test=plain-button]").evaluate(node => ({ computed: getComputedStyle(node).scale, inline: node.style.scale }))
       await page.keyboard.up(key)
-      assert.ok(down < 0.99, `${key} squashes (${down})`)
-      await page.waitForFunction(() => !document.querySelector("[data-test=plain-button]").style.scale)
+      assert.deepEqual(down, { computed: "none", inline: "" }, `${key} does not squash`)
     }
     await context.close()
   })
 
   test("disabled controls, controls inside data-motion=none, controls with their own scale transition, and plain text do not squash", async () => {
     const { context, page } = await open()
+    for (const id of ["opt-out", "own-press"]) assert.ok(await isCompact(page, id), `${id} is a compact button`)
     for (const id of ["button-disabled", "plain-disabled", "aria-disabled", "opt-out", "own-press"]) {
       await pointerDown(page, id)
       await frames(page)
@@ -431,6 +431,120 @@ describe("press by role", async () => {
   })
 })
 
+describe("press scope", async () => {
+  test("a wide button, a paragraph with role=button and a block link stay still by default", async () => {
+    const { context, page } = await open()
+    try {
+      assert.equal(await isCompact(page, "wide-button"), false, "the wide button is wider than four times its height")
+      for (const id of ["wide-button", "row-button", "block-link"]) assert.equal(await scaleWhileDown(page, id), 1, `${id} stays still`)
+      assert.ok((await press(page, "plain-button")).down < 0.99, "a compact native button squashes")
+    }
+    finally {
+      await context.close()
+    }
+  })
+
+  test("a link with data-motion-press squashes", async () => {
+    const { context, page } = await open()
+    try {
+      const { down, settled } = await press(page, "opt-link")
+      assert.ok(down < 0.99, `the opted-in link squashes (${down})`)
+      assert.equal(settled, 1)
+    }
+    finally {
+      await context.close()
+    }
+  })
+
+  test("data-motion-press=none stops a compact button inside it, and an own data-motion-press inside it wins", async () => {
+    const { context, page } = await open()
+    try {
+      assert.ok(await isCompact(page, "none-button"))
+      assert.equal(await scaleWhileDown(page, "none-button"), 1, "the button inside data-motion-press=none stays still")
+      assert.ok((await press(page, "none-own")).down < 0.99, "the button with its own data-motion-press squashes")
+    }
+    finally {
+      await context.close()
+    }
+  })
+
+  test("?press=opt-in leaves a compact button still and squashes an opted-in one", async () => {
+    const { context, page } = await open("?press=opt-in")
+    try {
+      assert.ok(await isCompact(page, "plain-button"))
+      assert.equal(await scaleWhileDown(page, "plain-button"), 1, "the compact button stays still")
+      assert.ok((await press(page, "none-own")).down < 0.99, "the opted-in button squashes")
+      assert.ok((await press(page, "opt-link")).down < 0.99, "the opted-in link squashes")
+    }
+    finally {
+      await context.close()
+    }
+  })
+
+  test("a 1000px opted-in button shrinks by at most 6px", async () => {
+    const { context, page } = await open()
+    try {
+      const button = page.locator("[data-test=opt-wide]")
+      await pointerDown(page, "opt-wide")
+      const scale = await settledScale(button)
+      const { width, rendered } = await button.evaluate(node => ({ width: node.offsetWidth, rendered: node.getBoundingClientRect().width }))
+      await page.mouse.up()
+      assert.equal(width, 1000)
+      assert.ok(scale !== "" && Number(scale) < 1, `the button squashes (${scale})`)
+      assert.ok(width - rendered <= 6.01, `the button shrinks by ${width - rendered}px`)
+    }
+    finally {
+      await context.close()
+    }
+  })
+
+  test("data-motion-press=icon squashes only the icon, by 15%", async () => {
+    const { context, page } = await open()
+    try {
+      const link = page.locator("[data-test=opt-icon]")
+      await pointerDown(page, "opt-icon")
+      const icon = await settledScale(link.locator("svg"))
+      const own = await link.evaluate(node => ({ computed: getComputedStyle(node).scale, inline: node.style.scale }))
+      await page.mouse.up()
+      assert.equal(icon, "0.85")
+      assert.deepEqual(own, { computed: "none", inline: "" }, "the link itself stays still")
+    }
+    finally {
+      await context.close()
+    }
+  })
+})
+
+describe("press mode all", async () => {
+  test("each Nuxt UI control and each role squashes", async () => {
+    const { context, page } = await open("?press=all")
+    const ids = ["button-large", "button-link", ...roles.map(role => `role-${role}`), "plain-button", "plain-a", "plain-summary"]
+    for (const id of ids) {
+      const { down, settled } = await press(page, id)
+      assert.ok(down < 0.99, `${id} squashes (${down})`)
+      assert.equal(settled, 1, `${id} settles at rest`)
+    }
+    for (const selector of ["button[role=tab]", "button[role=checkbox]", "button[role=radio]"]) {
+      const element = page.locator(selector).first()
+      const box = await boxInView(element)
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+      await page.mouse.down()
+      const squashed = await element.evaluate(node => new Promise((resolve) => {
+        let left = 120
+        const check = () => getComputedStyle(node).scale !== "none" ? resolve(true) : --left ? requestAnimationFrame(check) : resolve(false)
+        requestAnimationFrame(check)
+      }))
+      await page.mouse.up()
+      assert.ok(squashed, `${selector} squashes`)
+      await element.evaluate(node => new Promise((resolve) => {
+        const check = () => node.style.scale ? requestAnimationFrame(check) : resolve()
+        check()
+      }))
+    }
+    await context.close()
+  })
+})
+
 const recordDir = process.env.MOTION_RECORD
 if (recordDir) {
   test("record each press at ¼×", { timeout: 300_000 }, async () => {
@@ -438,7 +552,7 @@ if (recordDir) {
     const subjects = [
       { name: "ubutton-spring", query: "", selector: "[data-test=button-outline]" },
       { name: "ubutton-today", query: "?mode=today", selector: "[data-test=button-outline]", cssRate: true },
-      { name: "tab-spring", query: "", selector: "button[role=tab] >> nth=1" },
+      { name: "tab-spring", query: "?press=all", selector: "button[role=tab] >> nth=1" },
       { name: "tab-today", query: "?mode=today", selector: "button[role=tab] >> nth=1", cssRate: true },
       { name: "icon-spring", query: "", selector: "[data-test=button-icon]" },
     ]

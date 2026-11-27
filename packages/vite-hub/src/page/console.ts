@@ -20,6 +20,7 @@ const start: ViteHubPageToolModule["default"] = ({ bar, tool, onOpen }) => {
   button.type = "button"
   button.title = "Open this app in the ViteHub Console, in a new tab"
   button.textContent = tool.label
+  button.dataset.motionPress = ""
   button.insertAdjacentHTML("beforeend", newTabIcon)
   const open = () => {
     const fields = [...document.querySelectorAll("[data-content-field]")].map(element => element.getAttribute("data-content-field") ?? "")

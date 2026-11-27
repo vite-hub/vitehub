@@ -24,6 +24,7 @@ import { togetherRows } from "./together.ts";
 
 const today = new URLSearchParams(location.search).get("mode") === "today";
 const inverted = new URLSearchParams(location.search).has("inverted");
+const pressMode = new URLSearchParams(location.search).get("press");
 // The press of `vitehubTheme.button` before the motion layer.
 const todayPress = "transition-[color,background-color,box-shadow,transform] duration-150 ease-out motion-safe:active:not-disabled:scale-[.97]";
 const buttonClass = today ? todayPress : undefined;
@@ -262,9 +263,21 @@ const app = createApp({
     row("No motion", [
       h("button", { "class": "plain", "disabled": true, "data-test": "plain-disabled" }, "disabled"),
       h("div", { "class": "plain", "role": "button", "aria-disabled": "true", "tabindex": 0, "data-test": "aria-disabled" }, "aria-disabled"),
-      h("div", { "data-motion": "none" }, [h("button", { "class": "plain", "data-test": "opt-out" }, "inside data-motion=none")]),
-      h("button", { "class": "plain own-press", "data-test": "own-press" }, "own scale transition"),
-      h("button", { "class": "plain", "data-test": "not-a-control-parent" }, [h("span", { "data-test": "inner-span" }, "span in a button")]),
+      h("div", { "data-motion": "none" }, [h("button", { "class": "plain", "data-test": "opt-out" }, "opted out")]),
+      h("button", { "class": "plain own-press", "data-test": "own-press" }, "own scale"),
+      h("button", { "class": "plain", "data-test": "not-a-control-parent" }, [h("span", { "data-test": "inner-span" }, "a span")]),
+    ]),
+    row("Press scope", [
+      h("button", { "class": "plain", "data-test": "wide-button", "style": { width: "300px" } }, "A wide button"),
+      h("p", { "class": "plain", "role": "button", "tabindex": 0, "data-test": "row-button" }, "A row"),
+      h("a", { "class": "plain", "href": "#block", "data-test": "block-link", "style": { display: "flex" } }, "A block link"),
+      h("a", { "class": "plain", "href": "#opted", "data-motion-press": "", "data-test": "opt-link" }, "Opted in"),
+      h("a", { "class": "plain", "href": "#icon", "data-motion-press": "icon", "data-test": "opt-icon" }, [h(UIcon, { name: "i-lucide-arrow-right" }), "Next"]),
+      h("div", { "class": "row", "data-motion-press": "none" }, [
+        h("button", { "class": "plain", "data-test": "none-button" }, "No press"),
+        h("button", { "class": "plain", "data-motion-press": "", "data-test": "none-own" }, "Own"),
+      ]),
+      h("button", { "class": "plain", "data-motion-press": "", "data-test": "opt-wide", "style": { width: "1000px", flexShrink: 0 } }, "A 1000px button"),
     ]),
     ...textRows(row),
     row("Shadow DOM", [h("motion-shadow-button", { "data-test": "shadow-host" })]),
@@ -305,6 +318,6 @@ const app = createApp({
   ]),
 });
 const { default: ui } = await import("@nuxt/ui/vue-plugin");
-app.use(ui).use(createViteHubUI({ motion: !today })).mount("#app");
+app.use(ui).use(createViteHubUI({ motion: today ? false : pressMode === "opt-in" || pressMode === "all" ? { press: pressMode } : true })).mount("#app");
 await document.fonts.ready;
 Object.assign(window, { ready: true });
