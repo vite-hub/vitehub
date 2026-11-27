@@ -192,7 +192,7 @@ The per-app Console MCP at `/_vitehub/mcp`, with OAuth from `consoleMcpOAuth()`,
 `console.mcpClient` is removed, and so are `vite-hub/console/mcp-client`, `VITEHUB_CONSOLE_MCP_KEY` and the `/_vitehub/mcp-client/callback` page. The [MCP client section](/docs/console/mcp-client) now runs on the ViteHub Console server and keeps its connections there.
 
 1. Remove `mcpClient` from `console`.
-2. Remove `VITEHUB_CONSOLE_MCP_KEY` from the app. Its KV entries below `vitehub:console:mcp-client:` are no longer read, so you can delete them.
+2. Remove `VITEHUB_CONSOLE_MCP_KEY` from the app. Its KV entries below `vitehub:console:mcp-client:` are no longer read, so you can delete them. ViteHub does not revoke the old grants at the MCP servers. To remove a grant, revoke the app in the settings of that MCP server.
 3. Remove `@modelcontextprotocol/sdk` from the app if nothing else uses it.
 4. Connect again in the Console. When an MCP server needs a fixed OAuth callback, register `<console origin>/mcp-client/callback`, such as `https://console.vitehub.dev/mcp-client/callback`.
 
