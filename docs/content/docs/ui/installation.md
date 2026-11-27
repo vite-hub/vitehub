@@ -20,12 +20,14 @@ The package is pre-1.0. Pin its version and read the changes before you upgrade.
 | `vue`                                     | All entry points.                                         |
 | `ai`                                      | All entry points. Components use AI SDK types. |
 | `@ai-sdk/vue`                              | `useChat()` and other Vue helpers. Optional when the app has its own state. |
-| `@nuxt/ui` and `tailwindcss`              | Styled components. Not needed for `vite-hub/ui/headless`. |
+| `tailwindcss`                             | Styled components. Not needed for `vite-hub/ui/headless`. |
+| `@vite-hub/kit`                           | The styles of the ui-sdk components that the styled components render. Not needed when the app gives its own components. |
+| `@nuxt/ui`                                | Nuxt only today: `vite-hub/nuxt` gives the components their Nuxt runtime in a Nuxt UI app. |
 | `vite` and `@vitejs/plugin-vue`           | The `vite-hub/ui/vite` plugin.                           |
 | `vite-hub`                                | All entry points: the `vite-hub/ui` paths. In Nuxt, `vite-hub/nuxt` gives the components their Nuxt runtime. |
 | `@iconify-json/lucide`                    | Nuxt. `vite-hub/nuxt` adds the component icons to the `@nuxt/icon` client bundle. |
 
-`@nuxt/ui` and `vite` are optional peers, so an app that uses only the headless entry does not need them.
+`vite` is an optional peer, so an app that uses only the headless entry does not need it. `@nuxt/ui` is not a peer of `vite-hub` or `@vite-hub/ui`.
 
 ## Install in Nuxt
 
@@ -52,7 +54,7 @@ Load Tailwind CSS, Nuxt UI, and the package styles in this order:
 @import "vite-hub/ui/styles.css";
 ```
 
-`vite-hub/nuxt` auto-imports every public component, for example `Chat`, `Markdown`, and `Trace`. It also gives them Nuxt UI's Nuxt icon and adds their icons to the `@nuxt/icon` client bundle. You do not register a Vue plugin. The stylesheet stays an explicit import, so you choose where it loads.
+`vite-hub/nuxt` auto-imports every public component, for example `Chat`, `Markdown`, and `Trace`. It also adds their icons to the `@nuxt/icon` client bundle. You do not register a Vue plugin. The stylesheet stays an explicit import, so you choose where it loads.
 
 For explicit imports, import every component from `vite-hub/ui`. A production build keeps only the components that the app uses. Only `MarkdownEditor` (`vite-hub/ui/markdown-editor`) and the workspace parts (`vite-hub/ui/workspace`) have their own entries, because their dependencies are large. The theme (`vite-hub/ui/theme`) and the share links (`vite-hub/ui/playground`) have their own too, because they load without the components.
 
@@ -61,7 +63,7 @@ For explicit imports, import every component from `vite-hub/ui`. A production bu
 Install the package, its peers, and Vite:
 
 ```bash [commands/install-vite]
-pnpm add vite-hub @vite-hub/ui @nuxt/ui ai tailwindcss vue
+pnpm add vite-hub @vite-hub/ui @vite-hub/kit ai tailwindcss vue
 pnpm add -D vite @vitejs/plugin-vue
 ```
 
@@ -77,23 +79,24 @@ export default defineConfig({
 });
 ```
 
-Register the Nuxt UI and ViteHub UI Vue plugins:
+Register the ViteHub UI Vue plugin:
 
 ```ts [vite/src/main.ts]
-import NuxtUI from "@nuxt/ui/vue-plugin";
 import { createViteHubUI } from "vite-hub/ui";
 import { createApp } from "vue";
 import App from "./App.vue";
 import "./assets/main.css";
 
-createApp(App).use(NuxtUI).use(createViteHubUI()).mount("#app");
+createApp(App).use(createViteHubUI()).mount("#app");
 ```
 
-Load Tailwind CSS, Nuxt UI, and the package styles in this order:
+Load Tailwind CSS, the kit styles, and the package styles in this order:
 
 ```css [vite/src/assets/main.css]
+@layer theme, base, comark, ui-sdk, components, utilities;
 @import "tailwindcss";
-@import "@nuxt/ui";
+@import "@vite-hub/kit/styles/tokens.css";
+@import "@vite-hub/kit/styles/default.css";
 @import "vite-hub/ui/styles.css";
 ```
 
@@ -111,7 +114,6 @@ These pages use Nuxt auto-imports. In Vue with Vite, import each component.
 
 | Option   | Type                            | Purpose                                                  |
 | -------- | ------------------------------- | -------------------------------------------------------- |
-| `nuxtUI` | `Record<string, unknown>`       | Options for the Nuxt UI Vite plugin.                     |
 | `comark` | `false \| { prose?: boolean }`  | Options for the Comark plugin. Set `false` to remove it. |
 
 ## Verify the setup
@@ -174,15 +176,29 @@ Read the defaults in your components with `useViteHubUI()`.
 
 ## Nuxt UI components
 
-The parts import the Nuxt UI components that they render, such as `UButton` and `UModal`, from `@nuxt/ui`. They do not look for them by name, so they work when the app registers Nuxt UI per template, as Nuxt does, or not at all. Icons are the exception in Nuxt: `vite-hub/nuxt` gives the parts Nuxt UI's Nuxt icon when the app installs `@vite-hub/ui`, which reads the `@nuxt/icon` client bundle.
+The parts render a few components by name, such as `UButton`, `UModal`, and `UTooltip`. By default they render the ui-sdk ones, which the `@vite-hub/kit` styles draw. There is no ui-sdk `UTooltip`, so without one a part puts the text in the `title` attribute.
 
-To use other components, such as on a page without Nuxt UI, pass them by name:
+A part uses the component given to `createViteHubUI({ components })` first, then a global one with the same name from `app.component()`, then the ui-sdk one. To keep Nuxt UI's in Vue with Vite, pass them:
 
 ```ts [vite/components/src/main.ts] fragment
-app.use(createViteHubUI({ components: { UButton: MyButton, UIcon: MyIcon } }));
+import UButton from "@nuxt/ui/components/Button.vue";
+import UModal from "@nuxt/ui/components/Modal.vue";
+
+app.use(createViteHubUI({ components: { UButton, UModal } }));
 ```
 
-A part uses the component given here first, then a global one with the same name from `app.component()`, then Nuxt UI's.
+In Nuxt, register them as global components in a plugin:
+
+```ts [nuxt/components/app/plugins/vitehub-ui.ts] fragment
+import { UButton, UDropdownMenu, UIcon, UInput, UModal, UTabs, UTooltip } from "#components";
+
+export default defineNuxtPlugin((nuxtApp) => {
+  for (const [name, component] of Object.entries({ UButton, UDropdownMenu, UIcon, UInput, UModal, UTabs, UTooltip }))
+    nuxtApp.vueApp.component(name, component);
+});
+```
+
+Nuxt UI's `UTooltip` needs `UApp` around the page.
 
 ## Icons
 

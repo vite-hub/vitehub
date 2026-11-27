@@ -96,16 +96,24 @@ describe("RelativeTime", () => {
     expect(container.querySelector("time")?.title).toContain("2026");
   });
 
-  it("renders the real Nuxt UI tooltip when its provider exists", async () => {
+  it("uses the native title inside a tooltip provider when the app gives no tooltip", async () => {
     const child = defineComponent({
       setup() {
-        expect(useTooltipComponent()).toBeDefined();
+        expect(useTooltipComponent()).toBeUndefined();
         return () => h(RelativeTime, { at: now });
       },
     });
     const app = createSSRApp({ render: () => h(TooltipProvider, null, { default: () => h(child) }) });
     provideRelativeNow(ref(now), app);
-    expect(await renderToString(app)).toContain("<time");
+    expect(await renderToString(app)).toMatch(/^(?:<!--\[-->)?<time/);
+  });
+
+  it("renders the tooltip that the app gives", async () => {
+    const UTooltip = defineComponent({ setup: (_props, { slots }) => () => h("span", { "data-given-tooltip": "" }, slots.default?.()) });
+    const app = createSSRApp({ render: () => h(RelativeTime, { at: now }) });
+    app.use(createViteHubUI({ components: { UTooltip } }));
+    provideRelativeNow(ref(now), app);
+    expect(await renderToString(app)).toContain("<span data-given-tooltip><time");
   });
   it("renders the words of the provided clock on the server", async () => {
     const html = await renderToString(createSSRApp({

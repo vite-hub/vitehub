@@ -1,3 +1,4 @@
+import nuxtUi from "@nuxt/ui/vite"
 import ui from "@vite-hub/ui/vite"
 import vue from "@vitejs/plugin-vue"
 import { resolve } from "node:path"
@@ -20,13 +21,11 @@ export default defineConfig({
     consoleMockSite(),
     channelSimulatorPages(),
     vue(),
-    ...ui({
-      comark: false,
-      nuxtUI: {
-        colorMode: false,
-        dts: false,
-        ui: consoleAppConfig,
-      },
+    ...ui({ comark: false }),
+    nuxtUi({
+      colorMode: false,
+      dts: false,
+      ui: consoleAppConfig,
     }),
   ],
   resolve: {
@@ -72,7 +71,7 @@ export default defineConfig({
         replacement: resolve(workspaceRoot, "packages/source/src/client.ts"),
       },
     ],
-    dedupe: ["vue", "vue-router"],
+    dedupe: ["vue", "vue-router", "@nuxt/ui"],
   },
   root: import.meta.dirname,
   server: {

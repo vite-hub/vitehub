@@ -1,13 +1,8 @@
-import { injectTooltipProviderContext } from "reka-ui";
 import { type Component, defineAsyncComponent, getCurrentInstance, inject, type InjectionKey } from "vue";
 
-/** The Nuxt UI components that the styled parts render. */
+/** The components that the styled parts render, by their Nuxt UI names. */
 export type ViteHubUIComponentName =
-  | "UBadge"
   | "UButton"
-  | "UChatReasoning"
-  | "UChatTool"
-  | "UCollapsible"
   | "UDropdownMenu"
   | "UEditorDragHandle"
   | "UEditorSuggestionMenu"
@@ -18,52 +13,48 @@ export type ViteHubUIComponentName =
   | "UTabs"
   | "UTooltip";
 
-/** Components that replace the Nuxt UI ones in the parts, by name. Give them to `createViteHubUI({ components })`. */
+/** Components that replace the default ones in the parts, by name. Give them to `createViteHubUI({ components })`. */
 export type ViteHubUIComponents = Partial<Record<ViteHubUIComponentName, Component>>;
+
+/** The names that the ui-sdk set has a component for. Without a tooltip, a part uses the `title` attribute. */
+export type ViteHubUIDefaultComponentName = Exclude<ViteHubUIComponentName, "UTooltip">;
 
 export const uiComponentsKey: InjectionKey<ViteHubUIComponents> = Symbol("ViteHubUIComponents");
 
-function lazy(loader: () => Promise<{ default: Component }>): Component {
-  return defineAsyncComponent({ loader, suspensible: false });
+// The defaults are the ui-sdk set. It loads on first render, so an entry that never renders a part never loads ui-sdk.
+function fromSet(name: ViteHubUIDefaultComponentName): Component {
+  return defineAsyncComponent({ loader: () => import("../ui-sdk/components.ts").then(set => set.uiSdkComponents[name]), suspensible: false });
 }
 
-// The parts import Nuxt UI themselves, so they do not depend on how the app registers it: Nuxt imports Nuxt UI into
-// each template, and a Vue app may not register it at all. They load on first render, so an entry that never renders a
-// part never loads Nuxt UI.
-const bundled: Record<ViteHubUIComponentName, Component> = {
-  UBadge: lazy(() => import("@nuxt/ui/components/Badge.vue")),
-  UButton: lazy(() => import("@nuxt/ui/components/Button.vue")),
-  UChatReasoning: lazy(() => import("@nuxt/ui/components/ChatReasoning.vue")),
-  UChatTool: lazy(() => import("@nuxt/ui/components/ChatTool.vue")),
-  UCollapsible: lazy(() => import("@nuxt/ui/components/Collapsible.vue")),
-  UDropdownMenu: lazy(() => import("@nuxt/ui/components/DropdownMenu.vue")),
-  UEditorDragHandle: lazy(() => import("@nuxt/ui/components/EditorDragHandle.vue")),
-  UEditorSuggestionMenu: lazy(() => import("@nuxt/ui/components/EditorSuggestionMenu.vue")),
-  UEditorToolbar: lazy(() => import("@nuxt/ui/components/EditorToolbar.vue")),
-  // Nuxt UI's Vite plugin swaps in its Vue icon only for imports inside Nuxt UI, so import the Vue one here. The Nuxt
-  // plugin of this package provides Nuxt UI's Nuxt icon, which reads the @nuxt/icon bundle.
-  UIcon: lazy(() => import("@nuxt/ui/runtime/vue/components/Icon.vue")),
-  UInput: lazy(() => import("@nuxt/ui/components/Input.vue")),
-  UModal: lazy(() => import("@nuxt/ui/components/Modal.vue")),
-  UTabs: lazy(() => import("@nuxt/ui/components/Tabs.vue")),
-  UTooltip: lazy(() => import("@nuxt/ui/components/Tooltip.vue")),
+const defaults: Record<ViteHubUIDefaultComponentName, Component> = {
+  UButton: fromSet("UButton"),
+  UDropdownMenu: fromSet("UDropdownMenu"),
+  UEditorDragHandle: fromSet("UEditorDragHandle"),
+  UEditorSuggestionMenu: fromSet("UEditorSuggestionMenu"),
+  UEditorToolbar: fromSet("UEditorToolbar"),
+  UIcon: fromSet("UIcon"),
+  UInput: fromSet("UInput"),
+  UModal: fromSet("UModal"),
+  UTabs: fromSet("UTabs"),
 };
+
+function own(name: ViteHubUIComponentName): Component | undefined {
+  return inject(uiComponentsKey, undefined)?.[name] ?? getCurrentInstance()?.appContext.components[name];
+}
 
 /**
  * The component that a part renders for `name`: the one given to `createViteHubUI({ components })`, else one that the
- * app registered globally under that name, such as a stand-in of a page without Nuxt UI, else Nuxt UI's own. Call it in
- * `setup()`.
+ * app registered globally under that name, such as a stand-in of a page in a shadow root, else the ui-sdk one. Call it
+ * in `setup()`.
  */
-export function useUIComponent(name: ViteHubUIComponentName): Component {
-  return inject(uiComponentsKey, undefined)?.[name] ?? getCurrentInstance()?.appContext.components[name] ?? bundled[name];
+export function useUIComponent(name: ViteHubUIDefaultComponentName): Component {
+  return own(name) ?? defaults[name];
 }
 
 /**
- * The tooltip that a part renders: the one given to `createViteHubUI({ components })` or registered globally, else
- * Nuxt UI's own inside `UApp`, which provides what it needs and lets the tooltips of a list share their open delay.
- * Outside `UApp` there is none, and the part uses the `title` attribute. Call it in `setup()`.
+ * The tooltip that a part renders: the one given to `createViteHubUI({ components })` or registered globally. Without
+ * one, the part uses the `title` attribute. Call it in `setup()`.
  */
 export function useTooltipComponent(): Component | undefined {
-  const own = inject(uiComponentsKey, undefined)?.UTooltip ?? getCurrentInstance()?.appContext.components.UTooltip;
-  return own ?? (!injectTooltipProviderContext(null) ? undefined : bundled.UTooltip);
+  return own("UTooltip");
 }

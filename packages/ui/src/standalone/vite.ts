@@ -10,18 +10,11 @@ import { iconShapes } from "../internal/icon-shapes.ts";
 const here = dirname(fileURLToPath(import.meta.url));
 const source = resolve(here, "..");
 const virtualIcons = "virtual:vitehub-ui-icons";
-const nuxtUI = "\0vitehub-ui-standalone:";
 // The stylesheet imports of the Chat, KaTeX, and WorkspaceTerminal styles.
 const unusedStyles = /@import\s+["'](?:katex\/dist\/katex\.min\.css|comark-chat\/style\.css|@xterm\/xterm\/css\/xterm\.css)["']/;
 
-// The Nuxt UI components that the parts import, and the stand-in of `nuxt-ui.ts` that each one becomes. The parts load
-// them on first render (see `internal/nuxt-ui.ts`), so the others, such as the Chat ones, render nothing.
-const standIns: Record<string, string> = {
-  "@nuxt/ui/components/Button.vue": "UButton",
-  "@nuxt/ui/components/Icon.vue": "UIcon",
-  "@nuxt/ui/components/Modal.vue": "UModal",
-  "@nuxt/ui/runtime/vue/components/Icon.vue": "UIcon",
-};
+// The parts load their default components on first render with this import of `internal/nuxt-ui.ts`.
+const defaultSet = /\bimport\(\s*["']\.\.\/ui-sdk\/components\.ts["']\s*\)/;
 
 const icons: Record<string, string> = Object.fromEntries([
   "arrow-left",
@@ -51,8 +44,8 @@ const icons: Record<string, string> = Object.fromEntries([
  * Lets the styled parts run without Nuxt UI, such as in an overlay that a page loads into a shadow root. It is the one
  * place that builds without Nuxt UI get their stand-ins from:
  *
- * - every `@nuxt/ui/*` import, also a dynamic one, becomes a stand-in of `standalone/nuxt-ui.ts`, or a component that
- *   renders nothing;
+ * - the default components of the parts become the stand-ins of `standalone/nuxt-ui.ts`, or components that render
+ *   nothing, instead of the ui-sdk set;
  * - the Markdown part becomes `standalone/markdown.ts`, which has no parser, highlighter, or KaTeX;
  * - `UIcon` gets its icons as shapes;
  * - the stylesheet loses its Chat, KaTeX, and terminal imports, which the comment parts do not use.
@@ -62,23 +55,16 @@ export function standaloneUI(): Plugin {
     name: "vitehub-ui-standalone",
     enforce: "pre",
     resolveId: {
-      filter: { id: [/^virtual:vitehub-ui-icons$/, /^@nuxt\/ui\//, /(?:^|\/)markdown\.ts$/] },
+      filter: { id: [/^virtual:vitehub-ui-icons$/, /(?:^|\/)markdown\.ts$/] },
       handler(id, importer) {
         if (id === virtualIcons) return `\0${virtualIcons}`;
-        if (id.startsWith("@nuxt/ui/")) return `${nuxtUI}${id}`;
         if (importer?.startsWith(source) && !importer.startsWith(here) && /(^|\/)markdown\.ts$/.test(id)) return resolve(here, "markdown.ts");
         return undefined;
       },
     },
     load: {
-      filter: { id: [/^\0vitehub-ui-standalone:/, /^\0virtual:vitehub-ui-icons$/] },
+      filter: { id: [/^\0virtual:vitehub-ui-icons$/] },
       handler(id) {
-        if (id.startsWith(nuxtUI)) {
-          const name = standIns[id.slice(nuxtUI.length)];
-          return name
-            ? `export { ${name} as default } from ${JSON.stringify(resolve(here, "nuxt-ui.ts"))};`
-            : "export default { name: \"NuxtUIStandIn\", render: () => null };";
-        }
         if (id !== `\0${virtualIcons}`) return undefined;
         const require = createRequire(import.meta.url);
         const set = JSON.parse(readFileSync(require.resolve("@iconify-json/lucide/icons.json"), "utf8")) as { aliases?: Record<string, { parent: string }>, icons: Record<string, { body: string }> };
@@ -92,20 +78,14 @@ export function standaloneUI(): Plugin {
       },
     },
     transform: {
-      // The handler changes only the stylesheet's Chat, KaTeX, and terminal imports and the parts' dynamic Nuxt UI imports.
-      filter: { code: [unusedStyles, /\bimport\(\s*["']@nuxt\/ui\//] },
+      // The handler changes only the stylesheet's Chat, KaTeX, and terminal imports and the import of the default set.
+      filter: { code: [unusedStyles, defaultSet] },
       handler(code, id) {
         // An overlay imports the stylesheet with `?inline`.
         if (/[\\/]ui[\\/]styles\.css(?:\?.*)?$/.test(id)) return code.replace(new RegExp(`^${unusedStyles.source}[^;\\n]*;?\\s*$`, "gm"), "");
-        // The parts load Nuxt UI on first render with `import()`. Its stand-ins are small, so they come along at once, and
-        // the build does not split the page's bundle around them.
-        if (!/\bimport\(\s*["']@nuxt\/ui\//.test(code)) return undefined;
-        const imports: string[] = [];
-        const body = code.replace(/\bimport\(\s*["'](@nuxt\/ui\/[^"']+)["']\s*\)/g, (_, path: string) => {
-          imports.push(`import * as __standIn${imports.length} from ${JSON.stringify(path)};`);
-          return `Promise.resolve(__standIn${imports.length - 1})`;
-        });
-        return { code: `${imports.join("\n")}\n${body}`, map: null };
+        // The stand-ins are small, so they come along at once, and the build does not split the page's bundle around them.
+        if (!/[\\/]internal[\\/]nuxt-ui\.ts$/.test(id) || !defaultSet.test(code)) return undefined;
+        return { code: `import * as __standIns from ${JSON.stringify(resolve(here, "nuxt-ui.ts"))};\n${code.replace(defaultSet, "Promise.resolve(__standIns)")}`, map: null };
       },
     },
   };

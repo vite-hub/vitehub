@@ -1182,7 +1182,6 @@
     "@json-render/vue": "0.23.2",
     "@libsql/client": "catalog:database",
     "@modelcontextprotocol/sdk": "catalog:ai",
-    "@nuxt/ui": "^4.11.0",
     "@vercel/functions": "catalog:vercel",
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/auth": "workspace:*",
@@ -1279,9 +1278,6 @@
       "optional": true
     },
     "@modelcontextprotocol/sdk": {
-      "optional": true
-    },
-    "@nuxt/ui": {
       "optional": true
     },
     "@vercel/functions": {

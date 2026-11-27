@@ -68,7 +68,6 @@ describe("@vite-hub/ui package contract", () => {
     expect(Object.keys(packageJson.exports).sort()).toEqual([...publicEntries, "./comment-marks.css", "./package.json", "./styles.css", "./theme.css"].sort());
     expect(packageJson.peerDependencies).toMatchObject({
       "@iconify-json/lucide": expect.any(String),
-      "@nuxt/ui": expect.any(String),
       ai: expect.any(String),
       vite: expect.any(String),
       vue: expect.any(String),
@@ -77,7 +76,6 @@ describe("@vite-hub/ui package contract", () => {
       // The ui-sdk editor parts' drag handle and its placement, which Nuxt UI otherwise brings.
       "@floating-ui/dom": { optional: true },
       "@iconify-json/lucide": { optional: true },
-      "@nuxt/ui": { optional: true },
       // MarkdownEditor's Tiptap, only for apps that import @vite-hub/ui/markdown-editor.
       "@tiptap/core": { optional: true },
       "@tiptap/extension-drag-handle": { optional: true },

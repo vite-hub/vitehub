@@ -15,7 +15,7 @@ afterEach(async () => {
 });
 
 describe("ViteHub UI Nuxt module", () => {
-  it("registers Nuxt UI, styles, runtime defaults, and public components", async () => {
+  it("registers styles, runtime defaults, and public components without Nuxt UI", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-ui-nuxt-"));
     roots.push(root);
     await writeFile(join(root, "nuxt.config.ts"), "export default defineNuxtConfig({})\n");
@@ -30,11 +30,10 @@ describe("ViteHub UI Nuxt module", () => {
       ready: true,
     });
     try {
-      // Nuxt UI needs its own module dependencies, such as @nuxt/icon. Without them, every SSR request fails with
-      // `Package import specifier "#imports" is not defined in package @nuxt/icon`.
-      expect(nuxt.options._installedModules.map((module) => module.meta?.name)).toEqual(
-        expect.arrayContaining(["@vite-hub/ui", "@nuxt/ui", "@nuxt/icon"]),
-      );
+      // The parts render the ui-sdk components, so the module installs no Nuxt UI.
+      const installed = nuxt.options._installedModules.map((module) => module.meta?.name);
+      expect(installed).toContain("@vite-hub/ui");
+      expect(installed).not.toContain("@nuxt/ui");
       expect(nuxt.options.css).toEqual(
         expect.arrayContaining([expect.stringMatching(/\/dist\/styles\.css$/)]),
       );
@@ -53,6 +52,7 @@ describe("ViteHub UI Nuxt module", () => {
       expect(nuxt.options.vite.resolve?.alias).toEqual(
         expect.arrayContaining([
           { find: "shiki/wasm", replacement: expect.stringMatching(/\/@shikijs\/engine-oniguruma\/dist\/wasm-inlined\.mjs$/) },
+          { find: "virtual:vitehub-ui-components", replacement: expect.stringMatching(/\/dist\/runtime\/no-components\.js$/) },
         ]),
       );
 
@@ -67,10 +67,26 @@ describe("ViteHub UI Nuxt module", () => {
       );
 
       const icons = new Set(["app:existing"]);
-      // @nuxt/icon, which Nuxt UI installs, types its hooks on @nuxt/schema 4.6, not on the schema of this Nuxt 5 instance.
+      // @nuxt/icon types its hooks on @nuxt/schema 4.6, not on the schema of this Nuxt 5 instance.
       const callIconHook = nuxt.callHook as (name: "icon:clientBundleIcons", icons: Set<string>) => Promise<void>;
       await callIconHook("icon:clientBundleIcons", icons);
       expect([...icons]).toEqual(expect.arrayContaining(["app:existing", ...viteHubUIIcons]));
+    } finally {
+      await nuxt.close();
+    }
+  });
+
+  it("gives the parts the components of the `components` module", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-ui-nuxt-"));
+    roots.push(root);
+    const components = join(root, "components.ts");
+    await writeFile(join(root, "nuxt.config.ts"), "export default defineNuxtConfig({})\n");
+    const moduleUrl = pathToFileURL(join(import.meta.dirname, "../dist/nuxt.js")).href;
+    const viteHubUI = (await import(moduleUrl)).default as never;
+    const nuxt = await loadNuxt({ cwd: root, overrides: { dev: false, modules: [[viteHubUI, { components }]] }, ready: true });
+    try {
+      expect(nuxt.options.vite.resolve?.alias).toEqual(expect.arrayContaining([{ find: "virtual:vitehub-ui-components", replacement: components }]));
+      expect(nuxt.options.runtimeConfig.public.viteHubUI).not.toHaveProperty("components");
     } finally {
       await nuxt.close();
     }

@@ -94,7 +94,7 @@ interface AgentToolInspection {
 }
 ```
 
-Icons use Nuxt UI's `UIcon`. To replace it, see [Nuxt UI components](/docs/ui/installation#nuxt-ui-components).
+Icons use the `UIcon` that the parts render. To replace it, see [Nuxt UI components](/docs/ui/installation#nuxt-ui-components).
 
 ## Related
 

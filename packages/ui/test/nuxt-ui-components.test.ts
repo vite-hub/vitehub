@@ -21,11 +21,10 @@ const thread: CommentThreadModel = {
 
 const stand = (name: string) => defineComponent({ setup: (_props, { attrs }) => () => h("button", { "data-stand-in": name, "aria-label": attrs["aria-label"] }) });
 
-// Nuxt imports Nuxt UI into each template and registers nothing globally, so a part cannot find `UButton` by name.
-describe("the Nuxt UI components of the parts", () => {
-  it("renders Nuxt UI's own components when the app registers none", async () => {
+describe("the components of the parts", () => {
+  it("renders the ui-sdk components when the app gives none", async () => {
     const html = await renderToString(createSSRApp({ render: () => h(CommentThread, { thread, user: ana }) }));
-    expect(html).toContain('aria-label="Resolve"');
+    expect(html).toMatch(/<button[^>]*aria-label="Resolve"[^>]*data-slot="button"|<button[^>]*data-slot="button"[^>]*aria-label="Resolve"/);
     expect(html).not.toContain("<ubutton");
     expect(html).not.toContain("data-stand-in");
   });

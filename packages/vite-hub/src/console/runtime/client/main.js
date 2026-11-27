@@ -37,6 +37,7 @@ import App from "./app.vue";
 import { consoleAccountViewsKey } from "./account-views";
 import { consoleAppearanceKey, consoleDarkSchemeQuery, startConsoleAppearance } from "./appearance";
 import { addViteHubIcons, deferLucideIcons } from "./icons";
+import { consoleNuxtUIComponents } from "./nuxt-ui-components";
 import { loadConsolePageTools } from "./page-tools";
 import { consoleProjectReady, openConsoleProject, openConsoleSite, startConsoleAccount, startConsoleProjects, useConsoleProjects } from "./project-session";
 import { memoryProjectStorage } from "./projects";
@@ -522,7 +523,7 @@ const app = createApp(App, { sectionsBase })
   .provide(consoleAccountViewsKey, accountViews)
   .use(router)
   .use(ui, { router: () => router.currentRoute.value })
-  .use(createViteHubUI({ icons: vitehubTheme.icons }));
+  .use(createViteHubUI({ components: consoleNuxtUIComponents, icons: vitehubTheme.icons }));
 // An app that opened from the device renders its first page in the first frame: the router loads the code of the page,
 // usually from the HTTP cache, before the mount. A page whose code takes more than 1 second mounts in the frame, which
 // says that the Console is opening.

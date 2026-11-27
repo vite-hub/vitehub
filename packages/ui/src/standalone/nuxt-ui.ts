@@ -1,11 +1,12 @@
-import { type App, defineComponent, h, onBeforeUnmount, ref, Teleport, watch } from "vue";
+import { type App, type Component, defineComponent, h, onBeforeUnmount, ref, Teleport, watch } from "vue";
 import { icons } from "virtual:vitehub-ui-icons";
 
+import type { ViteHubUIDefaultComponentName } from "../internal/nuxt-ui.ts";
+
 /**
- * Stand-ins for the three Nuxt UI components that the comment parts use, for a page without Nuxt UI, such as the
- * comments overlays in a shadow root. Register them with `registerStandaloneUI(app)`, and build with `standaloneUI()`
- * from `standalone/vite.ts`, which also turns the parts' own Nuxt UI imports into these. `standalone/styles.css` styles
- * them.
+ * Stand-ins for the three components that the comment parts use, for a page in a shadow root, such as the comments
+ * overlays. Register them with `registerStandaloneUI(app)`, and build with `standaloneUI()` from `standalone/vite.ts`,
+ * which also makes them the parts' defaults instead of the ui-sdk set. `standalone/styles.css` styles them.
  */
 
 /** The icons of the parts, as SVG elements built from path data. Nuxt UI's `UIcon` would bring its icon runtime. */
@@ -110,10 +111,22 @@ export const UModal = defineComponent({
   },
 });
 
-/**
- * Registers the stand-ins on `app`, so the parts render them at once instead of loading their Nuxt UI imports on first
- * render.
- */
+const nothing = defineComponent({ name: "StandaloneNothing", render: () => null });
+
+/** The defaults of the parts in a `standaloneUI()` build. The parts that the comments do not use render nothing. */
+export const uiSdkComponents: Record<ViteHubUIDefaultComponentName, Component> = {
+  UButton,
+  UDropdownMenu: nothing,
+  UEditorDragHandle: nothing,
+  UEditorSuggestionMenu: nothing,
+  UEditorToolbar: nothing,
+  UIcon,
+  UInput: nothing,
+  UModal,
+  UTabs: nothing,
+};
+
+/** Registers the stand-ins on `app`, so the parts render them at once instead of loading their defaults on first render. */
 export function registerStandaloneUI(app: App): void {
   app.component("UButton", UButton);
   app.component("UIcon", UIcon);

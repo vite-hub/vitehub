@@ -7,13 +7,13 @@ import { cloneVNode, type Component, computed, defineAsyncComponent, defineCompo
 
 import { useViteHubUIIcons } from "../config.ts";
 import { lucideStroke } from "../internal/icon-shapes.ts";
-import { useUIComponent, type ViteHubUIComponents } from "../internal/nuxt-ui.ts";
+import { useUIComponent, type ViteHubUIDefaultComponentName } from "../internal/nuxt-ui.ts";
 import { uiSdkIcons } from "./icons.ts";
 
 /**
- * The parts render Nuxt UI components by name (see `internal/nuxt-ui.ts`). These take the same props that the parts
- * pass, render ui-sdk parts, and carry the `data-slot` and `data-variant` names that the kit style family
- * (`@vite-hub/kit/styles/default.css`) styles.
+ * The parts render components by their Nuxt UI names (see `internal/nuxt-ui.ts`), and these are the defaults. They take
+ * the props that the parts pass, render ui-sdk parts, and carry the `data-slot` and `data-variant` names that the kit
+ * style family (`@vite-hub/kit/styles/default.css`) styles.
  */
 
 /** Draws the Lucide icons that the parts use, from shapes in the bundle. Another name draws an empty icon. */
@@ -273,8 +273,8 @@ const UEditorSuggestionMenu = defineAsyncComponent(() => import("./editor.ts").t
 const UEditorToolbar = defineAsyncComponent(() => import("./editor.ts").then(parts => parts.UEditorToolbar));
 
 /**
- * The components that the parts render, on ui-sdk instead of Nuxt UI. Give them to `createViteHubUI({ components })`
- * and load the kit style family. `UIcon` draws the icons that the parts use; to show other icons, such as your own in
- * `createViteHubUI({ icons })`, pass your own `UIcon` next to these.
+ * The components that the parts render by default, on ui-sdk. Load the kit style family for them. `UIcon` draws the
+ * icons that the parts use; to show other icons, such as your own in `createViteHubUI({ icons })`, pass your own `UIcon`
+ * to `createViteHubUI({ components })`.
  */
-export const uiSdkComponents: ViteHubUIComponents = { UButton, UDropdownMenu, UEditorDragHandle, UEditorSuggestionMenu, UEditorToolbar, UIcon, UInput, UModal, UTabs };
+export const uiSdkComponents: Record<ViteHubUIDefaultComponentName, Component> = { UButton, UDropdownMenu, UEditorDragHandle, UEditorSuggestionMenu, UEditorToolbar, UIcon, UInput, UModal, UTabs };

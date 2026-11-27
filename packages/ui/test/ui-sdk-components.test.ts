@@ -19,9 +19,9 @@ describe("ui-sdk adapter icons", () => {
 
   it("uses the configured icon for leading, trailing, loading and tab icons", async () => {
     const app = createSSRApp({ render: () => h("div", [
-      h(uiSdkComponents.UButton!, { icon: "custom:leading", trailingIcon: "custom:trailing" }),
-      h(uiSdkComponents.UButton!, { loading: true }),
-      h(uiSdkComponents.UTabs!, { items: [{ icon: "custom:tab", label: "Files", value: "files" }] }),
+      h(uiSdkComponents.UButton, { icon: "custom:leading", trailingIcon: "custom:trailing" }),
+      h(uiSdkComponents.UButton, { loading: true }),
+      h(uiSdkComponents.UTabs, { items: [{ icon: "custom:tab", label: "Files", value: "files" }] }),
     ]) });
     app.use(createViteHubUI({ components: { ...uiSdkComponents, UIcon: CustomIcon } }));
     const html = await renderToString(app);

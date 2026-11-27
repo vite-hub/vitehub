@@ -884,10 +884,10 @@ type ViteHubNuxtModule = {
 }
 
 /**
- * An app that imports `vite-hub/ui` parts gets their runtime without adding `@vite-hub/ui/nuxt`: the plugin that gives
- * them Nuxt UI's Nuxt icon, their icons in the `@nuxt/icon` client bundle, the Shiki WebAssembly alias, and component
- * auto-imports. `@vite-hub/ui` owns all of them. Headless apps do not need the optional Nuxt UI peer or its module, so
- * they must not receive a plugin that imports it.
+ * An app with Nuxt UI that imports `vite-hub/ui` parts gets their runtime without adding `@vite-hub/ui/nuxt`: the plugin
+ * that installs `createViteHubUI()`, their icons in the `@nuxt/icon` client bundle, the Shiki WebAssembly alias, and
+ * component auto-imports. `@vite-hub/ui` owns all of them. The parts render the ui-sdk components unless the app adds
+ * `@vite-hub/ui/nuxt` with its `components` option.
  */
 async function installViteHubUIRuntime(nuxt: NuxtLike): Promise<void> {
   if (!nuxt.hook || !isPackageInstalled("@nuxt/ui")) return

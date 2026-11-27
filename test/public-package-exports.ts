@@ -70,7 +70,6 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/source/drizzle", { "drizzle-orm": "both" }],
   ["@vite-hub/source/mcp", { "@modelcontextprotocol/sdk": "runtime" }],
   ["@vite-hub/ui/markdown-editor", {
-    "@nuxt/ui": "both",
     "@tiptap/core": "both",
     "@tiptap/extension-drag-handle": "declaration",
     "@tiptap/extension-drag-handle-vue-3": "declaration",
@@ -81,7 +80,6 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
     "@tiptap/starter-kit": "both",
     "@tiptap/vue-3": "both",
   }],
-  ["@vite-hub/ui/vite", { "@nuxt/ui": "both" }],
   ["@vite-hub/workspace/blob-database", { "drizzle-orm": "both" }],
   ["@vite-hub/workspace/blob-database/postgres", { "drizzle-orm": "both" }],
   ["vite-hub", { "vite": "both" }],
@@ -114,7 +112,6 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
     "@vueuse/core": "runtime",
     "vue": "both",
   }],
-  ["vite-hub/ui/vite", { "@nuxt/ui": "both" }],
   ["@vite-hub/agent/vite", { "vite": "both" }],
   ["@vite-hub/auth/vite", { "vite": "both" }],
   ["@vite-hub/blob/vite", { "vite": "declaration" }],

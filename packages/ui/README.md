@@ -5,7 +5,7 @@
 [![license](https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=blue)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
 [![docs](https://img.shields.io/static/v1?label=docs&message=vitehub.dev&color=blue)](https://vitehub.dev/docs)
 
-Vue primitives for AI chat, traces, diffs, and file trees. The styled components compose [Nuxt UI](https://ui.nuxt.com/) and render [AI SDK](https://ai-sdk.dev/) message contracts; the headless entry point provides message-scrolling behavior without the styled component layer.
+Vue primitives for AI chat, traces, diffs, and file trees. The styled components render [ui-sdk](https://ui-sdk.dev) components, or the components that the app gives them, such as [Nuxt UI](https://ui.nuxt.com/)'s, and render [AI SDK](https://ai-sdk.dev/) message contracts; the headless entry point provides message-scrolling behavior without the styled component layer.
 
 `Markdown` accepts a string or a parsed Content page. Comark UI block components and document styles are bundled, so readers do not install Comark packages or assemble a component map. `vite-hub/nuxt` auto-imports the primitive; Vite apps import it from `@vite-hub/ui`.
 
@@ -23,8 +23,8 @@ Markdown images and image attachments use compact thumbnails with an expanded pr
 | `@vite-hub/ui/motion/core` | The same layer, where `installMotion(root, { effects })` runs only the effects that you list, such as `pressEffect`, so a small script bundles only those | Which effects the script runs |
 | `@vite-hub/ui/playground` | Share links and zips for any playground, with no UI. It runs in Node too | Where the links and zips go |
 | `@vite-hub/ui/theme` and `@vite-hub/ui/theme.css` | `vitehubTheme`, the Nuxt UI app config, and the tokens and focus ring. The tokens use shadcn/ui names, such as `--background` and `--radius`, which an app can override. Import the theme in `nuxt.config` or `app.config` | Loading Nuxt UI and Tailwind CSS |
-| `@vite-hub/ui/vite`     | Vue with Vite setup                                                                       | Configures the Nuxt UI and Comark Vite plugins                                                 |
-| `@vite-hub/ui/styles.css` | The styles of every part | Tailwind CSS and the Nuxt UI imports |
+| `@vite-hub/ui/vite`     | Vue with Vite setup                                                                       | Configures the Comark Vite plugin                                                              |
+| `@vite-hub/ui/styles.css` | The styles of every part | Tailwind CSS, and the `@vite-hub/kit` styles or the Nuxt UI imports |
 | `@vite-hub/ui/comment-marks.css` | Comment pins, areas, and text highlights in plain CSS, for a page or a shadow root without Vue. `styles.css` includes it | Rendering the marks with their data attributes |
 
 Import components from the root. A production build keeps only the components that the app imports. `markdown-editor` and `workspace` have their own entries because their dependencies are large, and a chat page must not load them. The components do not need a ViteHub Agent: `Chat` and `PromptInput` render the messages and status of any AI SDK chat, such as `new Chat()` of `@ai-sdk/vue` on a route that returns `streamText().toUIMessageStreamResponse()`.
@@ -33,13 +33,13 @@ Import components from the root. A production build keeps only the components th
 
 The parts `Message`, `Bubble`, `Marker`, `Trace`, and `Attachment` follow the [shadcn/ui agentic components](https://ui.shadcn.com/docs/changelog/2026-10-ai-elements): the same part names, props, and `data-slot` attributes. Their default styles map shadcn/ui tokens to Nuxt UI tokens and live in the `components` layer of `styles.css`, so Tailwind utility classes on a part override them. Import them under another name, for example `import { Message as VhMessage } from "@vite-hub/ui"`, when the application already has a `Message` or `Trace` component.
 
-The package currently declares `vue` and `ai` as required peers. Styled components also require `@nuxt/ui` and Tailwind CSS. The Vite integration requires `vite`; `@nuxt/ui` and `vite` are optional peers only so applications using another entry point do not have to install them.
+The package currently declares `vue` and `ai` as required peers. Styled components also require Tailwind CSS and a style family for their ui-sdk components, such as `@vite-hub/kit/styles/default.css`. The Vite integration requires `vite`, an optional peer, so applications using another entry point do not have to install it. `@nuxt/ui` is not a peer: an app that keeps Nuxt UI passes its components (see [Components that the parts render](#components-that-the-parts-render)).
 
-`RelativeTime` uses Nuxt UI tooltips when a Reka `TooltipProvider` is present, such as inside `UApp`. Otherwise it uses the native `title` attribute, including in apps that provide a Nuxt UI locale.
+`RelativeTime` shows the exact time in a tooltip when the app gives it a `UTooltip`, such as Nuxt UI's inside `UApp`. Otherwise it uses the native `title` attribute.
 
 ## Edit Markdown
 
-`MarkdownEditor` from `@vite-hub/ui/markdown-editor` edits Markdown with [comark-ui's editor](https://comark-ui.onmax.me/guide/editor/), a bubble toolbar, a "/" menu, and a drag handle: Nuxt UI's, or the ui-sdk ones of [the ui-sdk set](#the-ui-sdk-set). Bind the Markdown with `v-model`, or pass `editor` with a Tiptap editor the app made, such as a Realtime room's. A document that the editor can't save unchanged opens read-only.
+`MarkdownEditor` from `@vite-hub/ui/markdown-editor` edits Markdown with [comark-ui's editor](https://comark-ui.onmax.me/guide/editor/), a bubble toolbar, a "/" menu, and a drag handle: the ui-sdk ones by default, or Nuxt UI's when the app gives them (see [Components that the parts render](#components-that-the-parts-render)). Bind the Markdown with `v-model`, or pass `editor` with a Tiptap editor the app made, such as a Realtime room's. A document that the editor can't save unchanged opens read-only.
 
 Pass `upload` to take pasted and dropped images, video, and audio, and to add Image to the "/" menu, which opens the file picker. Each file shows a placeholder with its percentage only on your screen, so a collaborative room never holds a half-uploaded file. A string is a route that returns `blob.handleUpload()`, and the store must be served (`blob.serve`) so the file has a URL:
 
@@ -71,7 +71,7 @@ export default defineEventHandler(async (event) => {
 });
 ```
 
-`upload` also takes a function, `(file, progress) => Promise<url>`, for any other storage; `blobUpload(route)` is the one a string uses. The default slot receives `{ editor }` for more menus. The entry isn't in the root barrel, so pages that only render Markdown don't load Tiptap. It needs the Tiptap packages that Nuxt UI's editor uses: `@tiptap/core`, `@tiptap/pm`, `@tiptap/vue-3`, `@tiptap/starter-kit`, `@tiptap/extension-image`, `@tiptap/extension-list`, and `@tiptap/extension-table`. With the ui-sdk set, also install `@tiptap/extension-drag-handle`, `@tiptap/extension-drag-handle-vue-3`, and `@floating-ui/dom`, which Nuxt UI otherwise brings.
+`upload` also takes a function, `(file, progress) => Promise<url>`, for any other storage; `blobUpload(route)` is the one a string uses. The default slot receives `{ editor }` for more menus. The entry isn't in the root barrel, so pages that only render Markdown don't load Tiptap. It needs the Tiptap packages that Nuxt UI's editor uses: `@tiptap/core`, `@tiptap/pm`, `@tiptap/vue-3`, `@tiptap/starter-kit`, `@tiptap/extension-image`, `@tiptap/extension-list`, and `@tiptap/extension-table`. With the default ui-sdk components, also install `@tiptap/extension-drag-handle`, `@tiptap/extension-drag-handle-vue-3`, and `@floating-ui/dom`, which Nuxt UI otherwise brings.
 
 The menus run each item's `kind`, such as `{ kind: "heading", level: 2 }`, through the handlers that the editor provides. `createEditorHandlers()` returns them, and `mapEditorItems(editor, items)` turns editor items into dropdown entries with `active`, `disabled`, and `onSelect`, as Nuxt UI's `mapEditorItems()` does. Provide your own under `editorHandlersKey` to add kinds; both sets read them.
 
@@ -203,16 +203,28 @@ Load Tailwind, Nuxt UI, and the package styles in that order:
 @import "@vite-hub/ui/styles.css";
 ```
 
-`vite-hub/nuxt` gives the components Nuxt UI's Nuxt icon and adds the icons that they use to the `@nuxt/icon` client bundle, because `@nuxt/icon` does not scan dependencies. It also registers the `vitehub` collection, so names such as `<UIcon name="i-vitehub-kv" />` keep working. The Lucide collection must be installed in the application. It auto-imports public components such as `Chat`, `Markdown`, and `TraceRun`. No separate Vue plugin registration is needed. The stylesheet stays an explicit import.
+`vite-hub/nuxt` adds the icons that the components use to the `@nuxt/icon` client bundle, because `@nuxt/icon` does not scan dependencies. It also registers the `vitehub` collection, so names such as `<UIcon name="i-vitehub-kv" />` keep working. The Lucide collection must be installed in the application. It auto-imports public components such as `Chat`, `Markdown`, and `TraceRun`. No separate Vue plugin registration is needed. The stylesheet stays an explicit import.
 
-`@vite-hub/ui/nuxt` is internal. `vite-hub/nuxt` and `@vite-hub/docs/nuxt` load it, and it can change in any release. Do not add it to Nuxt `modules`.
+The parts render the ui-sdk components, also in a Nuxt UI app. To render Nuxt UI's, register them as global components in a plugin. A part uses a global component with its name before the ui-sdk one:
+
+```ts
+// app/plugins/vitehub-ui.ts
+import { UButton, UDropdownMenu, UIcon, UInput, UModal, UTabs, UTooltip } from "#components";
+
+export default defineNuxtPlugin((nuxtApp) => {
+  for (const [name, component] of Object.entries({ UButton, UDropdownMenu, UIcon, UInput, UModal, UTabs, UTooltip }))
+    nuxtApp.vueApp.component(name, component);
+});
+```
+
+`@vite-hub/ui/nuxt` is internal. `vite-hub/nuxt` and `@vite-hub/docs/nuxt` load it, and it can change in any release. Do not add it to Nuxt `modules`. Its `components` option is the path of a module that default-exports the components, as `@vite-hub/docs/nuxt` passes Nuxt UI's.
 
 ## Vue with Vite
 
-Add the runtime peers to an existing Vue and Vite application:
+Add the runtime peers and the kit styles to an existing Vue and Vite application:
 
 ```bash
-pnpm add @vite-hub/ui @nuxt/ui ai tailwindcss vue
+pnpm add @vite-hub/ui @vite-hub/kit ai tailwindcss vue
 pnpm add -D vite @vitejs/plugin-vue
 ```
 
@@ -229,25 +241,26 @@ export default defineConfig({
 });
 ```
 
-Register the Nuxt UI and ViteHub UI Vue plugins:
+Register the ViteHub UI Vue plugin:
 
 ```ts
 // src/main.ts
-import NuxtUI from "@nuxt/ui/vue-plugin";
 import { createViteHubUI } from "@vite-hub/ui";
 import { createApp } from "vue";
 import App from "./App.vue";
 import "./assets/main.css";
 
-createApp(App).use(NuxtUI).use(createViteHubUI()).mount("#app");
+createApp(App).use(createViteHubUI()).mount("#app");
 ```
 
-Load Tailwind, Nuxt UI, and the package styles in that order:
+Load Tailwind, the kit styles, and the package styles in that order:
 
 ```css
 /* src/assets/main.css */
+@layer theme, base, comark, ui-sdk, components, utilities;
 @import "tailwindcss";
-@import "@nuxt/ui";
+@import "@vite-hub/kit/styles/tokens.css";
+@import "@vite-hub/kit/styles/default.css";
 @import "@vite-hub/ui/styles.css";
 ```
 
@@ -313,32 +326,31 @@ For everything else, use the component or the helper:
 
 The entry also has the spring engine (`createSpring`, `springs.snappy`, `springs.soft`), reduced motion (`prefersReducedMotion`, `onReducedMotionChange`, `forceReducedMotion`), `setMotionSlowFactor(4)` to watch an effect at ¼×, and `defineMotionEffect` to add an effect for a role. The motion page in `test/browser/motion/` renders every role; `pnpm --filter @vite-hub/ui test:motion` checks it in Chromium, and `MOTION_RECORD=<dir>` records each press at ¼×.
 
-## The ui-sdk set
+## Components that the parts render
 
-The styled parts render a few Nuxt UI components by name: `UButton`, `UIcon`, `UInput`, `UModal`, `UTabs`, `UDropdownMenu`, and the editor parts `UEditorToolbar`, `UEditorSuggestionMenu`, and `UEditorDragHandle`. `uiSdkComponents` holds the same names built on [ui-sdk](https://ui-sdk.dev), styled by the `@vite-hub/kit` style family. Give it to `createViteHubUI()`, and a page with these parts loads no Nuxt UI component:
+The styled parts render a few components by name: `UButton`, `UIcon`, `UInput`, `UModal`, `UTabs`, `UDropdownMenu`, `UTooltip`, and the editor parts `UEditorToolbar`, `UEditorSuggestionMenu`, and `UEditorDragHandle`. By default they render the ui-sdk ones of `uiSdkComponents`, built on [ui-sdk](https://ui-sdk.dev) and styled by the `@vite-hub/kit` style family. Each one loads on first render, so a page without these parts loads no ui-sdk component.
+
+A part uses the component given to `createViteHubUI({ components })` first, then a global one with the same name from `app.component()`, then the ui-sdk one. An app that keeps Nuxt UI gives Nuxt UI's:
 
 ```ts
 // src/main.ts
-import { createViteHubUI, uiSdkComponents } from "@vite-hub/ui";
+import NuxtUI from "@nuxt/ui/vue-plugin";
+import UButton from "@nuxt/ui/components/Button.vue";
+import UModal from "@nuxt/ui/components/Modal.vue";
+import UTooltip from "@nuxt/ui/components/Tooltip.vue";
+import { createViteHubUI } from "@vite-hub/ui";
 import { createApp } from "vue";
 import App from "./App.vue";
-import "./assets/main.css";
 
-createApp(App).use(createViteHubUI({ components: uiSdkComponents })).mount("#app");
+createApp(App).use(NuxtUI).use(createViteHubUI({ components: { UButton, UModal, UTooltip } })).mount("#app");
 ```
 
-```css
-/* src/assets/main.css */
-@layer theme, base, comark, ui-sdk, components, utilities;
-@import "@vite-hub/kit/styles/tokens.css";
-@import "@vite-hub/kit/styles/default.css";
-@import "@vite-hub/ui/styles.css";
-```
+The Console and the docs do this until they move off Nuxt UI (vite-hub/vitehub#5258). A name that the app does not give still renders the ui-sdk component.
 
-- `UIcon` draws the Lucide icons that the parts use. To show other names, such as your own in `createViteHubUI({ icons })`, pass your own `UIcon` too: `{ ...uiSdkComponents, UIcon: MyIcon }`.
+- There is no ui-sdk `UTooltip`. Without one, a part puts the text in the `title` attribute. Nuxt UI's `UTooltip` needs `UApp` around the page.
+- `UIcon` draws the Lucide icons that the parts use. To show other names, such as your own in `createViteHubUI({ icons })`, give your own `UIcon` too.
 - The buttons and fields keep the kit's `data-slot` (`button`, `input`), so a part's own name moves to `data-part`, for example `data-part="copy-button"`.
-- The parts still import Nuxt UI with `import()` for a name that no component replaces, so the build must resolve `@nuxt/ui`. Install it, or resolve `@nuxt/ui/*` to an empty module. The page never loads it.
-- The set also replaces the editor parts of `MarkdownEditor`: `UEditorToolbar` on ui-sdk's `Toolbar` and `Toggle`, which says the pressed state with `aria-pressed`, `UEditorSuggestionMenu` on ui-sdk's `TriggerMenu`, a listbox at the caret while focus stays in the editor, and `UEditorDragHandle` on Tiptap's drag handle. They take the props, slots, and events of Nuxt UI's, and load on first render.
+- The set also replaces the editor parts of `MarkdownEditor`: `UEditorToolbar` on ui-sdk's `Toolbar` and `Toggle`, which says the pressed state with `aria-pressed`, `UEditorSuggestionMenu` on ui-sdk's `TriggerMenu`, a listbox at the caret while focus stays in the editor, and `UEditorDragHandle` on Tiptap's drag handle. They take the props, slots, and events of Nuxt UI's.
 - In the "/" menu, Escape closes the list until the trigger is typed again or Control+Space reopens it, and a disabled item can be highlighted but not chosen, as the listbox pattern asks.
 
 `pnpm --filter @vite-hub/ui test:ui-sdk` renders every part that uses these names with the set and drives each one with the keyboard. `pnpm --filter @vite-hub/ui test:editor` drives the editor parts with the keyboard and the pointer, with Nuxt UI's parts and with the set.
@@ -365,10 +377,10 @@ The page displays **ViteHub UI is ready.** in bold. This confirms the public com
 - The components render state supplied by the application. They do not send messages, fetch Agent Invocations, choose routes, persist sessions, or authorize access to instruction and trace data.
 - `PromptInput` submits only in the ready state after attachment conversion finishes. It preserves the draft while blocked; Stop and Retry remain separate actions. Custom submit slots receive `canSubmit` and `preparingFiles`. The application owns draft recovery and clearing after a send; unmount the prompt when switching sessions with pending file reads.
 - Primary chat and trace output supports Vue server rendering. Scrolling observers, clipboard actions, and attachment conversion use browser APIs and become interactive after hydration. Upload and persist raw files yourself when data URLs are not appropriate.
-- The styled components depend on Nuxt UI components and tokens. `@vite-hub/ui/styles.css` adds ViteHub presentation but is not a replacement for the Tailwind and Nuxt UI imports.
+- The styled components render ui-sdk components unless the app gives others. `@vite-hub/ui/styles.css` adds ViteHub presentation but is not a replacement for Tailwind and a style family, such as the `@vite-hub/kit` styles, or the Nuxt UI imports.
 - The package supplies accessible defaults for its message log, prompt, scroll controls, lists, and built-in actions. The application remains responsible for accessible names on custom controls and slots, meaningful status and error copy, focus behavior around application-owned navigation, and testing the completed interface.
 - `FileTree` names its search input **Search files** by default. Pass `search-label` for a localized or context-specific accessible name.
-- The headless entry point owns scrolling behavior, not appearance. Importing `@vite-hub/ui/headless` does not load the stylesheet or register Nuxt UI components.
+- The headless entry point owns scrolling behavior, not appearance. Importing `@vite-hub/ui/headless` does not load the stylesheet or any component set.
 
 ## Documentation
 

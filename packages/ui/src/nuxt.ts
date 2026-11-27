@@ -10,11 +10,19 @@ import type { ViteHubUIIconOptions, ViteHubUIOptions } from "./config.ts";
 import { componentNames } from "./component-names.ts";
 import { viteHubUIIcons } from "./icons.ts";
 
-// Components are not serializable, so the module takes the defaults only. Pass components to `createViteHubUI()` in a plugin.
-// Icons come from the app config, below.
-export interface ViteHubUINuxtOptions extends Omit<ViteHubUIOptions, "components" | "icons"> {
+// Components are not serializable, so the module takes the path of a module that exports them. Icons come from the app
+// config, below.
+export interface ViteHubUINuxtOptions extends Omit<ViteHubUIOptions, "components" | "icons">, ViteHubUIRuntimeOptions {
   /** Prefix for auto-imported component names, for example `Vh` registers `VhTrace`. Use it when the app has its own `Message` or `Trace`. */
   prefix?: string;
+}
+
+export interface ViteHubUIRuntimeOptions {
+  /**
+   * The path of a module that default-exports the components that the parts render instead of the ui-sdk ones, such as
+   * Nuxt UI's. The plugin gives them to `createViteHubUI({ components })`.
+   */
+  components?: string;
 }
 
 export interface ViteHubUINuxtModule {
@@ -38,19 +46,35 @@ export interface ViteHubUIRuntimeNuxt {
   hook: (name: "icon:clientBundleIcons", callback: (icons: Set<string>) => void) => unknown;
 }
 
+const componentsModule = "virtual:vitehub-ui-components";
+
 /**
- * Adds what the styled parts need at runtime in a Nuxt app: the plugin that gives them Nuxt UI's Nuxt icon, their
- * icons in the `@nuxt/icon` client bundle, because `@nuxt/icon` does not scan dependencies, and Shiki's WebAssembly as a
- * module the server build can bundle. The module calls it, and so does `vite-hub/nuxt` when the app installed this
- * package. It is safe to call twice.
+ * Adds what the styled parts need at runtime in a Nuxt app: the plugin that installs `createViteHubUI()` with the
+ * components of `options.components`, their icons in the `@nuxt/icon` client bundle, because `@nuxt/icon` does not
+ * scan dependencies, and Shiki's WebAssembly as a module the server build can bundle. The module calls it, and so does
+ * `vite-hub/nuxt` when the app installed this package. It is safe to call twice: a call with `components` wins.
  */
-export function addViteHubUIRuntime(nuxt: ViteHubUIRuntimeNuxt): void {
-  const plugin = createResolver(import.meta.url).resolve("./runtime/nuxt-plugin.js");
+export function addViteHubUIRuntime(nuxt: ViteHubUIRuntimeNuxt, options: ViteHubUIRuntimeOptions = {}): void {
+  const resolver = createResolver(import.meta.url);
+  const plugin = resolver.resolve("./runtime/nuxt-plugin.js");
   if (!nuxt.options.plugins.some((entry) => (typeof entry === "string" ? entry : entry.src) === plugin)) nuxt.options.plugins.push(plugin);
   nuxt.hook("icon:clientBundleIcons", (icons) => {
     for (const icon of viteHubUIIcons) icons.add(icon);
   });
+  setAlias(nuxt.options.vite, componentsModule, options.components ?? resolver.resolve("./runtime/no-components.js"), options.components !== undefined);
   inlineShikiWasm(nuxt.options.vite);
+}
+
+function setAlias(vite: ViteHubUIRuntimeNuxt["options"]["vite"], find: string, replacement: string, replace: boolean): void {
+  const resolve = (vite.resolve ??= {});
+  const alias = resolve.alias ?? [];
+  if (!Array.isArray(alias)) {
+    if (replace || !(find in alias)) resolve.alias = { ...alias, [find]: replacement };
+    return;
+  }
+  const current = alias.some((entry) => entry.find === find);
+  if (current && !replace) return;
+  resolve.alias = [...alias.filter((entry) => entry.find !== find), { find, replacement }];
 }
 
 /**
@@ -63,14 +87,7 @@ export function addViteHubUIRuntime(nuxt: ViteHubUIRuntimeNuxt): void {
  */
 function inlineShikiWasm(vite: ViteHubUIRuntimeNuxt["options"]["vite"]): void {
   const shiki = createRequire(import.meta.url).resolve("shiki/package.json");
-  const wasm = createRequire(shiki).resolve("@shikijs/engine-oniguruma/wasm-inlined");
-  const resolve = (vite.resolve ??= {});
-  const alias = resolve.alias ?? [];
-  if (!Array.isArray(alias)) {
-    resolve.alias = { "shiki/wasm": wasm, ...alias };
-    return;
-  }
-  if (!alias.some(({ find }) => find === "shiki/wasm")) resolve.alias = [...alias, { find: "shiki/wasm", replacement: wasm }];
+  setAlias(vite, "shiki/wasm", createRequire(shiki).resolve("@shikijs/engine-oniguruma/wasm-inlined"), false);
 }
 
 export { viteHubUIIcons };
@@ -103,16 +120,12 @@ export const viteHubUIIconDependencies = {
 const viteHubUINuxtModule: ViteHubUINuxtModule = defineNuxtModule<ViteHubUINuxtOptions>({
   meta: { configKey: "viteHubUI", name: "@vite-hub/ui" },
   defaults: {},
-  moduleDependencies: {
-    // A module dependency, not `installModule()`, so Nuxt also installs the dependencies of @nuxt/ui, such as @nuxt/icon.
-    "@nuxt/ui": {},
-    ...viteHubUIIconDependencies,
-  },
-  async setup({ prefix = "", ...options }, nuxt) {
+  moduleDependencies: viteHubUIIconDependencies,
+  async setup({ components, prefix = "", ...options }, nuxt) {
     const resolver = createResolver(import.meta.url);
     nuxt.options.css.push(resolver.resolve("./styles.css"));
     nuxt.options.runtimeConfig.public.viteHubUI = options;
-    addViteHubUIRuntime(nuxt);
+    addViteHubUIRuntime(nuxt, { components });
     addViteHubUIComponents(nuxt, prefix);
   },
 });

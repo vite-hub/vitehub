@@ -9,7 +9,7 @@ import { useConnectStore } from "../src/workspace/connect-store.ts";
 import { WorkspacePreview } from "../src/workspace/workspace-preview.ts";
 
 const stub = (name: string) => defineComponent({ name, inheritAttrs: false, setup: (_, { slots }) => () => h("span", { "data-stub": name }, slots.default?.()) });
-const stubs = Object.fromEntries(["UBadge", "UButton", "UDropdownMenu", "UIcon", "UInput", "UModal"].map((name) => [name, stub(name)]));
+const stubs = Object.fromEntries(["UButton", "UDropdownMenu", "UIcon", "UInput", "UModal"].map((name) => [name, stub(name)]));
 
 afterEach(() => {
   localStorage.clear();

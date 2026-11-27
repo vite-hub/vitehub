@@ -368,7 +368,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       "@nuxt/fonts": { defaults: { throwOnError: false } },
       // A peer dependency: the app's own copy, so the app and the shell share one Nuxt UI.
       "@nuxt/ui": { defaults: { prose: true, content: true } },
-      [dependency("@vite-hub/ui/nuxt")]: {},
+      // The `@vite-hub/ui` parts render Nuxt UI components here, not their ui-sdk defaults.
+      [dependency("@vite-hub/ui/nuxt")]: { defaults: { components: fileURLToPath(new URL("./runtime/app/ui/nuxt-ui-components.ts", import.meta.url)) } },
       [dependency("nuxt-agent-discovery")]: {},
       // Site name, URL, and description for every Nuxt SEO module: the link checker, share images, and Schema.org.
       [dependency("nuxt-site-config")]: { defaults: { name: docs.site?.name ?? "Docs", url: docs.site?.url, description: docs.site?.description, defaultLocale: "en" } },

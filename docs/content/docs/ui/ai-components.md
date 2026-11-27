@@ -6,7 +6,7 @@ navigation.group: AI components
 icon: i-lucide-layout-grid
 ---
 
-`@vite-hub/ui` gives you the Vue and Nuxt components of the ViteHub Console. They are built on Nuxt UI. Start with a full Console block, then connect your data.
+`@vite-hub/ui` gives you the Vue and Nuxt components of the ViteHub Console. They render ui-sdk components by default, or Nuxt UI's when the app passes them. Start with a full Console block, then connect your data.
 
 The package draws the UI. Your app sends and stores data and checks access. Every example uses fake data, makes no network requests, and shows its source below.
 
@@ -37,7 +37,7 @@ Select a session to read and reply. This example uses the default styles and lay
 | ------- | ----- |
 | Message contracts and transport | AI SDK or your ViteHub Agent route |
 | Scroll intent and message jumps | ViteHub headless Vue primitives |
-| Tokens and basic controls | Nuxt UI |
+| Tokens and basic controls | ui-sdk and `@vite-hub/kit`, or Nuxt UI |
 | Chat, sessions, Agent views, Markdown, attachments | ViteHub UI |
 | Diffs and path-first file trees | Pierre |
 
@@ -53,8 +53,8 @@ The package does not send messages. Use `useChat()` from `@ai-sdk/vue` or from `
 | `vite-hub/ui/workspace` | The workspace parts and `Workspace` with the `webContainer()` and `render()` runners, for tutorials and playgrounds. `WorkspaceShell` puts the output at the side of the code (`side`), the guide over the code (`guide-top`), or the guide in a column on the left (`guide-side`). It has its own entry, so pages without it never load CodeMirror or xterm. |
 | `vite-hub/ui/playground` | Share links and zips for a playground, with no UI. They run in Node too. |
 | `vite-hub/ui/theme` and `vite-hub/ui/theme.css` | `vitehubTheme`, the Nuxt UI app config, and the design tokens. Import the theme from `nuxt.config`. |
-| `vite-hub/ui/vite`       | Vite plugin for Vue apps. Configures Nuxt UI and Comark. |
-| `vite-hub/ui/styles.css` | Stylesheet. Load it after Tailwind CSS and Nuxt UI. |
+| `vite-hub/ui/vite`       | Vite plugin for Vue apps. Configures Comark. |
+| `vite-hub/ui/styles.css` | Stylesheet. Load it after Tailwind CSS and the kit styles or Nuxt UI. |
 
 Each `vite-hub/ui/*` path re-exports the same path of `@vite-hub/ui`.
 
@@ -63,7 +63,7 @@ Each `vite-hub/ui/*` path re-exports the same path of `@vite-hub/ui`.
 The components also work in a Vue app without `vite-hub`. Install `@vite-hub/ui` and import every path from it, such as `@vite-hub/ui/vite` and `@vite-hub/ui/styles.css`:
 
 ```bash pm [commands/install-alone]
-pnpm add @vite-hub/ui @nuxt/ui ai tailwindcss vue
+pnpm add @vite-hub/ui @vite-hub/kit ai tailwindcss vue
 ```
 
 ```vue [alone/src/components/Example.vue]

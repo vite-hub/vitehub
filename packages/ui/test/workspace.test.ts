@@ -205,14 +205,14 @@ describe("WorkspaceShell", () => {
         terminal: () => h("p", "terminal"),
       },
     });
-    // The strip is Nuxt UI's UTabs, which loads on first render. It selects a tab on mouse down, as reka-ui does.
+    // The strip is the ui-sdk UTabs, which loads on first render.
     await vi.waitFor(() => expect(wrapper.findAll("[role='tab']")).toHaveLength(3), { timeout: 5_000 });
     const tabs = wrapper.findAll("[role='tab']");
     expect(tabs.map(tab => tab.text())).toEqual(["Preview", "Terminal", "Connect"]);
     expect(wrapper.get("[data-tab='terminal']").attributes()).toHaveProperty("inert");
     expect(wrapper.get("[data-tab='preview']").attributes()).not.toHaveProperty("inert");
 
-    await tabs[1]?.trigger("mousedown", { button: 0 });
+    await tabs[1]?.trigger("click", { button: 0 });
     expect(wrapper.emitted("update:tab")).toEqual([["terminal"]]);
     expect(wrapper.get("[data-tab='preview']").attributes()).toHaveProperty("inert");
 

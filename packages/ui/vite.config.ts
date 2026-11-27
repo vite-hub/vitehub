@@ -27,15 +27,13 @@ export default defineConfig({
       neverBundle: [
         "vega-loader",
         "#app",
+        "virtual:vitehub-ui-components",
         "@comark/vue",
         /^@comark\/vue\//,
         "@nuxt/kit",
-        "@nuxt/ui",
-        /^@nuxt\/ui\//,
         "ai",
         "nuxt",
         "vue",
-        "reka-ui",
         "vite",
         "@vite-hub/web-container",
         /^@vite-hub\/web-container\//,
@@ -65,13 +63,14 @@ export default defineConfig({
       workspace: "src/workspace.ts",
       nuxt: "src/nuxt.ts",
       "runtime/nuxt-plugin": "src/runtime/nuxt-plugin.ts",
+      "runtime/no-components": "src/runtime/no-components.ts",
       vite: "src/vite.ts",
     },
     exports: {
       customExports(exports) {
         const publicExports = Object.fromEntries(
           Object.entries(exports)
-            .filter(([key]) => key !== "./runtime/nuxt-plugin" && !key.startsWith("./parts/"))
+            .filter(([key]) => !key.startsWith("./runtime/") && !key.startsWith("./parts/"))
             .map(([key, value]) => {
               if (typeof value !== "string" || !value.endsWith(".js")) return [key, value];
               return [key, { types: value.replace(/\.js$/, ".d.ts"), import: value }];

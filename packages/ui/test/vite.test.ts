@@ -8,9 +8,9 @@ function pluginNames(value: unknown): string[] {
 }
 
 describe("ViteHub UI Vite integration", () => {
-  it("composes the Nuxt UI and Comark plugins", () => {
+  it("composes the Comark plugin without Nuxt UI", () => {
     const names = pluginNames(viteHubUI());
-    expect(names.some((name) => name.includes("nuxt:ui"))).toBe(true);
+    expect(names.some((name) => name.includes("nuxt:ui"))).toBe(false);
     expect(names.some((name) => name.includes("comark"))).toBe(true);
   });
 
