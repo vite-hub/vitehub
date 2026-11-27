@@ -33,7 +33,7 @@ A preset is a ready-made gateway for one provider. Its type says what it serves.
 Preset types list what they serve, so TypeScript catches a wrong gateway:
 
 - `AiGateway<{ routes: "codex" }>` accepts only gateways with a Codex URL, so `driver: codexDriver({ gateway: anthropic() })` and `languageModel(typesafe(), ...)` are type errors.
-- A preset whose endpoint lacks a model API rejects it: `languageModel(google(), 'gemini-3-flash-preview', { api: 'responses' })` is a type error.
+- A preset whose endpoint lacks a model API rejects it: `languageModel(google(), 'gemini-3.8-flash', { api: 'responses' })` is a type error.
 - Only `vercel()`, `typesafe()`, and `cloudflare()` return `AiGateway<{ ask: true }>`; `ask()` on others is a type error.
 - CLIProxyAPI, LiteLLM, Ollama, the AI emulator, OpenRouter, the [model providers](#model-providers), OpenAI, Anthropic, and the Cloudflare OpenAI-compatible endpoint forward only model APIs, not TypeSafe's `/v1/systemone`.
 - `chatgpt()` has no key and no `ask()`. It uses the plan of a ChatGPT [Connection](/docs/connections/chatgpt). Only the Agent runtime reads it.
@@ -73,19 +73,21 @@ cloudflare({ accountId, gatewayId, token: tenant.gatewayToken, typesafeApiKey: t
 
 The `gemini` route serves the [Gemini CLI](https://github.com/google-gemini/gemini-cli). The CLI sends Gemini API requests to `<url>/v1beta/models/<model>:generateContent`, with the key in `x-goog-api-key`. `google()`, `cliproxy()`, and `litellm()` serve it.
 
-The Gemini CLI reads the URL from `GOOGLE_GEMINI_BASE_URL` and the key from `GEMINI_API_KEY`. Use your CLIProxyAPI root without a `/v1` suffix:
+The Gemini CLI reads the URL from `GOOGLE_GEMINI_BASE_URL` and the key from `GEMINI_API_KEY`. Set the URL to the proxy root, without `/v1` or `/v1beta`, because the CLI adds `/v1beta` itself. Choose Gemini API key authentication in the CLI, not Google sign-in:
 
 ```sh
-GOOGLE_GEMINI_BASE_URL=https://proxy.example GEMINI_API_KEY="$CLIPROXY_API_KEY" gemini
+GOOGLE_GEMINI_BASE_URL="https://proxy.example" GEMINI_API_KEY="$CLIPROXY_API_KEY" gemini
 ```
 
+`geminiDriver({ gateway })` sets these variables for you and runs the CLI in a private Home, as [Gemini CLI](/docs/agents/agent-drivers#gemini-cli) shows.
+
 - A gateway sends the key of the `gemini` route only in `x-goog-api-key`, whatever its `auth`.
-- `aiGatewayHarnessRoute(gateway, harness)` checks for a route key for one configuration. It checks `claude-code`, `codex`, or `gemini` for the corresponding CLI, and `openai-compatible` for Kimi Code, OpenCode, and Pi configured for Chat Completions. It skips SDK-only presets such as `emulate()`. It does not verify CLI compatibility or check alternate protocols such as Anthropic Messages for OpenCode.
+- `aiGatewayHarnessRoute(gateway, harness)` checks for a route key for one configuration. It checks `claude-code`, `codex`, or `gemini` for the corresponding CLI, and `openai-compatible` for Kimi Code, OpenCode, and Pi configured for Chat Completions. It skips SDK-only presets such as `emulate()`. It does not verify CLI compatibility or check alternate protocols such as Anthropic Messages for OpenCode. Agent Drivers use the Codex, Claude Code, Gemini CLI, Kimi Code, OpenCode, and Pi routes. Read [Routes for each harness](/docs/gateways/agents#routes-for-each-harness).
 - `AiGateway<{ routes: AiGatewayHarnessRoute<'gemini'> }>` requires a `gemini` route key, so `ollama()` is a type error there.
 
 ## Model providers
 
-These presets send requests to the API of one model provider, with no proxy between. Use them for open-weight and Chinese models, such as Kimi, GLM, DeepSeek, MiniMax, and Qwen. Each one reads the provider's own key. The key works only in the region where you created it, so pass the same region to the preset.
+These presets send requests to the API of one model provider, with no proxy between. Use them for open-weight and Chinese models, such as Kimi, GLM, DeepSeek, MiniMax, and Qwen. Each one reads the provider's own key. The key works only in the region where you created it, so pass the same region to the preset. All of them serve OpenCode and Pi through their OpenAI-compatible URL. [Model IDs for each provider](/docs/gateways/agents#model-ids-for-each-provider) lists current model IDs.
 
 | Preset | Models | Options | Default | Other regions |
 | --- | --- | --- | --- | --- |
@@ -105,7 +107,7 @@ import { google } from 'vite-hub/gateways'
 import { languageModel } from 'vite-hub/gateways/ai-sdk'
 
 // Reads GEMINI_API_KEY.
-const model = languageModel(google(), 'gemini-3-flash-preview', { api: 'chat' })
+const model = languageModel(google(), 'gemini-3.8-flash', { api: 'chat' })
 ```
 
 ### Moonshot AI
@@ -118,7 +120,7 @@ import { moonshot } from 'vite-hub/gateways'
 
 // Reads MOONSHOT_API_KEY, then KIMI_API_KEY. A key from platform.kimi.com needs region: 'china'.
 export default defineAgent({
-  driver: claudeCodeDriver({ model: 'kimi-k2.6', gateway: moonshot() }),
+  driver: claudeCodeDriver({ model: 'kimi-k3.1-pro', gateway: moonshot() }),
 })
 ```
 
@@ -132,7 +134,7 @@ import { zai } from 'vite-hub/gateways'
 
 // Reads ZAI_API_KEY. A key from bigmodel.cn needs region: 'china'.
 export default defineAgent({
-  driver: claudeCodeDriver({ model: 'glm-5', gateway: zai({ codingPlan: true }) }),
+  driver: claudeCodeDriver({ model: 'glm-5.3', gateway: zai({ codingPlan: true }) }),
 })
 ```
 
@@ -158,7 +160,7 @@ import { minimax } from 'vite-hub/gateways'
 
 // Reads MINIMAX_API_KEY. A key from minimax.cn needs region: 'china'.
 export default defineAgent({
-  driver: codexDriver({ model: 'MiniMax-M2.7', gateway: minimax() }),
+  driver: codexDriver({ model: 'MiniMax-M3', gateway: minimax() }),
 })
 ```
 
@@ -172,7 +174,7 @@ import { alibaba } from 'vite-hub/gateways'
 
 // Reads DASHSCOPE_API_KEY. The key and the workspace must be in the same region.
 export default defineAgent({
-  driver: codexDriver({ model: 'qwen3-coder-plus', gateway: alibaba({ region: 'us-east-1', workspaceId: 'ws-...' }) }),
+  driver: codexDriver({ model: 'qwen3.7-plus', gateway: alibaba({ region: 'us-east-1', workspaceId: 'ws-...' }) }),
 })
 ```
 
@@ -231,7 +233,7 @@ Each request needs a gateway token, a provider key, or both:
 
 `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_AI_GATEWAY_ID` are always required. A request with neither token nor provider key fails with [`GATEWAYS_R0002`](/docs/gateways/limits-and-errors#gateways_r0002) before it is sent. The keys never mix: `ask()` sends only the TypeSafe key, and model requests only the provider key. `cloudflare({ apiKey })` throws with an error that names both options.
 
-`cloudflare()` does not route Drivers. Codex and Claude Code need the gateway's vendor endpoints, such as `.../openai` with an OpenAI key or `.../anthropic` with an Anthropic key in `x-api-key`. [Custom gateways](/docs/gateways/server-api#custom-gateways) defines one for Codex through Cloudflare.
+`cloudflare()` supports AI SDK models and `ask()`, but no provider Driver accepts it as `driver.gateway`. For Codex or Claude Code through Cloudflare, define a custom gateway that uses the corresponding vendor endpoint. [Custom gateways](/docs/gateways/server-api#custom-gateways) shows an example for Codex.
 
 ### TypeSafe through Cloudflare AI Gateway
 
