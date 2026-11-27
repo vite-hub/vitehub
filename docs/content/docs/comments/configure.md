@@ -684,7 +684,9 @@ The cookie is only a hint. Every API request checks access again.
 
 The Comments toolbar is one segment of the ViteHub tools pill at the bottom of the page. The pill's **×** button, **Turn off ViteHub tools**, turns all page tools off: it sets `vitehub-tools=0` and removes the query and the pill.
 
-**Comments** shows the number of open threads. For people who may comment, it turns comment mode on and then says **Click anywhere**. Beside it, **Whole page** starts a comment on the page itself, **All comments** opens the list of the page's threads, and **×** turns comment mode off. For people who may only read, **Comments** opens the list.
+**Comments** shows the number of open threads. For people who may comment, it turns comment mode on and then says **Click anywhere**. A second click turns comment mode off. The eye beside it hides or shows the pins. For people who may only read, **Comments** opens the list.
+
+The tools that people use less wait behind **+** at the end of the segment. **+** shows them and turns into **×**, which hides them again. Behind it, **Highlight** draws on the page and **Edit** changes text when the app has Content. In comment mode, **Whole page** starts a comment on the page itself, and **All comments** opens the list of the page's threads. **Edit** opens these tools by itself, so you can see that it is on.
 
 With [presence](/docs/comments/hosts#in-a-vitehub-app), the segment also shows the faces of the other people on the page. Each person shows once. When a person has the page open in several tabs, their face says so, such as "Grace Hopper · 2 tabs". You never see your own face. When your app shows its own list of people, turn the faces and cursors off. Threads still update live:
 
@@ -732,7 +734,7 @@ export default defineConfig({
 
 | Key | Action |
 | --- | --- |
-| <kbd>C</kbd> | Turn comment mode on or off, as **Comments** does. While it is on, a click anywhere starts a thread, and the segment shows **Whole page**, **All comments**, and **×**. |
+| <kbd>C</kbd> | Turn comment mode on or off, as **Comments** does. While it is on, a click anywhere starts a thread, and **+** also shows **Whole page** and **All comments**. |
 | <kbd>B</kbd> | Turn **Highlight** on or off. While it is on, a drag draws with the marker. With another tip in hand, <kbd>B</kbd> takes the marker. |
 | <kbd>P</kbd>, <kbd>A</kbd>, <kbd>T</kbd> | With **Highlight** on, take the pen, the arrow, or the text tip. |
 | <kbd>E</kbd> | Turn **Edit** on or off, when the app has Content. |
@@ -880,7 +882,17 @@ Connect the Agent to the [ViteHub MCP](/docs/console/mcp) of the Console. It run
 
 Each open thread has **Open in T3 Code** and **Copy** in its header. The list of open threads has **Open in T3 Code** and **Copy open** in its top row, for all the open threads of the page. Both buttons give the same prompt: the page URL, the text and replies of each thread, the element, the version, and the URLs of its files. Every person who may read the comments gets them. When the person is a Console team member whose MCP access allows `comments.get`, the prompt also tells the Agent to check the linked app and team and read the threads through the ViteHub MCP. It asks the Agent to resolve them only if that access allows `comments.resolve`. For other people, it asks the Agent to report what it changed.
 
-**Open in T3 Code** opens `https://app.t3.codes/new` with the prompt, and with `repo=owner/name` when Comments knows the GitHub repository of the app: `forge.repository`, else the repository of the build. On a Hosted Comments site, add `data-vitehub-repo="owner/name"` to the script tag. A link is at most 8,000 characters. A long prompt keeps its steps: first its messages and anchors get shorter, then each thread keeps only its ID and a short title. With MCP access, the link can keep just the IDs and instructions. If the link still does not fit, use **Copy** or **Copy open** for the full prompt. Build the full text with `commentsAgentPrompt({ url, threads, agent })` and the link with `commentsT3CodeLink(input, repository)` from `@vite-hub/comments/client`. The link function returns `undefined` when no link fits. `agent` is `{ mcp, project, resolve }`, where `project` is the linked app's `{ id, teamId, url }`.
+Outside comment mode, the pill shows **Copy prompt** when the page has open threads. For a Console team member with that MCP access, it copies a short prompt instead of the thread text:
+
+```txt
+I left 2 comments on https://docs.acme.dev/pricing
+In the ViteHub Console, open app "Acme Docs" (docs.acme.dev) through the ViteHub MCP (https://console.vitehub.dev/mcp/account): find it with list_apps (id: prj_1, team team_1; if it is missing, ask me to switch team), then call read_operation with the app id, operation "comments.get", and input { threadId } for each ID in ["thr_1","thr_2"].
+Fix each comment, then resolve it with run_operation, the app id, operation "comments.resolve", and input { threadId, reply }. Say what you changed in the reply.
+```
+
+The app name is the label of the app in the Console, else the name that the app reports. Without a name, the prompt uses the domain. Other people get the same full text as **Copy open**. Build the text with `commentsPagePrompt({ url, threads, agent })` from `@vite-hub/comments/client`.
+
+**Open in T3 Code** opens `https://app.t3.codes/new` with the prompt, and with `repo=owner/name` when Comments knows the GitHub repository of the app: `forge.repository`, else the repository of the build. On a Hosted Comments site, add `data-vitehub-repo="owner/name"` to the script tag. A link is at most 8,000 characters. A long prompt keeps its steps: first its messages and anchors get shorter, then each thread keeps only its ID and a short title. With MCP access, the link can keep just the IDs and instructions. If the link still does not fit, use **Copy** or **Copy open** for the full prompt. Build the full text with `commentsAgentPrompt({ url, threads, agent })` and the link with `commentsT3CodeLink(input, repository)` from `@vite-hub/comments/client`. The link function returns `undefined` when no link fits. `agent` is `{ mcp, project, resolve }`, where `project` is the linked app's `{ id, teamId, url, name? }`.
 
 ```txt [Prompt]
 Fix this comment on https://app.example.com/portal/pricing

@@ -58,6 +58,11 @@ async function sentPicture(api, body) {
 
 const highlights = page => page.evaluate(() => Object.fromEntries([...CSS.highlights].map(([name, highlight]) => [name, highlight.size])))
 
+async function moreTools(page) {
+  const toggle = page.locator("vitehub-tool [data-action='more-tools']")
+  if (await toggle.getAttribute("aria-expanded") === "false") await toggle.click()
+}
+
 async function drag(page, from, to) {
   await page.mouse.move(from.x, from.y)
   await page.mouse.down()
@@ -182,11 +187,11 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     await page.mouse.click(900, 650)
     await page.keyboard.press("Escape")
     if (!await page.evaluate(() => document.documentElement.classList.contains("vitehub-comment-mode"))) await page.keyboard.press("c")
+    await moreTools(page)
     await page.locator("vitehub-tool").getByRole("button", { name: "Whole page" }).waitFor({ timeout: 5000 })
     try {
-      const centers = await page.evaluate(() => [...document.querySelector("vitehub-tool").shadowRoot.querySelectorAll(".toolbar button, .toolbar .divider, .toolbar .people")]
+      const centers = await page.evaluate(() => [...document.querySelector("vitehub-tool").shadowRoot.querySelectorAll(".toolbar button, .toolbar .people")]
         .map(item => { const box = item.getBoundingClientRect(); return [item.className || item.textContent, box.top + box.height / 2] }))
-      assert.ok(centers.some(([name]) => name === "divider"), "comment mode shows its dividers")
       const line = centers[0][1]
       for (const [name, center] of centers) assert.ok(Math.abs(center - line) <= 0.5, `${name} centers at ${center}, the pill at ${line}`)
     }
@@ -326,6 +331,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
   })
 
   await t.test("the whole-page draft is centered", async () => {
+    await moreTools(page)
     await page.locator("vitehub-tool").getByRole("button", { name: "Whole page" }).click()
     const bubble = page.locator("vitehub-comments [data-draft='true'][data-kind='page'] > [data-slot='comment-layer-popover']")
     await bubble.evaluate(card => new Promise((resolve) => {
@@ -652,9 +658,11 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     const all = await items.count()
     assert.ok(all >= 3, `${all} pins before the eye`)
     if (evidence) await page.screenshot({ path: `${evidence}/hidden-0-all.png` })
-    const eye = page.locator("vitehub-tool").getByRole("button", { name: "Hide comments" })
+    const eye = page.locator("vitehub-tool button.eye")
+    assert.equal(await eye.getAttribute("aria-label"), "Hide comments")
     await eye.click()
-    assert.equal(await eye.getAttribute("aria-pressed"), "true")
+    assert.equal(await eye.getAttribute("aria-label"), "Show comments")
+    assert.equal(await eye.getAttribute("title"), "Show comments")
     await page.waitForFunction(() => document.querySelectorAll("vitehub-comments").length && !document.querySelector("vitehub-comments").shadowRoot.querySelector("[data-slot='comment-layer-item']"), undefined, { timeout: 5000 })
     assert.equal(await areas(), 0)
     assert.equal((await highlights(page))["vh-comment"] ?? 0, 0)
@@ -687,7 +695,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     })
     assert.equal(await items.count(), 1)
     assert.match(await items.first().locator("[data-slot='comment-pin']").getAttribute("aria-label"), /Only this one shows/)
-    assert.equal(await eye.getAttribute("aria-pressed"), "true")
+    assert.equal(await eye.getAttribute("aria-label"), "Show comments")
     if (evidence) await page.screenshot({ path: `${evidence}/hidden-2-flash.png` })
 
     await page.waitForFunction(() => window.pinLog.at(-1).count === 0, undefined, { timeout: 5000 })
@@ -701,7 +709,7 @@ test("comments on a page, as in Drop", { timeout: 120_000 }, async (t) => {
     assert.ok(log.every(entry => entry.count <= 1), "no other pin showed")
     await page.waitForFunction(() => !document.querySelector("vitehub-comments").shadowRoot.querySelector("[data-slot='comment-layer-item']:not([data-draft])"), undefined, { timeout: 3000 })
     assert.equal(await areas(), 0)
-    assert.equal(await eye.getAttribute("aria-pressed"), "true")
+    assert.equal(await eye.getAttribute("aria-label"), "Show comments")
     if (evidence) await page.screenshot({ path: `${evidence}/hidden-4-after.png` })
 
     await page.keyboard.press("Escape")

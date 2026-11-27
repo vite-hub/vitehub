@@ -746,7 +746,7 @@ describe("the Comments segment, as in Drop", () => {
     expect(thread.author).toEqual({ id: `guest:${readGuest()!.id}`, name: "Ana García", guest: true })
   })
 
-  it("turns comment mode on and grows Whole page, All comments, and × beside it", async () => {
+  it("turns comment mode on, adds Whole page and All comments to More, and leaves it from Click anywhere", async () => {
     const { bar, shadow } = await site(ada, {}, comments => comments.create({ page: "/pricing", anchor, body: "Open one", author: ada }))
     await vi.waitFor(() => expect(commentsButton(bar)?.getAttribute("aria-label")).toBe("Comments, 1 open"))
     expect(commentsButton(bar)!.textContent).toBe("Comments1")
@@ -760,7 +760,7 @@ describe("the Comments segment, as in Drop", () => {
 
     tool(bar, "Comment on the whole page")!.click()
     await vi.waitFor(() => expect(shadow.querySelector('textarea[aria-label="Comment"]')).not.toBeNull())
-    tool(bar, "Stop commenting (Esc)")!.click()
+    commentsButton(bar)!.click()
     await vi.waitFor(() => expect(tool(bar, "Comment on the whole page")).toBeNull())
     expect(document.documentElement.classList.contains("vitehub-comment-mode")).toBe(false)
     expect(commentsButton(bar)!.textContent).toBe("Comments1")
