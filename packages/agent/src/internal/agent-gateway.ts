@@ -3,6 +3,7 @@ import { resolveChatGPTGateway } from "./chatgpt-gateway.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { codexConfigArg } from "./codex-launch-args.ts"
 import { gatewayEnvValue } from "./gateway-env.ts"
+import { providerHarnessProfile } from "./provider-profiles.ts"
 import type { AiGatewayDefinition, ChatGPTGateway } from "@vite-hub/gateways"
 import type { AiGatewayResolvedRoute } from "@vite-hub/gateways/internal"
 import type { ChatGPTCredential } from "@vite-hub/connections/agent"
@@ -31,12 +32,13 @@ export function normalizeAgentDriverGateway(value: unknown): AiGatewayDefinition
 
 /** Fail at definition time when a gateway cannot serve the selected Driver. */
 export function assertAgentDriverGatewaySupports(gateway: AiGatewayDefinition | ChatGPTGateway, driver: BuiltInAgentDriverName): void {
+  const profile = providerHarnessProfile(driver)
   if (isChatGPTGateway(gateway)) {
-    if (driver !== "codex") throw agentDiagnostics.AGENT_R0976({ message: `[vitehub] The ChatGPT plan gateway does not serve the ${driver} Driver. Use codexDriver({ gateway: chatgpt() }) or a model-backed Driver: { model, gateway: chatgpt() }.` })
+    if (!profile.gateway.chatgpt) throw agentDiagnostics.AGENT_R0976({ message: `[vitehub] The ChatGPT plan gateway does not serve the ${driver} Driver. Use codexDriver({ gateway: chatgpt() }) or a model-backed Driver: { model, gateway: chatgpt() }.` })
     return
   }
-  if (!aiGatewaySupports(gateway, driver)) {
-    throw agentDiagnostics.AGENT_R0976({ message: `[vitehub] Gateway "${gateway.name}" does not serve the ${driver} Driver. Set baseURL["${driver}"] or choose another gateway.` })
+  if (!aiGatewaySupports(gateway, profile.gateway.route)) {
+    throw agentDiagnostics.AGENT_R0976({ message: `[vitehub] Gateway "${gateway.name}" does not serve the ${driver} Driver. Set baseURL["${profile.gateway.route}"] or choose another gateway.` })
   }
 }
 
@@ -87,11 +89,12 @@ export async function resolveAgentDriverGateway(
 ): Promise<ResolvedAgentDriverGateway> {
   assertAgentDriverGatewaySupports(gateway, driver)
   if (isChatGPTGateway(gateway)) return await resolveChatGPTGateway(gateway, context)
-  const route = await resolveAiGatewayRoute(gateway, driver, {
+  const { gateway: profile } = providerHarnessProfile(driver)
+  const route = await resolveAiGatewayRoute(gateway, profile.route, {
     ...context,
     env: async (preset, field) => await gatewayEnvValue(preset, field, context),
   })
-  return driver === "codex" ? codexGateway(gateway, route) : claudeGateway(route)
+  return profile.delivery === "codex-config" ? codexGateway(gateway, route) : claudeGateway(route)
 }
 
 /** Merge gateway values into the resolved `driver.env`. A gateway owns its variables. */
