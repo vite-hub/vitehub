@@ -1,5 +1,7 @@
-import { pathToFileURL } from "node:url"
+import { execFile } from "node:child_process"
 import { resolve } from "node:path"
+import { pathToFileURL } from "node:url"
+import { promisify } from "node:util"
 
 import { describe, expect, it } from "vitest"
 
@@ -36,10 +38,16 @@ describe.runIf(providerEnabled("vercel"))("vercel provider output", () => {
   })
 
   it("server function imports cleanly offline", async () => {
-    process.env.KV_REST_API_URL ||= "https://localhost.invalid"
-    process.env.KV_REST_API_TOKEN ||= "offline-contract-test"
-    process.env.BLOB_READ_WRITE_TOKEN ||= "vercel_blob_rw_offline_contract_test"
     readOutputFile(SERVER_FUNC, buildHints.vercel)
-    await expect(import(pathToFileURL(resolve(repoRoot, SERVER_FUNC)).href)).resolves.toBeDefined()
-  })
+    const entry = pathToFileURL(resolve(repoRoot, SERVER_FUNC)).href
+    await promisify(execFile)(process.execPath, ["--input-type=module", "--eval", "await import(process.argv[1])", entry], {
+      env: {
+        ...process.env,
+        KV_REST_API_URL: "https://localhost.invalid",
+        KV_REST_API_TOKEN: "offline-contract-test",
+        BLOB_READ_WRITE_TOKEN: "vercel_blob_rw_offline_contract_test",
+      },
+      timeout: 10_000,
+    })
+  }, 15_000)
 })
