@@ -49,6 +49,12 @@ export function withAgentDriverGatewayModel(driver: BuiltInAgentDriverName, gate
   return { ...settings, customModels: [...customModels, sessionModel] }
 }
 
+/** True when `driver.gateway` moves the harness Home into the Invocation's temporary root, so the native sessions there end with the Invocation. */
+export function agentDriverGatewayReplacesHome(driver: BuiltInAgentDriverName): boolean {
+  const { gateway, home } = providerHarnessProfile(driver)
+  return Boolean(home && gateway?.ownedEnv.includes(home.env))
+}
+
 /** Validate a gateway for `driver.gateway` and keep its Driver routes. */
 export function normalizeAgentDriverGateway(value: unknown): AiGatewayDefinition | ChatGPTGateway {
   return isChatGPTGateway(value) ? Object.freeze({ ...value }) : normalizeAiGateway(value)
