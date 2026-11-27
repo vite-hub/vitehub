@@ -7541,7 +7541,8 @@ async function executeAgentInvocationWithCapacityLease<
     return { result: finished }
   }
 
-  if (options.onSessionLog && !customRun && definition?.[baseAgentDriverKind] === "provider"
+  if (options.onSessionLog && !customRun && definition && baseAgentDriverKind in definition
+    && definition[baseAgentDriverKind] === "provider"
     && isRuntimeRecord(result) && typeof result.sessionLog === "string") {
     options.onSessionLog(result.sessionLog)
   }
