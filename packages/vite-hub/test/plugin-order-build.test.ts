@@ -60,7 +60,7 @@ describe("Plugin order with the Nitro Vite plugin", () => {
       const plugin = join(root, "async-plugin.mjs")
       const guide = join(root, "guide.mjs")
       await writeFile(plugin, "export default async () => { await new Promise(resolve => setTimeout(resolve, 50)) }\n")
-      await writeFile(guide, "export default () => new Response('<html><body>Guide</body></html>', { headers: { 'content-type': 'text/html' } })\n")
+      await writeFile(guide, "export default () => new Response('<html><body>Guide</body></html>', { headers: { 'content-type': 'text/html; charset=utf-8' } })\n")
       const { nitro } = (await import("nitro/vite" as string)) as { nitro: (config: { framework?: { name: string, version: string }, plugins: string[], handlers: { route: string, handler: string }[] }) => unknown }
       const server = nitro({ plugins: [plugin], handlers: [{ route: "/guide", handler: guide }], ...nitroPosition === "before" ? { framework: { name: "nitro", version: "3.0.0-test-builder" } } : {} })
       const publicUrl = "https://app.example.com"

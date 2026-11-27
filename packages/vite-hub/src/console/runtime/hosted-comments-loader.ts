@@ -4,10 +4,12 @@
  */
 export default function viteHubConsoleHostedComments(nitroApp: unknown): void {
   if (nitroApp === null || typeof nitroApp !== "object") return
-  const fetch: unknown = Reflect.get(nitroApp, "fetch")
+  const h3: unknown = Reflect.get(nitroApp, "h3")
+  const perRequestFetchOwner: object = h3 !== null && typeof h3 === "object" && Reflect.get(h3, "fetch") instanceof Function ? h3 : nitroApp
+  const fetch: unknown = Reflect.get(perRequestFetchOwner, "fetch")
   if (!(fetch instanceof Function)) return
-  Reflect.set(nitroApp, "fetch", async (request: unknown, ...rest: unknown[]) => {
-    const response: unknown = await Reflect.apply(fetch, nitroApp, [request, ...rest])
+  Reflect.set(perRequestFetchOwner, "fetch", async (request: unknown, ...rest: unknown[]) => {
+    const response: unknown = await Reflect.apply(fetch, perRequestFetchOwner, [request, ...rest])
     if (!(response instanceof Response) || !(request instanceof Request)) return response
     if (!(response.headers.get("content-type") ?? "").toLowerCase().startsWith("text/html")) return response
     const { withHostedComments } = await import("./server/hosted-comments.ts")

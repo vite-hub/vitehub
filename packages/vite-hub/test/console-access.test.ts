@@ -150,14 +150,15 @@ describe("Console access policies", () => {
       const configHandler = "handler" in configHook ? configHook.handler : configHook
       const config: { nitro?: { replace?: Record<string, string> }, root: string, [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean } = { root, ...(nitroContext ? { [VITEHUB_NITRO_CONFIG_CONTEXT]: true } : {}) }
       const result: unknown = await Reflect.apply(configHandler, {}, [config, { command: "serve", mode: "development" }])
-      expect(result).toEqual({ define: { __VITEHUB_CONSOLE_URL__: JSON.stringify("https://console.example.com") } })
-      expect(config.nitro?.replace).toEqual(nitroContext ? { __VITEHUB_CONSOLE_URL__: JSON.stringify("https://console.example.com") } : undefined)
+      const define = { __VITEHUB_APP_BASE_URL__: JSON.stringify("/"), __VITEHUB_CONSOLE_URL__: JSON.stringify("https://console.example.com") }
+      expect(result).toEqual({ define })
+      expect(config.nitro?.replace).toEqual(nitroContext ? define : undefined)
 
       const hosted = consoleVitePlugin({ console: { auth: false }, sections: [] })
       const hostedHook = hosted.config
       if (!hostedHook) throw new TypeError("Expected a console config hook.")
       const hostedHandler = "handler" in hostedHook ? hostedHook.handler : hostedHook
-      await expect(Reflect.apply(hostedHandler, {}, [{ root }, { command: "serve", mode: "development" }])).resolves.toBeUndefined()
+      await expect(Reflect.apply(hostedHandler, {}, [{ root }, { command: "serve", mode: "development" }])).resolves.toEqual({ define: { __VITEHUB_APP_BASE_URL__: JSON.stringify("/") } })
     }
     finally {
       await rm(root, { force: true, recursive: true })
