@@ -12,11 +12,11 @@ import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { agentInvocationId } from "./invocations.ts"
 import type { AgentInvocationAnnotationValue, AgentInvocationStore, AgentInvocationStoreCreateInput } from "./invocations.ts"
 
-/** The coding agent harnesses whose sessions ViteHub reads. `acp` is an ACP registry agent without a known id. */
+/** Built-in harness IDs. `acp` is the fallback for an ACP agent without a recorded id. */
 export const agentSessionProviders = ["codex", "claude-code", "gemini", "antigravity", "opencode", "cursor", "grok", "pi", "kimi", "kiro", "fx", "muse", "acp"] as const
 
 /** A coding agent harness whose session files ViteHub reads. */
-export type AgentSessionProvider = (typeof agentSessionProviders)[number]
+export type AgentSessionProvider = (typeof agentSessionProviders)[number] | (string & {})
 
 export interface AgentSessionUsage {
   inputTokens: number
@@ -542,7 +542,7 @@ export function readClaudeCodeSession(text: string): AgentSession {
 }
 
 function isAgentSessionProvider(value: unknown): value is AgentSessionProvider {
-  return agentSessionProviders.includes(value as AgentSessionProvider)
+  return typeof value === "string" && value.trim().length > 0
 }
 
 function runtimeMeta(line: JsonRecord | undefined): JsonRecord | undefined {
@@ -571,32 +571,50 @@ function unifiedDiffChanges(diff: string, fallbackPath: string | undefined, cwd:
   const files: { oldPath?: string, newPath?: string, hunks: string[] }[] = []
   let current: (typeof files)[number] | undefined
   let hunk: string[] | undefined
+  let oldLines = 0
+  let newLines = 0
   const closeHunk = () => {
     if (current && hunk?.length) current.hunks.push(`${hunk.join("\n")}\n`)
     hunk = undefined
   }
-  const headerPath = (value: string) => value.trim().replace(/\t.*$/, "").replace(/^[ab]\//, "")
-  for (const line of diff.split("\n")) {
-    if (line.startsWith("--- ")) {
+  const headerPath = (value: string) => {
+    const path = value.split("\t", 1)[0]!.trim()
+    if (path.startsWith('"') && path.endsWith('"')) {
+      const quoted = path.slice(1, -1).replace(/\\(["\\tnr])/g, (_, escaped: string) => escaped === "t" ? "\t" : escaped === "n" ? "\n" : escaped === "r" ? "\r" : escaped)
+      return quoted.replace(/^[ab]\//, "")
+    }
+    return path.replace(/^[ab]\//, "")
+  }
+  const lines = diff.split(/\r?\n/)
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index]!
+    if (hunk && line.startsWith("\\ ")) {
+      hunk.push(line)
+      continue
+    }
+    if (hunk && (oldLines > 0 || newLines > 0) && /^[ +-]/.test(line)) {
+      if (!line.startsWith("+")) oldLines--
+      if (!line.startsWith("-")) newLines--
+      hunk.push(line)
+      continue
+    }
+    if (line.startsWith("--- ") && lines[index + 1]?.startsWith("+++ ")) {
       closeHunk()
-      current = { oldPath: headerPath(line.slice(4)), hunks: [] }
+      current = { oldPath: headerPath(line.slice(4)), newPath: headerPath(lines[++index]!.slice(4)), hunks: [] }
       files.push(current)
       continue
     }
-    if (line.startsWith("+++ ") && current && !hunk) {
-      current.newPath = headerPath(line.slice(4))
-      continue
-    }
-    if (line.startsWith("@@")) {
+    const range = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/.exec(line)
+    if (range) {
       closeHunk()
       if (!current) {
         current = { hunks: [] }
         files.push(current)
       }
       hunk = [line]
-      continue
+      oldLines = Number(range[1] ?? 1)
+      newLines = Number(range[2] ?? 1)
     }
-    if (hunk && /^[ +\-\\]/.test(line)) hunk.push(line)
   }
   closeHunk()
   return files.map((file) => {
@@ -607,15 +625,25 @@ function unifiedDiffChanges(diff: string, fallbackPath: string | undefined, cwd:
   })
 }
 
-function runtimeFileChanges(data: JsonRecord, cwd: string | undefined): FileChange[] {
+function runtimeFileChanges(data: JsonRecord, cwd: string | undefined, codex: boolean): FileChange[] {
   const fileName = string(data.fileName)
   const diff = string(data.diff)
-  if (diff?.trim()) {
-    const changes = unifiedDiffChanges(diff, fileName, cwd)
-    if (changes.length) return changes
+  const details = list(data.changes).filter(isRecord).flatMap((change) => {
+    const path = string(change.path)
+    return path ? [{ path: relativePath(path, cwd), kind: string(change.operation) ?? "update" }] : []
+  })
+  const single = details.length === 1 ? details[0] : undefined
+  if (codex && single && diff && (single.kind === "add" || single.kind === "delete")) {
+    if (single.kind === "add") return [{ ...single, diff: addedFileDiff(diff) }]
+    const lines = diff.replace(/\n$/, "").split("\n")
+    return [{ ...single, diff: `@@ -1,${lines.length} +0,0 @@\n${lines.map(line => `-${line}`).join("\n")}\n` }]
   }
-  const details = list(data.changes).filter(isRecord)
-  if (details.length) return details.map(change => ({ path: relativePath(string(change.path) ?? "", cwd), kind: string(change.operation) ?? "update", diff: "" }))
+  const changes = diff ? unifiedDiffChanges(diff, fileName ?? single?.path, cwd) : []
+  if (details.length) {
+    const hunksByPath = new Map(changes.map(change => [change.path, change.diff]))
+    return details.map(change => ({ ...change, diff: hunksByPath.get(change.path) ?? (single ? changes[0]?.diff : undefined) ?? "" }))
+  }
+  if (changes.length) return changes
   return fileName ? [{ path: relativePath(fileName, cwd), kind: "update", diff: "" }] : []
 }
 
@@ -625,6 +653,7 @@ interface RuntimeItem {
   turnId?: string
   text: string
   output: string
+  completed?: boolean
 }
 
 function addRuntimeUsage(usage: AgentSessionUsage, tokenUsage: unknown): boolean {
@@ -652,7 +681,7 @@ function runtimeSnapshotUsage(snapshot: unknown): AgentSessionUsage | undefined 
   }
 }
 
-function finishRuntimeTool(item: RuntimeItem, payload: JsonRecord, timestamp: string, cwd: string | undefined): void {
+function finishRuntimeTool(item: RuntimeItem, payload: JsonRecord, timestamp: string, cwd: string | undefined, codex: boolean): void {
   const step = item.step
   if (step.type !== "tool") return
   const data = record(payload.data)
@@ -667,10 +696,10 @@ function finishRuntimeTool(item: RuntimeItem, payload: JsonRecord, timestamp: st
   else if (item.itemType === "file_change") {
     const fileName = string(data.fileName)
     step.input = fileName ? { fileName: relativePath(fileName, cwd) } : {}
-    step.output = { ...fileChangeOutput(runtimeFileChanges(data, cwd)), output: item.output }
+    step.output = { ...fileChangeOutput(runtimeFileChanges(data, cwd, codex)), output: item.output }
   }
   else {
-    const output = data.output ?? data.result ?? (item.output || undefined)
+    const output = data.output ?? data.result ?? data.results ?? (item.output || undefined)
     if (output !== undefined) step.output = output
   }
   if (payload.status === "failed") step.error ??= string(payload.detail) ?? "The tool failed."
@@ -682,7 +711,7 @@ function runtimeToolName(itemType: string, data: JsonRecord): string {
   return string(data.toolName) ?? itemType
 }
 
-const runtimeToolItemTypes = new Set(["command_execution", "file_change", "mcp_tool_call", "dynamic_tool_call", "collab_agent_tool_call", "web_search", "image_view"])
+const runtimeToolItemTypes = new Set(["command_execution", "file_change", "mcp_tool_call", "dynamic_tool_call", "collab_agent_tool_call", "web_search", "file_search", "image_view"])
 
 /**
  * Read the event log of the T3 provider runtime (`eventLogPath`): one `meta` line, then one normalized runtime event per
@@ -693,8 +722,20 @@ const runtimeToolItemTypes = new Set(["command_execution", "file_change", "mcp_t
 export function readProviderRuntimeSession(text: string, provider?: AgentSessionProvider): AgentSession {
   const lines = parseLines(text)
   const meta = runtimeMeta(lines[0])
-  const session: AgentSession = { provider: provider ?? runtimeProvider(meta), status: "completed", steps: [], usage: emptyUsage() }
+  if (!meta) throw agentDiagnostics.AGENT_R1040({ provider, known: true })
+  const session: AgentSession = {
+    provider: provider ?? runtimeProvider(meta),
+    id: string(meta.threadId),
+    cwd: string(meta.cwd),
+    model: string(meta.model),
+    startedAt: string(meta.startedAt),
+    status: "completed",
+    steps: [],
+    usage: emptyUsage(),
+  }
   const items = new Map<string, RuntimeItem>()
+  const activeTurns = new Set<string | undefined>()
+  const finishedTurns = new Set<string | undefined>()
   let turnUsage = false
   let snapshotUsage: AgentSessionUsage | undefined
   const fail = (message: string) => {
@@ -715,30 +756,26 @@ export function readProviderRuntimeSession(text: string, provider?: AgentSession
       const title = string(payload.title)
       if (title && itemType !== "command_execution" && itemType !== "file_change") step.title = title
       if (itemType === "command_execution") step.input = { command: string(data.command) ?? "", ...(session.cwd ? { cwd: session.cwd } : {}) }
-      else if (data.input !== undefined) step.input = data.input
     }
     const item: RuntimeItem = { step, itemType, turnId: string(turnId), text: "", output: "" }
     items.set(itemId, item)
     session.steps.push(step)
     return item
   }
-  for (const line of lines) {
-    const lineMeta = runtimeMeta(line)
-    if (lineMeta) {
-      session.id ??= string(lineMeta.threadId)
-      session.cwd ??= string(lineMeta.cwd)
-      session.model ??= string(lineMeta.model)
-      session.startedAt ??= string(lineMeta.startedAt)
-      continue
-    }
+  for (const line of lines.slice(1)) {
+    const threadId = string(line.threadId)
+    if (line.type === "meta" || (threadId && session.id && threadId !== session.id)) throw agentDiagnostics.AGENT_R1055()
+    session.id ??= threadId
     const payload = record(line.payload)
     const timestamp = string(line.createdAt) ?? session.completedAt ?? session.startedAt ?? new Date(0).toISOString()
     session.startedAt ??= timestamp
     session.completedAt = timestamp
-    session.id ??= string(line.threadId)
+    const turnId = string(line.turnId)
+    if (turnId !== undefined && !finishedTurns.has(turnId)) activeTurns.add(turnId)
     const itemId = string(line.itemId)
     const itemType = string(payload.itemType)
     if (line.type === "turn.started") {
+      activeTurns.add(turnId)
       session.model ??= string(payload.model)
       session.reasoningEffort ??= string(payload.effort)
       continue
@@ -758,20 +795,30 @@ export function readProviderRuntimeSession(text: string, provider?: AgentSession
       }
       if (itemType !== "assistant_message" && itemType !== "reasoning" && !runtimeToolItemTypes.has(itemType)) continue
       const item = itemFor(itemId, itemType, payload, timestamp, line.turnId)
+      if (item.step.type === "tool" && itemType !== "command_execution" && itemType !== "file_change") {
+        const data = record(payload.data)
+        const input = data.input ?? data.patterns ?? data.pattern
+        if (input !== undefined) item.step.input = input
+      }
       if (line.type !== "item.completed") continue
+      item.completed = true
       if (item.step.type === "message") {
         item.step.text = string(record(payload.data).text) ?? item.text
         continue
       }
-      finishRuntimeTool(item, payload, timestamp, session.cwd)
+      finishRuntimeTool(item, payload, timestamp, session.cwd, meta.kind === "codex")
       continue
     }
     if (line.type === "turn.completed") {
+      activeTurns.delete(turnId)
+      finishedTurns.add(turnId)
       if (addRuntimeUsage(session.usage, payload.tokenUsage)) turnUsage = true
       if (payload.state !== "completed") fail(string(payload.errorMessage) ?? `The turn ended ${string(payload.state) ?? "early"}.`)
       continue
     }
     if (line.type === "turn.aborted") {
+      activeTurns.delete(turnId)
+      finishedTurns.add(turnId)
       if (addRuntimeUsage(session.usage, payload.tokenUsage)) turnUsage = true
       fail(`The turn was aborted${string(payload.reason) ? `: ${payload.reason}` : "."}`)
       continue
@@ -780,11 +827,15 @@ export function readProviderRuntimeSession(text: string, provider?: AgentSession
     else if (line.type === "runtime.error") fail(string(payload.message) ?? "The provider runtime reported an error.")
     else if (line.type === "session.exited" && payload.exitKind === "error") fail(string(payload.reason) ?? "The provider session exited with an error.")
   }
+  if (!finishedTurns.size || activeTurns.size) fail("The event log ended before the turn finished.")
   if (!turnUsage && snapshotUsage) session.usage = snapshotUsage
+  for (const item of items.values()) {
+    if (!item.completed && item.step.type === "message") item.step.text = item.text
+  }
   session.steps = session.steps.filter(step => step.type === "tool" || step.text.trim())
   const answers = new Map<string | undefined, AgentSessionMessage>()
   for (const item of items.values()) {
-    if (item.itemType === "assistant_message" && item.step.type === "message" && item.step.text.trim()) answers.set(item.turnId, item.step)
+    if (finishedTurns.has(item.turnId) && item.itemType === "assistant_message" && item.step.type === "message" && item.step.text.trim()) answers.set(item.turnId, item.step)
   }
   for (const answer of answers.values()) answer.phase = "final"
   session.text = [...answers.values()].at(-1)?.text
@@ -792,14 +843,14 @@ export function readProviderRuntimeSession(text: string, provider?: AgentSession
 }
 
 /**
- * Read a session file of a known provider. A T3 provider runtime event log reads for every provider; `codex` and
+ * Read a session file. A T3 provider runtime event log reads for every harness id; `codex` and
  * `claude-code` also read their native session files.
  */
 export function readAgentSession(provider: AgentSessionProvider, text: string): AgentSession {
   if (isAgentSessionProvider(provider) && isProviderRuntimeEventLog(text)) return readProviderRuntimeSession(text, provider)
   if (provider === "codex") return readCodexSession(text)
   if (provider === "claude-code") return readClaudeCodeSession(text)
-  throw agentDiagnostics.AGENT_R1040({ provider, known: isAgentSessionProvider(provider) })
+  throw agentDiagnostics.AGENT_R1040({ provider, known: agentSessionProviders.some(known => known === provider) })
 }
 
 // Invocation

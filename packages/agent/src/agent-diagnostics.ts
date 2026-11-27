@@ -4018,9 +4018,9 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R1040: {
       why: ({ provider, known }: { provider: unknown, known?: boolean }) => known
-        ? `[vitehub] The ${String(provider)} session file is not a provider runtime event log. ViteHub reads ${String(provider)} sessions only from the event log of the T3 provider runtime.`
+        ? `[vitehub] The session file is not a provider runtime event log.`
         : `[vitehub] Unknown session provider ${JSON.stringify(provider)}. Use a harness id such as "codex", "claude-code", "gemini", or "opencode".`,
-      fix: 'Pass a provider runtime event log (the eventLogPath file), or a native Codex or Claude Code session file with "codex" or "claude-code".',
+      fix: 'Pass a log written by an external T3 provider runtime build that supports eventLogPath (such as commit 1ee7ef6dd80eba8b9678a8e9696728389f5ea8c2), or a native Codex or Claude Code session file with "codex" or "claude-code".',
     },
     AGENT_R1041: {
       why: "[vitehub] importAgentSession() needs agentName and runId.",
@@ -4073,6 +4073,10 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_R1054: {
       why: "[vitehub] This page is closed. Its queued calls cannot run.",
       fix: "Reload the page or call connectPage() again to create a new connection before sending more page calls.",
+    },
+    AGENT_R1055: {
+      why: "[vitehub] A provider runtime event log must contain one session per file.",
+      fix: "Set eventLogPath to a fresh path for each T3 session. If sessions were appended to one file, import one session's meta line and events at a time.",
     },
     AGENT_R0003: {
       why: ({ name }: { name: string }) => `[vitehub:agent] Tool "${name}" failed with a retryable policy decision.`,

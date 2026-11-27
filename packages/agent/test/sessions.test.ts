@@ -181,6 +181,50 @@ describe("readProviderRuntimeSession", () => {
     expect(readAgentSession("codex", opencode).provider).toBe("codex")
     expect(readProviderRuntimeSession(opencode).provider).toBe("opencode")
     expect(readProviderRuntimeSession(jsonl({ type: "meta", kind: "acp", agentId: "kimi" })).provider).toBe("kimi")
+    expect(readProviderRuntimeSession(jsonl({ type: "meta", kind: "acp", agentId: "copilot" })).provider).toBe("copilot")
+    expect(readAgentSession("copilot", geminiRecordedByProviderRuntime).provider).toBe("copilot")
+  })
+
+  it("rejects an appended session even when the thread id is reused", () => {
+    expect(() => readProviderRuntimeSession(`${geminiRecordedByProviderRuntime.trimEnd()}\n${geminiRecordedByProviderRuntime}`)).toThrow(/one session per file/)
+    expect(() => readProviderRuntimeSession(jsonl({ type: "meta", kind: "acp", threadId: "t-2" }, runtimeEvent("turn.completed", { state: "completed" })))).toThrow(/one session per file/)
+  })
+
+  it("keeps streamed text but does not import an interrupted turn as completed", async () => {
+    const truncated = geminiRecordedByProviderRuntime.trimEnd().split("\n").slice(0, -2).join("\n")
+    const unfinished = readProviderRuntimeSession(truncated)
+    expect(unfinished).toMatchObject({ status: "failed", error: expect.stringMatching(/before the turn finished/) })
+    expect(unfinished.text).toBeUndefined()
+    expect(unfinished.steps.at(-1)).toMatchObject({ phase: "commentary", text: session.text })
+    expect((await agentSessionInvocation(unfinished, { agentName: "coder", runId: "interrupted" })).status).toBe("failed")
+    const nextTurn = jsonl(runtimeEvent("turn.started", {}, { threadId: "record-fixture", turnId: "next-turn" }))
+    expect(readProviderRuntimeSession(`${geminiRecordedByProviderRuntime.trimEnd()}\n${nextTurn}`).status).toBe("failed")
+  })
+
+  it("preserves web and file search arguments and results from the completion payload", () => {
+    const log = jsonl(
+      { type: "meta", kind: "claude-code" },
+      runtimeEvent("item.started", { itemType: "web_search", data: {} }, { itemId: "web" }),
+      runtimeEvent("item.completed", { itemType: "web_search", data: { patterns: ["vite"], results: ["docs"] } }, { itemId: "web" }),
+      runtimeEvent("item.completed", { itemType: "file_search", data: { pattern: "*.ts", results: ["app.ts"] } }, { itemId: "files" }),
+      runtimeEvent("turn.completed", { state: "completed" }),
+    )
+    expect(readProviderRuntimeSession(log).steps).toMatchObject([
+      { name: "web_search", input: ["vite"], output: ["docs"] },
+      { name: "file_search", input: "*.ts", output: ["app.ts"] },
+    ])
+  })
+
+  it("reads raw Codex additions and deletions and quoted multi-file hunks", async () => {
+    const log = await readFile(new URL("fixtures/provider-runtime/codex-file-changes.events.jsonl", import.meta.url), "utf8")
+    expect(readProviderRuntimeSession(log).steps).toMatchObject([
+      { output: { item: { changes: [{ path: "new.txt", kind: "add", diff: "@@ -0,0 +1,1 @@\n+hello\n" }] } } },
+      { output: { item: { changes: [{ path: "old.txt", kind: "delete", diff: "@@ -1,1 +0,0 @@\n-goodbye\n" }] } } },
+      { output: { item: { changes: [
+        { path: "my notes.txt", kind: "update", diff: "@@ -1,2 +1 @@\n--- heading\n context\n" },
+        { path: "next.txt", kind: "update", diff: "@@ -1 +1 @@\n-before\n+after\n" },
+      ] } } },
+    ])
   })
 
   it("reads exit codes, MCP calls, multi-file diffs, and failed turns", () => {
@@ -207,6 +251,9 @@ describe("readProviderRuntimeSession", () => {
   it("imports a runtime session as an Invocation", async () => {
     const record = await agentSessionInvocation(session, { agentName: "coder", runId: "gemini-1" })
     expect(record.status).toBe("completed")
+    const start = record.observations.find(observation => observation.name === "agent.invocation.start")
+    expect(start?.attributes).toMatchObject({ "input.hasPrompt": false })
+    expect(start?.attributes).not.toHaveProperty("input.prompt")
     expect(record.observations[0]!.attributes!["vitehub.agent.configuration"]).toMatchObject({ driver: { kind: "gemini", provider: "gemini", model: { id: "gemini-3.8-flash-high" } } })
     const command = record.observations.find(observation => observation.name === "agent.tool.finish" && observation.attributes?.["tool.name"] === "command_execution")
     expect(command?.attributes).toMatchObject({ "tool.output": { output: "hi" }, "tool.durationMs": 22 })

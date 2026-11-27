@@ -362,9 +362,12 @@ const { id } = await importAgentSession(store, session, { agentName: 'coder', ru
 
 `readClaudeCodeSession()` reads `$CLAUDE_CONFIG_DIR/projects/<project>/<session>.jsonl`, and `readCodexSession()` reads `$CODEX_HOME/sessions/**/rollout-*.jsonl`. The record id is `agentInvocationId(runId, agentName)`. Importing the same `agentName` and `runId` again replaces the record, so the store must implement `delete()`. Pass `configuration` to record the skills, MCP servers, and Workspace the session had, and `cost` to record a price, because the CLIs report only tokens.
 
-Other harnesses, such as Gemini CLI, Antigravity, OpenCode, Cursor, Grok, Kimi, Pi, Kiro, and other ACP agents, run through the T3 provider runtime. Set its `eventLogPath` to write an event log: one `meta` line, then one runtime event per line. `readProviderRuntimeSession(text, provider)` reads that log into the same `AgentSession`. `readAgentSession(provider, text)` reads it too, for every harness id, and detects the log from its `meta` line. Pass the harness id, such as `"gemini"`, because the `meta` line of an ACP agent can name only `acp`. A command without an exit code, such as a Gemini command over ACP, keeps its exit code unknown.
+For other harnesses, use an external T3 provider runtime build with `eventLogPath` support, such as [T3 at `1ee7ef6`](https://github.com/vite-hub/t3code/tree/1ee7ef6dd80eba8b9678a8e9696728389f5ea8c2). The runtime pinned by ViteHub cannot write these logs. Set `eventLogPath` to a fresh file for each session: T3 appends, and the reader rejects files containing multiple sessions. Read the file after the turn ends; an interrupted turn imports as failed, with any streamed text shown as commentary.
+
+`readProviderRuntimeSession(text)` takes the harness ID from the log. If the log identifies the harness only as `acp`, pass the actual ID to `readProviderRuntimeSession(text, provider)` or `readAgentSession(provider, text)`. The log does not record the original prompt, so the imported Invocation has no prompt. Commands without an exit code keep it unknown.
 
 ```ts
+import { readFile } from 'node:fs/promises'
 import { readAgentSession } from '@vite-hub/agent/sessions'
 
 const session = readAgentSession('gemini', await readFile('./events.jsonl', 'utf8'))
