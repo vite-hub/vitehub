@@ -6,7 +6,7 @@ import { commentsButton, pageTools, serveComments, startOverlay } from "./overla
 import type { CommentsHandlerOptions } from "../src/runtime/handler.ts"
 
 /** The people in the page's presence room, one entry per tab, as `room.people()` lists them. */
-const room = vi.hoisted(() => ({ people: [] as { id: string, name: string, color: string, clientId: number }[], update: undefined as (() => void) | undefined }))
+const room = vi.hoisted(() => ({ people: [] as { id: string, name: string, color: string, clientId: number }[], update: undefined as (() => void) | undefined, notice: undefined as ((body: unknown) => void) | undefined }))
 
 vi.mock("@vite-hub/realtime/client", () => ({
   connectRealtimeRoom: vi.fn(() => ({
@@ -18,6 +18,9 @@ vi.mock("@vite-hub/realtime/client", () => ({
       queueMicrotask(listener)
     },
     onChange: vi.fn(),
+    onNotice: (listener: (body: unknown) => void) => {
+      room.notice = listener
+    },
     notify: vi.fn(),
     setLocal: vi.fn(),
     destroy: vi.fn(),
@@ -28,6 +31,7 @@ const ada = { id: "ada", name: "Ada Lovelace" }
 
 beforeEach(() => {
   room.update = undefined
+  room.notice = undefined
   localStorage.clear()
   history.replaceState(null, "", "/pricing")
   document.body.innerHTML = "<main><h1>Pricing</h1></main>"
@@ -78,5 +82,23 @@ describe("the toolbar's faces", () => {
     room.update!()
     await new Promise(resolve => setTimeout(resolve, 20))
     expect(faces(bar)).toBeNull()
+  })
+})
+
+describe("a server write", () => {
+  it("reaches a joined page through a room notice", async () => {
+    const server = await serveComments({ identify: () => ada, authorize: () => true }, { realtime: true })
+    const tools = pageTools()
+    document.documentElement.append(tools.pill)
+    await startOverlay(tools)
+    await vi.waitFor(() => expect(room.notice).toBeDefined())
+    const reads = () => server.requests.filter(request => request.path.includes("/threads?")).length
+    const before = reads()
+    await server.comments.create({ page: "/pricing", anchor: { kind: "element", selector: "h1", x: 500, y: 500 }, body: "From the MCP", author: ada })
+    expect(commentsButton(tools.bar)?.getAttribute("aria-label")).toBe("Comments")
+    room.notice!({ type: "comments" })
+    room.notice!({ type: "comments" })
+    await vi.waitFor(() => expect(reads()).toBe(before + 1))
+    await vi.waitFor(() => expect(commentsButton(tools.bar)?.getAttribute("aria-label")).toBe("Comments, 1 open"))
   })
 })

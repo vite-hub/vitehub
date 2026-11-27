@@ -1,10 +1,11 @@
 import { spawn as spawnProcess } from "node:child_process"
 import { createHash } from "node:crypto"
 import { existsSync } from "node:fs"
-import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, join } from "node:path"
 
+import { PGlite } from "@electric-sql/pglite"
 import { createClient } from "@libsql/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -46,6 +47,25 @@ async function rows(rootDir: string, sql: string) {
   finally {
     client.close()
   }
+}
+
+function sha256(sql: string) {
+  return createHash("sha256").update(sql).digest("hex")
+}
+
+async function pgliteRows(rootDir: string, sql: string) {
+  const client = new PGlite(join(rootDir, ".vitehub/data/database/pglite"))
+  try {
+    return (await client.query<Record<string, unknown>>(sql)).rows
+  }
+  finally {
+    await client.close()
+  }
+}
+
+// Without `id`: a PGlite that Drizzle Kit did not close skips 32 sequence values on the next open.
+async function pgliteLedger(rootDir: string) {
+  return await pgliteRows(rootDir, "select hash, created_at::text, name, applied_at is not null as applied from drizzle.__drizzle_migrations order by id")
 }
 
 async function folder(migrationsDir: string, tag: string, sql: string) {
@@ -350,26 +370,164 @@ describe("vitehub database up", () => {
     const project = await createProject()
     const migrationsDir = project.database.migrationsDir
     await mkdir(migrationsDir)
-    await writeFile(join(migrationsDir, "0000_init.sql"), "CREATE TABLE notes (id integer PRIMARY KEY NOT NULL);")
+    await writeFile(join(migrationsDir, "0000_init.sql"), "CREATE TABLE café$archive$ (id INTEGER); CREATE TABLE notes (id integer PRIMARY KEY NOT NULL);")
     await writeFile(join(project.rootDir, "schema.ts"), "export const schema = {}\n")
     await expect(project.run("up")).resolves.toMatchObject({ exitCode: 0 })
     await expect(project.run("migrate")).resolves.toMatchObject({ exitCode: 0 })
     await expect(project.columns()).resolves.toEqual(["id"])
+    await expect(rows(project.rootDir, "SELECT name FROM sqlite_schema WHERE name = 'café$archive$'")).resolves.toEqual([["café$archive$"]])
   }, 120_000)
 
-  it("leaves a hand-written Postgres function unchanged", async () => {
+  async function createFlatPostgresProject() {
     const project = await createProject()
-    project.database.dialect = "postgresql"
+    Object.assign(project.database, { connection: undefined, dialect: "postgresql" })
+    await writeFile(join(project.rootDir, "drizzle.config.ts"), "export default { dialect: 'postgresql', out: './migrations', schema: './schema.ts' }\n")
     const migrationsDir = project.database.migrationsDir
-    const sql = "CREATE FUNCTION f() RETURNS integer LANGUAGE plpgsql AS $$ BEGIN RETURN 1; END; $$;"
-    await mkdir(migrationsDir)
-    await writeFile(join(migrationsDir, "0000_init.sql"), sql)
+    const files = {
+      "0000_init.sql": [
+        "CREATE TABLE \"users\" (",
+        "\t\"id\" serial PRIMARY KEY NOT NULL,",
+        "\t\"email\" text NOT NULL,",
+        "\tCONSTRAINT \"users_email_unique\" UNIQUE(\"email\")",
+        ");",
+        "",
+      ].join("\n"),
+      "0001_add_posts.sql": [
+        "CREATE TABLE \"posts\" (\"id\" serial PRIMARY KEY NOT NULL, \"title\" text NOT NULL, \"author_id\" integer, \"created_at\" timestamp DEFAULT now() NOT NULL);",
+        "ALTER TABLE \"posts\" ADD CONSTRAINT \"posts_author_id_users_id_fk\" FOREIGN KEY (\"author_id\") REFERENCES \"public\".\"users\"(\"id\") ON DELETE no action ON UPDATE no action;",
+        "CREATE TABLE \"sessions\" (\"id\" text PRIMARY KEY, \"user_id\" integer NOT NULL REFERENCES \"users\"(\"id\"));",
+        "",
+      ].join("\n"),
+      "0002_touch_posts.sql": [
+        "CREATE FUNCTION \"touch\"() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN NEW.\"created_at\" := now(); RETURN NEW; END; $$;",
+        "CREATE TRIGGER \"posts_touch\" BEFORE UPDATE ON \"posts\" FOR EACH ROW EXECUTE FUNCTION \"touch\"();",
+        "",
+      ].join("\n"),
+    }
+    await mkdir(migrationsDir, { recursive: true })
+    for (const [file, sql] of Object.entries(files)) await writeFile(join(migrationsDir, file), sql)
+    await writeFile(join(project.rootDir, "schema.ts"), [
+      "import { integer, pgTable, serial, text, timestamp } from 'drizzle-orm/pg-core'",
+      "export const users = pgTable('users', { id: serial('id').primaryKey(), email: text('email').notNull().unique() })",
+      "export const posts = pgTable('posts', { id: serial('id').primaryKey(), title: text('title').notNull(), authorId: integer('author_id').references(() => users.id), createdAt: timestamp('created_at').defaultNow().notNull() })",
+      "export const sessions = pgTable('sessions', { id: text('id').primaryKey(), userId: integer('user_id').notNull().references(() => users.id) })",
+      "",
+    ].join("\n"))
+    return { ...project, files, migrationsDir }
+  }
+
+  it("converts flat Postgres files, as NuxtHub writes them, then migrates them on PGlite", async () => {
+    const project = await createFlatPostgresProject()
+    const tag = `$${"long".repeat(20)}$`
+    await writeFile(join(project.migrationsDir, "0002_touch_posts.sql"), [
+      project.files["0002_touch_posts.sql"].replaceAll("$$", tag),
+      String.raw`CREATE TABLE messages (body text DEFAULT E'it\'s; ready', marker text DEFAULT '--> statement-breakpoint');`,
+      "SET LOCAL standard_conforming_strings = off;",
+      "--> statement-breakpoint",
+      String.raw`ALTER TABLE messages ADD COLUMN legacy text DEFAULT 'it\'s; legacy';`,
+      "--> statement-breakpoint",
+      "RESET standard_conforming_strings;",
+      "/* outer /* nested */ ; remains in comment */",
+      "CREATE FUNCTION answer() RETURNS integer LANGUAGE SQL BEGIN ATOMIC SELECT CASE WHEN true THEN 42 END; END;",
+      "",
+    ].join("\n"))
+
     const converted = await project.run("up")
-    expect(converted.exitCode).toBe(1)
-    expect(converted.stderr).toContain("Only SQLite and D1 support conversion of hand-written SQL")
-    await expect(readdir(migrationsDir)).resolves.toEqual(["0000_init.sql"])
-    await expect(readFile(join(migrationsDir, "0000_init.sql"), "utf8")).resolves.toBe(sql)
-  })
+    expect(converted).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(converted.stdout).toContain("[vitehub] Database \"default\": converted 3 SQL files in migrations to migration folders. Commit the new folders.")
+    const tags = await migrationTags(project.migrationsDir)
+    expect(tags).toEqual([expect.stringMatching(/^\d{14}_0000_init$/), expect.stringMatching(/^\d{14}_0001_add_posts$/), expect.stringMatching(/^\d{14}_0002_touch_posts$/)])
+    await expect(readdir(project.migrationsDir)).resolves.toEqual(tags)
+    await expect(readFile(join(project.migrationsDir, tags[0]!, "migration.sql"), "utf8")).resolves.toBe(project.files["0000_init.sql"])
+    await expect(readFile(join(project.migrationsDir, tags[1]!, "migration.sql"), "utf8")).resolves.toMatch(/NOT NULL\);\n--> statement-breakpoint\n\nALTER TABLE "posts" ADD CONSTRAINT/)
+    const touch = await readFile(join(project.migrationsDir, tags[2]!, "migration.sql"), "utf8")
+    expect(touch.split("\n--> statement-breakpoint\n")).toHaveLength(7)
+    expect(touch).toContain(`RETURN NEW; END; ${tag};`)
+    expect(existsSync(join(project.migrationsDir, tags[1]!, "snapshot.json"))).toBe(false)
+    const snapshot = JSON.parse(await readFile(join(project.migrationsDir, tags[2]!, "snapshot.json"), "utf8")) as { dialect: string, ddl: { entityType: string, name: string }[] }
+    expect(snapshot.dialect).toBe("postgres")
+    expect(snapshot.ddl.filter(entity => entity.entityType === "tables").map(entity => entity.name).sort()).toEqual(["messages", "posts", "sessions", "users"])
+    await expect(readdir(join(project.rootDir, ".vitehub/database"))).resolves.toEqual([])
+
+    await expect(project.run("migrate")).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+    await expect(pgliteRows(project.rootDir, "insert into users (email) values ('a@b.c') returning id")).resolves.toEqual([{ id: 1 }])
+    await expect(pgliteRows(project.rootDir, "insert into messages default values returning body, legacy, marker, answer() as answer")).resolves.toEqual([{ answer: 42, body: "it's; ready", legacy: "it's; legacy", marker: "--> statement-breakpoint" }])
+    await expect(pgliteRows(project.rootDir, "select name from drizzle.__drizzle_migrations order by id")).resolves.toEqual(tags.map(name => ({ name })))
+  }, 120_000)
+
+  it("generates no migration after converting flat Postgres files when the Definition matches them", async () => {
+    const project = await createFlatPostgresProject()
+    const table = "customer_account_notification_preferences"
+    const column = "customer_account_notification_destination"
+    await writeFile(join(project.migrationsDir, "0003_preferences.sql"), `CREATE TABLE ${table} (${column} text UNIQUE); CREATE INDEX ON ${table} (${column});`)
+    const schemaFile = join(project.rootDir, "schema.ts")
+    await writeFile(schemaFile, `${await readFile(schemaFile, "utf8")}\nimport { index } from 'drizzle-orm/pg-core'\nexport const preferences = pgTable('${table}', { destination: text('${column}').unique() }, t => [index().on(t.destination)])\n`)
+    await expect(project.run("up")).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+    const tags = await migrationTags(project.migrationsDir)
+
+    await nextSecond()
+    await expect(project.run("generate")).resolves.toMatchObject({ exitCode: 0 })
+    await expect(migrationTags(project.migrationsDir)).resolves.toEqual(tags)
+    await expect(readdir(project.migrationsDir)).resolves.toEqual(tags)
+
+    const schema = await readFile(join(project.rootDir, "schema.ts"), "utf8")
+    await writeFile(join(project.rootDir, "schema.ts"), schema.replace("title: text('title').notNull(),", "title: text('title').notNull(), body: text('body'),"))
+    await nextSecond()
+    await expect(project.run("generate", ["--name", "add_body"])).resolves.toMatchObject({ exitCode: 0 })
+    const next = (await migrationTags(project.migrationsDir)).at(-1)!
+    expect(next).toMatch(/_add_body$/)
+    await expect(readFile(join(project.migrationsDir, next, "migration.sql"), "utf8")).resolves.toBe("ALTER TABLE \"posts\" ADD COLUMN \"body\" text;")
+  }, 120_000)
+
+  it("keeps -- vitehub:no-transaction as the first line, and replays that file outside a transaction", async () => {
+    const project = await createFlatPostgresProject()
+    const concurrently = "-- vitehub:no-transaction\nCREATE INDEX CONCURRENTLY \"posts_title_idx\" ON \"posts\" (\"title\");\nCREATE INDEX CONCURRENTLY \"posts_author_idx\" ON \"posts\" (\"author_id\");\n"
+    await writeFile(join(project.migrationsDir, "0003_index_posts.sql"), concurrently)
+
+    await expect(project.run("up")).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+    const tags = await migrationTags(project.migrationsDir)
+    expect(tags.at(-1)).toMatch(/^\d{14}_0003_index_posts$/)
+    const sql = await readFile(join(project.migrationsDir, tags.at(-1)!, "migration.sql"), "utf8")
+    expect(sql.split("\n")[0]).toBe("-- vitehub:no-transaction")
+    expect(sql.split("--> statement-breakpoint")).toHaveLength(2)
+    const snapshot = JSON.parse(await readFile(join(project.migrationsDir, tags.at(-1)!, "snapshot.json"), "utf8")) as { ddl: { entityType: string, name: string }[] }
+    expect(snapshot.ddl.filter(entity => entity.entityType === "indexes").map(entity => entity.name).sort()).toEqual(["posts_author_idx", "posts_title_idx"])
+  }, 120_000)
+
+  it("leaves the folder of flat Postgres files as it was when a file does not replay", async () => {
+    const project = await createFlatPostgresProject()
+    await writeFile(join(project.migrationsDir, "0003_broken.sql"), "ALTER TABLE \"posts\" ADD COLUMN \"body\" text;\nALTER TABLE \"missing\" ADD COLUMN \"body\" text;\n")
+    const before = await readdir(project.migrationsDir)
+
+    const failed = await project.run("up")
+    expect(failed.exitCode).toBe(1)
+    expect(failed.stderr).toContain("[vitehub] Database \"default\": migrations stays as it was.")
+    expect(failed.stderr).toContain("DATABASE_MIGRATION_CONVERSION_FAILED")
+    expect(failed.stderr).toContain("Could not replay 0003_broken.sql: relation \"missing\" does not exist")
+    await expect(readdir(project.migrationsDir)).resolves.toEqual(before)
+    for (const [file, sql] of Object.entries(project.files)) await expect(readFile(join(project.migrationsDir, file), "utf8")).resolves.toBe(sql)
+    await expect(readdir(join(project.rootDir, ".vitehub/database"))).resolves.toEqual([])
+    expect(existsSync(join(project.rootDir, ".vitehub/data/database/pglite"))).toBe(false)
+  }, 120_000)
+
+  it("does not convert a Postgres enum history that only works on an empty database", async () => {
+    const project = await createFlatPostgresProject()
+    const files = {
+      "0003_create_status.sql": "CREATE TYPE status AS ENUM ('draft');",
+      "0004_publish.sql": "ALTER TYPE status ADD VALUE 'published';",
+      "0005_default_status.sql": "ALTER TABLE posts ADD COLUMN status status DEFAULT 'published';",
+    }
+    for (const [file, sql] of Object.entries(files)) await writeFile(join(project.migrationsDir, file), sql)
+    const before = await readdir(project.migrationsDir)
+
+    const failed = await project.run("up")
+    expect(failed.exitCode).toBe(1)
+    expect(failed.stderr).toContain("DATABASE_MIGRATION_CONVERSION_FAILED")
+    expect(failed.stderr).toContain("Could not replay 0005_default_status.sql: unsafe use of new value")
+    expect(failed.stderr).toContain("Commit the enum addition before using the new value")
+    await expect(readdir(project.migrationsDir)).resolves.toEqual(before)
+    for (const [file, sql] of Object.entries(files)) await expect(readFile(join(project.migrationsDir, file), "utf8")).resolves.toBe(sql)
+  }, 120_000)
 
   it("converts hand-written SQL files next to an incomplete Drizzle Kit 0.x journal, and keeps what Wrangler applied", async () => {
     const project = await createProject()
@@ -741,19 +899,130 @@ describe("vitehub database migrate", () => {
     await expect(readFile(join(project.database.migrationsDir, pending, "migration.sql"), "utf8")).resolves.toBe(seed)
   }, 120_000)
 
-  it("migrates a Postgres Database on PGlite with Drizzle Kit, not the Postgres server migrator", async () => {
+  it("migrates PGlite without drizzle-kit", async () => {
     const project = await createProject()
     Object.assign(project.database, { connection: undefined, dialect: "postgresql" })
-    await mkdir(project.database.migrationsDir, { recursive: true })
-    const spawn = vi.fn(async () => ({ exitCode: 0 }))
+    const init = "CREATE TABLE \"notes\" (\"id\" serial PRIMARY KEY NOT NULL);"
+    const title = "ALTER TABLE \"notes\" ADD COLUMN \"title\" text;\n--> statement-breakpoint\nINSERT INTO \"notes\" (\"title\") VALUES ('first');"
+    await folder(project.database.migrationsDir, "20260101000000_init", init)
+    await folder(project.database.migrationsDir, "20260102000000_title", title)
+    const spawn = vi.fn(realSpawn)
 
-    // No URL and no PG* variables: the generated Kit config uses PGlite in .vitehub/data/database/pglite.
+    const migrated = await project.run("migrate", [], {}, spawn)
+    expect(migrated).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(migrated.stdout).toContain("[vitehub] Database \"default\": applied 20260102000000_title.")
+
+    expect(spawn).not.toHaveBeenCalled()
+    await expect(pgliteRows(project.rootDir, "select id, title from notes")).resolves.toEqual([{ id: 1, title: "first" }])
+    await expect(pgliteLedger(project.rootDir)).resolves.toEqual([
+      { applied: true, created_at: String(Date.UTC(2026, 0, 1)), hash: sha256(init), name: "20260101000000_init" },
+      { applied: true, created_at: String(Date.UTC(2026, 0, 2)), hash: sha256(title), name: "20260102000000_title" },
+    ])
+    await expect(project.run("migrate", ["--dry-run"], {}, spawn)).resolves.toMatchObject({ exitCode: 0, stdout: expect.stringContaining("(PGlite .vitehub/data/database/pglite): no pending migrations.") })
+    expect(spawn).not.toHaveBeenCalled()
+  }, 120_000)
+
+  it("shows and runs a `-- vitehub:no-transaction` migration outside a transaction on PGlite", async () => {
+    const project = await createProject()
+    Object.assign(project.database, { connection: undefined, dialect: "postgresql" })
+    const init = "CREATE TABLE \"notes\" (\"id\" serial PRIMARY KEY NOT NULL, \"title\" text);"
+    const index = "-- vitehub:no-transaction\nCREATE INDEX CONCURRENTLY IF NOT EXISTS \"notes_title\" ON \"notes\" (\"title\");\nVACUUM \"notes\";\n"
+    await folder(project.database.migrationsDir, "20260101000000_init", init)
+    await folder(project.database.migrationsDir, "20260102000000_index", index)
+    const spawn = vi.fn(realSpawn)
+
+    const dryRun = await project.run("migrate", ["--dry-run"], {}, spawn)
+    expect(dryRun).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(dryRun.stdout).toContain("  20260101000000_init\n")
+    expect(dryRun.stdout).toContain("  20260102000000_index (outside a transaction, one statement at a time)\n")
+
+    const migrated = await project.run("migrate", [], {}, spawn)
+    expect(migrated).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(migrated.stdout).toContain("[vitehub] Database \"default\": applied 20260102000000_index.")
+    expect(spawn).not.toHaveBeenCalled()
+    await expect(pgliteRows(project.rootDir, "select indisvalid from pg_index where indexrelid = 'notes_title'::regclass")).resolves.toEqual([{ indisvalid: true }])
+    await expect(pgliteLedger(project.rootDir)).resolves.toEqual([
+      { applied: true, created_at: String(Date.UTC(2026, 0, 1)), hash: sha256(init), name: "20260101000000_init" },
+      { applied: true, created_at: String(Date.UTC(2026, 0, 2)), hash: sha256(index), name: "20260102000000_index" },
+    ])
+  }, 120_000)
+
+  it("refuses conflicting generated PGlite migrations before writing a database", async () => {
+    const project = await createProject()
+    Object.assign(project.database, { connection: undefined, dialect: "postgresql" })
+    const kit = join(dirname(createRequire(import.meta.url).resolve("drizzle-kit")), "bin.js")
+    const generate = async (out: string, defaultValue: string, name: string) => {
+      await writeFile(join(project.rootDir, "schema.ts"), `
+        import { pgTable, text } from 'drizzle-orm/pg-core'
+        export const notes = pgTable('notes', { content: text().default(${JSON.stringify(defaultValue)}) })
+      `)
+      await expect(realSpawn(process.execPath, [kit, "generate", "--dialect", "postgresql", "--schema", "./schema.ts", "--out", out, "--name", name], { cwd: project.rootDir })).resolves.toEqual({ exitCode: 0 })
+    }
+    await generate("migrations", "base", "init")
+    const [init] = await migrationTags(project.database.migrationsDir)
+    await rename(join(project.database.migrationsDir, init!), join(project.database.migrationsDir, "20260101000000_init"))
+    const spawn = vi.fn(realSpawn)
+    await expect(project.run("migrate", ["--dry-run"], {}, spawn)).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+    expect(spawn).not.toHaveBeenCalled()
+    const branch = join(project.rootDir, "branch")
+    await cp(project.database.migrationsDir, branch, { recursive: true })
+    await generate("migrations", "left", "left")
+    await generate("branch", "right", "right")
+    const left = (await migrationTags(project.database.migrationsDir)).find(tag => tag.endsWith("_left"))!
+    const right = (await migrationTags(branch)).find(tag => tag.endsWith("_right"))!
+    await rename(join(project.database.migrationsDir, left), join(project.database.migrationsDir, "20260102000000_left"))
+    await rename(join(branch, right), join(project.database.migrationsDir, "20260103000000_right"))
+
+    await expect(realSpawn(process.execPath, [kit, "check", "--dialect", "postgresql", "--out", "migrations"], { cwd: project.rootDir })).resolves.toEqual({ exitCode: 1 })
+    for (const args of [["--allow-data-loss"], ["--dry-run"], []]) {
+      await expect(project.run("migrate", args, {})).resolves.toMatchObject({ exitCode: 1, stderr: expect.stringContaining("drizzle-kit check failed") })
+      expect(existsSync(join(project.rootDir, ".vitehub/data/database/pglite"))).toBe(false)
+    }
+  }, 120_000)
+
+  it("refuses a PGlite config override without migrating the default target", async () => {
+    const project = await createProject()
+    Object.assign(project.database, { connection: undefined, dialect: "postgresql" })
+    await folder(project.database.migrationsDir, "20260101000000_init", "CREATE TABLE notes (id integer PRIMARY KEY);")
+    await writeFile(join(project.rootDir, "alternate.config.ts"), "export default { dialect: 'postgresql', driver: 'pglite', out: './alternate', migrations: { schema: 'alternate' }, dbCredentials: { url: './alternate-db' } }\n")
+    const spawn = vi.fn(realSpawn)
+
+    for (const args of [["--config", "alternate.config.ts"], ["--config=alternate.config.ts", "--dry-run"]]) {
+      await expect(project.run("migrate", args, {}, spawn)).resolves.toMatchObject({ exitCode: 1, stderr: expect.stringContaining("does not support --config") })
+      expect(existsSync(join(project.rootDir, ".vitehub/data/database/pglite"))).toBe(false)
+    }
+    expect(spawn).not.toHaveBeenCalled()
+  }, 120_000)
+
+  it("reads the ledger that drizzle-kit wrote to a PGlite folder, and writes rows that drizzle-kit reads", async () => {
+    const project = await createProject()
+    Object.assign(project.database, { connection: undefined, dialect: "postgresql" })
+    const init = "CREATE TABLE \"notes\" (\"id\" serial PRIMARY KEY NOT NULL);"
+    const title = "ALTER TABLE \"notes\" ADD COLUMN \"title\" text;"
+    await folder(project.database.migrationsDir, "20260101000000_init", init)
+    await writeFile(join(project.rootDir, "kit.config.ts"), "export default { dialect: 'postgresql', driver: 'pglite', out: './migrations', dbCredentials: { url: '.vitehub/data/database/pglite' } }\n")
+    const kit = join(dirname(createRequire(import.meta.url).resolve("drizzle-kit")), "bin.js")
+    const runKit = () => realSpawn(process.execPath, [kit, "migrate", "--config", "kit.config.ts"], { cwd: project.rootDir, env: { ...process.env, PGHOST: "", PGDATABASE: "" } })
+    await mkdir(join(project.rootDir, ".vitehub/data/database"), { recursive: true })
+    await expect(runKit()).resolves.toEqual({ exitCode: 0 })
+    const [kitRow] = await pgliteLedger(project.rootDir)
+    expect(kitRow).toEqual({ applied: true, created_at: String(Date.UTC(2026, 0, 1)), hash: sha256(init), name: "20260101000000_init" })
+
+    await folder(project.database.migrationsDir, "20260102000000_title", title)
+    const spawn = vi.fn(realSpawn)
+    const dryRun = await project.run("migrate", ["--dry-run"], {}, spawn)
+    expect(dryRun).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(dryRun.stdout).toContain("(PGlite .vitehub/data/database/pglite): 1 pending migration.")
+    expect(dryRun.stdout).toContain("  20260102000000_title")
     await expect(project.run("migrate", [], {}, spawn)).resolves.toMatchObject({ exitCode: 0, stderr: "" })
 
-    expect(spawn).toHaveBeenCalledOnce()
-    expect(spawn.mock.calls[0]).toEqual(expect.arrayContaining([expect.arrayContaining(["migrate"])]))
-    expect(existsSync(join(project.rootDir, ".vitehub/data/database"))).toBe(true)
-  })
+    expect(spawn).not.toHaveBeenCalled()
+    await expect(pgliteRows(project.rootDir, "select column_name from information_schema.columns where table_name = 'notes' order by ordinal_position")).resolves.toEqual([{ column_name: "id" }, { column_name: "title" }])
+    const ledger = [kitRow, { applied: true, created_at: String(Date.UTC(2026, 0, 2)), hash: sha256(title), name: "20260102000000_title" }]
+    await expect(pgliteLedger(project.rootDir)).resolves.toEqual(ledger)
+    await expect(runKit()).resolves.toEqual({ exitCode: 0 })
+    await expect(pgliteLedger(project.rootDir)).resolves.toEqual(ledger)
+  }, 120_000)
 
   it("fails without a resolved Database config instead of skipping the check", async () => {
     const spawn = vi.fn(async () => ({ exitCode: 0 }))

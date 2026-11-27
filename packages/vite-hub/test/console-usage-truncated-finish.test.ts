@@ -3,7 +3,7 @@ import { runAgentWithContext } from "@vite-hub/agent/server/internal"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 import { describe, expect, it, vi } from "vitest"
 
-import { createUsageSummary } from "../src/console/runtime/server/usage.ts"
+import { createUsageSummary } from "../src/agent/console/usage.ts"
 
 describe("Console usage of a truncated finish observation", () => {
   it("keeps the usage totals when a long result text truncates the finish observation", async () => {

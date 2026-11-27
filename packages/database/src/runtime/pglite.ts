@@ -5,6 +5,8 @@ import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import { resolveConfigValue } from "../config-value.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
+import { readStartMigrations } from "../internal/migrate-on-start.ts"
+import { migratePostgres, toPgliteMigrationClient } from "./migrate-on-start.ts"
 import { runsOnPglite } from "./postgres-env.ts"
 import { keepOwnClient, trackPgliteClient } from "./request-stats.ts"
 
@@ -42,9 +44,9 @@ export async function loadPglite<TSchema extends Record<string, unknown>, TRelat
   if (!runsOnPglite(definition.driver, resolveConfigValue(definition.connection?.url ?? url))) return
   const always = definition.driver === "pglite"
 
-  let modules: [typeof import("@electric-sql/pglite"), typeof import("drizzle-orm/pglite"), typeof import("drizzle-orm/pglite/migrator")]
+  let modules: [typeof import("@electric-sql/pglite"), typeof import("drizzle-orm/pglite")]
   try {
-    modules = await Promise.all([import("@electric-sql/pglite"), import("drizzle-orm/pglite"), import("drizzle-orm/pglite/migrator")])
+    modules = await Promise.all([import("@electric-sql/pglite"), import("drizzle-orm/pglite")])
   }
   catch (error) {
     return {
@@ -54,7 +56,7 @@ export async function loadPglite<TSchema extends Record<string, unknown>, TRelat
       },
     }
   }
-  const [{ PGlite }, { drizzle }, { migrate }] = modules
+  const [{ PGlite }, { drizzle }] = modules
   // The same relations as the postgres.js client, so `db.query.<table>` works.
   const { relations } = definition
 
@@ -66,9 +68,12 @@ export async function loadPglite<TSchema extends Record<string, unknown>, TRelat
   // In app tests, each reset gives an empty in-memory database with the migrations of the Definition.
   function openTestDatabase() {
     const client = new PGlite("memory://")
-    // Drizzle reads the `<timestamp>_<name>/migration.sql` folders of Drizzle Kit 1.0.
+    // The migrator of `vitehub database migrate`. The database is new, so no migration can lose data.
     const ready = existsSync(options.migrationsDir)
-      ? migrate(drizzle({ client }), { migrationsFolder: options.migrationsDir })
+      ? Promise.resolve().then(() => migratePostgres(
+          [{ client: toPgliteMigrationClient(client), createSchema: true, database: { migrations: readStartMigrations(options.migrationsDir, "postgresql", definition.name), migrationsSchema: definition.migrationsSchema, name: definition.name } }],
+          { allowDataLoss: true, log: () => {} },
+        ))
       : Promise.resolve()
     // A failed migration rejects each query. Without a query, it is not an unhandled rejection.
     ready.catch(() => {})

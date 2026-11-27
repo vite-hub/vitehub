@@ -2,7 +2,7 @@ import { createRequire } from "node:module"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { expectJson, type PrimitiveEntry } from "./row.ts"
+import { expectJson, nitroWorkerUnavailable, type PrimitiveRow } from "./row.ts"
 
 async function eventually(check: () => Promise<void>, timeout = 60_000) {
   const deadline = Date.now() + timeout
@@ -25,7 +25,7 @@ interface RealtimeClient {
   }
 }
 
-export const jobs: PrimitiveEntry[] = [
+export const jobs: PrimitiveRow[] = [
   {
     id: "queue",
     packages: ["@vite-hub/kv", "@vite-hub/queue"],
@@ -199,21 +199,29 @@ export const jobs: PrimitiveEntry[] = [
         })
       `,
     },
-    async probe({ appDir, fetch, mode }) {
-      const origin = new URL((await fetch("/")).url).origin
+    async probe({ appDir, fetch, mode, origin }) {
       const resolve = createRequire(join(appDir, "package.json")).resolve
       const client = await import(pathToFileURL(resolve("@vite-hub/realtime/client/browser.js")).href) as RealtimeClient
-      const room = `${mode}-${crypto.randomUUID()}`
-      const tab = client.connectRealtimeRoom("primitive-tabs", room, { origin })
-      tab.onRequest(body => ({ asked: body, title: `tab ${room}` }))
-      try {
-        await eventually(async () => {
-          if (tab.status() !== "connected") throw new Error(`The Realtime room is ${tab.status()}.`)
-        }, 30_000)
-        await expectJson(await fetch(`/api/primitives/realtime?room=${room}`, { method: "POST" }), { answer: { asked: { question: "title" }, title: `tab ${room}` } })
-      }
-      finally {
-        tab.destroy()
+      const deadline = Date.now() + 30_000
+      for (;;) {
+        const room = `${mode}-${crypto.randomUUID()}`
+        const tab = client.connectRealtimeRoom("primitive-tabs", room, { origin })
+        tab.onRequest(body => ({ asked: body, title: `tab ${room}` }))
+        try {
+          await eventually(async () => {
+            if (tab.status() !== "connected") throw new Error(`The Realtime room is ${tab.status()}.`)
+          }, Math.max(0, deadline - Date.now()))
+          const response = await fetch(`/api/primitives/realtime?room=${room}`, { method: "POST" })
+          if (!nitroWorkerUnavailable(mode, response) || Date.now() >= deadline) {
+            await expectJson(response, { answer: { asked: { question: "title" }, title: `tab ${room}` } })
+            return
+          }
+          await response.body?.cancel()
+        }
+        finally {
+          tab.destroy()
+        }
+        await new Promise(resolve => setTimeout(resolve, 500))
       }
     },
   },

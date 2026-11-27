@@ -77,6 +77,38 @@ describe("createCommentsClient", () => {
     }
   });
 
+  it("without an outbox, sends picked files with the deferred ones once they arrive", async () => {
+    const { client, store } = setup()
+    const create = vi.spyOn(store, "create")
+    const later = deferred<Blob[]>()
+    const sending = client.create({ subject, anchor, body: "Both", files: [new Blob(["picked"])], deferredFiles: later.promise })
+    await Promise.resolve()
+    expect(create).not.toHaveBeenCalled()
+    later.resolve([new Blob(["later"])])
+    await sending
+    expect(await Promise.all(create.mock.calls[0]![0].files!.map(file => file.text()))).toEqual(["picked", "later"])
+  })
+
+  it("without an outbox, a reply waiting its turn reports a failed deferred file only through its own promise", async () => {
+    const { client } = setup()
+    const thread = await client.create({ subject, anchor, body: "First" })
+    const unhandled = vi.fn()
+    process.on("unhandledRejection", unhandled)
+    try {
+      const first = deferred<Blob[]>()
+      const earlier = client.reply({ threadId: thread.id, body: "Earlier", deferredFiles: first.promise })
+      const later = client.reply({ threadId: thread.id, body: "Later", deferredFiles: Promise.reject(new Error("no picture")) })
+      await new Promise(resolve => setTimeout(resolve, 0))
+      first.resolve([])
+      await earlier
+      await expect(later).rejects.toThrow("no picture")
+      expect(unhandled).not.toHaveBeenCalled()
+    }
+    finally {
+      process.off("unhandledRejection", unhandled)
+    }
+  })
+
   it("numbers threads, keeps them in the cache, and tells listeners", async () => {
     const { client } = setup()
     const changes = vi.fn()

@@ -1,7 +1,7 @@
 import "#vitehub/console/app"
 import { consoleBodySha256 } from "@vite-hub/internal/console-signature"
 import { answerOperationRpc, operationRpcRefusal, readOperationRpcCall } from "@vite-hub/internal/operation-rpc"
-import { assertOperationConfirmation, assertOperationConfirmed, assertOperationProject, operationAccessAllows, operationAccessDenial, operationCall, operationRootHeader, operationSection, operationSurfaceHeader, parseOperationInput, projectRootHash } from "@vite-hub/internal/operations"
+import { assertOperationConfirmation, assertOperationConfirmed, assertOperationProject, isPromptFreeMcpWrite, operationAccessAllows, operationAccessDenial, operationCall, operationRootHeader, operationSection, operationSurfaceHeader, parseOperationInput, projectRootHash } from "@vite-hub/internal/operations"
 import { getStandardContext } from "@vite-hub/runtime/internal/h3"
 import * as v from "valibot"
 
@@ -197,8 +197,12 @@ async function runConsoleOperation(operation: AnyOperation, rawInput: unknown, r
     throw consoleRequestError(403, `${operation.name} is a ${classification.kind} operation, and this caller may only read.`, "CONSOLE_ACCESS_DENIED")
   }
   assertOperationConfirmation(request, classification)
-  // An MCP call is unconfirmed unless the signed caller says that the person agreed.
-  if (mcp) assertOperationConfirmed(classification, context.access.confirmed === true)
+  if (context.access.surface) assertOperationConfirmed(classification, context.access.confirmed === true)
+  if (context.access.surface === "mcp" && classification.kind === "write" && !classification.readOnly && !isPromptFreeMcpWrite(operation.name) && context.access.confirmed !== true) {
+    throw consoleHttpError(409, Object.assign(consoleDiagnostic("CONSOLE_CONFLICT", `${operation.name} requires signed confirmation on the MCP surface.`), {
+      fix: "Ask the user to approve the change, then call run_destructive_operation with confirm: true.",
+    }))
+  }
   // Navigation and other reads that do not need a person skip the session lookup.
   const user = operation.user === false ? undefined : await readConsoleOperationUser(context.access)
   const operationContext: OperationContext = {
@@ -206,9 +210,7 @@ async function runConsoleOperation(operation: AnyOperation, rawInput: unknown, r
     ...consoleDevelopmentContext(),
     request,
     response: context.response,
-    // A signed request names its signer. Without a signature, the CLI names itself with a header; only the
-    // unauthenticated `local` access of `vite dev` trusts it more than the Console.
-    surface: mcp ? "mcp" : context.access.via === "cli" || context.access.via === "console" ? context.access.via : request.headers.get(operationSurfaceHeader) === "cli" ? "cli" : "console",
+    surface: context.access.surface ?? context.access.via ?? (request.headers.get(operationSurfaceHeader) === "cli" ? "cli" : "console"),
     // SAFETY: A Console user from the Auth adapter has the id that the operation user needs.
     user: user ? user as OperationContext["user"] : null,
     ...(context.env ? { env: context.env } : {}),
@@ -262,15 +264,7 @@ const guardedRpc = withConsoleAccess((event, access) => {
   return handleConsoleRpcRequest(req, { access, env: runtime?.cloudflare?.env, event, waitUntil })
 }, { anySection: true })
 
-/**
- * `<base>/_vitehub/rpc`: one Console operation for each signed `POST`. Each operation checks its own section. A browser
- * that opens `GET <base>/_vitehub/rpc?ticket=<ticket>` redeems a one-time ticket that an operation made, such as for
- * impersonation. The ticket is the only proof that a `GET` needs. See `tickets.ts`.
- */
-const consoleRpcRoute: ConsoleRoute = consoleRoute(async (event) => {
-  const request = getStandardContext(event).req
-  if (request.method === "GET" && new URL(request.url).searchParams.has("ticket")) return (await import("./tickets.ts")).redeemConsoleTicket(event)
-  return guardedRpc(event)
-})
+/** `<base>/_vitehub/rpc`: one Console operation for each signed `POST`. Each operation checks its own section. */
+const consoleRpcRoute: ConsoleRoute = consoleRoute(guardedRpc)
 
 export default consoleRpcRoute

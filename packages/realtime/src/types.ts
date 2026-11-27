@@ -227,6 +227,7 @@ export type RealtimeDocumentDefinition = RealtimeDocumentFields & RealtimeDefini
 
 interface RealtimePresenceFields {
   document: false
+  awareness?: false
   editor?: never
   history?: never
   persistence?: never

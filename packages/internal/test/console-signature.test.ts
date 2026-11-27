@@ -76,6 +76,7 @@ describe("Console signatures", () => {
     ["a call of the Console MCP", { surface: "mcp", team: { id: "t" }, user: { id: "u" }, via: "console" }],
     ["a confirmed call of the Console MCP", { confirmed: true, surface: "mcp", user: { id: "u" }, via: "console" }],
     ["a read-only call of the Console MCP", { readOnly: true, surface: "mcp", user: { id: "u" }, via: "console" }],
+    ["a confirmed CLI call forwarded by the Console", { confirmed: true, surface: "cli", user: { id: "u" }, via: "console" }],
   ])("reads %s", (_name, caller) => {
     expect(decodeConsoleCaller(Buffer.from(JSON.stringify(caller)).toString("base64url"))).toEqual(caller)
   })
@@ -92,8 +93,8 @@ describe("Console signatures", () => {
     ["an empty user id", { user: { id: "" }, via: "console" }],
     ["an unknown via", { via: "agent" }],
     ["a role that is not text", { team: { id: "t", role: 1 }, user: { id: "u" }, via: "console" }],
-    ["an unknown surface", { surface: "cli", user: { id: "u" }, via: "console" }],
-    ["a confirmation without the MCP surface", { confirmed: true, user: { id: "u" }, via: "console" }],
+    ["an unknown surface", { surface: "agent", user: { id: "u" }, via: "console" }],
+    ["a confirmation without an explicit surface", { confirmed: true, user: { id: "u" }, via: "console" }],
     ["a confirmation that is not true", { confirmed: "yes", surface: "mcp", user: { id: "u" }, via: "console" }],
     ["a read-only flag that is not true", { readOnly: false, user: { id: "u" }, via: "console" }],
   ])("refuses %s", (_name, caller) => {

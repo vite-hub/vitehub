@@ -273,7 +273,7 @@ A composer takes files from paste, drop, and the file button. It sends them as `
 - `v-model:files` lets the parent clear the files after a send.
 - In the box, the pictures sit in one stack beside the text, with their count. Hover, focus, or a tap fans them out above the box, where each one opens full size and has a round Remove button. A new picture comes out of the text for a paste, the box for a drop, and the attach button for a pick. Other files show their name.
 
-`CommentThread` passes the files to `onReply` as the third argument. `CommentLayer` and `CommentPanel` accept an `upload` function that stores the files and returns their keys, such as Blob keys. They send the keys as the message `attachments`, even when the client has an outbox.
+`CommentThread` passes the files to `onReply` as the third argument. `CommentLayer` and `CommentPanel` accept an `upload` function that stores the files and returns their keys, such as Blob keys. They send the keys as the message `attachments`, even when the client has an outbox, so a comment with files waits for `upload` before its draft closes.
 
 If the server accepts raw file uploads, set `queue-files` on the layer or panel with a client [outbox](/docs/comments/offline). The outbox saves the files with the comment and the transport uploads them when it sends. An `upload` callback takes precedence if both are set. The outbox alone does not enable file controls.
 
@@ -304,7 +304,7 @@ const attachmentUrl = (key: string) => ({ url: `/api/files/${key}`, name: upload
 
 ## Waiting and refused comments
 
-With the [outbox](/docs/comments/offline) of `createCommentsClient()`, a new comment or reply shows at once, before the server has it, and its box empties as soon as it is saved. Until the server answers, the thread has `data-pending="true"`, or `data-failed="true"` when the server refused it, and so does each message that waits. A waiting thread has no number yet, so its title is "Comment".
+With the [outbox](/docs/comments/offline) of `createCommentsClient()`, a new comment or reply shows at once, before the server has it. Send closes the layer's draft and empties the panel's box right away, so the next comment can start while the first one is saved and sent. If saving fails, the comment shows as refused and keeps its text for Retry. Until the server answers, the thread has `data-pending="true"`, or `data-failed="true"` when the server refused it, and so does each message that waits. A waiting thread has no number yet, so its title is "Comment".
 
 The parts draw no words for it. The `status` slot renders below each waiting message, with what the reader can do:
 
@@ -341,8 +341,10 @@ In read-only threads and previews, the slot receives the delivery state but no a
 | `CommentComposer` | `mention-item` | `{ person, active }` | Each person of the mention menu. |
 | `CommentComposer` | `mention-empty` | `{ query, failed }` | The line of the mention menu when it has no one to show. |
 | `CommentLayer` | `status` | `{ message, delivery, retry, dismiss, edit }` | Passed on to each thread and hover card. |
+| `CommentLayer` | `actions` | `{ thread }` | Passed on to each thread that opens from its pin. |
 | `CommentPanel`, `CommentList` | `row`, `preview` | `{ thread, text }` | One list row, or its text. `text` is the default row text. |
 | `CommentPanel` | `group-header` | `{ group, threads }` | A row group heading. See `group`. |
+| `CommentPanel` | `list-actions` | | At the end of the list's top row, beside Open and Resolved. |
 
 `CommentThread` passes `body`, `attachments`, `status`, `extra`, `mention-item`, and `mention-empty` to its messages and reply box. `CommentPanel` passes every slot to its thread, and `extra`, `mention-item`, and `mention-empty` to its page box.
 

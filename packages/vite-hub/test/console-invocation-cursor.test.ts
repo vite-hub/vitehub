@@ -3,7 +3,7 @@ import { expect, it, vi } from "vitest"
 
 import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
-import invocationHandler from "../src/console/runtime/server/invocation.get.ts"
+import invocationHandler from "../src/agent/console/invocation.get.ts"
 import { consoleRequestEvent } from "../src/console/runtime/server/request.ts"
 
 import type { TraceEventLogEntry } from "@vite-hub/runtime"

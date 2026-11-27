@@ -7,7 +7,7 @@ import { ownModule } from "@vite-hub/internal/build/paths"
 import { createViteHubConsoleActionError } from "@vite-hub/internal/console"
 import { runOperation } from "@vite-hub/internal/operations"
 import { github } from "@vite-hub/source"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { defineContent } from "../../content/src/index.ts"
 import { contentOperations } from "../../content/src/operations.ts"
@@ -25,6 +25,7 @@ import { consoleOperationRegistry, handleConsoleRpcRequest } from "../src/consol
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { installConsoleDefinitions } from "../src/console/runtime/server/definitions.ts"
 
+import { installViteHubConsoleOperations } from "./support/console-operations.ts"
 import { signedConsoleAccess } from "./support/console-signature.ts"
 import type { ConsoleDocumentActions } from "../src/console/runtime/server/documents.ts"
 import { requestEvent } from "./console-event.ts"
@@ -103,6 +104,10 @@ async function call(operation: string, input: Record<string, unknown>, headers: 
 
 const documents = (action: string, body: unknown, headers?: Record<string, string>) =>
   call("documents.action", { action, body, section: "content" }, headers)
+
+beforeEach(async () => {
+  await installViteHubConsoleOperations()
+})
 
 describe("Console document editor route", () => {
   it("runs an owner action as the person that the Console signed", async () => {
@@ -347,7 +352,7 @@ describe("Console document editor discovery", () => {
           load: async () => ({ default: content }),
         },
       })
-      installConsoleOperations([{ operations: contentOperations }])
+      await installViteHubConsoleOperations([{ operations: contentOperations }])
       await expect(call("content.head", {})).resolves.toMatchObject({ status: 200, body: { ok: true, value: { heads: [{ source: "docs", live: false }] } } })
       await expect(documents("overview", {})).resolves.toMatchObject({ status: 200, body: { ok: true, value: { activity: [], collections: [] } } })
     }

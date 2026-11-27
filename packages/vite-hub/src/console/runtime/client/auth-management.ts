@@ -14,10 +14,10 @@ import type {
   AuthConsoleQuery,
 } from "@vite-hub/auth/console";
 
-import { authConsoleActionOperations, authConsoleImpersonationOperations, authConsoleReadOperations } from "../auth-operations";
+import { authConsoleActionOperations, authConsoleReadOperations } from "../auth-operations";
 import { consoleDateTime } from "./format";
 import { requestConsoleOperation } from "./request";
-import { openConsoleTicket } from "./ticket";
+import { openSiteAction } from "./site-link";
 
 type AuthResults = {
   describe: AuthConsoleDescription;
@@ -46,12 +46,12 @@ export async function readAuthConsole<K extends keyof AuthResults>(
   return value as AuthResults[K];
 }
 /**
- * Runs one Auth action with its `auth.<action>` operation. Impersonation sets the app session cookie, so its operation
- * returns a one-time link, and a new tab opens it on the app origin.
+ * Runs one Auth action with its `auth.<action>` operation. Impersonation sets the app session cookie, so a new tab opens
+ * the app's `/_vitehub/site` with an `impersonate` Site access token of the Console.
  */
 export async function changeAuthConsole(input: AuthConsoleMutation | { action: "stopImpersonating" }): Promise<void> {
-  if (input.action === "impersonate") return await openConsoleTicket(() => requestConsoleOperation(authConsoleImpersonationOperations.start, { userId: input.userId }));
-  if (input.action === "stopImpersonating") return await openConsoleTicket(() => requestConsoleOperation(authConsoleImpersonationOperations.stop, {}));
+  if (input.action === "impersonate") return await openSiteAction("impersonate", { action: "start", userId: input.userId });
+  if (input.action === "stopImpersonating") return await openSiteAction("impersonate", { action: "stop" });
   const { action, ...fields } = input;
   await requestConsoleOperation(authConsoleActionOperations[action], fields);
 }

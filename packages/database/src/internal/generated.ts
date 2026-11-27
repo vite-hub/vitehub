@@ -225,6 +225,7 @@ function renderGeneratedDrizzleConfig(file: string, config: ResolvedDBViteConfig
     ] : [`  dialect: ${JSON.stringify(database.dialect)},`, ...renderDbCredentials(database)]),
     `  schema: ${JSON.stringify([config.generatedSchemaFilesByDatabase[database.name]!])},`,
     `  out: ${JSON.stringify(database.migrationsDir)},`,
+    ...database.migrationsSchema === undefined ? [] : [`  migrations: { schema: ${JSON.stringify(database.migrationsSchema)} },`],
     "}",
     "",
   ].join("\n")

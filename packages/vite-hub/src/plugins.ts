@@ -1764,8 +1764,8 @@ function createViteHubPlugins(options: ViteHubOptions, reportVersionError: boole
     i18n: options.i18n ? "vite-hub/i18n/server" : false,
     // The `page()` Capability reaches the page through Realtime.
     realtime: options.realtime ? "vite-hub/realtime/agent" : false,
-    // Email and KV capabilities exist only when the app installed their packages.
-    ...emailVite ? { email: "vite-hub/email" } : {},
+    // The Email capability exists only when the app configures Email, and KV only when the app installed its package.
+    ...emailVite && options.email ? { email: "vite-hub/email" } : {},
     ...kvVite ? { kv: "vite-hub/kv" } : {},
   } satisfies Record<string, false | string>
 

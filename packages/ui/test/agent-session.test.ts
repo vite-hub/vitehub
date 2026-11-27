@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 import { flushPromises, mount } from "@vue/test-utils";
 import { afterEach, expect, it, vi } from "vitest";
-import { AgentSession } from "../src/agent-session.ts";
+import { Comment, Fragment, h } from "vue";
+import { AgentSession, AgentSessionTimeline } from "../src/agent-session.ts";
 
 const surfaces = [
   { id: "workspace", label: "Workspace", icon: "i-lucide-files" },
@@ -98,5 +99,36 @@ it("keeps uncontrolled user changes in stored layout", async () => {
   expect(wrapper.find("[data-slot='agent-session-panel']").exists()).toBe(true);
   expect(wrapper.attributes("data-maximized")).toBe("");
   expect(wrapper.get("[role='tab'][aria-selected='true']").text()).toBe("Workspace");
+  wrapper.unmount();
+});
+
+it("renders an open work row through the detail slot and keeps the text when the slot renders nothing", async () => {
+  const entries = [
+    { id: "edit", kind: "edit" as const, label: "Edit app.vue", detail: "@@ -1 +1 @@\n-a\n+b" },
+    { id: "run", kind: "command" as const, label: "pnpm test", detail: "1 passed" },
+    { id: "list", kind: "command" as const, label: "ls", detail: "app.vue" },
+    { id: "read", kind: "command" as const, label: "cat app.vue", detail: "<template />" },
+  ];
+  const empty = {
+    run: () => [h(Comment)],
+    list: () => [h(Fragment, [])],
+    read: () => [h(Fragment, [h(Comment), h(Fragment, [])])],
+  } as Record<string, () => ReturnType<typeof h>[]>;
+  const wrapper = mount(AgentSessionTimeline, {
+    props: { items: [{ type: "work", id: "work", entries, defaultOpen: true }] },
+    slots: {
+      "work-detail": ({ entry }: { entry: { id: string; detail?: string } }) =>
+        empty[entry.id]?.() ?? [h("div", { class: "diff" }, entry.detail)],
+    },
+    global: { stubs: { UIcon: true } },
+  });
+  for (const line of wrapper.findAll("[data-slot='agent-session-work-row'] button")) await line.trigger("click");
+  const [edit, ...rest] = wrapper.findAll("[data-slot='agent-session-work-detail']");
+  expect(edit!.find(".diff").text()).toContain("+b");
+  expect(rest.map((detail) => [detail.element.tagName, detail.text()])).toEqual([
+    ["PRE", "1 passed"],
+    ["PRE", "app.vue"],
+    ["PRE", "<template />"],
+  ]);
   wrapper.unmount();
 });

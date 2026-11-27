@@ -466,6 +466,7 @@ describe("shared release verifier", () => {
       (candidate: Step) => candidate.name === "Restore checked-in manifests",
       (candidate: Step) => candidate.run?.includes("release-packages.mjs verify") && candidate.run.includes("publint run"),
       (candidate: Step) => candidate.run === "vp run test:contracts" && Boolean(candidate.env?.VITEHUB_RELEASE_MANIFEST),
+      (candidate: Step) => candidate.run === "pnpm exec playwright-core install --with-deps --only-shell chromium",
       (candidate: Step) => candidate.run === "vp run test:consumer" && Boolean(candidate.env?.VITEHUB_RELEASE_MANIFEST),
       (candidate: Step) => candidate.run?.includes("release-packages.mjs publish") && candidate.run.includes("--dry-run"),
     ]

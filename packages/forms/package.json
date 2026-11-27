@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/forms",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Let site visitors write to the site owner: one defineForm() with a spam guard, Standard Schema validation, storage, and notifications.",
   "keywords": [
     "contact-form",
@@ -81,6 +81,7 @@
   },
   "dependencies": {
     "@standard-schema/spec": "catalog:runtime",
+    "@valibot/to-json-schema": "catalog:runtime",
     "birpc": "catalog:runtime",
     "nostics": "catalog:runtime",
     "valibot": "catalog:runtime"

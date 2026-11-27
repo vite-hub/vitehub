@@ -21,7 +21,7 @@ const token = "token-1"
 const sitePage = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Guide</title></head><body>
 <main><h1>Guide</h1><p id="first">Most of you will fly in on Friday and leave on Sunday.</p></main>
 <vitehub-pill>App tools</vitehub-pill>
-<script type="module" src="${consoleOrigin}/hosted-comments.js" data-vitehub-comments="p-1"></script>
+<script type="module" src="${consoleOrigin}/hosted-comments.js" data-vitehub-comments="p-1" data-vitehub-repo="acme/site"></script>
 </body></html>`
 
 const vueRouterHashHistoryPage = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>App</title>
@@ -50,6 +50,7 @@ async function fakeConsole() {
   const comments = await createComments()
   const handler = createCommentsHandler({ comments, realtime: false, session: async () => ({ id: "u1", name: "Maxi" }) })
   const seen = { challenges: [], codes: new Map(), api: [] }
+  const hold = { threads: undefined }
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, consoleOrigin)
     const script = /^\/(hosted-comments\.js|hosted-comments\/[\w.-]+\.js)$/.exec(url.pathname)
@@ -82,15 +83,16 @@ async function fakeConsole() {
       if (!challenge || base64url(input.verifier) !== challenge || req.headers.cookie) return send(res, 400, { "content-type": "application/json" }, JSON.stringify({ error: { code: "TEST_REDEEM", why: "Wrong code." } }))
       return send(res, 200, { "content-type": "application/json" }, JSON.stringify({ token }))
     }
-    seen.api.push({ path: url.pathname, authorization: req.headers.authorization, cookie: req.headers.cookie })
+    seen.api.push({ method: req.method, path: url.pathname, authorization: req.headers.authorization, cookie: req.headers.cookie })
     if (req.headers.authorization !== `Bearer ${token}`) return send(res, 401, { "content-type": "application/json" }, JSON.stringify({ error: { code: "TEST_UNAUTHORIZED", why: "Sign in." } }))
+    if (req.method === "POST" && route[2] === "api/threads") await hold.threads
     const headers = new Headers(Object.entries(req.headers).filter(([name]) => !["host", "origin", "cookie", "authorization"].includes(name)))
     const forwarded = new Request(`${project}/_vitehub/comments/${route[2].slice("api/".length)}${url.search}`, { method: req.method, headers, body: await body(req) })
     const response = await handler.fetch(forwarded)
     send(res, response.status, Object.fromEntries(response.headers), Buffer.from(await response.arrayBuffer()))
   })
   await new Promise(resolve => server.listen(consolePort, "127.0.0.1", resolve))
-  return { server, vite, seen, threads: async () => (await comments.list())[1] }
+  return { server, vite, seen, hold, threads: async () => (await comments.list())[1] }
 }
 
 async function fakeSite() {
@@ -134,6 +136,11 @@ test("hosted Comments sign in through a new tab and comment through the Console 
     assert.equal(await page.locator("vitehub-hosted-comments-pill").count(), 1)
   })
 
+  await t.test("the first tab comes back as the person left it, with the Comments window closed", async () => {
+    await page.getByTitle("Comment on the page (C)").waitFor({ timeout: 20_000 })
+    assert.equal(await page.locator("vitehub-window").count(), 0)
+  })
+
   await t.test("the signed-in person comments on selected text, with the token only in the frame", async () => {
     await page.locator("vitehub-comments [data-slot='comment-layer']").waitFor({ state: "attached", timeout: 20_000 })
     const box = await page.locator("#first").boundingBox()
@@ -147,9 +154,24 @@ test("hosted Comments sign in through a new tab and comment through the Console 
     const composer = page.locator("vitehub-comments textarea[aria-label='Comment']")
     await composer.waitFor({ timeout: 5000 })
     await composer.fill("Say which airport")
-    await composer.press("Enter")
-    await page.waitForFunction(() => CSS.highlights.get("vh-comment")?.size === 1, undefined, { timeout: 10_000 })
-    const [thread] = await api.threads()
+    let release
+    api.hold.threads = new Promise(resolve => release = resolve)
+    try {
+      await composer.press("Enter")
+      await composer.waitFor({ state: "detached", timeout: 2000 })
+      await page.waitForFunction(() => CSS.highlights.get("vh-comment")?.size === 1, undefined, { timeout: 10_000 })
+      for (let tries = 0; !api.seen.api.some(request => request.method === "POST" && request.path === "/comments/p-1/api/threads") && tries < 100; tries++) await new Promise(resolve => setTimeout(resolve, 100))
+      assert.deepEqual(await api.threads(), [])
+    }
+    finally {
+      api.hold.threads = undefined
+      release()
+    }
+    let thread
+    for (let tries = 0; !thread && tries < 100; tries++) {
+      [thread] = await api.threads()
+      if (!thread) await new Promise(resolve => setTimeout(resolve, 100))
+    }
     assert.equal(thread.messages[0].body, "Say which airport")
     assert.equal(thread.author.id, "u1")
     assert.equal(thread.context.url, `${siteOrigin}/guide`)
@@ -158,6 +180,27 @@ test("hosted Comments sign in through a new tab and comment through the Console 
     assert.ok(api.seen.api.every(request => !request.cookie))
     const storage = await page.evaluate(() => JSON.stringify({ ...sessionStorage, ...localStorage }))
     assert.doesNotMatch(storage, new RegExp(token))
+  })
+
+  await t.test("the mobile panel shows filters and bulk actions with the repository after sign-in", async () => {
+    const viewport = page.viewportSize()
+    await page.setViewportSize({ width: 375, height: 720 })
+    try {
+      await page.getByTitle("Comment on the page (C)").click()
+      await page.getByTitle("All comments on this page").click()
+      const panel = page.locator('[data-slot="comment-panel"]')
+      const open = panel.getByRole("link", { name: "Open in T3 Code" })
+      await open.waitFor()
+      assert.equal(new URL(await open.getAttribute("href")).searchParams.get("repo"), "acme/site")
+      await open.click({ trial: true })
+      await panel.getByRole("button", { name: "Copy open" }).click({ trial: true })
+      await panel.getByRole("radio", { name: /Open/ }).click({ trial: true })
+      await panel.getByRole("radio", { name: /Resolved/ }).click({ trial: true })
+      assert.ok(await panel.evaluate(element => element.scrollWidth <= element.clientWidth))
+    }
+    finally {
+      await page.setViewportSize(viewport)
+    }
   })
 
   await t.test("the person replies and resolves through the frame, and may not edit or delete", async () => {

@@ -26,9 +26,9 @@ const identifier = String.raw`(?:"(?:[^"]|"")+"|'(?:[^']|'')+'|\x60(?:[^\x60]|\x
 const qualifiedName = String.raw`(?:${identifier}\s*\.\s*)?${identifier}`
 const schemaQualifiedTable = new RegExp(String.raw`^${identifier}\.${identifier}$`)
 
-/** Splits SQL into statements at semicolons outside of quotes and comments. Comments are removed. */
-export function splitSqlStatements(sql: string): string[] {
-  return scanSqlStatements(sql).statements
+/** Splits SQL into statements at semicolons outside of quotes, Postgres dollar quotes, and comments. Comments are removed. */
+export function splitSqlStatements(sql: string, dialect: DatabaseDialect = "sqlite"): string[] {
+  return scanSqlStatements(sql, dialect).statements
 }
 
 const statementBreakpoint = "--> statement-breakpoint"
@@ -37,10 +37,29 @@ const statementBreakpoint = "--> statement-breakpoint"
  * Adds Drizzle's `--> statement-breakpoint` between the statements of each part of a migration, such as a hand-written
  * file that Wrangler runs as one script, or a custom migration. Drizzle runs each part with one libSQL `execute()`,
  * which runs only the first statement and drops the rest without an error. A part with one statement stays as it is,
- * so a file that Drizzle Kit wrote keeps its bytes and its hash. The statements of a trigger body stay together.
+ * so a file that Drizzle Kit wrote keeps its bytes and its hash. The statements of a SQLite trigger body stay together.
  */
-export function addStatementBreakpoints(sql: string): string {
-  return sql.split(statementBreakpoint).map(addPartBreakpoints).join(statementBreakpoint)
+export function addStatementBreakpoints(sql: string, dialect: DatabaseDialect = "sqlite"): string {
+  if (dialect === "postgresql") return addPartBreakpoints(sql, dialect)
+  return breakpointParts(sql, dialect).map(part => addPartBreakpoints(part, dialect)).join(statementBreakpoint)
+}
+
+function breakpointParts(sql: string, dialect: DatabaseDialect): string[] {
+  if (dialect === "sqlite") return sql.split(statementBreakpoint)
+  const parts: string[] = []
+  let start = 0
+  for (const breakpoint of scanSqlStatements(sql, dialect).breakpoints) {
+    parts.push(sql.slice(start, breakpoint))
+    start = breakpoint + statementBreakpoint.length
+  }
+  return [...parts, sql.slice(start)]
+}
+
+const noTransactionMarker = "-- vitehub:no-transaction"
+
+/** True when the first line that is not blank is `-- vitehub:no-transaction`. Postgres runs such a file outside a transaction. */
+export function isNoTransactionMigration(sql: string): boolean {
+  return sql.trimStart().split("\n", 1)[0]!.trim() === noTransactionMarker
 }
 
 /**
@@ -48,22 +67,22 @@ export function addStatementBreakpoints(sql: string): string {
  * cuts it. Postgres runs a part of several statements in one query, so its parts stay as written.
  */
 export function migrationParts(sql: string, dialect: DatabaseDialect): string[] {
-  return (dialect === "sqlite" ? addStatementBreakpoints(sql) : sql)
-    .split(statementBreakpoint)
+  return breakpointParts(dialect === "sqlite" ? addStatementBreakpoints(sql) : sql, dialect)
     .map(part => part.trim())
-    .filter(part => splitSqlStatements(part).length)
+    .filter(part => splitSqlStatements(part, dialect).length)
 }
 
-function addPartBreakpoints(sql: string): string {
-  const { ends, statements } = scanSqlStatements(sql)
+function addPartBreakpoints(sql: string, dialect: DatabaseDialect): string {
+  const { ends, statements } = scanSqlStatements(sql, dialect)
   if (statements.length < 2) return sql
   const cuts: number[] = []
   let trigger = false
   for (const [index, statement] of statements.entries()) {
-    if (/^CREATE\s+(?:TEMP(?:ORARY)?\s+)?TRIGGER\b/i.test(statement)) trigger = true
+    if (dialect === "sqlite" && /^CREATE\s+(?:TEMP(?:ORARY)?\s+)?TRIGGER\b/i.test(statement)) trigger = true
     if (trigger && !/^END\s*;$/i.test(statement)) continue
     trigger = false
-    if (index < statements.length - 1) cuts.push(ends[index]!)
+    const end = ends[index]
+    if (end !== undefined && index < statements.length - 1) cuts.push(end)
   }
   let result = ""
   let start = 0
@@ -75,62 +94,137 @@ function addPartBreakpoints(sql: string): string {
 }
 
 /** The statements of `splitSqlStatements()`, and the index after the semicolon that ends each one. */
-function scanSqlStatements(sql: string): { ends: number[], statements: string[] } {
-  const ends: number[] = []
+function scanSqlStatements(sql: string, dialect: DatabaseDialect): { ends: (number | undefined)[], statements: string[], breakpoints: number[] } {
+  const ends: (number | undefined)[] = []
   const statements: string[] = []
+  const breakpoints: number[] = []
+  const postgres = dialect === "postgresql"
+  const word = /[A-Z_a-z\u0080-\uFFFF][\w$\u0080-\uFFFF]*/y
+  const tag = /\$(?:[A-Z_a-z\u0080-\uFFFF][\w\u0080-\uFFFF]*)?\$/y
+  const lineEnd = /[\r\n]/g
   let current = ""
   let quote: "'" | '"' | "`" | "]" | undefined
+  let escapeString = false
+  let standardStrings = true
+  let parens = 0
+  let atomicDepth = 0
+  let pendingBegin = false
+  const finish = (end?: number) => {
+    const statement = current.trim()
+    if (!statement) return
+    if (postgres) {
+      const setting = /^SET\s+(?:(?:LOCAL|SESSION)\s+)?standard_conforming_strings\s*(?:=|\bTO\b)\s*'?([\w]+)'?$/i.exec(statement)?.[1]
+      if (setting) standardStrings = !/^(?:off|false|no|0)$/i.test(setting)
+      else if (/^RESET\s+(?:standard_conforming_strings|ALL)$/i.test(statement)) standardStrings = true
+    }
+    statements.push(end === undefined ? statement : `${statement};`)
+    ends.push(end)
+  }
   for (let index = 0; index < sql.length; index++) {
     const char = sql[index]!
     const next = sql[index + 1]
     if (quote) {
       current += char
-      if (char === quote) {
-        // SQL escapes quote characters by doubling them. A closing bracket in
-        // a SQLite identifier uses the same convention.
+      if (escapeString && char === "\\" && next !== undefined) {
+        current += next
+        index++
+      }
+      else if (char === quote) {
         if (next === quote) {
           current += next
           index++
         }
         else {
           quote = undefined
+          escapeString = false
         }
       }
       continue
     }
     if (char === "-" && next === "-") {
-      const end = sql.indexOf("\n", index)
+      lineEnd.lastIndex = index
+      const end = postgres ? (lineEnd.exec(sql)?.index ?? -1) : sql.indexOf("\n", index)
+      if (postgres && !atomicDepth && !parens && sql.slice(index, end === -1 ? sql.length : end).trimEnd() === statementBreakpoint) {
+        breakpoints.push(index)
+        finish()
+        if (ends.length) ends[ends.length - 1] = undefined
+        current = ""
+      }
       index = end === -1 ? sql.length : end - 1
       continue
     }
     if (char === "/" && next === "*") {
-      const end = sql.indexOf("*/", index + 2)
-      index = end === -1 ? sql.length : end + 1
+      if (postgres) {
+        index = postgresBlockCommentEnd(sql, index)
+      }
+      else {
+        const end = sql.indexOf("*/", index + 2)
+        index = end === -1 ? sql.length : end + 1
+      }
       current += " "
       continue
     }
-    if (char === "'" || char === "\"" || char === "`") {
+    word.lastIndex = index
+    const token = postgres ? word.exec(sql)?.[0] : undefined
+    if (token) {
+      const keyword = token.toUpperCase()
+      if (keyword === "ATOMIC" && pendingBegin) atomicDepth++
+      if (atomicDepth && keyword === "CASE") atomicDepth++
+      if (atomicDepth && keyword === "END") atomicDepth--
+      pendingBegin = keyword === "BEGIN" && /^\s*CREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE)\b/i.test(current)
+      current += token
+      index += token.length - 1
+      if (keyword === "E" && sql[index + 1] === "'") {
+        quote = "'"
+        escapeString = true
+        current += "'"
+        index++
+      }
+      continue
+    }
+    if (!/\s/.test(char)) pendingBegin = false
+    tag.lastIndex = index
+    const dollarQuote = postgres && char === "$" && !/[\w$\u0080-\uFFFF]/.test(sql[index - 1] ?? "") ? tag.exec(sql)?.[0] : undefined
+    if (dollarQuote) {
+      const end = sql.indexOf(dollarQuote, index + dollarQuote.length)
+      const stop = end === -1 ? sql.length : end + dollarQuote.length
+      current += sql.slice(index, stop)
+      index = stop - 1
+      continue
+    }
+    if (char === "'" || char === "\"" || (!postgres && char === "`")) {
       quote = char
+      escapeString = postgres && char === "'" && !standardStrings
       current += char
       continue
     }
-    if (char === "[") {
+    if (!postgres && char === "[") {
       quote = "]"
       current += char
       continue
     }
-    if (char === ";") {
-      if (current.trim()) {
-        statements.push(`${current.trim()};`)
-        ends.push(index + 1)
-      }
+    if (postgres && char === "(") parens++
+    if (postgres && char === ")") parens--
+    if (char === ";" && !parens && !atomicDepth) {
+      finish(index + 1)
       current = ""
       continue
     }
     current += char
   }
-  if (current.trim()) statements.push(current.trim())
-  return { ends, statements }
+  finish()
+  return { breakpoints, ends, statements }
+}
+
+function postgresBlockCommentEnd(sql: string, start: number): number {
+  const delimiters = /\/\*|\*\//g
+  delimiters.lastIndex = start + 2
+  let depth = 1
+  for (let match = delimiters.exec(sql); match; match = delimiters.exec(sql)) {
+    depth += match[0] === "/*" ? 1 : -1
+    if (!depth) return match.index + 1
+  }
+  return sql.length - 1
 }
 
 /** Names a table the same way in every statement: unquoted parts in lower case, quoted parts as written. */
@@ -227,8 +321,8 @@ function describeReferencingRows(table: string, references: TableReferences | un
  * Lists the statements of one migration that remove rows, columns, or tables.
  * `before` holds the columns of each table before the migration, so a SQLite table rebuild that keeps every column is safe.
  */
-export function findDataLoss(statements: readonly string[], before?: TableColumns, references?: TableReferences): DataLossStatement[] {
-  const split = statements.flatMap(splitSqlStatements)
+export function findDataLoss(statements: readonly string[], before?: TableColumns, references?: TableReferences, dialect: DatabaseDialect = "sqlite"): DataLossStatement[] {
+  const split = statements.flatMap(statement => splitSqlStatements(statement, dialect))
   const rebuilds = findRebuilds(split)
   const found: DataLossStatement[] = []
   for (const statement of split) {
@@ -506,7 +600,7 @@ export function withoutNewTableDataLoss<T extends DataLossMigration>(migrations:
   return migrations.map((migration) => {
     const losses = [...migration.dataLoss]
     const dataLoss: DataLossStatement[] = []
-    for (const statement of migration.statements.flatMap(splitSqlStatements)) {
+    for (const statement of migration.statements.flatMap(part => splitSqlStatements(part, dialect))) {
       if (losses[0]?.statement === statement) {
         const loss = losses.shift()!
         const dropping = statement.match(dropTable)?.[1]

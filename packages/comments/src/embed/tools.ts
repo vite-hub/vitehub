@@ -2,6 +2,7 @@ import { loadViteHubPageTools, stopViteHubPageTools } from "@vite-hub/internal/r
 
 import { commentsUnansweredError } from "../client-diagnostics.ts"
 import { apiError, useCommentsOverlayBackend } from "../overlay/api.ts"
+import { embedPath } from "./protocol.ts"
 
 import type { ViteHubPageSession } from "@vite-hub/internal/runtime/page-tools-shared"
 import type { CommentsOverlayBackend, CommentsSession } from "../overlay/api.ts"
@@ -10,6 +11,15 @@ import type { CommentThread } from "../types.ts"
 import type { EmbedFrame } from "./protocol.ts"
 
 const session: ViteHubPageSession = { tools: [{ id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "comments", param: "comment" }] }
+
+/** The Hosted Comments project of the page, and the Console that serves it. */
+export interface HostedProject {
+  id: string
+  /** The origin of the Console. */
+  console: string
+  /** The GitHub repository of the site, `owner/name`, from `data-vitehub-repo` on the script tag. */
+  repository?: string
+}
 
 interface Answers {
   list: CommentThread[]
@@ -24,12 +34,14 @@ function refused(): Promise<never> {
   return Promise.reject(commentsUnansweredError(405))
 }
 
-function backendOf(frame: Promise<EmbedFrame>): CommentsOverlayBackend {
+function backendOf(frame: Promise<EmbedFrame>, project: HostedProject): CommentsOverlayBackend {
   return {
+    namespace: new URL(embedPath(project.id), project.console).href,
     async session(page) {
       try {
         // SAFETY: the frame answers `session` with the session that it built for this page.
-        return [undefined, (await (await frame).call("session", page)).value as CommentsSession]
+        const value = (await (await frame).call("session", page)).value as CommentsSession
+        return [undefined, project.repository ? { ...value, repository: project.repository } : value]
       }
       catch (error) {
         return [apiError(error), undefined]
@@ -60,10 +72,14 @@ function backendOf(frame: Promise<EmbedFrame>): CommentsOverlayBackend {
   }
 }
 
-/** Shows the page tools with Comments, which reach the Console only through the embed frame. */
-export async function mountHostedComments(frame: Promise<EmbedFrame>, open = false): Promise<void> {
-  if (open) stopViteHubPageTools()
-  useCommentsOverlayBackend(backendOf(frame))
+/**
+ * Shows the page tools with Comments, which reach the Console only through the embed frame. A second call, after a
+ * sign-in, replaces the tools of the first with tools for the new account. It does not open them: the page stays as the
+ * person left it, and they choose when to comment.
+ */
+export async function mountHostedComments(frame: Promise<EmbedFrame>, project: HostedProject): Promise<void> {
+  stopViteHubPageTools()
+  useCommentsOverlayBackend(backendOf(frame, project))
   await loadViteHubPageTools({
     pill: {
       name: "vitehub-hosted-comments-pill",
@@ -73,7 +89,6 @@ export async function mountHostedComments(frame: Promise<EmbedFrame>, open = fal
       dock: "vitehub-hosted-comments-dock",
       initialDock: { edge: "right", at: 85 },
     },
-    ...(open ? { open: "comments" } : {}),
     session: async () => session,
     load: () => import("../overlay/index.ts"),
   })

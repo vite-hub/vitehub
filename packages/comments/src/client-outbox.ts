@@ -1,5 +1,3 @@
-// The saved outbox of `createCommentsClient({ outbox })`. Each new comment and reply is stored with its files before it
-// shows, and goes to the server one at a time, in order, with its `requestId` as the retry key. One tab sends at a time.
 import { backoffDelay, createBrowserEnvironment, randomUUID } from "@vite-hub/internal/browser-environment"
 
 import { failedCommentPreparation } from "./client-files.ts"
@@ -28,19 +26,13 @@ export type CommentsOutboxMessage =
 export type CommentsOutboxEnvironment = BrowserEnvironment<CommentsOutboxMessage>
 
 interface CommentsOutboxEntryBase {
-  /** The local thread or message id. Use it for outbox actions. */
   id: string
-  /** The retry key that the server gets. */
   requestId: string
   account: string
   files: Blob[]
-  /** Milliseconds since the epoch. */
   createdAt: number
-  /** The place in the queue. */
   order: number
-  /** `sending` while one tab sends it. `failed` when the server refused it: it waits for `retry` or a safe `edit` or `dismiss`. */
   status: "pending" | "sending" | "failed"
-  /** Why the last try did not go out. */
   error?: CommentDeliveryError
   uncertain?: boolean
   claim?: string
@@ -48,6 +40,15 @@ interface CommentsOutboxEntryBase {
   retryAt?: number
   held?: boolean
   uploaded?: string[]
+  awaitingFiles?: boolean
+}
+
+interface UnsavedDraft {
+  entry: CommentsOutboxEntry
+  saved: boolean
+  parked?: boolean
+  write?: Promise<void>
+  duplicate?: CommentsOutboxEntry
 }
 
 function changeable(entry: CommentsOutboxEntryBase) {
@@ -64,10 +65,10 @@ export type CommentsOutboxEntry = CommentsOutboxEntryBase & (
 export interface CommentsOutboxStore {
   /** `false` when the entries live only in this page, and a reload loses them. */
   readonly persisted: boolean
-  /** The entries of `account`, in queue order. */
-  list: (account: string) => Promise<CommentsOutboxEntry[]>
-  /** Read and change one account's entries in one transaction. Replace entries rather than mutating them. */
-  update: <T>(account: string, change: (entries: Map<string, CommentsOutboxEntry>) => T) => Promise<T>
+  /** The entries of one queue, in queue order. The key is the account, or the namespace and account of the outbox. */
+  list: (queue: string) => Promise<CommentsOutboxEntry[]>
+  /** Read and change one queue's entries in one transaction. Replace entries rather than mutating them. */
+  update: <T>(queue: string, change: (entries: Map<string, CommentsOutboxEntry>) => T) => Promise<T>
 }
 
 export interface CommentsOutboxOptions {
@@ -76,6 +77,8 @@ export interface CommentsOutboxOptions {
    * comment never goes out as somebody else.
    */
   account: string
+  /** Separates destinations on the same origin, such as two Comments APIs. Entries of another namespace never send. */
+  namespace?: string
   /** Default: the `vitehub-comments` IndexedDB database, else memory with `persisted: false`. */
   store?: CommentsOutboxStore
   /** Default: the browser. */
@@ -114,13 +117,24 @@ export interface CommentsOutboxHost {
   changed: () => void
 }
 
+/**
+ * The files of a new comment or reply. With an outbox, `files` may be a promise, such as of a screenshot that renders
+ * after Send: the entry shows and saves at once and sends when the promise settles, without files if it rejects. To
+ * keep files the reader already picked through a reload, pass them as `files` and the late ones as `deferredFiles`.
+ */
+export type CommentsClientFiles = Omit<CommentFiles, "files"> & (
+  | { files?: Blob[] | Promise<Blob[]>, deferredFiles?: undefined }
+  | { files?: Blob[], deferredFiles: Promise<Blob[]> }
+)
+
 export interface CommentsOutboxEngine extends CommentsOutbox {
-  create: (input: CommentCreateInput & CommentFiles) => Promise<CommentThread>
-  reply: (input: CommentReplyInput & CommentFiles) => Promise<CommentThread>
+  create: (input: CommentCreateInput & CommentsClientFiles) => Promise<CommentThread>
+  reply: (input: CommentReplyInput & CommentsClientFiles) => Promise<CommentThread>
   /** The server threads with the waiting replies in them, and the waiting comments as threads of their own. */
   overlay: (threads: readonly CommentThread[]) => { server: CommentThread[], local: CommentThread[] }
   /** Whether the outbox holds the comment `threadId`, or the reply `messageId`. */
   owns: (threadId: string, messageId?: string) => boolean
+  beforeResolve: (threadId: string) => Promise<string | undefined>
   start: () => () => void
 }
 
@@ -136,7 +150,6 @@ function isOutboxMessage(value: unknown): value is CommentsOutboxMessage {
   return type === "sent" && (kind === "create" || kind === "reply") && typeof Reflect.get(value, "id") === "string" && typeof Reflect.get(value, "key") === "string" && Boolean(Reflect.get(value, "thread"))
 }
 
-// Entries are plain data: JSON fields and Blobs. A copy keeps the caller's objects, which may be reactive proxies, out of the store.
 function copyEntry(entry: CommentsOutboxEntry): CommentsOutboxEntry {
   // SAFETY: `JSON.parse` returns what `JSON.stringify` wrote, which has the shape of `input`.
   const input: CommentsOutboxEntry["input"] = JSON.parse(JSON.stringify(entry.input))
@@ -184,9 +197,9 @@ function requested<T>(request: IDBRequest<T>): Promise<T> {
   })
 }
 
-function openDatabase(): Promise<IDBDatabase> {
+function openDatabase(name: string): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(databaseName, format)
+    const request = indexedDB.open(name, format)
     request.onupgradeneeded = (event) => {
       const drafts = request.result.createObjectStore("drafts", { keyPath: ["account", "id"] })
       drafts.createIndex("account", "account")
@@ -207,7 +220,6 @@ function openDatabase(): Promise<IDBDatabase> {
     }
     request.onsuccess = () => {
       const database = request.result
-      // A newer format in another tab must not wait for this tab to close.
       database.onversionchange = () => database.close()
       resolve(database)
     }
@@ -221,9 +233,13 @@ function openDatabase(): Promise<IDBDatabase> {
  * does not open, as in some private windows, it keeps the entries in memory and `persisted` is `false`.
  */
 export function createIndexedDBOutboxStore(): CommentsOutboxStore {
+  return indexedDBOutboxStore(databaseName)
+}
+
+function indexedDBOutboxStore(name: string): CommentsOutboxStore {
   let backend: Promise<{ database: IDBDatabase } | { memory: CommentsOutboxStore }> | undefined
   let persisted = typeof indexedDB !== "undefined"
-  const open = () => backend ??= (persisted ? openDatabase() : Promise.reject(new Error("No IndexedDB.")))
+  const open = () => backend ??= (persisted ? openDatabase(name) : Promise.reject(new Error("No IndexedDB.")))
     .then(database => ({ database }), () => {
       persisted = false
       return { memory: createMemoryOutboxStore() }
@@ -269,7 +285,6 @@ export function createIndexedDBOutboxStore(): CommentsOutboxStore {
   }
 }
 
-/** The error of a try, as plain data that the store keeps. */
 function deliveryError(error: unknown): CommentDeliveryError & { retryAfter?: number } {
   const field = (name: string): unknown => error && typeof error === "object" ? Reflect.get(error, name) : undefined
   const status = field("status")
@@ -286,7 +301,6 @@ function deliveryError(error: unknown): CommentDeliveryError & { retryAfter?: nu
   }
 }
 
-/** `wait`: try again later. `hold`: wait for `retry()`, such as after a sign-in or a plan upgrade. `fail`: the server refused this entry. */
 function outcomeOf(status: number): "wait" | "hold" | "fail" {
   if (status === 401 || status === 402) return "hold"
   if (status === 408 || status === 429) return "wait"
@@ -295,11 +309,27 @@ function outcomeOf(status: number): "wait" | "hold" | "fail" {
 
 /** The outbox of one client. */
 export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutboxHost): CommentsOutboxEngine {
-  const { account } = options
-  const store = options.store ?? createIndexedDBOutboxStore()
-  const environment = options.environment ?? createBrowserEnvironment({ channel, isMessage: isOutboxMessage })
-  const lockName = `vitehub-comments-outbox:${account}`
+  const { account, namespace } = options
+  const scopedChannel = namespace === undefined ? channel : `${channel}:${JSON.stringify(namespace)}`
+  const hasLocks = Boolean(options.environment || globalThis.navigator?.locks)
+  const stageFiles = Boolean(options.store && !hasLocks)
+  const store = options.store ?? (hasLocks ? indexedDBOutboxStore(scopedChannel) : createMemoryOutboxStore())
+  const environment = options.environment ?? createBrowserEnvironment({ channel: scopedChannel, isMessage: isOutboxMessage })
+  const queue = namespace === undefined ? account : JSON.stringify([namespace, account])
+  const storeKey = options.store ? queue : account
+  const lockName = `vitehub-comments-outbox:${queue}`
+  const filesLock = (id: string): string => `vitehub-comments-files:${queue}:${id}`
   let entries: CommentsOutboxEntry[] = []
+  let stored: CommentsOutboxEntry[] = []
+  const unsaved = new Map<string, UnsavedDraft>()
+  const arriving = new Map<string, Promise<void>>()
+  const blockedFiles = new Map<string, { files: Blob[], error: CommentDeliveryError, resume: () => void }>()
+  const aliases = new Map<string, string>()
+  const entryId = (id: string) => aliases.get(id) ?? id
+  const queueListeners = new Set<() => void>()
+  const queueChanged = () => { for (const listener of queueListeners) listener() }
+  const written = new Set<string>()
+  let lastOrder = 0
   const sent = new Map<string, CommentThread>()
   const receipts = new Map<string, CommentThread>()
   const keyOf = (entry: CommentsOutboxEntry): string => entry.kind === "create"
@@ -308,15 +338,15 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
   const replyKey = (threadId: string, requestId: string): string => JSON.stringify([threadId, requestId])
   let replyIds = new Map<string, string>()
   let loading: Promise<void> = Promise.resolve()
-  // The run of `kick` that leads or waits for the lock. Its `giveUp` stops it.
   let leading: { giveUp: () => void } | undefined
   let again = false
+  let stopped = false
   let cancelWait: (() => void) | undefined
 
   const post = (message: CommentsOutboxMessage): void => environment.post(message)
-  // Loads run one after another, so after `await reload()` the entries hold every write made before it.
   const reload = (): Promise<void> => loading = loading.catch(() => undefined).then(async () => {
-    const pending = await store.list(account)
+    const landed = [...unsaved].flatMap(([id, local]) => local.saved ? [id] : [])
+    const pending = await store.list(storeKey)
     const ids = new Map<string, string>()
     if (globalThis.crypto?.subtle) {
       await Promise.all(pending.map(async (entry) => {
@@ -327,21 +357,43 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
       }))
     }
     replyIds = ids
-    entries = pending
-    host.changed()
+    stored = pending
+    for (const id of landed) unsaved.delete(id)
+    merge()
   })
+  const merge = (): void => {
+    const ids = new Set(stored.map(entry => entry.id))
+    entries = sortEntries([...stored, ...[...unsaved.values()].flatMap(local => ids.has(local.entry.id) || local.duplicate ? [] : [local.entry])]).map((entry) => {
+      const blocked = blockedFiles.get(entry.id)
+      return blocked ? { ...entry, status: "failed", files: [...entry.files, ...blocked.files], error: blocked.error } : entry
+    })
+    guardUnload((!store.persisted && entries.length > 0) || blockedFiles.size > 0 || [...unsaved.values()].some(local => !local.saved))
+    host.changed()
+    queueChanged()
+  }
+  let guarded = false
+  const holdPage = (event: Event): void => {
+    event.preventDefault()
+    Reflect.set(event, "returnValue", "")
+  }
+  const guardUnload = (on: boolean): void => {
+    if (on === guarded || typeof globalThis.addEventListener !== "function") return
+    guarded = on
+    if (on) globalThis.addEventListener("beforeunload", holdPage)
+    else globalThis.removeEventListener("beforeunload", holdPage)
+  }
   const changed = async (): Promise<void> => {
     await reload()
-    post({ type: "change", account })
+    post({ type: "change", account: queue })
   }
 
   const serverThread = (id: string): CommentThread | undefined => {
     for (const thread of host.threads()) if (thread.id === id) return thread
     return undefined
   }
-  /** The server id of a thread that the client may still name by its local id. */
   const realId = (threadId: string): string => {
-    return sent.get(threadId)?.id ?? threadId
+    const id = entryId(threadId)
+    return sent.get(id)?.id ?? id
   }
 
   const delivery = (entry: CommentsOutboxEntry): CommentDelivery => ({
@@ -372,7 +424,6 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
     const withReplies = (thread: CommentThread): CommentThread => {
       const waiting = replies.get(thread.id)
       if (!waiting) return thread
-      // A reply that the server has, whose answer was lost, shows once.
       const have = new Set(thread.messages.filter(message => message.author.id === account).map(message => message.id))
       const added = waiting.filter((entry) => {
         const id = thread.delivery ? undefined : replyIds.get(replyKey(thread.id, entry.requestId))
@@ -410,11 +461,15 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
     }
   }
 
-  /** The first entry that may go out now. A reply waits while its comment has not gone out. */
   const next = (list: readonly CommentsOutboxEntry[]): CommentsOutboxEntry | undefined => {
-    const waiting = new Set(list.flatMap(entry => entry.kind === "create" ? [entry.id] : []))
+    const waiting = new Set([...list, ...[...unsaved.values()].map(local => local.entry)].flatMap(entry => entry.kind === "create" ? [entry.id] : []))
     return list.find(entry => entry.status !== "failed" && !(entry.kind === "reply" && waiting.has(entry.input.threadId)))
   }
+  const saving = (order: number): boolean => [...unsaved.values()].some(local => !local.saved && !local.parked && local.entry.status !== "failed" && local.entry.order < order)
+  const aborted = (signal: AbortSignal): Promise<void> => new Promise((resolve) => {
+    if (signal.aborted) resolve()
+    else signal.addEventListener("abort", () => resolve(), { once: true })
+  })
 
   const wait = (ms: number): void => {
     cancelWait?.()
@@ -424,7 +479,7 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
     }, ms)
   }
 
-  const update = <T>(change: (drafts: Map<string, CommentsOutboxEntry>) => T): Promise<T> => store.update(account, change)
+  const update = <T>(change: (drafts: Map<string, CommentsOutboxEntry>) => T): Promise<T> => store.update(storeKey, change)
   const send = async (entry: CommentsOutboxEntry): Promise<void> => {
     const withClaim = <T>(change: (current: CommentsOutboxEntry, drafts: Map<string, CommentsOutboxEntry>) => T) => update((drafts) => {
       const current = drafts.get(entry.id)
@@ -494,7 +549,7 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
     receipts.set(key, thread)
     host.upsert(thread)
     await reload()
-    post({ type: "sent", account, id: entry.id, kind: entry.kind, key, thread })
+    post({ type: "sent", account: queue, id: entry.id, kind: entry.kind, key, thread })
   }
 
   const drain = async (signal: AbortSignal): Promise<void> => {
@@ -502,10 +557,11 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
     cancelWait = undefined
     while (!signal.aborted && environment.isOnline()) {
       const claim = randomUUID()
-      const selected = await update((drafts) => {
+      const selected = await update((drafts): { delay: number } | { files: string } | { claimed: CommentsOutboxEntry } | undefined => {
         if (signal.aborted) return
         const entry = next(sortEntries([...drafts.values()]))
-        if (!entry || entry.held) return
+        if (!entry || entry.held || saving(entry.order)) return
+        if (entry.awaitingFiles) return { files: entry.id }
         const delay = (entry.retryAt ?? 0) - Date.now()
         if (delay > 0) return { delay }
         const claimed = { ...entry, claim, status: "sending" as const, uncertain: entry.uncertain || entry.status === "sending" }
@@ -513,17 +569,28 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
         return { claimed }
       })
       if (!selected) return
-      if (selected.delay !== undefined) {
+      if ("delay" in selected) {
         wait(selected.delay)
         return
+      }
+      if ("files" in selected) {
+        if (stageFiles || arriving.has(selected.files)) return
+        await Promise.race([environment.lock(filesLock(selected.files), async () => undefined), aborted(signal)])
+        if (signal.aborted) return
+        await update((drafts) => {
+          const current = drafts.get(selected.files)
+          if (current?.awaitingFiles && !arriving.has(current.id)) drafts.set(current.id, { ...current, awaitingFiles: false })
+        })
+        await changed()
+        continue
       }
       await reload()
       await send(selected.claimed)
     }
   }
 
-  /** Sends what waits, in the tab that holds the lock. */
   function kick(): void {
+    if (stopped) return
     if (leading) {
       again = true
       return
@@ -543,28 +610,147 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
     })
   }
 
-  const enqueue = async <T extends CommentsOutboxEntry>(entry: T): Promise<CommentsOutboxEntry> => {
-    const saved = await update((drafts) => {
-      const key = keyOf(entry)
-      const existing = [...drafts.values()].find(draft => keyOf(draft) === key)
-      if (existing) return existing
-      let order = entry.createdAt
-      for (const draft of drafts.values()) order = Math.max(order, draft.order + 1)
-      const ordered = { ...entry, order }
-      drafts.set(entry.id, ordered)
-      return ordered
-    })
-    await changed()
-    return saved
+  const save = (id: string): Promise<void> => {
+    const local = unsaved.get(id)
+    if (!local) return Promise.resolve()
+    const run = async (): Promise<void> => {
+      local.parked = false
+      let group = [local]
+      try {
+        const parked = await update((drafts) => {
+          if (unsaved.get(id) !== local) return false
+          if (local.entry.kind === "reply") local.entry = { ...local.entry, input: { ...local.entry.input, threadId: realId(local.entry.input.threadId) } }
+          const parent = local.entry.kind === "reply" ? unsaved.get(local.entry.input.threadId) : undefined
+          if (parent && !parent.saved && !drafts.has(parent.entry.id)) return true
+          let order = local.entry.order
+          for (const draft of drafts.values()) if (!written.has(draft.id)) order = Math.max(order, draft.order + 1)
+          const later = [...unsaved.values()].filter(other => other !== local && !drafts.has(other.entry.id) && other.entry.order > local.entry.order)
+          let previous = order
+          for (const other of later.sort((a, b) => a.entry.order - b.entry.order)) {
+            previous = Math.max(other.entry.order, previous + 1)
+            other.entry = { ...other.entry, order: previous }
+          }
+          lastOrder = Math.max(lastOrder, previous)
+          local.entry = { ...local.entry, order }
+          group = [local, ...[...unsaved.values()].filter(other => other.parked && other.entry.kind === "reply" && other.entry.input.threadId === id)]
+          for (const member of group) member.write ??= write
+          const keys = new Map([...drafts.values()].map(draft => [keyOf(draft), draft]))
+          for (const member of group) {
+            if (member.entry.kind === "reply") member.entry = { ...member.entry, input: { ...member.entry.input, threadId: realId(member.entry.input.threadId) } }
+            const key = keyOf(member.entry)
+            const duplicate = keys.get(key)
+            if (duplicate) {
+              member.duplicate = duplicate
+              aliases.set(member.entry.id, duplicate.id)
+            }
+            else {
+              drafts.set(member.entry.id, member.entry)
+              keys.set(key, member.entry)
+            }
+          }
+          return false
+        })
+        if (parked) {
+          local.parked = true
+          return
+        }
+      }
+      catch (cause) {
+        local.entry = { ...local.entry, status: "failed", error: deliveryError(cause) }
+        merge()
+        kick()
+        return
+      }
+      finally {
+        for (const member of group) if (member.write === write) member.write = undefined
+      }
+      for (const member of group) Object.assign(member, { saved: true, parked: false })
+      await changed().catch(() => undefined)
+      kick()
+    }
+    const write = Promise.resolve().then(run)
+    local.write = write
+    return write
   }
-  const fields = (requestId: string | undefined, files: Blob[] | undefined) => {
+  const flushStaged = (): void => {
+    const locals = [...unsaved.values()]
+    if (locals.some(local => local.write)) return
+    const next = locals.find(local => !local.saved && !local.parked && local.entry.status === "pending")
+    if (next && !next.entry.awaitingFiles) void save(next.entry.id).then(flushStaged)
+  }
+  const queueSave = (local: UnsavedDraft): Promise<void> => {
+    if (!stageFiles) return save(local.entry.id)
+    local.parked = false
+    flushStaged()
+    return local.write ?? Promise.resolve()
+  }
+  const add = (entry: CommentsOutboxEntry, files: Blob[] | Promise<Blob[]> | undefined) => {
+    const later = files !== undefined && !Array.isArray(files)
+    const order = Math.max(Date.now(), lastOrder + 1, ...entries.map(other => other.order + 1))
+    lastOrder = order
+    written.add(entry.id)
+    const local: UnsavedDraft = { entry: copyEntry({ ...entry, order, ...(later ? { awaitingFiles: true } : {}) }), saved: false }
+    unsaved.set(entry.id, local)
+    if (later) arrive(entry.id, Promise.resolve(files))
+    merge()
+    return { local, write: queueSave(local) }
+  }
+  const queueEntry = (entry: CommentsOutboxEntry, files: Blob[] | Promise<Blob[]> | undefined) => {
+    const existing = entries.find(draft => keyOf(draft) === keyOf(entry))
+    if (!existing) return { entry, ...add(entry, files) }
+    const local = unsaved.get(existing.id)
+    return { entry: existing, local, write: local?.write }
+  }
+  const arrive = (id: string, files: Promise<Blob[]>): void => {
+    const arrival = environment.lock(filesLock(id), async () => {
+      const arrived = await files.then(list => [...list], () => [])
+      const local = unsaved.get(id)
+      await local?.write
+      const settled = (entry: CommentsOutboxEntry): CommentsOutboxEntry => ({ ...entry, files: [...entry.files, ...arrived], awaitingFiles: false })
+      if (local && !local.saved) {
+        local.entry = settled(local.entry)
+        merge()
+        if (stageFiles) flushStaged()
+        return
+      }
+      while (arriving.has(id)) {
+        try {
+          await update((drafts) => {
+            const current = drafts.get(id)
+            if (current?.awaitingFiles) drafts.set(id, settled(current))
+          })
+          break
+        }
+        catch (cause) {
+          if (!arriving.has(id)) break
+          const retry = new Promise<void>((resume) => {
+            blockedFiles.set(id, { files: arrived, error: deliveryError(cause), resume })
+          })
+          merge()
+          await retry
+        }
+      }
+    }).catch(() => undefined).then(async () => {
+      arriving.delete(id)
+      blockedFiles.delete(id)
+      await changed().catch(() => undefined)
+      kick()
+    })
+    arriving.set(id, arrival)
+  }
+  const unsavedEntry = async (id: string) => {
+    await unsaved.get(id)?.write
+    const local = unsaved.get(id)
+    return local && !local.saved ? local : undefined
+  }
+  const fields = (requestId: string | undefined, files: Blob[] | Promise<Blob[]> | undefined) => {
     const now = Date.now()
     const id = randomUUID()
     return {
       id,
       requestId: requestId ?? id,
       account,
-      files: [...(files ?? [])],
+      files: Array.isArray(files) ? [...files] : [],
       createdAt: now,
       order: now,
       status: "pending" as const,
@@ -587,17 +773,35 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
       return store.persisted
     },
     overlay,
-    owns: (threadId, messageId) => entries.some(entry => entry.id === (messageId ?? threadId)),
-    async create({ files, requestId, ...input }) {
+    owns: (threadId, messageId) => entries.some(entry => entry.id === entryId(messageId ?? threadId)),
+    async beforeResolve(threadId) {
+      await reload()
+      while (true) {
+        const id = realId(threadId)
+        const pending = entries.filter(entry => entry.id === id || (entry.kind === "reply" && realId(entry.input.threadId) === id))
+        if (!pending.length) return id
+        if (stopped || !environment.isOnline() || pending.some(entry => entry.held || entry.status === "failed" || entry.retryAt !== undefined) || entries.some(entry => entry.held)) return
+        await new Promise<void>((resolve) => {
+          const wake = () => { queueListeners.delete(wake); resolve() }
+          queueListeners.add(wake)
+        })
+      }
+    },
+    async create({ files, deferredFiles, requestId, ...input }) {
       const entry = { ...fields(requestId, files), kind: "create" as const, input }
       const receipt = () => receipts.get(keyOf(entry)) ?? [...host.threads()].find(thread => matchesCreate(entry, thread))
       const earlier = receipt()
       if (earlier) return earlier
-      const saved = await enqueue(entry)
-      kick()
-      return receipt() ?? localThread(saved.kind === "create" ? saved : entry)
+      const queued = queueEntry(entry, deferredFiles ?? files)
+      if (requestId !== undefined) {
+        await queued.write
+        const confirmed = receipt()
+        if (confirmed) return confirmed
+      }
+      const saved = queued.local?.duplicate ?? entries.find(draft => draft.id === queued.entry.id) ?? queued.entry
+      return localThread(saved.kind === "create" ? saved : entry)
     },
-    async reply({ files, requestId, subject, ...input }) {
+    async reply({ files, deferredFiles, requestId, subject, ...input }) {
       const threadId = realId(input.threadId)
       const parent = entries.find(entry => entry.kind === "create" && entry.id === threadId)
       const cached = serverThread(threadId)
@@ -605,15 +809,34 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
       const entry = { ...fields(requestId, files), kind: "reply" as const, input: { ...input, threadId }, ...(target ? { subject: target } : {}) }
       const earlier = receipts.get(keyOf(entry))
       if (earlier) return serverThread(earlier.id) ?? earlier
-      const saved = await enqueue(entry)
-      kick()
-      const thread = serverThread(realId(threadId)) ?? cached
+      const queued = queueEntry(entry, deferredFiles ?? files)
+      if (requestId !== undefined) await queued.write
+      const saved = queued.local?.duplicate ?? queued.local?.entry ?? queued.entry
+      const confirmed = receipts.get(keyOf(saved))
+      if (confirmed) return serverThread(confirmed.id) ?? confirmed
+      const resolvedId = realId(threadId)
+      const thread = serverThread(resolvedId) ?? cached
       if (thread) return overlay([thread]).server[0] ?? thread
-      const local = overlay([]).local.find(local => local.id === threadId)
+      const local = overlay([]).local.find(local => local.id === resolvedId)
       if (local) return local
-      return { id: threadId, scope: "", n: 0, subject: target ?? { kind: "", id: "" }, anchor: { kind: "page" }, status: "open", author: author(), messages: [localMessage(saved, threadId)], createdAt: entry.createdAt, updatedAt: entry.createdAt }
+      return { id: resolvedId, scope: "", n: 0, subject: target ?? { kind: "", id: "" }, anchor: { kind: "page" }, status: "open", author: author(), messages: [localMessage(saved, resolvedId)], createdAt: entry.createdAt, updatedAt: entry.createdAt }
     },
     async retry(id) {
+      if (id !== undefined) {
+        id = entryId(id)
+        const blocked = blockedFiles.get(id)
+        if (blocked) {
+          blocked.resume()
+          return
+        }
+      }
+      const local = id === undefined ? undefined : await unsavedEntry(id)
+      if (local) {
+        local.entry = { ...local.entry, status: "pending", error: undefined }
+        merge()
+        await queueSave(local)
+        return
+      }
       await update((drafts) => {
         for (const entry of drafts.values()) {
           if (entry.status === "sending" || (id !== undefined && entry.id !== id)) continue
@@ -625,6 +848,17 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
       kick()
     },
     async dismiss(id) {
+      id = entryId(id)
+      if (await unsavedEntry(id)) {
+        for (const [other, local] of unsaved) if (other === id || (local.entry.kind === "reply" && local.entry.input.threadId === id)) unsaved.delete(other)
+        await update((drafts) => {
+          for (const reply of drafts.values()) if (reply.kind === "reply" && reply.input.threadId === id) drafts.delete(reply.id)
+        })
+        await changed()
+        if (stageFiles) flushStaged()
+        kick()
+        return true
+      }
       const removed = await update((drafts) => {
         const entry = drafts.get(id)
         if (!entry || !changeable(entry)) return false
@@ -634,12 +868,24 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
         return drafts.delete(id)
       })
       if (removed) {
+        arriving.delete(id)
+        blockedFiles.get(id)?.resume()
         await changed()
         kick()
       }
       return removed
     },
     async edit(id, body, mentions) {
+      id = entryId(id)
+      const local = await unsavedEntry(id)
+      if (local) {
+        const input = { ...local.entry.input, body, ...(mentions ? { mentions } : {}) }
+        // SAFETY: `input` keeps the kind of the entry.
+        local.entry = { ...local.entry, input, status: "pending", error: undefined } as CommentsOutboxEntry
+        merge()
+        await queueSave(local)
+        return true
+      }
       const edited = await update((drafts) => {
         const entry = drafts.get(id)
         if (!entry || !changeable(entry)) return false
@@ -657,14 +903,21 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
     async clear() {
       cancelWait?.()
       cancelWait = undefined
+      unsaved.clear()
       await update(drafts => drafts.clear())
+      arriving.clear()
+      for (const blocked of blockedFiles.values()) blocked.resume()
+      blockedFiles.clear()
+      aliases.clear()
       sent.clear()
       receipts.clear()
       await changed()
     },
     start() {
+      stopped = false
       const stops = [
         environment.listen((event) => {
+          if (event === "offline") queueChanged()
           if (event !== "online" && event !== "visible") return
           void update((drafts) => {
             for (const entry of drafts.values()) {
@@ -673,7 +926,7 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
           }).then(changed).then(kick)
         }),
         environment.receive((message) => {
-          if (message.account !== account) return
+          if (message.account !== queue) return
           if (message.type === "sent") {
             if (message.kind === "create") sent.set(message.id, message.thread)
             receipts.set(message.key, message.thread)
@@ -686,6 +939,8 @@ export function createOutbox(options: CommentsOutboxOptions, host: CommentsOutbo
       kick()
       return () => {
         for (const stop of stops.splice(0)) stop()
+        stopped = true
+        queueChanged()
         cancelWait?.()
         cancelWait = undefined
         leading?.giveUp()

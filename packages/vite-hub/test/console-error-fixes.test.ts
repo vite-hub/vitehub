@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { encodeAgentRouteParam } from "../src/console/runtime/console-route.ts"
-import { listConsoleInvocations } from "../src/console/runtime/server/invocations.get.ts"
+import { listConsoleInvocations } from "../src/agent/console/invocations.get.ts"
 import { agentConsole } from "../src/console/server.ts"
 import { viteHubErrorDiagnostics } from "../src/error-diagnostics.ts"
 

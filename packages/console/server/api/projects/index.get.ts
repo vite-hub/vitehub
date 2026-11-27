@@ -1,3 +1,3 @@
 import { consoleJson, consoleTeamRoute } from "../../utils/console.ts"
 
-export default consoleTeamRoute(async (_request, { projects }) => consoleJson({ projects: await projects.list() }))
+export default consoleTeamRoute(async (_request, { projects }) => consoleJson({ cliForwarding: true, projects: await projects.list() }))
