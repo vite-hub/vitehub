@@ -477,6 +477,7 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_PRESET_UNKNOWN",
   "AGENT_QUEUED_INPUT_NOT_JSON",
   "AGENT_SKILL_DELIVERY_UNSUPPORTED",
+  "AGENT_SKILL_FILE_PATH_INVALID",
   "AGENT_SKILL_NAME_INVALID",
   "AGENT_SLACK_CONNECTOR_ADAPTER_MISSING",
   "AGENT_TASK_AGENT_NAME_MISSING",
@@ -4797,7 +4798,13 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_SKILL_DELIVERY_UNSUPPORTED: {
       why: ({ provider }: { provider: string }) => `[vitehub] ${provider} cannot load Agent-owned Skills.`,
-      fix: "Use Codex or Claude Code for bundled Skills, or install the Skills in the harness's native Skills directory instead.",
+      fix: "Use Codex or Claude Code for bundled Skills, set driver.gateway on Gemini CLI or Kimi Code so they read the Skills from their private Home, or install the Skills in the harness's native Skills directory instead.",
+    },
+    AGENT_SKILL_FILE_PATH_INVALID: {
+      why: ({ name, path }: { name: string, path?: string }) => path === undefined
+        ? `[vitehub] Skill "${name}" has no SKILL.md.`
+        : `[vitehub] Skill "${name}" has an invalid file path "${path}".`,
+      fix: "Pass each Skill folder to `agentWithSkills(agent, skills)` as files by relative path, such as `{ 'SKILL.md': content, 'references/checklist.md': checklist }`, with forward slashes and no `.` or `..` segments.",
     },
     AGENT_SKILL_NAME_INVALID: {
       why: ({ name }: { name: string }) => `[vitehub] Invalid Skill name "${name}". Use letters, digits, ".", "_", or "-".`,

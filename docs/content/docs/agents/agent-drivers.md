@@ -211,9 +211,9 @@ pnpm add @openai/codex@0.169.0
 pnpm add @anthropic-ai/claude-agent-sdk@0.3.321
 ```
 
-For the other provider Drivers, set `permissions: 'allow-all'` only if you trust the harness to run native actions without ViteHub approval. These Drivers do not support ViteHub Sandboxes or Agent-owned Skills; install Skills in the harness's native directory instead.
+For the other provider Drivers, set `permissions: 'allow-all'` only if you trust the harness to run native actions without ViteHub approval. These Drivers do not support ViteHub Sandboxes. Only Gemini CLI and Kimi Code with a gateway receive Agent-owned Skills, in their private Home; for the others, install Skills in the harness's native directory instead.
 
-`opencodeDriver()` and `piDriver()` can use a gateway's `openai-compatible` route with an explicit `model`. OpenCode must start its own server rather than attach to `providerSettings.serverUrl`. Pi replays the Agent's conversation history on each Invocation when a gateway is configured. `kimiDriver()` uses the same route with an explicit `model`. `geminiDriver()` uses a gateway's `gemini` route, such as `cliproxy()` or `google()`; `model` is optional. With a gateway, ViteHub runs Gemini CLI and Kimi Code in a private Home that holds only the gateway configuration, so they never read a saved sign-in, and the key stays in the provider process environment.
+`opencodeDriver()` and `piDriver()` can use a gateway's `openai-compatible` route with an explicit `model`. OpenCode must start its own server rather than attach to `providerSettings.serverUrl`. Pi replays the Agent's conversation history on each Invocation when a gateway is configured. `kimiDriver()` uses the same route with an explicit `model`. `geminiDriver()` uses a gateway's `gemini` route, such as `cliproxy()` or `google()`; `model` is optional. With a gateway, ViteHub runs Gemini CLI and Kimi Code in a private Home that holds only the gateway configuration and the Agent's Skills, so they never read a saved sign-in, and the key stays in the provider process environment.
 
 Declare the Codex credentials in Server Env:
 
@@ -467,7 +467,7 @@ The provider reads Skills from two places. It reads the Skills of its working di
 - Skills of the outer Workspace root when the provider runs in a nested pull request checkout.
 - Skills inside mounted Sources, such as `portal/.agents/skills/customer-deploy` for a Source mounted at `portal`.
 
-Codex loads the folder as an extra skill root through `skills/extraRoots/set`. Claude Code reads its `.claude/skills` through `--add-dir`. A Skill name that the provider already reads in its working directory is not added again. The folder is next to the Invocation's temporary directory and is removed with it. A `launch` wrapper that starts the provider on another host must make the temporary directory of the ViteHub host (`os.tmpdir()`) available at the same path, as it does for the working directory. A Sandbox Invocation writes the same Skills to the provider's Home skill root instead.
+Codex loads the folder as an extra skill root through `skills/extraRoots/set`. Claude Code reads its `.claude/skills` through `--add-dir`. With a gateway, Gemini CLI and Kimi Code get the Skills in their private Home instead: `<GEMINI_CLI_HOME>/.gemini/skills` and `<KIMI_CODE_HOME>/skills`. A Skill name that the provider already reads in its working directory is not added again. The folder is next to the Invocation's temporary directory and is removed with it. A `launch` wrapper that starts the provider on another host must make the temporary directory of the ViteHub host (`os.tmpdir()`) available at the same path, as it does for the working directory. A Sandbox Invocation writes the same Skills to the provider's Home skill root instead.
 
 Precedence by name: the working directory, then Agent-owned Skills, then the outer Workspace root, then the Sources in declaration order. An Agent-owned Skill replaces a Source Skill with the same name, with all its files.
 

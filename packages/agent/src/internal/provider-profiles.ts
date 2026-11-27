@@ -62,9 +62,11 @@ export type ProviderHarnessProfile = {
     home: string
     /**
      * How the harness receives a private Skills folder: as an extra skill root, as an added directory that it reads `root` in,
-     * or not at all. Without one, the harness reads only the Skills in its working directory or Home.
+     * in `root` of the private Home that a gateway gives it, or not at all. Without one, the harness reads only the Skills
+     * in its working directory or Home. A `private-home` harness gets them only with a gateway, since without one it runs
+     * in the host's Home, which ViteHub does not write.
      */
-    extra: { kind: "skill-root" } | { kind: "added-directory", root: string } | { kind: "none" }
+    extra: { kind: "skill-root" } | { kind: "added-directory", root: string } | { kind: "private-home", root: string } | { kind: "none" }
   }
   /** The instruction file that the harness reads in its working directory. */
   instructionFile: string
@@ -187,7 +189,7 @@ export const providerHarnessProfiles: Readonly<Record<AiGatewayHarness, Provider
     install: "npm install -g @google/gemini-cli",
     authEnv: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
     home: { env: "GEMINI_CLI_HOME", inheritHost: true },
-    skills: { workspace: [".gemini/skills", ".agents/skills"], home: ".gemini/skills", extra: { kind: "none" } },
+    skills: { workspace: [".gemini/skills", ".agents/skills"], home: ".gemini/skills", extra: { kind: "private-home", root: ".gemini/skills" } },
     instructionFile: "GEMINI.md",
     homeInstructionFile: ".gemini/GEMINI.md",
     signInOnly: false,
@@ -281,6 +283,7 @@ export const providerHarnessProfiles: Readonly<Record<AiGatewayHarness, Provider
     install: "npm install -g @moonshot-ai/kimi-code",
     authEnv: ["KIMI_MODEL_API_KEY"],
     home: { env: "KIMI_CODE_HOME", inheritHost: true },
+    skills: { workspace: [".kimi-code/skills", ".agents/skills"], home: ".kimi-code/skills", extra: { kind: "private-home", root: "skills" } },
     instructionFile: "AGENTS.md",
     signInOnly: false,
     gateway: { chatgpt: false, delivery: "kimi-config", ownedEnv: ["KIMI_CODE_CUSTOM_HEADERS", "KIMI_CODE_HOME", "VITEHUB_GATEWAY_API_KEY"] },

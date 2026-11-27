@@ -1,14 +1,16 @@
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises"
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 
 import { cliproxy, cloudflare, emulate, google } from "@vite-hub/gateways"
-import { acpDriver, antigravityDriver, claudeCodeDriver, codexDriver, cursorDriver, defineAgent, fxDriver, geminiDriver, grokDriver, kimiDriver, kiroDriver, museDriver, opencodeDriver, piDriver } from "../src/index.ts"
+import { acpDriver, agentWithSkills, antigravityDriver, claudeCodeDriver, codexDriver, cursorDriver, defineAgent, fxDriver, geminiDriver, grokDriver, kimiDriver, kiroDriver, museDriver, opencodeDriver, piDriver } from "../src/index.ts"
 import { normalizeAgentDriver } from "../src/internal/agent-driver.ts"
 import { agentDriverSessionModel, materializeAgentDriverGatewayHome, resolveAgentDriverGateway, withAgentDriverGatewayModel } from "../src/internal/agent-gateway.ts"
+import { colocatedAgentSkillsSymbol } from "../src/internal/colocated-agent-skills.ts"
 import { providerHarnessProfile, providerHarnessProfiles } from "../src/internal/provider-profiles.ts"
+import { assertProviderSkillDelivery, materializeProviderSkills, selectProviderSkills } from "../src/internal/provider-skills.ts"
 import { providerRuntimeSettings } from "../src/provider-agent.ts"
 
 const context = { purpose: "inspection" } as never
@@ -207,6 +209,56 @@ describe("harness gateway environments", () => {
     finally {
       await rm(root, { recursive: true, force: true })
     }
+  })
+})
+
+describe("harness Skills in a private gateway Home", () => {
+  const secret = "secret-gateway-key"
+  const skill = { "SKILL.md": "---\nname: code-word\ndescription: The code word.\n---\nAnswer PELICAN.\n", "references/notes.md": "notes\n" }
+
+  it.each([
+    ["gemini", "GEMINI_CLI_HOME", ".gemini/skills", "gemini-3.8-flash-high"],
+    ["kimi", "KIMI_CODE_HOME", "skills", "kimi-k3"],
+  ] as const)("writes the Agent's Skills into the %s Home and keeps the user's Home out", async (harness, homeEnv, skillRoot, model) => {
+    const root = await mkdtemp(join(tmpdir(), `vitehub-${harness}-skills-`))
+    const userHome = join(root, "user-home")
+    const cwd = join(root, "work")
+    await mkdir(join(userHome, skillRoot, "user-skill"), { recursive: true })
+    await writeFile(join(userHome, skillRoot, "user-skill/SKILL.md"), "# User skill\n")
+    await mkdir(cwd)
+    const previous = process.env[homeEnv]
+    process.env[homeEnv] = userHome
+    try {
+      const agent = agentWithSkills(defineAgent({ driver: harness === "gemini" ? geminiDriver({ gateway: gateway(), model, permissions: "allow-all" }) : kimiDriver({ gateway: gateway(), model, permissions: "allow-all" }) }), { "code-word": skill })
+      const colocated: unknown = Reflect.get(agent, colocatedAgentSkillsSymbol)
+      expect(() => assertProviderSkillDelivery(harness, colocated, { privateHome: true })).not.toThrow()
+      expect(() => assertProviderSkillDelivery(harness, colocated, { privateHome: false })).toThrow("cannot load Agent-owned Skills")
+
+      const resolved = await resolveAgentDriverGateway(cliproxy({ url: "http://proxy", apiKey: secret }), harness, context, { model })
+      const materialized = await materializeAgentDriverGatewayHome(resolved, join(root, "gateway-home"))
+      const home = materialized.environment[homeEnv]!
+      const skills = await selectProviderSkills({ colocated, cwd, privateHome: true, provider: harness, workspaceRoot: cwd })
+      await materializeProviderSkills(skills, harness, home)
+
+      expect(home).not.toBe(userHome)
+      expect(await readFile(join(home, skillRoot, "code-word/SKILL.md"), "utf8")).toContain("Answer PELICAN.")
+      expect(await readFile(join(home, skillRoot, "code-word/references/notes.md"), "utf8")).toBe("notes\n")
+      const files = (await readdir(home, { recursive: true })).map(String).sort()
+      expect(files.filter(path => path.includes("user-skill"))).toEqual([])
+      const contents = await Promise.all(files.map(async path => (await stat(join(home, path))).isFile() ? await readFile(join(home, path), "utf8") : ""))
+      expect(contents.join("\n")).not.toContain(secret)
+    }
+    finally {
+      if (previous === undefined) delete process.env[homeEnv]
+      else process.env[homeEnv] = previous
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("rejects a Skill folder without SKILL.md or with a path that leaves it", () => {
+    const agent = defineAgent({ driver: geminiDriver({ permissions: "allow-all" }) })
+    expect(() => agentWithSkills(agent, { review: { "notes.md": "x" } })).toThrow('Skill "review" has no SKILL.md')
+    expect(() => agentWithSkills(agent, { review: { "SKILL.md": "x", "../escape.md": "x" } })).toThrow('invalid file path "../escape.md"')
   })
 })
 

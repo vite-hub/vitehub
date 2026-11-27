@@ -8,9 +8,15 @@ import { isRuntimeRecord } from "./runtime-type.ts"
 
 const skillRoots = [".agents/skills", ".codex/skills", ".claude/skills"] as const
 
-export function assertProviderSkillDelivery(provider: ProviderHarness, colocated: unknown): void {
+/** True when the harness can receive a private Skills folder. A `private-home` harness needs the Home that a gateway gives it. */
+export function canDeliverProviderSkills(provider: ProviderHarness, options: { privateHome: boolean }): boolean {
+  const kind = providerHarnessProfile(provider).skills?.extra.kind
+  return kind === "skill-root" || kind === "added-directory" || (kind === "private-home" && options.privateHome)
+}
+
+export function assertProviderSkillDelivery(provider: ProviderHarness, colocated: unknown, options: { privateHome: boolean }): void {
   const harness = providerHarnessProfile(provider)
-  if ((harness.skills && harness.skills.extra.kind !== "none") || !isRuntimeRecord(colocated)) return
+  if (canDeliverProviderSkills(provider, options) || !isRuntimeRecord(colocated)) return
   for (const source of Object.values(colocated)) {
     if (!isRuntimeRecord(source) || typeof source.workspacePath !== "string") continue
     const path = posix.normalize(source.workspacePath)
@@ -61,12 +67,14 @@ export async function selectProviderSkills(input: {
   colocated: unknown
   cwd: string
   provider: ProviderHarness
+  /** True when the provider runs in a private Home that ViteHub creates, so a `private-home` harness can receive Skills. */
+  privateHome?: boolean
   /** Mount paths of the Sources, relative to `workspaceRoot`, in declaration order. */
   sources?: readonly string[]
   workspaceRoot: string
 }): Promise<Map<string, ProviderSkill>> {
   const profile = providerHarnessProfile(input.provider).skills
-  if (!profile || profile.extra.kind === "none") return new Map()
+  if (!profile || !canDeliverProviderSkills(input.provider, { privateHome: input.privateHome ?? false })) return new Map()
   const colocated = Object.values(isRuntimeRecord(input.colocated) ? input.colocated : {})
   const native: readonly string[] = profile.workspace
   const nativeNames = new Set<string>()
@@ -118,12 +126,13 @@ export async function selectProviderSkills(input: {
  * Writes the selected Skills to one private folder outside the checkout.
  * Codex loads `directory` as an extra skill root. Claude Code reads
  * `<directory>/.claude/skills` when `directory` is an `--add-dir` directory.
+ * Gemini CLI and Kimi Code read the Skills folder of their private Home, so for them `directory` is that Home.
  * Returns the folder that the provider receives, or `undefined` when there are no Skills.
  */
 export async function materializeProviderSkills(skills: Map<string, ProviderSkill>, provider: ProviderHarness, directory: string): Promise<string | undefined> {
   const extra = providerHarnessProfile(provider).skills?.extra
   if (!skills.size || !extra || extra.kind === "none") return
-  const skillRoot = extra.kind === "added-directory" ? join(directory, ...extra.root.split("/")) : directory
+  const skillRoot = extra.kind === "skill-root" ? directory : join(directory, ...extra.root.split("/"))
   await mkdir(skillRoot, { mode: 0o700, recursive: true })
   for (const [name, skill] of skills) {
     const target = join(skillRoot, name)

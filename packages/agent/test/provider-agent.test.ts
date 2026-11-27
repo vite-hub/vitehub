@@ -4181,6 +4181,54 @@ cli_auth_credentials_store = "keyring"
     expect(launch).not.toHaveBeenCalled()
   })
 
+  it.each([
+    { provider: "gemini", homeEnv: "GEMINI_CLI_HOME", skillRoot: ".gemini/skills", model: "gemini-3.8-flash-high" },
+    { provider: "kimi", homeEnv: "KIMI_CODE_HOME", skillRoot: "skills", model: "kimi-k3" },
+  ] as const)("gives $provider the Agent's Skills in its private gateway Home", async ({ provider, homeEnv, skillRoot, model }) => {
+    const threadId = `thread-${provider}-gateway-skills`
+    const apiKey = "private-gateway-key"
+    const userHome = await mkdtemp(join(tmpdir(), `vitehub-${provider}-user-home-`))
+    await mkdir(join(userHome, skillRoot, "user-skill"), { recursive: true })
+    await writeFile(join(userHome, skillRoot, "user-skill/SKILL.md"), "# User skill\n")
+    await writeFile(join(userHome, "oauth_creds.json"), "{\"token\":\"user-token\"}")
+    const previousHome = process.env[homeEnv]
+    process.env[homeEnv] = userHome
+    let home = ""
+    let homeFiles: Record<string, string> = {}
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        home = createProviderRuntime.mock.lastCall?.[0].environment?.[homeEnv] ?? ""
+        const entries = await readdir(home, { recursive: true, withFileTypes: true })
+        homeFiles = Object.fromEntries(await Promise.all(entries.filter(entry => entry.isFile()).map(async entry => {
+          const path = join(entry.parentPath, entry.name)
+          return [path.slice(home.length + 1), await readFile(path, "utf8")] as const
+        })))
+      },
+    })
+    const agent = agentWithSkills(defineAgent({ driver: { model } }), {
+      review: { "SKILL.md": "---\nname: review\ndescription: Review changes.\n---\n# Review\n", "references/checklist.md": "- tests\n" },
+    })
+    const invocation = context(threadId)
+    invocation.context.set(colocatedAgentSkillsContextKey, Reflect.get(agent, colocatedAgentSkillsSymbol))
+    try {
+      const adapter = createProviderAgentAdapter({ gateway: cliproxy({ url: "https://proxy.example", apiKey }), model, permissions: "allow-all", provider })
+      // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+      await adapter.generate(invocation as never)
+    }
+    finally {
+      if (previousHome === undefined) delete process.env[homeEnv]
+      else process.env[homeEnv] = previousHome
+      await rm(userHome, { force: true, recursive: true })
+    }
+    expect(home).not.toBe("")
+    expect(home).not.toBe(userHome)
+    expect(homeFiles[`${skillRoot}/review/SKILL.md`]).toContain("# Review")
+    expect(homeFiles[`${skillRoot}/review/references/checklist.md`]).toBe("- tests\n")
+    expect(Object.keys(homeFiles).filter(path => path.includes("user-skill") || path.includes("oauth_creds"))).toEqual([])
+    expect(Object.values(homeFiles).join("\n")).not.toContain(apiKey)
+    await expect(access(home)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
   it("replays a Pi gateway thread after disposing its gateway home", async () => {
     const threadId = "thread-pi-gateway"
     runtime(threadId, [
