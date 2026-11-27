@@ -147,6 +147,8 @@ export interface ProviderAgentAdapterOptions<
   reasoningEffort?: CodexReasoningEffort
   reasoningSummary?: CodexReasoningSummary
   requirements?: readonly string[]
+  /** The file the provider runtime appends its event log to. ViteHub never deletes it. */
+  sessionLog?: AgentProviderWorkingDirectoryResolver<TRuntimeConfig>
   sessionStorePath?: string
   /** Provision project-pinned Node.js and a package manager for the provider and its commands. */
   toolchain?: SandboxToolchain
@@ -2874,6 +2876,7 @@ async function* runProvider<
   sessionLocks: Map<string, Promise<void>>,
   cwdLocks: Map<string, Promise<void>>,
   context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
+  reportSessionLog?: (path: string) => void,
 ): AsyncIterable<StreamEvent> {
   if (context.runtime.runtime === "cloudflare-agents" || context.runtime.runtime === "deno") {
     throw agentDiagnostics.AGENT_R0709({ message: `[vitehub] Provider Agent Drivers require a Node.js host; ${context.runtime.runtime} cannot start local coding agents.` })
@@ -2932,8 +2935,20 @@ async function* runProvider<
   let releaseCwdLock: (() => void) | undefined
   // driver.cwd is owned by the application. Title and progress summary runs keep a disposable root.
   let ownsRoot = true
+  let sessionLog: string | undefined
   try {
     effectiveSignal?.throwIfAborted()
+    const configuredSessionLog = options.sessionLog === undefined || auxiliary
+      ? undefined
+      : await waitForProviderOperation(Promise.resolve(resolveRuntimeValue(options.sessionLog, providerMetadataContext(context))), effectiveSignal)
+    if (configuredSessionLog !== undefined) {
+      if (typeof configuredSessionLog !== "string" || !configuredSessionLog.trim()) {
+        throw agentDiagnostics.AGENT_R0476({ message: "[vitehub] Provider Agent Driver sessionLog must resolve to a non-empty file path." })
+      }
+      sessionLog = resolve(configuredSessionLog)
+      await mkdir(dirname(sessionLog), { recursive: true })
+      reportSessionLog?.(sessionLog)
+    }
     const configuredRoot = options.cwd === undefined || auxiliary
       ? undefined
       : await waitForProviderOperation(Promise.resolve(resolveRuntimeValue(options.cwd, providerMetadataContext(context))), effectiveSignal)
@@ -3678,10 +3693,11 @@ async function* runProvider<
     }).filter(([, value]) => value !== undefined))
     const runtimeSettings = providerRuntimeSettings(options.provider, options.agentId, settings)
     const eventLogRoot = temporaryRoot?.root ?? launchRoot
+    const eventLogPath = sessionLog ?? (eventLogRoot ? join(eventLogRoot, providerEventLogFile) : undefined)
     const runtimeOptions: Parameters<typeof createProviderRuntime>[0] = {
       cwd: providerCwd,
       environment: providerRuntimeEnvironment,
-      ...(eventLogRoot ? { eventLogPath: join(eventLogRoot, providerEventLogFile) } : {}),
+      ...(eventLogPath ? { eventLogPath } : {}),
       provider: providerHarnessProfiles[options.provider].runtimeKind,
       ...(sessionStore ? { sessionStore: sessionStore.runtime } : {}),
       ...(Object.keys(runtimeSettings).length ? { settings: runtimeSettings } : {}),
@@ -4294,7 +4310,7 @@ export function createProviderAgentAdapter<
   const resumeCursors = new Map<string, ProviderResumeState>()
   const sessionLocks = new Map<string, Promise<void>>()
   const cwdLocks = new Map<string, Promise<void>>()
-  const launch = (context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>) => {
+  const launch = (context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>, reportSessionLog?: (path: string) => void) => {
     // Keep the invocation deadline active across launch retries and their backoff. Each
     // runProvider attempt still gets its own timeout for normal provider work.
     const timeout = context.input.timeout
@@ -4308,13 +4324,17 @@ export function createProviderAgentAdapter<
       ? copyProviderCallbackMetadata(context, { ...context, input: { ...context.input, abortSignal: retrySignal } })
       : context
     return retryProviderLaunch(
-      () => runProvider(options, resumeCursors, sessionLocks, cwdLocks, retryContext),
+      () => runProvider(options, resumeCursors, sessionLocks, cwdLocks, retryContext, reportSessionLog),
       retrySignal,
       providerLaunchRetryDelaysMs,
     )
   }
   return {
-    generate: context => generateProvider(launch(context), context),
+    async generate(context) {
+      let sessionLog: string | undefined
+      const result = await generateProvider(launch(context, (path) => { sessionLog = path }), context)
+      return sessionLog === undefined ? result : { ...result, sessionLog }
+    },
     async metadata(context) {
       const instructions = await resolveAgentInstructions(options.instructions, context)
       return {

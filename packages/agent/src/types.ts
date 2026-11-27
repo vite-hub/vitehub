@@ -1180,6 +1180,8 @@ export interface AgentRunResult<TOutput = unknown> {
    */
   output?: TOutput
   raw?: unknown
+  /** The provider runtime event log that `driver.sessionLog` named. It outlives the Invocation. */
+  sessionLog?: string
   text?: string
   usage?: unknown
   usageRecord?: AgentUsageRecord
@@ -1928,6 +1930,13 @@ export interface AgentProviderDriverOptions<
    * `requirements: inherited => [...inherited, 'kubectl']`. Without a parent the function receives `[]`.
    */
   requirements?: readonly string[] | ((inherited: readonly string[]) => readonly string[])
+  /**
+   * File that the provider runtime appends its NDJSON event log to: a meta line, then every runtime event of the
+   * Invocation. The application owns the file and ViteHub never deletes it, so `readAgentSession()` can read it after
+   * the Invocation ends. A function returns a path per Invocation. The result reports it as `sessionLog`. Without it,
+   * the log lives in the Invocation's temporary folder and is removed with it.
+   */
+  sessionLog?: AgentProviderWorkingDirectoryResolver<TRuntimeConfig>
   /** SQLite file used to persist provider session cursors across process restarts. */
   sessionStorePath?: string
   /**
@@ -2155,6 +2164,7 @@ export interface AgentModelDriver<
   providerSettings?: never
   reasoningEffort?: never
   reasoningSummary?: never
+  sessionLog?: never
   sessionStorePath?: never
   toolchain?: never
   workspaceWrite?: never
@@ -2186,6 +2196,7 @@ export interface AgentRunDriver<
   providerSettings?: never
   reasoningEffort?: never
   reasoningSummary?: never
+  sessionLog?: never
   sessionStorePath?: never
   toolchain?: never
   workspaceWrite?: never
@@ -2250,6 +2261,7 @@ export interface AgentAskDriver<
   providerSettings?: never
   reasoningEffort?: never
   reasoningSummary?: never
+  sessionLog?: never
   sessionStorePath?: never
   toolchain?: never
   workspaceWrite?: never
@@ -3318,6 +3330,8 @@ export interface AgentInspectionWarning {
 export interface AgentAdapterResult {
   finishReason?: unknown
   raw?: unknown
+  /** The provider runtime event log that `driver.sessionLog` named. */
+  sessionLog?: string
   text?: string
   usage?: unknown
   usageRecord?: AgentUsageRecord

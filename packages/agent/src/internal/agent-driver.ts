@@ -75,6 +75,7 @@ export type NormalizedAgentDriver<
     requirements?: readonly string[]
     /** Loads the provider Agent runtime. Only the provider Driver factories, such as `codexDriver()`, provide it. */
     runtime: ProviderAgentRuntimeLoader
+    sessionLog?: AgentProviderWorkingDirectoryResolver<TRuntimeConfig>
     sessionStorePath?: string
     toolchain?: SandboxToolchain
     workspaceWrite?: CodexWorkspaceWriteAccess
@@ -182,7 +183,7 @@ export function normalizeAgentDriverCapacity(value: unknown): AgentDriverCapacit
 }
 
 const modelDriverKeys = new Set(["capacity", "execution", "gateway", "instructions", "maxRetries", "model", "output"])
-const providerDriverKeys = new Set(["agentId", "capacity", "credentialProfile", "credentials", "cwd", "env", "execution", "gateway", "instructions", "kind", "launch", "model", "output", "permissions", "providerSettings", "reasoningEffort", "reasoningSummary", "requirements", "sessionStorePath", "toolchain", "workspaceWrite"])
+const providerDriverKeys = new Set(["agentId", "capacity", "credentialProfile", "credentials", "cwd", "env", "execution", "gateway", "instructions", "kind", "launch", "model", "output", "permissions", "providerSettings", "reasoningEffort", "reasoningSummary", "requirements", "sessionLog", "sessionStorePath", "toolchain", "workspaceWrite"])
 const runDriverKeys = new Set(["capacity", "output", "run"])
 const askDriverKeys = new Set(["ask", "capacity", "gateway"])
 
@@ -389,6 +390,9 @@ function normalizeProviderDriver(provider: ProviderHarness, value: Record<string
   if (value.cwd !== undefined && typeof value.cwd !== "function" && !isResolver(value.cwd) && (typeof value.cwd !== "string" || !value.cwd.trim())) {
     throw agentDiagnostics.AGENT_R0938({ message: "[vitehub] defineAgent({ driver.cwd }) must be a non-empty directory path or resolver." })
   }
+  if (value.sessionLog !== undefined && typeof value.sessionLog !== "function" && !isResolver(value.sessionLog) && (typeof value.sessionLog !== "string" || !value.sessionLog.trim())) {
+    throw agentDiagnostics.AGENT_R0476({ message: "[vitehub] defineAgent({ driver.sessionLog }) must be a non-empty file path or resolver." })
+  }
   const execution = normalizeProviderExecution(value.execution)
   const configuredEnv = value.env
   if (gateway && isPlainRecord(configuredEnv)) {
@@ -426,6 +430,8 @@ function normalizeProviderDriver(provider: ProviderHarness, value: Record<string
     requirements: value.requirements === undefined ? undefined : [...value.requirements as string[]],
     // SAFETY: Only the provider Driver factories set this symbol, and they set it to the provider runtime loader.
     runtime: runtime as ProviderAgentRuntimeLoader,
+    // SAFETY: sessionLog is either absent, a non-empty string, or a function or resolver validated above. Its resolved value is validated at invocation time.
+    sessionLog: value.sessionLog as AgentProviderWorkingDirectoryResolver | undefined,
     sessionStorePath: typeof value.sessionStorePath === "string" ? value.sessionStorePath.trim() : undefined,
     // SAFETY: validateProviderToolchain checks the declaration shape; @vite-hub/sandbox validates versions at invocation time.
     toolchain: value.toolchain as SandboxToolchain | undefined,

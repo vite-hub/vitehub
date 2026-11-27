@@ -330,6 +330,27 @@ Provider cursors resume a thread while the process runs. Set `sessionStorePath` 
 - Chat cursors stay separate by origin, invoker, and Chat Session, so a new session cannot inherit an old one's context.
 - If the provider cannot resume, for example after its session files were deleted, ViteHub sends the full history to a new thread and records `agent.provider.session.resume-failed`.
 
+### Keep the session log
+
+The provider runtime writes an NDJSON event log for each Invocation: a `meta` line, then every runtime event. By default it lives in the Invocation's temporary directory and is removed with it. Set `sessionLog` to a file path, or to a per-Invocation resolver, to keep it. ViteHub creates the parent directory, the runtime appends to the file, and ViteHub never deletes it. The run result reports the path as `sessionLog`, so `readAgentSession()` can read it after the Invocation ends.
+
+```ts
+const agent = defineAgent({
+  driver: opencodeDriver({
+    gateway: cliproxy(),
+    model: 'claude-haiku-5-5',
+    sessionLog: () => `.data/sessions/${crypto.randomUUID()}.ndjson`,
+  }),
+})
+
+const [error, result] = await runAgent(agent, { prompt: 'Write hello.txt' })
+if (!error) console.log(result.sessionLog)
+```
+
+- A relative path resolves from the process working directory.
+- Title and progress summary runs do not write to it.
+- Use one file per Invocation. Two Invocations that share a path append to the same file.
+
 ### Set the environment and wrap the launch
 
 Resolve `env` per Invocation for short-lived credentials. Use `launch` to start the provider through your own wrapper, such as a remote execution CLI:
@@ -498,6 +519,7 @@ Threads resume with the provider's opaque cursor. ViteHub turns provider output 
 | `permissions` | `"ask"`, `"allow-edits"`, `"allow-edits-unattended"`, or `"allow-all"`. Defaults to `"ask"`. `"allow-edits-unattended"` keeps edit mode and denies native escalation without a prompt. Host-bound MCP tools keep their own authorization. Only an explicit `"allow-all"` skips approval. |
 | `providerSettings` | Advanced runtime settings. They override the installed Codex executable fallback. |
 | `requirements` | Commands that `status()` checks, reported in `missingCommands`. In a child Agent, a function gets the inherited list: `inherited => [...inherited, 'kubectl']`. |
+| `sessionLog` | File path or per-Invocation resolver for the provider runtime event log. ViteHub never deletes it, and the run result reports it. See [Keep the session log](#keep-the-session-log). |
 | `sessionStorePath` | SQLite file for session cursors, so threads continue after a restart on the same persistent volume. |
 | `toolchain` | `"project"` or `{ node, packageManager, fallbackNode }`. Installs the project's pinned Node.js and package manager. See [Provision the project toolchain](#provision-the-project-toolchain). |
 | `output` | Structured output contract. |

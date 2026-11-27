@@ -2378,6 +2378,7 @@ function defineBaseAgent<
             reasoningEffort: driver.reasoningEffort,
             reasoningSummary: driver.reasoningSummary,
             requirements: driver.requirements,
+            sessionLog: driver.sessionLog,
             sessionStorePath: driver.sessionStorePath,
             toolchain: driver.toolchain,
             workspaceWrite: driver.workspaceWrite,

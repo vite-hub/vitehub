@@ -49,6 +49,8 @@ export interface AgentTestRunResult {
   extensions?: AgentFinishExtensions
   finishReason?: unknown
   raw: unknown
+  /** The provider runtime event log that `driver.sessionLog` named. */
+  sessionLog?: string
   text: string
   toolSteps: AgentToolStep[]
   trace?: TraceRunView
@@ -342,6 +344,7 @@ async function normalizeAgentTestResult(
     ...(finishEvent?.extensions ? { extensions: finishEvent.extensions } : {}),
     finishReason: result?.finishReason,
     raw: value,
+    ...(typeof result?.sessionLog === "string" ? { sessionLog: result.sessionLog } : {}),
     text: textFromRaw(value),
     toolSteps: [...toolSteps, ...toolStepsFromRaw(value)],
     ...(trace ? { trace } : {}),
