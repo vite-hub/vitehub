@@ -1,3 +1,4 @@
+import { viteHubPageToolsQuery } from "@vite-hub/internal/runtime/page-tools-shared"
 import { CommentLayer, CommentPanel, CommentSelectionBar, CommentSend } from "@vite-hub/ui/comments"
 import { useComments } from "@vite-hub/ui/headless"
 import { createMotionList, installMotion, rollNumber } from "@vite-hub/ui/motion"
@@ -84,6 +85,8 @@ export interface OverlayControl {
   hasUnsentComment: () => boolean
   waitForPendingComment: () => Promise<void> | undefined
   showPanel: () => void
+  /** What the Comments button does, for a `?vitehub=comments` link: comment mode, or the list for a reader. */
+  pressComments: () => void
   setMode: (mode: Mode) => void
   /** Saves or drops the inline edit, when one is open. */
   finishEdit: (save: boolean) => Promise<void>
@@ -246,6 +249,15 @@ function clip(box: MarkerBox, element: Element): MarkerBox {
   const left = Math.max(box.left, rect.left)
   const top = Math.max(box.top, rect.top)
   return { left, top, width: Math.min(box.left + box.width, rect.right) - left, height: Math.min(box.top + box.height, rect.bottom) - top }
+}
+
+const threadParam = "comment"
+
+function dropThreadLink() {
+  const url = new URL(location.href)
+  if (!url.searchParams.has(threadParam)) return
+  url.searchParams.delete(threadParam)
+  history.replaceState(history.state, "", url)
 }
 
 function ignored(element: Element): boolean {
@@ -671,6 +683,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   }
 
   function denied(current: CommentsSession) {
+    const back = new URL(location.href)
+    back.searchParams.set(viteHubPageToolsQuery, "comments")
     const signIn = current.signIn
     const hosted = signIn?.provider === "console"
     const github = current.github
@@ -686,7 +700,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       kind: "info",
       link: hosted
         ? { label: "Sign in to ViteHub", href: signIn.url, newTab: true }
-        : { label: "Sign in with GitHub", href: `${signIn.url}?return=${encodeURIComponent(location.pathname + location.search + location.hash)}` },
+        : { label: "Sign in with GitHub", href: `${signIn.url}?return=${encodeURIComponent(back.pathname + back.search + back.hash)}` },
       action: ["Close", options.exit],
     }, true)
     else showToast({ text: "Comments are only for the site's team. Sign in with an account that may comment.", kind: "error", action: ["Close", options.exit] }, true)
@@ -794,6 +808,12 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       watch(() => state.status.value, (status) => {
         if (status === "ready" && !room) void joinRoom()
       })
+      watch(() => state.status.value === "ready" && !resolving.value ? search.value : undefined, (readySearch) => {
+        const current = navigations
+        if (readySearch) void nextTick(() => {
+          if (current === navigations && !resolving.value && location.search === readySearch) dropThreadLink()
+        })
+      }, { immediate: true })
       watch(() => state.counts.value.open, () => tick.value++)
       let cursorList: { element: HTMLElement; motion: MotionList } | undefined
       const moveCursors = () => {
@@ -1129,6 +1149,11 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     })
   }
 
+  function pressComments() {
+    if (canComment.value) setMode("comment")
+    else showPanel()
+  }
+
   const composerRoots = () => [shadow, panelTarget.value?.getRootNode()].filter(node => node instanceof ShadowRoot)
   const hasUnsentComment = () => composerRoots().some(root => root.querySelector("[data-slot='comment-composer'][data-dirty='true']") !== null)
   const hasPendingComment = () => hasUnsentComment() || Boolean(client.value.outbox?.entries.length)
@@ -1160,6 +1185,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     hasUnsentComment,
     waitForPendingComment,
     showPanel,
+    pressComments,
     setMode,
     finishEdit: edit.finish,
     navigated(next) {

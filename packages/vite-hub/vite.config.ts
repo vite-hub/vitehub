@@ -101,6 +101,7 @@ const runtimeEntries = [
   "src/console/runtime/client/account-views.ts",
   "src/console/runtime/client/appearance.ts",
   "src/console/runtime/client/comment-thread.ts",
+  "src/console/runtime/client/comment-on-site.ts",
   "src/console/runtime/client/invocation.ts",
   "src/console/runtime/client/invocation-deletion.ts",
   "src/console/runtime/client/request.ts",
@@ -240,6 +241,10 @@ export default defineConfig({
         },
         {
           from: "src/console/runtime/components/console-definitions.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-comment-on-site.vue",
           to: "dist/console/runtime/components",
         },
         {
@@ -597,6 +602,7 @@ export default defineConfig({
           delete exports["./console/runtime/client/account-views"];
           delete exports["./console/runtime/client/appearance"];
           delete exports["./console/runtime/client/comment-thread"];
+          delete exports["./console/runtime/client/comment-on-site"];
           delete exports["./console/runtime/client/invocation"];
           delete exports["./console/runtime/client/invocation-deletion"];
           delete exports["./console/runtime/client/request"];
