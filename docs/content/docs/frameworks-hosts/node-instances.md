@@ -159,6 +159,41 @@ The primitive pages have the details:
 [Workflow](/docs/workflows/hosts#run-workflows-on-node), and
 [Realtime](/docs/realtime/configure#share-rooms-across-node-instances).
 
+## Agents
+
+A Node build with Agents and a Postgres Default Database shares the Agent
+journal and selects one server for each Agent's background work. Agent State
+and Workspace files do not go to Postgres. Share them with the stores in the
+last column.
+
+| Agent store | With a Postgres Default Database | Share it |
+| --- | --- | --- |
+| Invocation journal | Shared. The [default journal](/docs/agents/invocation-storage#use-the-default-journal) uses the tables `vitehub_default_agent_invocations` and `vitehub_default_agent_invocations_observations`. | Nothing to set. `dataDir`, `agent.invocations.databaseUrl`, or a `file:` URL in `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` keeps the journal in a file on one host. |
+| Recovery | Shared. One server at a time [sweeps the journal](/docs/agents/invocation-storage#recover-interrupted-invocations) every 15 seconds, under the Lease `agent-recovery:<agent>`. | Nothing to set. |
+| Process hosts | Shared. One server at a time [runs the host](/docs/agents/process-hosts#run-one-host-across-servers) of each Agent, under the Lease `agent-process-host:<agent>`. Another server takes over in about 30 seconds. | Nothing to set. The files that a host writes below `dataDir`, such as provider sessions, stay on the server that ran it. |
+| Resumable web chat streams | In the memory of one process with `resumable.scope: 'process'`. | Set [`resumable.scope: 'shared'`](/docs/agents/channels#resume-a-web-chat) on the web chat route. The streams then go to the tables `vitehub_agent_chat_streams` and `vitehub_agent_chat_stream_chunks`. |
+| Agent State | Not in Postgres. `VITEHUB_AGENT_STATE_URL` selects SQLite or libSQL. A `file:` URL keeps State on one host. | Set `VITEHUB_AGENT_STATE_URL` to a remote libSQL server, such as Turso or `sqld`, on every instance. See [History and sessions](/docs/agents/chat-history-sessions). |
+| Workspaces | Local files under `.vitehub/workspaces/<name>` on one host. | Use the [Blob + Database Store](/docs/workspace/configure#share-one-workspace-across-instances) with an S3 Blob store and the Postgres history schema. A GitHub or Vercel Blob store is also shared. |
+
+After you add Agents, run `vitehub database generate` again. The Database
+migrations create the journal and chat stream tables, because the journal does
+not create tables on Postgres.
+
+The durability report has one line for each row: `agent-invocations`,
+`agent-recovery`, `agent-process-host`, `agent-chat-streams`, `agent-state`,
+and `workspace`. The `agent-chat-streams` line shows where streams with
+`scope: 'shared'` go. A route with `scope: 'process'` keeps its streams in one
+process, whatever the line says. With `VITEHUB_INSTANCES` above 1, a server
+whose Agent State or Workspace is not shared stops at boot with
+`RUNTIME_R0017`.
+
+A run does not move to another server. When a server stops during an
+Invocation, the recovery sweep on another server marks it `failed` about 30
+seconds after its last claim renewal. An Agent turn on a Workflow also runs its
+Driver at most once. See
+[Recover interrupted Invocations](/docs/agents/invocation-storage#recover-interrupted-invocations)
+and [Host recovery limits](/docs/agents/invocation-storage#host-recovery-limits).
+
 ## Migrations on start
 
 A Node build with a Postgres Database applies pending migrations when the
@@ -195,7 +230,7 @@ first uses them, not with Drizzle migrations:
 | Table | Created by |
 | --- | --- |
 | `vitehub_kv` | KV with the `database` driver |
-| `vitehub_leases` | Schedule leases |
+| `vitehub_leases` | Schedule leases, and the Agent process host and recovery Leases |
 | `vitehub_queue_jobs` | Queue |
 | `vitehub_realtime_rooms`, `vitehub_realtime_messages` | Realtime on Postgres |
 | The `openworkflow` schema | Workflow |
@@ -460,7 +495,9 @@ trust if clients can reach Node directly.
   `@libsql/client` can lose writes when several processes write one file, so
   leases and Schedule claims on it are not safe. Use Postgres or remote libSQL.
 - Blob `fs` and every folder under `dataDir` are on one host. That includes KV
-  `fs-lite`, Agent State, the Agent Invocation journal, and Workspace files.
+  `fs-lite`, a `file:` Agent State, local Workspace files, and the files of
+  Agent process hosts. With `dataDir`, the default Agent Invocation journal is
+  a file there too. See [Agents](#agents).
 - Without a Postgres Default Database or other shared stores, KV uses `fs-lite`
   and Rate Limit counters that use KV are local too. Realtime rooms stay in
   memory, Queue keeps job files on one host, each instance runs every Schedule
