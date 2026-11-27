@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 
-import { cliproxy, cloudflare, emulate, google } from "@vite-hub/gateways"
+import { cliproxy, cloudflare, defineAiGateway, emulate, google } from "@vite-hub/gateways"
 import { acpDriver, antigravityDriver, claudeCodeDriver, codexDriver, cursorDriver, defineAgent, fxDriver, geminiDriver, grokDriver, kimiDriver, kiroDriver, museDriver, opencodeDriver, piDriver } from "../src/index.ts"
 import { normalizeAgentDriver } from "../src/internal/agent-driver.ts"
 import { agentDriverSessionModel, materializeAgentDriverGatewayHome, resolveAgentDriverGateway, withAgentDriverGatewayModel } from "../src/internal/agent-gateway.ts"
@@ -125,6 +125,7 @@ describe("harness gateway environments", () => {
       expect(settings.model.name).toBe("gemini-3.8-flash-high")
       expect(resolved.environment.GEMINI_CLI_HOME).toBe(home)
       expect(resolved.environment.GEMINI_API_KEY).toBe(secret)
+      expect(resolved.environment.GEMINI_API_KEY_AUTH_MECHANISM).toBe("x-goog-api-key")
       expect(resolved.environment.GOOGLE_GEMINI_BASE_URL).toBe(preset().name === "google" ? "https://generativelanguage.googleapis.com" : "http://proxy")
       expect(Object.keys(resolved.environment).sort()).toEqual(providerHarnessProfile("gemini").gateway?.ownedEnv.slice().sort())
       expect(files[".gemini/settings.json"]).not.toContain(secret)
@@ -165,6 +166,17 @@ describe("harness gateway environments", () => {
       expect(files).not.toContain(secret)
       expect(files).not.toContain("secret-access")
     }
+  })
+
+  it("rejects a Kimi x-api-key route and a Gemini bearer override before launch", () => {
+    const keyGateway = defineAiGateway({ name: "key-only", apiKey: secret, auth: "x-api-key", baseURL: { "openai-compatible": "http://proxy/v1" } })
+    expect(() => defineAgent({ driver: kimiDriver({ gateway: keyGateway, model: "kimi-k3", permissions: "allow-all" }) })).toThrow("Use a gateway with bearer auth")
+    expect(() => defineAgent({ driver: geminiDriver({ gateway: gateway(), env: { GEMINI_API_KEY_AUTH_MECHANISM: "bearer" }, permissions: "allow-all" }) })).toThrow("GEMINI_API_KEY_AUTH_MECHANISM")
+  })
+
+  it("rejects a Gemini gateway header that the CLI would split", async () => {
+    const withHeaders = cliproxy({ url: "http://proxy", apiKey: secret, headers: { "X-Test-Policy": "category: docs, region: eu" } })
+    await expect(resolveAgentDriverGateway(withHeaders, "gemini", context)).rejects.toThrow('cannot use the gateway header "X-Test-Policy"')
   })
 
   it("names the gateway model as a custom model of an ACP harness", async () => {

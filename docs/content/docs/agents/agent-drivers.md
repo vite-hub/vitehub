@@ -330,7 +330,7 @@ Provider cursors resume a thread while the process runs. Set `sessionStorePath` 
 
 ### Keep the session log
 
-The provider runtime writes an NDJSON event log for each Invocation: a `meta` line, then every runtime event. By default it lives in the Invocation's temporary directory and is removed with it. Set `sessionLog` to a file path, or to a per-Invocation resolver, to keep it. ViteHub creates the parent directory, the runtime appends to the file, and ViteHub never deletes it. It works with every [harness Driver](#harness-drivers).
+Every [harness Driver](#harness-drivers) writes an NDJSON event log: one `meta` line, then the runtime events it reads through the end of each turn. By default the log is removed with the Invocation's temporary directory. Set `sessionLog` to a file path or a per-Invocation resolver to keep it. ViteHub resolves the path once, creates its parent directory and a file with owner-only access if needed, and appends without changing existing file permissions. ViteHub does not delete a retained log.
 
 ```ts [server/agents/review/agent.ts]
 import { defineAgent, opencodeDriver } from 'vite-hub/agent'
@@ -360,7 +360,7 @@ export async function reviewSessionLog() {
 ```
 
 - A relative path resolves from the process working directory.
-- Title and progress summary runs do not write to it.
+- The retained log includes Channel follow-up turns, but not title or progress summary runs.
 - Use one file per Invocation. Two Invocations that share a path append to the same file.
 
 ### Set the environment and wrap the launch
@@ -432,8 +432,8 @@ ViteHub maps the gateway to each provider:
 - Claude Code gets `ANTHROPIC_BASE_URL`, `ANTHROPIC_CUSTOM_HEADERS`, and the key in `ANTHROPIC_AUTH_TOKEN` (bearer) or `ANTHROPIC_API_KEY` (x-api-key), with the other one empty.
 - OpenCode gets a `vitehub` provider in `OPENCODE_CONFIG_CONTENT`: the `@ai-sdk/openai-compatible` package, the route URL, and the model `vitehub/<model>`. The config refers to the key as `{env:VITEHUB_GATEWAY_API_KEY}`. OpenCode must start its own server, so `providerSettings.serverUrl` fails with `AGENT_R0976`.
 - Pi gets a private folder in `PI_CODING_AGENT_DIR` with a `0600` `models.json` that names a `vitehub` provider with `api: "openai-completions"` and the key as `$VITEHUB_GATEWAY_API_KEY`. With a gateway, Pi does not resume its session, so ViteHub sends the conversation history on each Invocation.
-- Gemini CLI gets a private folder in `GEMINI_CLI_HOME` with a `0600` `.gemini/settings.json` that selects API-key sign-in, and the `gemini` route in `GEMINI_API_KEY` and `GOOGLE_GEMINI_BASE_URL`. Headers go in `GEMINI_CLI_CUSTOM_HEADERS`.
-- Kimi Code gets a private folder in `KIMI_CODE_HOME` with a `0600` `config.toml` that names a `vitehub` provider of type `openai`, the route URL, and the model `vitehub/<model>`. The config reads the key from `VITEHUB_GATEWAY_API_KEY`. Headers go in `KIMI_CODE_CUSTOM_HEADERS`.
+- Gemini CLI gets a private folder in `GEMINI_CLI_HOME` with a `0600` `.gemini/settings.json` that selects API-key authentication. The route URL goes in `GOOGLE_GEMINI_BASE_URL` and the key in `GEMINI_API_KEY`. ViteHub sets `GEMINI_API_KEY_AUTH_MECHANISM` to `x-goog-api-key` and puts extra headers in `GEMINI_CLI_CUSTOM_HEADERS`. A custom `x-goog-api-key` header or another header Gemini CLI cannot pass unchanged fails with `AGENT_R0976`.
+- Kimi Code gets a private folder in `KIMI_CODE_HOME` with a `0600` `config.toml` that names a `vitehub` provider of type `openai`, the route URL, and the model `vitehub/<model>`. The gateway must use bearer authentication. The config reads the key from `VITEHUB_GATEWAY_API_KEY`. Headers go in `KIMI_CODE_CUSTOM_HEADERS`.
 - Gemini CLI and Kimi Code never read a sign-in saved on the host, because their Home holds only the gateway configuration. ViteHub also adds the model to the session's custom models, so the harness accepts an ID that is not on its own list.
 - The other harnesses sign in to their own service, so a gateway on them fails with `AGENT_R0976`.
 
@@ -553,7 +553,7 @@ Provider Drivers fail explicitly with model-specific Provider Tool contributions
 | --- | --- | --- | --- | --- | --- | --- |
 | `codex` | `codexDriver()` | `codex` | `pnpm add @openai/codex@0.169.0` | `codex` (OpenAI Responses) | With a gateway: `T3CODE_CODEX_LAUNCH_ARGS`, `VITEHUB_GATEWAY_API_KEY`, `VITEHUB_GATEWAY_HEADER_<n>`. With `credentials`: `CODEX_HOME`. | Yes |
 | `claude-code` | `claudeCodeDriver()` | `claude` | `pnpm add @anthropic-ai/claude-agent-sdk@0.3.321` | `claude-code` (Anthropic Messages) | With a gateway: `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_API_KEY`, `ANTHROPIC_CUSTOM_HEADERS` | Yes |
-| `gemini` | `geminiDriver()` | `gemini`, over ACP | From the ACP registry, or `npm install -g @google/gemini-cli` | `gemini` (Gemini API) | With a gateway: `GEMINI_CLI_HOME`, `GEMINI_API_KEY`, `GOOGLE_GEMINI_BASE_URL`, `GEMINI_CLI_CUSTOM_HEADERS` | Yes, `gemini-3.8-flash-high` through CLIProxyAPI |
+| `gemini` | `geminiDriver()` | `gemini`, over ACP | From the ACP registry, or `npm install -g @google/gemini-cli` | `gemini` (Gemini API) | With a gateway: `GEMINI_CLI_HOME`, `GEMINI_API_KEY`, `GEMINI_API_KEY_AUTH_MECHANISM`, `GOOGLE_GEMINI_BASE_URL`, `GEMINI_CLI_CUSTOM_HEADERS` | Yes, `gemini-3.8-flash-high` through CLIProxyAPI |
 | `antigravity` | `antigravityDriver()` | `agy` | The Antigravity CLI, signed in with Google | None, native sign-in | None | Recorded fixture |
 | `opencode` | `opencodeDriver()` | `opencode` | `npm install -g opencode-ai` | `openai-compatible` (Chat Completions) | With a gateway: `OPENCODE_CONFIG_CONTENT`, `VITEHUB_GATEWAY_API_KEY`, `VITEHUB_GATEWAY_HEADER_<n>` | Yes, `claude-haiku-5-5` through CLIProxyAPI |
 | `cursor` | `cursorDriver()` | Cursor SDK | `pnpm add @cursor/sdk` | None, `CURSOR_API_KEY` | None | No |
@@ -720,7 +720,7 @@ export default defineAgent({
 })
 ```
 
-`cliproxy()` and the other presets with an `openai-compatible` route work the same way. ViteHub runs Kimi Code with `KIMI_CODE_HOME` set to a private folder whose `config.toml` names only the gateway provider and model, so Kimi Code never reads the host sign-in. The config reads the key from an environment variable and holds no key.
+`cliproxy()` and the other presets with an `openai-compatible` route and bearer authentication work the same way. ViteHub runs Kimi Code with `KIMI_CODE_HOME` set to a private folder whose `config.toml` names only the gateway provider and model, so Kimi Code never reads the host sign-in. The config reads the key from an environment variable and holds no key.
 
 Without a gateway, run `kimi login` on the host. ViteHub passes the host's `KIMI_CODE_HOME` to Kimi Code.
 

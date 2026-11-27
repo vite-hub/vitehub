@@ -60,6 +60,9 @@ export function assertAgentDriverGatewaySupports(gateway: AiGatewayDefinition | 
   if (driver === "opencode" && settings?.serverUrl !== undefined) {
     throw agentDiagnostics.AGENT_R0976({ message: "[vitehub] OpenCode cannot apply driver.gateway to an attached server. Remove providerSettings.serverUrl to let the Driver start its own server." })
   }
+  if (driver === "kimi" && !isChatGPTGateway(gateway) && gateway.auth === "x-api-key") {
+    throw agentDiagnostics.AGENT_R0976({ message: "[vitehub] Kimi Code sends OpenAI gateway keys as Bearer tokens. Use a gateway with bearer auth." })
+  }
   if (profile.signInOnly) {
     const credentials = profile.authEnv.length ? ` or set ${profile.authEnv.join(" or ")} in driver.env` : ""
     throw agentDiagnostics.AGENT_R0976({ message: `[vitehub] ${profile.displayName} signs in to its own service, so no gateway serves the ${driver} Driver. Remove driver.gateway and sign in to ${profile.displayName}${credentials}.` })
@@ -175,6 +178,11 @@ function piGateway(gateway: AiGatewayDefinition, { apiKey, auth, baseURL, header
 }
 
 function geminiGateway({ apiKey, baseURL, headers }: AiGatewayResolvedRoute, model: string | undefined): ResolvedAgentDriverGateway {
+  for (const [name, value] of headers) {
+    if (name.toLowerCase() === "x-goog-api-key" || /,[^,]*:/.test(value)) {
+      throw agentDiagnostics.AGENT_R0976({ message: `[vitehub] Gemini CLI cannot use the gateway header "${name}" without changing the request headers. Remove it or choose another Driver.` })
+    }
+  }
   const settings = {
     security: { auth: { selectedType: "gemini-api-key" } },
     privacy: { usageStatisticsEnabled: false },
@@ -184,6 +192,7 @@ function geminiGateway({ apiKey, baseURL, headers }: AiGatewayResolvedRoute, mod
   return {
     environment: {
       GEMINI_API_KEY: apiKey,
+      GEMINI_API_KEY_AUTH_MECHANISM: "x-goog-api-key",
       GOOGLE_GEMINI_BASE_URL: baseURL,
       GEMINI_CLI_CUSTOM_HEADERS: headers.map(([name, value]) => `${name}: ${value}`).join(","),
     },
@@ -191,7 +200,7 @@ function geminiGateway({ apiKey, baseURL, headers }: AiGatewayResolvedRoute, mod
   }
 }
 
-function kimiGateway(gateway: AiGatewayDefinition, { apiKey, auth, baseURL, headers }: AiGatewayResolvedRoute, model: string | undefined): ResolvedAgentDriverGateway {
+function kimiGateway(gateway: AiGatewayDefinition, { apiKey, baseURL, headers }: AiGatewayResolvedRoute, model: string | undefined): ResolvedAgentDriverGateway {
   if (!model) throw agentDiagnostics.AGENT_R0976({ message: "[vitehub] Kimi Code needs driver.model with driver.gateway. Set it to a model the gateway serves." })
   const alias = `${gatewayProviderId}/${model}`
   const config = [
@@ -213,7 +222,7 @@ function kimiGateway(gateway: AiGatewayDefinition, { apiKey, auth, baseURL, head
   return {
     environment: {
       [codexApiKeyEnvironment]: apiKey,
-      KIMI_CODE_CUSTOM_HEADERS: [...(auth === "x-api-key" ? [["x-api-key", apiKey] as const] : []), ...headers].map(([name, value]) => `${name}: ${value}`).join("\n"),
+      KIMI_CODE_CUSTOM_HEADERS: headers.map(([name, value]) => `${name}: ${value}`).join("\n"),
     },
     home: { env: "KIMI_CODE_HOME", files: { "config.toml": config } },
     model: alias,
