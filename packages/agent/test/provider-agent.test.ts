@@ -1,4 +1,4 @@
-import type { AgentProviderCredentialContext, AgentRunResult } from "../src/types.ts"
+import type { AgentProviderCredentialContext } from "../src/types.ts"
 import { readColocatedAgentSkills } from "../src/vite/colocated-agent-skills.ts"
 import { decodeColocatedAgentSkills } from "../src/internal/colocated-agent-skills.ts"
 import { withProviderCallbackMetadata } from "../src/internal/provider-callback-metadata.ts"
@@ -83,7 +83,7 @@ import * as chatgptGateway from "../src/internal/chatgpt-gateway.ts"
 import { codexConfigArg } from "../src/internal/codex-launch-args.ts"
 import type { AiGatewayContext } from "@vite-hub/gateways"
 import { grantWorkspaceAccessScope } from "../src/access-runtime.ts"
-import { agentWithSkills, claudeCodeDriver, codexDriver, defineAgent, geminiDriver } from "../src/index.ts"
+import { agentWithSkills, claudeCodeDriver, codexDriver, defineAgent, geminiDriver, runAgent } from "../src/index.ts"
 import { runAgentWithContext } from "../src/internal/agent-run.ts"
 import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
 import { executeWorkspaceCommand, workspaceCommandTools } from "../src/capabilities/workspace-command.ts"
@@ -1081,6 +1081,9 @@ describe("Provider Agent Driver", () => {
 
   it("launches a provider again when it exits before its first event", async () => {
     const threadId = "thread-launch-retry"
+    const root = await mkdtemp(join(tmpdir(), "vitehub-session-log-"))
+    const logPath = join(root, "events.ndjson")
+    const sessionLog = vi.fn(() => logPath)
     const failedLaunch = {
       async onStartSession() {
         const options = createProviderRuntime.mock.lastCall?.[0]
@@ -1100,14 +1103,17 @@ describe("Provider Agent Driver", () => {
     try {
       const result = await createProviderAgentAdapter({
         launch: {
-          args: ["-e", 'process.stderr.write("failed to initialize sqlite state runtime\\n");process.exit(1)'],
+          args: ["-e", 'require("node:fs").writeSync(2, "failed to initialize sqlite state runtime\\n");process.exit(1)'],
           command: process.execPath,
         },
         provider: "codex",
+        sessionLog,
         // SAFETY: This fixture supplies the minimal provider invocation context needed to exercise a relaunch.
       }).generate(context(threadId) as never)
 
-      expect(result).toMatchObject({ text: "ready" })
+      expect(result).toMatchObject({ text: "ready", sessionLog: logPath })
+      expect(sessionLog).toHaveBeenCalledOnce()
+      expect((await readFile(logPath, "utf8")).match(/"type":"meta"/g)).toHaveLength(1)
       expect(createProviderRuntime.mock.calls.length - launches).toBe(3)
       expect(warn).toHaveBeenCalledTimes(2)
       expect(warn.mock.calls[0]?.[1]).toBe("failed to initialize sqlite state runtime")
@@ -1115,6 +1121,7 @@ describe("Provider Agent Driver", () => {
     finally {
       providerLaunchRetry.delaysMs = []
       warn.mockRestore()
+      await rm(root, { force: true, recursive: true })
     }
   })
 
@@ -8325,37 +8332,80 @@ cli_auth_credentials_store = "keyring"
 })
 
 describe("Provider Agent Driver session log", () => {
-  it("keeps the application's session log after the Invocation and reports its path", async () => {
+  it("keeps a private session log and reports its path beside structured output", async () => {
     const threadId = "session-log-survives"
     const root = await mkdtemp(join(tmpdir(), "vitehub-session-log-"))
-    const sessionLog = join(root, "sessions", `${threadId}.ndjson`)
+    const sessionLog = join(root, `${threadId}.ndjson`)
     try {
-      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-      createProviderRuntime.mockImplementationOnce(async (options) => {
-        const { eventLogPath } = options as { eventLogPath?: string }
-        if (!eventLogPath) throw new Error("Expected an event log path.")
-        await writeFile(eventLogPath, [
-          { type: "meta", kind: "codex", cwd: options.cwd, threadId, startedAt: "2026-11-27T00:00:00.000Z" },
-          { type: "turn.started", threadId, turnId: "turn-1" },
-        ].map(line => `${JSON.stringify(line)}\n`).join(""))
-        return providerRuntimes.shift()
-      })
+      await chmod(root, 0o755)
+      runtime(threadId, [
+        event("content.delta", threadId, { delta: '{"answer":"ready"}', streamKind: "assistant_text" }, { itemId: "message-1", turnId: "turn-1" }),
+        event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+      ])
       const resolveSessionLog = vi.fn(() => sessionLog)
-      const agent = defineAgent({ driver: codexDriver({ sessionLog: resolveSessionLog }), runtime: false })
+      const agent = defineAgent({ driver: codexDriver({ sessionLog: resolveSessionLog, output: { schema: z.object({ answer: z.string() }) } }), runtime: false })
 
-      const result = await runAgentWithContext(agent, {
+      const [error, result] = await runAgent(agent, { prompt: "write a file" }, { runtimeContext: {
         memo: <T>(_key: string, create: () => T) => create(),
         run: { runId: `run-${threadId}`, threadId },
         runtime: "vite",
         waitUntil: vi.fn(),
-      }, { prompt: "write a file" }) as AgentRunResult
+      } })
 
+      expect(error).toBeUndefined()
       expect(resolveSessionLog).toHaveBeenCalledOnce()
-      expect(result.sessionLog).toBe(sessionLog)
-      expect((createProviderRuntime.mock.lastCall?.[0] as { eventLogPath?: string }).eventLogPath).toBe(sessionLog)
+      expect(result).toMatchObject({ output: { answer: "ready" }, sessionLog })
+      expect((await stat(sessionLog)).mode & 0o777).toBe(0o600)
       const lines = (await readFile(sessionLog, "utf8")).trim().split("\n").map(line => JSON.parse(line) as { type: string })
       expect(lines[0]).toMatchObject({ type: "meta", kind: "codex", threadId })
-      expect(lines.slice(1).length).toBeGreaterThanOrEqual(1)
+      expect(lines.map(line => line.type)).toEqual(["meta", "content.delta", "turn.completed"])
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it.each(["directory", "full device"])("contains log I/O errors for a %s", async (destination) => {
+    if (destination === "full device" && process.platform !== "linux") return
+    const root = await mkdtemp(join(tmpdir(), "vitehub-session-log-"))
+    const threadId = "session-log-io-error"
+    const provider = runtime(threadId, [])
+    try {
+      const adapter = createProviderAgentAdapter({ provider: "codex", sessionLog: destination === "directory" ? root : "/dev/full" })
+      await expect(adapter.generate(context(threadId) as never)).rejects.toMatchObject({ code: destination === "directory" ? "EISDIR" : "ENOSPC" })
+      expect(provider.close).toHaveBeenCalledOnce()
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("does not resolve the retained log for a timed auxiliary run", async () => {
+    const threadId = "timed-auxiliary"
+    const sessionLog = vi.fn(() => { throw new Error("Auxiliary run resolved sessionLog") })
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const auxiliary = markAuxiliaryMessageChannelInstructionContext(context(threadId, { input: { prompt: "name the thread", timeout: 10_000 } }))
+    await createProviderAgentAdapter({ provider: "codex", sessionLog }).generate(auxiliary as never)
+    expect(sessionLog).not.toHaveBeenCalled()
+  })
+
+  it("appends follow-up turns to the Invocation log without another metadata line", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-session-log-"))
+    const threadId = "session-log-follow-up"
+    const path = join(root, "events.ndjson")
+    const sessionLog = vi.fn(() => path)
+    const adapter = createProviderAgentAdapter({ provider: "codex", sessionLog })
+    const invocation = context(threadId)
+    try {
+      await writeFile(path, "", { mode: 0o640 })
+      for (const prompt of ["first turn", "follow-up turn"]) {
+        runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+        await expect(adapter.generate({ ...invocation, input: { prompt } } as never)).resolves.toMatchObject({ sessionLog: path })
+      }
+      expect(sessionLog).toHaveBeenCalledOnce()
+      expect((await stat(path)).mode & 0o777).toBe(0o640)
+      const lines = (await readFile(path, "utf8")).trim().split("\n").map(line => JSON.parse(line) as { type: string })
+      expect(lines.map(line => line.type)).toEqual(["meta", "turn.completed", "turn.completed"])
     }
     finally {
       await rm(root, { force: true, recursive: true })

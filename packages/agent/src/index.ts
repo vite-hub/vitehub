@@ -7219,6 +7219,7 @@ type AgentInvocationExecutionOptions =
     holdCapacity?: boolean
     onCapacityBypass?: () => void
     onFinish?: (outcome: AgentInvocationFinishOutcome) => void
+    onSessionLog?: (path: string) => void
     tools?: AgentToolSet
     capabilities?: readonly AgentCapabilityDefinition[]
   }
@@ -8131,6 +8132,7 @@ async function executeAgentInvocationWithCapacityLease<
             invocation.output,
           )
         : final
+      if (invocation.output && isRuntimeRecord(result) && typeof result.sessionLog === "string") options.onSessionLog?.(result.sessionLog)
       const resolvedUsageRecord = options.renderOutput && invocation.output
         ? await resolveFinishUsageRecord(invocation, structuredFinal) ?? driverUsageRecord
         : driverUsageRecord
@@ -8736,7 +8738,7 @@ async function runAgentInlineWithContext<
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput> & AgentDataCarrier<TData>,
   context: AgentRuntimeContextInput<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
-  options: RunAgentInlineOptions = {},
+  options: RunAgentInlineOptions & { onSessionLog?: (path: string) => void } = {},
 ): Promise<TOutput | Response> {
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   return await executeAgentInvocation(agent, withAgentIdentityOwner(agent, withAgentRuntimeMemo(context)), input, {
@@ -8744,6 +8746,7 @@ async function runAgentInlineWithContext<
     renderOutput: options.output !== "raw",
     tools: options.tools,
     capabilities: options.capabilities,
+    onSessionLog: options.onSessionLog,
   }) as TOutput
 }
 
@@ -8943,13 +8946,15 @@ export async function runAgent<
   try {
     await loadAgentHost()
     runtime = createInvocationRuntimeContext<TRuntimeConfig>(options.runtimeContext, options.schedule)
+    let sessionLog: string | undefined
     const output = await runAgentInlineWithContext(agent, runtime.context, invocationInput, {
       capabilities: options.capabilities,
+      onSessionLog: path => { sessionLog = path },
       tools: options.tools,
     })
     const result = await toPublicAgentRunResult<TOutput>(output)
     await runtime.flushWaitUntil()
-    return [undefined, result]
+    return [undefined, sessionLog === undefined ? result : { ...result, sessionLog }]
   }
   catch (error) {
     // Finish owned background work without replacing the invocation's original failure.

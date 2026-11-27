@@ -25,7 +25,8 @@ import { preparePullRequestCheckout, pullRequestCheckoutPlan, type PullRequestCh
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { once } from "node:events"
-import { chmod, mkdir, mkdtemp, lstat, readFile, readlink, readdir, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises"
+import { constants } from "node:fs"
+import { chmod, mkdir, mkdtemp, lstat, open, readFile, readlink, readdir, rename, rm, rmdir, symlink, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
 import { hostname, tmpdir } from "node:os"
 import { basename, delimiter, dirname, extname, join, posix, relative, resolve } from "node:path"
@@ -406,6 +407,11 @@ function providerEnvironment(env: Record<string, string | undefined> | undefined
 
 /** The NDJSON file in the invocation's private root where the provider runtime appends a session line and then every event. */
 export const providerEventLogFile = "provider-events.ndjson"
+
+interface ProviderSessionLog {
+  path: Promise<string>
+  wroteMetadata: boolean
+}
 
 // Every process of a host pass starts with this variable. Commands that leave the provider's
 // process group still have it, so the pass stops them when it ends.
@@ -2876,7 +2882,7 @@ async function* runProvider<
   sessionLocks: Map<string, Promise<void>>,
   cwdLocks: Map<string, Promise<void>>,
   context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
-  reportSessionLog?: (path: string) => void,
+  sessionLog?: ProviderSessionLog,
 ): AsyncIterable<StreamEvent> {
   if (context.runtime.runtime === "cloudflare-agents" || context.runtime.runtime === "deno") {
     throw agentDiagnostics.AGENT_R0709({ message: `[vitehub] Provider Agent Drivers require a Node.js host; ${context.runtime.runtime} cannot start local coding agents.` })
@@ -2935,20 +2941,9 @@ async function* runProvider<
   let releaseCwdLock: (() => void) | undefined
   // driver.cwd is owned by the application. Title and progress summary runs keep a disposable root.
   let ownsRoot = true
-  let sessionLog: string | undefined
+  let eventLog: Awaited<ReturnType<typeof open>> | undefined
   try {
     effectiveSignal?.throwIfAborted()
-    const configuredSessionLog = options.sessionLog === undefined || auxiliary
-      ? undefined
-      : await waitForProviderOperation(Promise.resolve(resolveRuntimeValue(options.sessionLog, providerMetadataContext(context))), effectiveSignal)
-    if (configuredSessionLog !== undefined) {
-      if (typeof configuredSessionLog !== "string" || !configuredSessionLog.trim()) {
-        throw agentDiagnostics.AGENT_R0476({ message: "[vitehub] Provider Agent Driver sessionLog must resolve to a non-empty file path." })
-      }
-      sessionLog = resolve(configuredSessionLog)
-      await mkdir(dirname(sessionLog), { recursive: true })
-      reportSessionLog?.(sessionLog)
-    }
     const configuredRoot = options.cwd === undefined || auxiliary
       ? undefined
       : await waitForProviderOperation(Promise.resolve(resolveRuntimeValue(options.cwd, providerMetadataContext(context))), effectiveSignal)
@@ -3696,11 +3691,9 @@ async function* runProvider<
     }).filter(([, value]) => value !== undefined))
     const runtimeSettings = providerRuntimeSettings(options.provider, options.agentId, withAgentDriverGatewayModel(options.provider, gateway, options.model, settings))
     const eventLogRoot = temporaryRoot?.root ?? launchRoot
-    const eventLogPath = sessionLog ?? (eventLogRoot ? join(eventLogRoot, providerEventLogFile) : undefined)
     const runtimeOptions: Parameters<typeof createProviderRuntime>[0] = {
       cwd: providerCwd,
       environment: providerRuntimeEnvironment,
-      ...(eventLogPath ? { eventLogPath } : {}),
       provider: providerHarnessProfiles[options.provider].runtimeKind,
       ...(sessionStore ? { sessionStore: sessionStore.runtime } : {}),
       ...(Object.keys(runtimeSettings).length ? { settings: runtimeSettings } : {}),
@@ -3761,6 +3754,22 @@ async function* runProvider<
       ...(sandboxPolicy ? { sandboxPolicy } : {}),
       threadId,
     }), effectiveSignal, session => finalizeDeferredRuntime(session.threadId), deferRuntimeCleanup, () => finalizeDeferredRuntime())
+    const eventLogPath = sessionLog ? await sessionLog.path : eventLogRoot && join(eventLogRoot, providerEventLogFile)
+    if (eventLogPath) {
+      await mkdir(dirname(eventLogPath), { mode: 0o700, recursive: true })
+      eventLog = await open(eventLogPath, constants.O_WRONLY | constants.O_CREAT | constants.O_APPEND | constants.O_NONBLOCK, 0o600)
+      if (!sessionLog?.wroteMetadata) {
+        await eventLog.appendFile(`${JSON.stringify({
+          type: "meta",
+          kind: runtimeOptions.provider,
+          cwd: session.cwd ?? providerCwd,
+          model: session.model,
+          threadId,
+          startedAt: session.createdAt ?? new Date().toISOString(),
+        })}\n`)
+        if (sessionLog) sessionLog.wroteMetadata = true
+      }
+    }
     if (session.resumeCursor !== undefined) pendingResumeCursor = session.resumeCursor
     // The provider runtime starts a new native thread when it cannot resume the
     // requested one. Opaque cursors do not identify a thread, so they count as resumed.
@@ -3903,6 +3912,7 @@ async function* runProvider<
         continue
       }
       const current = raced.provider
+      if (!current.done && eventLog) await eventLog.appendFile(`${JSON.stringify(current.value)}\n`)
       if (current.done) throw agentDiagnostics.AGENT_R0719({ message: "[vitehub] Provider Agent Driver event stream ended before the turn completed." })
       if (current.value.threadId && current.value.threadId !== threadId) {
         nextEvent = events.next()
@@ -4003,6 +4013,7 @@ async function* runProvider<
     clearActiveWorkspaceFiles?.()
     if (abort) effectiveSignal?.removeEventListener("abort", abort)
     const cleanupErrors: unknown[] = []
+    if (eventLog) await eventLog.close().catch(error => { cleanupErrors.push(error) })
     const cleanup = createProviderCleanupSignal(completed ? undefined : effectiveSignal)
     let cleanupTimedOut = false
     let invocationCleanupDeferred: Promise<void> | undefined
@@ -4313,7 +4324,11 @@ export function createProviderAgentAdapter<
   const resumeCursors = new Map<string, ProviderResumeState>()
   const sessionLocks = new Map<string, Promise<void>>()
   const cwdLocks = new Map<string, Promise<void>>()
-  const launch = (context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>, reportSessionLog?: (path: string) => void) => {
+  const sessionLogs = new WeakMap<AgentAdapterRunContext["context"], ProviderSessionLog>()
+  const launch = async function* (
+    context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
+    reportSessionLog?: (path: string) => void,
+  ) {
     // Keep the invocation deadline active across launch retries and their backoff. Each
     // runProvider attempt still gets its own timeout for normal provider work.
     const timeout = context.input.timeout
@@ -4326,8 +4341,27 @@ export function createProviderAgentAdapter<
     const retryContext = retrySignal && retrySignal !== context.input.abortSignal
       ? copyProviderCallbackMetadata(context, { ...context, input: { ...context.input, abortSignal: retrySignal } })
       : context
-    return retryProviderLaunch(
-      () => runProvider(options, resumeCursors, sessionLocks, cwdLocks, retryContext, reportSessionLog),
+    const auxiliary = isAuxiliaryAgentAdapterContext(context)
+    if (auxiliary && retryContext !== context) markAuxiliaryMessageChannelInstructionContext(retryContext)
+    let sessionLog = auxiliary ? undefined : sessionLogs.get(context.context)
+    if (options.sessionLog !== undefined && !auxiliary && !sessionLog) {
+      const configured = options.sessionLog
+      const path = (async () => {
+        const value = await resolveRuntimeValue(configured, providerMetadataContext(retryContext))
+        if (typeof value !== "string" || !value.trim()) {
+          throw agentDiagnostics.AGENT_R0476({ message: "[vitehub] Provider Agent Driver sessionLog must resolve to a non-empty file path." })
+        }
+        return resolve(value)
+      })()
+      sessionLog = { path, wroteMetadata: false }
+      sessionLogs.set(context.context, sessionLog)
+    }
+    if (sessionLog) {
+      const path = await waitForProviderOperation(sessionLog.path, retrySignal)
+      reportSessionLog?.(path)
+    }
+    yield* retryProviderLaunch(
+      () => runProvider(options, resumeCursors, sessionLocks, cwdLocks, retryContext, sessionLog),
       retrySignal,
       providerLaunchRetryDelaysMs,
     )

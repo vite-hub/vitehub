@@ -193,7 +193,7 @@ export const providerHarnessProfiles: Readonly<Record<AiGatewayHarness, Provider
     instructionFile: "GEMINI.md",
     homeInstructionFile: ".gemini/GEMINI.md",
     signInOnly: false,
-    gateway: { chatgpt: false, delivery: "gemini-settings", ownedEnv: ["GEMINI_API_KEY", "GEMINI_CLI_CUSTOM_HEADERS", "GEMINI_CLI_HOME", "GOOGLE_GEMINI_BASE_URL"] },
+    gateway: { chatgpt: false, delivery: "gemini-settings", ownedEnv: ["GEMINI_API_KEY", "GEMINI_API_KEY_AUTH_MECHANISM", "GEMINI_CLI_CUSTOM_HEADERS", "GEMINI_CLI_HOME", "GOOGLE_GEMINI_BASE_URL"] },
     pricing: { providers: ["google"], requiresCacheReadTokens: false },
     ...per,
   },
